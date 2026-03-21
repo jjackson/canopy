@@ -15,6 +15,15 @@ from pathlib import Path
 
 LOG_FILE = Path.home() / ".claude" / "orchestrator" / "session-log.jsonl"
 
+try:
+    from orchestrator.capture import append_log_entry
+except ImportError:
+    # Fallback: package not installed; write inline so the hook never breaks.
+    def append_log_entry(log_file: Path, entry: dict) -> None:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_file, "a") as f:
+            f.write(json.dumps(entry, default=str) + "\n")
+
 
 def main():
     try:
@@ -52,9 +61,7 @@ def main():
         "success": not hook_data.get("tool_error"),
     }
 
-    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(LOG_FILE, "a") as f:
-        f.write(json.dumps(entry, default=str) + "\n")
+    append_log_entry(LOG_FILE, entry)
 
 
 if __name__ == "__main__":
