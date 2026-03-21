@@ -15,9 +15,9 @@ learns from usage patterns, and auto-evolves tools via autoresearch.
 - `skills/orchestrator/SKILL.md` — Claude Code skill for cross-project routing
 
 ## Commands
-- `orchestrator registry show` — display loaded registry
-- `orchestrator registry validate` — check registry against live MCP servers
-- `orchestrator corpus add <session-id>` — add a session to the activity corpus
+- `orchestrator registry show [--format summary|skill|json]` — display loaded registry
+- `orchestrator registry validate` — validate registry.yaml structure
+- `orchestrator sessions status` — show session log entry count and classification summary
 
 ## Testing
 - `pytest` from project root
