@@ -1,0 +1,69 @@
+version: 1
+updated: 2026-03-20
+
+domains:
+  connect:
+    description: "CommCare Connect"
+    servers:
+      commcare-hq:
+        description: "CommCare app structure"
+        repo: "~/emdash-projects/connect-labs"
+        repo_remote: "git@github.com:jjackson/connect-labs.git"
+        mcp_path: "tools/commcare_mcp/"
+        ownership: self
+        transport: stdio
+        local_config:
+          command: "python"
+          args: ["-m", "tools.commcare_mcp.server"]
+          cwd: "~/emdash-projects/connect-labs"
+        answers:
+          - "What forms does {app} have?"
+          - "What questions are in {form}?"
+        tools:
+          - name: get_app_structure
+            description: "Full tree of modules and forms"
+            typical_use: "Understanding app structure"
+          - name: get_form_questions
+            description: "Question details for a form"
+            typical_use: "Deep dive into form design"
+        auth: commcare-api-key
+        data_access: read-only
+
+      solicitations:
+        description: "Manage solicitations"
+        repo: "~/emdash-projects/connect-labs"
+        repo_remote: "git@github.com:jjackson/connect-labs.git"
+        mcp_path: "tools/commcare_mcp/"
+        ownership: self
+        transport: stdio
+        local_config:
+          command: "python"
+          args: ["-m", "tools.commcare_mcp.server"]
+          cwd: "~/emdash-projects/connect-labs"
+        answers:
+          - "Create a solicitation for {program}"
+          - "List active solicitations"
+        tools:
+          - name: create_solicitation
+            description: "Create a new solicitation"
+            typical_use: "End of workflow"
+          - name: list_solicitations
+            description: "List solicitations by filter"
+            typical_use: "Finding existing solicitations"
+        auth: connect-oauth
+        data_access: read-write
+
+workflows:
+  create-solicitation:
+    type: curated
+    description: "Create a solicitation for a Connect program"
+    trigger_phrases:
+      - "create a solicitation for {program}"
+    steps:
+      - server: commcare-hq
+        action: "Explore app structure"
+        purpose: "Understand what data the program collects"
+      - server: solicitations
+        action: "Create the solicitation"
+        purpose: "Build solicitation from gathered context"
+    success_rate: null
