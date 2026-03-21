@@ -138,6 +138,100 @@ def improve(observe_only, dry_run, model):
         config=config,
     )
 
+    _print_cycle_result(result)
+
+
+@main.command("analyze")
+@click.argument("transcript", type=click.Path(exists=True))
+@click.option("--propose", is_flag=True, help="Also generate proposals from observations")
+@click.option("--model", default="sonnet", help="Model to use")
+@click.option("--budget", default=1.0, type=float, help="Max USD per claude -p call")
+def analyze_cmd(transcript, propose, model, budget):
+    """Analyze a specific transcript file for observations and proposals."""
+    import yaml
+    from orchestrator.analyzer import analyze_transcript
+    from orchestrator.proposer import generate_proposals
+    from orchestrator.observations import create_observation, save_observation
+    from orchestrator.proposals import create_proposal, save_proposal
+
+    try:
+        registry_path = find_registry()
+    except click.ClickException:
+        raise
+
+    reg = load_registry(registry_path)
+    registry_summary = format_for_skill(reg)
+
+    state_dir = Path.home() / ".claude" / "orchestrator"
+    state_dir.mkdir(parents=True, exist_ok=True)
+
+    click.echo(f"Analyzing: {transcript}")
+    click.echo()
+
+    observations = analyze_transcript(
+        Path(transcript), registry_summary, model=model, max_budget_usd=budget,
+    )
+
+    if not observations:
+        click.echo("No observations found.")
+        return
+
+    click.echo(f"Found {len(observations)} observations:")
+    click.echo()
+
+    # Save and display
+    obs_dir = state_dir / "observations"
+    saved = []
+    for obs_data in observations:
+        obs = create_observation(
+            obs_type=obs_data.get("type", "gap"),
+            description=obs_data.get("description", ""),
+            severity=obs_data.get("severity", "medium"),
+            session_id=Path(transcript).stem,
+            related_servers=obs_data.get("related_servers", []),
+            lifecycle_stage=obs_data.get("lifecycle_stage"),
+        )
+        save_observation(obs, obs_dir)
+        saved.append(obs)
+        click.echo(f"  [{obs['severity']}] {obs['description']}")
+
+    if not propose:
+        return
+
+    click.echo()
+    click.echo("Generating proposals...")
+    click.echo()
+
+    proposals_raw = generate_proposals(
+        saved, registry_summary, model=model, max_budget_usd=budget,
+    )
+
+    if not proposals_raw:
+        click.echo("No proposals generated.")
+        return
+
+    proposals_dir = state_dir / "proposals"
+    click.echo(f"Generated {len(proposals_raw)} proposals:")
+    click.echo()
+    for p_data in proposals_raw:
+        proposal = create_proposal(
+            proposal_type=p_data.get("type", "new_tool"),
+            action=p_data.get("action", ""),
+            target_repo=p_data.get("target_repo", ""),
+            ownership=p_data.get("ownership", "self"),
+            motivation=p_data.get("motivation", ""),
+            observation_id=p_data.get("observation_id", ""),
+            complexity=p_data.get("complexity", "medium"),
+            verification=p_data.get("verification"),
+        )
+        save_proposal(proposal, proposals_dir)
+        v = proposal.get("verification", {})
+        click.echo(f"  [{v.get('confidence', '?')}] {proposal['action'][:80]}")
+        if v.get("test_description"):
+            click.echo(f"       verify: {v['test_description'][:90]}")
+
+
+def _print_cycle_result(result: dict) -> None:
     click.echo()
     click.echo(f"Transcripts analyzed: {result.get('transcripts_analyzed', 0)}")
     click.echo(f"Observations created: {result.get('observations_created', 0)}")
