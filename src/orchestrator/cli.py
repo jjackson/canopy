@@ -7,6 +7,7 @@ from orchestrator.registry import (
     format_for_skill, RegistryError,
 )
 from orchestrator.capture import read_session_log, group_by_session, classify_sessions
+from orchestrator.pipeline import run_cycle, CycleConfig
 
 
 def find_registry() -> Path:
@@ -103,3 +104,50 @@ def sessions_status():
 
     latest = entries[-1]
     click.echo(f"  Latest: {latest['ts']} — {latest['server']}.{latest['tool']}")
+
+
+@main.command("improve")
+@click.option("--observe-only", is_flag=True, help="Analyze transcripts but don't propose or implement")
+@click.option("--dry-run", is_flag=True, help="Analyze and propose but don't implement")
+@click.option("--model", default="sonnet", help="Model to use for analysis/proposals")
+def improve(observe_only, dry_run, model):
+    """Run an improvement cycle — analyze sessions, propose and implement improvements."""
+    state_dir = Path.home() / ".claude" / "orchestrator"
+    state_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        registry_path = find_registry()
+    except click.ClickException:
+        raise
+
+    config = CycleConfig(
+        observe_only=observe_only,
+        dry_run=dry_run,
+        model=model,
+    )
+
+    click.echo("Starting improvement cycle...")
+    if observe_only:
+        click.echo("  Mode: observe-only (no proposals or implementation)")
+    elif dry_run:
+        click.echo("  Mode: dry-run (no implementation)")
+
+    result = run_cycle(
+        state_dir=state_dir,
+        registry_path=registry_path,
+        config=config,
+    )
+
+    click.echo()
+    click.echo(f"Transcripts analyzed: {result.get('transcripts_analyzed', 0)}")
+    click.echo(f"Observations created: {result.get('observations_created', 0)}")
+    click.echo(f"Observations merged:  {result.get('observations_merged', 0)}")
+    click.echo(f"Proposals generated:  {result.get('proposals_generated', 0)}")
+    click.echo(f"Proposals implemented: {result.get('proposals_implemented', 0)}")
+    click.echo(f"Proposals failed:     {result.get('proposals_failed', 0)}")
+
+    if result.get("errors"):
+        click.echo()
+        click.echo("Errors:")
+        for err in result["errors"]:
+            click.echo(f"  - {err}")
