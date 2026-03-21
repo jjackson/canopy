@@ -10,8 +10,9 @@ class RegistryError(Exception):
     """Raised when the registry is invalid or cannot be loaded."""
 
 
-def load_registry(path: Path) -> dict[str, Any]:
+def load_registry(path: Path | str) -> dict[str, Any]:
     """Load and validate a registry YAML file."""
+    path = Path(path)
     if not path.exists():
         raise RegistryError(f"Registry file not found: {path}")
     try:

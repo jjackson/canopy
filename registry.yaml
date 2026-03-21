@@ -1,0 +1,162 @@
+version: 1
+updated: 2026-03-20
+
+domains:
+  connect:
+    description: "CommCare Connect — worker management, programs, solicitations, payments"
+    servers:
+      connect-search:
+        description: "Search Connect project documents, program descriptions, opportunity details"
+        repo: "~/emdash-projects/connect-search"
+        repo_remote: "git@github.com:jjackson/connect-search.git"
+        mcp_path: "mcp/"
+        ownership: self
+        transport: stdio
+        local_config:
+          command: "python"
+          args: ["mcp/server.py"]
+          cwd: "~/emdash-projects/connect-search"
+          env:
+            CONNECT_SEARCH_BASE_URL: "http://localhost:8000"
+        http_endpoint: "/mcp/connect-search/"
+        answers:
+          - "What programs exist for {topic}?"
+          - "Find project documents about {X}"
+          - "What opportunities are available for {worker type}?"
+          - "Search for information about {program name}"
+        tools:
+          - name: search_documents
+            description: "Full-text search across Connect project documents"
+            typical_use: "First step when exploring a program or topic"
+          - name: search_opportunities
+            description: "Search for opportunities by keyword, status, or program"
+            typical_use: "Finding specific work opportunities"
+        auth: connect-oauth
+        data_access: read-only
+
+      commcare-hq:
+        description: "Understand CommCare app structure — forms, questions, case types, JSON data paths"
+        repo: "~/emdash-projects/connect-labs"
+        repo_remote: "git@github.com:jjackson/connect-labs.git"
+        mcp_path: "tools/commcare_mcp/"
+        ownership: self
+        transport: stdio
+        local_config:
+          command: "python"
+          args: ["-m", "tools.commcare_mcp.server"]
+          cwd: "~/emdash-projects/connect-labs"
+        http_endpoint: "/mcp/commcare-hq/"
+        answers:
+          - "What forms does {opportunity/app} have?"
+          - "What questions are collected in {form}?"
+          - "What are the JSON paths for {form} data?"
+          - "What case types does {app} use?"
+          - "Show me the structure of {app}"
+        tools:
+          - name: get_opportunity_apps
+            description: "Resolve Connect opportunity ID to CommCare domain + app IDs"
+            typical_use: "Entry point — maps a Connect concept to CommCare apps"
+          - name: list_apps
+            description: "List all apps in a CommCare domain"
+            typical_use: "Discovering available apps after resolving domain"
+          - name: get_app_structure
+            description: "Full tree of modules, forms, case types for an app"
+            typical_use: "Understanding what data an app collects"
+          - name: get_form_questions
+            description: "Detailed question tree for a specific form — types, constraints, skip logic"
+            typical_use: "Deep dive into form design"
+          - name: get_form_json_paths
+            description: "Map form questions to JSON submission paths"
+            typical_use: "Building data pipelines or schemas from form structure"
+        auth: commcare-api-key
+        data_access: read-only
+
+      scout-data:
+        description: "Query actual form submission and case data via SQL — completion rates, worker activity, analytics"
+        transport: http
+        local_config:
+          command: "python"
+          args: ["mcp_server/server.py"]
+          cwd: "~/emdash-projects/scout-jjackson"
+        http_endpoint: "/mcp/scout/"
+        answers:
+          - "How many submissions were collected for {form/opportunity}?"
+          - "What are completion rates for {opportunity}?"
+          - "Show me worker activity for {program}"
+          - "What does the data look like for {case type}?"
+          - "Run analytics on {topic}"
+        tools:
+          - name: query
+            description: "Execute read-only SQL against materialized CommCare data"
+            typical_use: "Analytics, reporting, data exploration"
+          - name: list_tables
+            description: "List available materialized data tables"
+            typical_use: "Discovering what data is queryable"
+          - name: describe_table
+            description: "Column metadata with types and JSONB annotations"
+            typical_use: "Understanding table schema before querying"
+          - name: get_metadata
+            description: "Full database schema including relationships"
+            typical_use: "Understanding data model for complex queries"
+        auth: scout-api-key
+        data_access: read-only
+
+      solicitations:
+        description: "Create and manage solicitations for Connect opportunities — EOIs, RFPs"
+        transport: stdio
+        local_config:
+          command: "python"
+          args: ["-m", "tools.commcare_mcp.server"]
+          cwd: "~/emdash-projects/connect-labs"
+        http_endpoint: "/mcp/solicitations/"
+        answers:
+          - "Create a solicitation for {program}"
+          - "What solicitations are active?"
+          - "Update solicitation {X}"
+          - "Show responses to {solicitation}"
+          - "Draft an EOI for {opportunity}"
+        tools:
+          - name: list_solicitations
+            description: "List solicitations filtered by program, status, type"
+            typical_use: "Finding existing solicitations"
+          - name: get_solicitation
+            description: "Get full details of a specific solicitation"
+            typical_use: "Reviewing solicitation content"
+          - name: create_solicitation
+            description: "Create a new solicitation (EOI or RFP)"
+            typical_use: "End of a workflow — after gathering context from other tools"
+          - name: update_solicitation
+            description: "Modify an existing solicitation"
+            typical_use: "Iterating on solicitation content"
+          - name: list_responses
+            description: "List responses to a solicitation"
+            typical_use: "Reviewing applicant responses"
+          - name: get_response
+            description: "Get details of a specific response"
+            typical_use: "Evaluating individual applicants"
+        auth: connect-oauth
+        data_access: read-write
+
+workflows:
+  create-solicitation:
+    type: curated
+    description: "Create a well-informed solicitation for a Connect program"
+    trigger_phrases:
+      - "create a solicitation for {program}"
+      - "draft an EOI for {topic}"
+      - "set up a new RFP for {opportunity}"
+    steps:
+      - server: connect-search
+        action: "Search for project documents about the program"
+        purpose: "Gather context about program goals and requirements"
+      - server: commcare-hq
+        action: "Get opportunity apps, then explore app structure and form questions"
+        purpose: "Understand what data the program collects and what workers do"
+      - server: scout-data
+        action: "Query completion rates and worker activity for the program"
+        purpose: "Ground the solicitation in real performance data"
+        optional: true
+      - server: solicitations
+        action: "Create the solicitation informed by all gathered context"
+        purpose: "Build a solicitation that reflects actual program needs"
+    success_rate: null

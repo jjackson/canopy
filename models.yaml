@@ -1,0 +1,13 @@
+# Model configurations for eval and autoresearch (Phase 3)
+models:
+  claude-opus:
+    provider: anthropic
+    model: claude-opus-4-6
+    mode: api
+    api_key_env: ANTHROPIC_API_KEY
+
+  claude-sonnet:
+    provider: anthropic
+    model: claude-sonnet-4-6
+    mode: api
+    api_key_env: ANTHROPIC_API_KEY
