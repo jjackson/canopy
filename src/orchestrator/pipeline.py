@@ -123,6 +123,14 @@ def run_cycle(
             max_budget_usd=config.proposal_budget,
         )
 
+        # Sort proposals by verification confidence — high first
+        confidence_order = {"high": 0, "medium": 1, "low": 2}
+        proposals_raw.sort(
+            key=lambda p: confidence_order.get(
+                (p.get("verification") or {}).get("confidence", "low"), 2
+            )
+        )
+
         for p_data in proposals_raw[:config.max_proposals]:
             proposal = create_proposal(
                 proposal_type=p_data.get("type", "new_tool"),
@@ -132,6 +140,7 @@ def run_cycle(
                 motivation=p_data.get("motivation", ""),
                 observation_id=p_data.get("observation_id", ""),
                 complexity=p_data.get("complexity", "medium"),
+                verification=p_data.get("verification"),
             )
             save_proposal(proposal, proposals_dir)
             this_run_proposal_ids.append(proposal["id"])

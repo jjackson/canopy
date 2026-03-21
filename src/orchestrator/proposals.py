@@ -15,6 +15,7 @@ def create_proposal(
     motivation: str,
     observation_id: str,
     complexity: str = "medium",
+    verification: dict | None = None,
 ) -> dict[str, Any]:
     """Create a new proposal dict."""
     return {
@@ -26,6 +27,11 @@ def create_proposal(
         "motivation": motivation,
         "observation_id": observation_id,
         "complexity": complexity,
+        "verification": verification or {
+            "type": "observational",
+            "test_description": "",
+            "confidence": "low",
+        },
         "status": "pending",
         "failure_reason": None,
         "created": date.today().isoformat(),
