@@ -1,0 +1,110 @@
+from pathlib import Path
+from unittest.mock import patch, MagicMock
+import pytest
+from orchestrator.pipeline import run_cycle, CycleConfig
+
+
+class TestCycleConfig:
+    def test_defaults(self):
+        cfg = CycleConfig()
+        assert cfg.max_transcripts == 10
+        assert cfg.max_proposals == 3
+        assert cfg.observe_only is False
+        assert cfg.dry_run is False
+
+    def test_observe_only(self):
+        cfg = CycleConfig(observe_only=True)
+        assert cfg.observe_only is True
+
+    def test_dry_run(self):
+        cfg = CycleConfig(dry_run=True)
+        assert cfg.dry_run is True
+
+
+class TestRunCycleNoData:
+    def test_no_transcripts_returns_run_with_zero_counts(self, tmp_path):
+        state_dir = tmp_path / "orchestrator"
+        state_dir.mkdir()
+        (state_dir / "session-log.jsonl").touch()
+
+        result = run_cycle(
+            state_dir=state_dir,
+            registry_path=Path(__file__).parent / "fixtures" / "sample_registry.yaml",
+            config=CycleConfig(),
+        )
+        assert result["transcripts_analyzed"] == 0
+        assert result["observations_created"] == 0
+        assert result["proposals_generated"] == 0
+
+
+class TestRunCycleObserveOnly:
+    @patch("orchestrator.pipeline.analyze_transcript")
+    @patch("orchestrator.pipeline.find_completed_transcripts")
+    def test_observe_only_skips_proposals(self, mock_find, mock_analyze, tmp_path):
+        state_dir = tmp_path / "orchestrator"
+        state_dir.mkdir()
+        (state_dir / "session-log.jsonl").touch()
+
+        mock_find.return_value = [{
+            "session_id": "s1",
+            "project": "/test",
+            "transcript_path": Path(__file__).parent / "fixtures" / "sample_transcript.jsonl",
+        }]
+        mock_analyze.return_value = [{
+            "type": "gap",
+            "description": "test gap",
+            "severity": "high",
+            "related_servers": [],
+            "lifecycle_stage": None,
+            "evidence": "test",
+        }]
+
+        result = run_cycle(
+            state_dir=state_dir,
+            registry_path=Path(__file__).parent / "fixtures" / "sample_registry.yaml",
+            config=CycleConfig(observe_only=True),
+        )
+        assert result["transcripts_analyzed"] == 1
+        assert result["observations_created"] == 1
+        assert result["proposals_generated"] == 0
+
+
+class TestRunCycleDryRun:
+    @patch("orchestrator.pipeline.generate_proposals")
+    @patch("orchestrator.pipeline.analyze_transcript")
+    @patch("orchestrator.pipeline.find_completed_transcripts")
+    def test_dry_run_skips_implementation(self, mock_find, mock_analyze, mock_propose, tmp_path):
+        state_dir = tmp_path / "orchestrator"
+        state_dir.mkdir()
+        (state_dir / "session-log.jsonl").touch()
+
+        mock_find.return_value = [{
+            "session_id": "s1",
+            "project": "/test",
+            "transcript_path": Path(__file__).parent / "fixtures" / "sample_transcript.jsonl",
+        }]
+        mock_analyze.return_value = [{
+            "type": "gap",
+            "description": "test",
+            "severity": "high",
+            "related_servers": [],
+            "lifecycle_stage": None,
+            "evidence": "test",
+        }]
+        mock_propose.return_value = [{
+            "type": "new_tool",
+            "action": "Create tool",
+            "target_repo": "~/repo",
+            "ownership": "self",
+            "motivation": "needed",
+            "observation_id": "obs-1",
+            "complexity": "low",
+        }]
+
+        result = run_cycle(
+            state_dir=state_dir,
+            registry_path=Path(__file__).parent / "fixtures" / "sample_registry.yaml",
+            config=CycleConfig(dry_run=True),
+        )
+        assert result["proposals_generated"] == 1
+        assert result["proposals_implemented"] == 0

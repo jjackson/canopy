@@ -1,0 +1,195 @@
+"""Orchestrate the full improvement cycle."""
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+
+from orchestrator.analyzer import analyze_transcript
+from orchestrator.implementer import run_implementation
+from orchestrator.observations import (
+    create_observation,
+    find_matching_observation,
+    list_observations,
+    merge_observation,
+    save_observation,
+    load_observation,
+)
+from orchestrator.proposals import (
+    create_proposal,
+    list_proposals,
+    save_proposal,
+    update_proposal_status,
+)
+from orchestrator.proposer import generate_proposals
+from orchestrator.registry import load_registry, format_for_skill
+from orchestrator.run_log import create_run_entry, save_run, get_last_run_ts
+from orchestrator.transcripts import find_completed_transcripts
+
+
+@dataclass
+class CycleConfig:
+    max_transcripts: int = 10
+    max_proposals: int = 3
+    observe_only: bool = False
+    dry_run: bool = False
+    model: str = "sonnet"
+    analysis_budget: float = 0.50
+    proposal_budget: float = 0.50
+    implementation_budget: float = 2.00
+
+
+def run_cycle(
+    state_dir: Path,
+    registry_path: Path,
+    config: CycleConfig | None = None,
+) -> dict:
+    """Run one full improvement cycle. Returns the run log entry."""
+    config = config or CycleConfig()
+    run = create_run_entry()
+
+    registry = load_registry(registry_path)
+    registry_summary = format_for_skill(registry)
+
+    session_log = state_dir / "session-log.jsonl"
+    obs_dir = state_dir / "observations"
+    proposals_dir = state_dir / "proposals"
+    runs_dir = state_dir / "runs"
+
+    # 1. Collect transcripts since last run
+    last_ts = get_last_run_ts(runs_dir)
+    processed = {
+        s for r in (runs_dir.glob("run-*.yaml") if runs_dir.exists() else [])
+        for s in _load_processed_sessions(r)
+    }
+
+    transcripts = find_completed_transcripts(
+        session_log,
+        since_ts=last_ts,
+        processed=processed,
+    )[:config.max_transcripts]
+
+    # 2. Analyze each transcript
+    all_new_observations = []
+    for t in transcripts:
+        observations = analyze_transcript(
+            t["transcript_path"],
+            registry_summary,
+            model=config.model,
+            max_budget_usd=config.analysis_budget,
+        )
+        run["processed_sessions"].append(t["session_id"])
+
+        for obs_data in observations:
+            obs = create_observation(
+                obs_type=obs_data.get("type", "gap"),
+                description=obs_data.get("description", ""),
+                severity=obs_data.get("severity", "medium"),
+                session_id=t["session_id"],
+                related_servers=obs_data.get("related_servers", []),
+                lifecycle_stage=obs_data.get("lifecycle_stage"),
+            )
+            all_new_observations.append(obs)
+
+    run["transcripts_analyzed"] = len(transcripts)
+
+    # 3. Deduplicate against existing observations
+    existing = list_observations(obs_dir, status="pending")
+    for new_obs in all_new_observations:
+        match = find_matching_observation(new_obs, existing)
+        if match:
+            merged = merge_observation(match, new_obs["sessions"][0])
+            save_observation(merged, obs_dir)
+            run["observations_merged"] = run.get("observations_merged", 0) + 1
+        else:
+            save_observation(new_obs, obs_dir)
+            existing.append(new_obs)
+            run["observations_created"] = run.get("observations_created", 0) + 1
+
+    if config.observe_only:
+        run["completed"] = datetime.now(timezone.utc).isoformat()
+        save_run(run, runs_dir)
+        return run
+
+    # 4-5. Prioritize and propose
+    pending = list_observations(obs_dir, status="pending")
+    severity_order = {"high": 0, "medium": 1, "low": 2}
+    pending.sort(key=lambda o: (-o.get("frequency", 1), severity_order.get(o.get("severity"), 1)))
+
+    this_run_proposal_ids = []
+    if pending:
+        proposals_raw = generate_proposals(
+            pending[:config.max_proposals * 2],
+            registry_summary,
+            model=config.model,
+            max_budget_usd=config.proposal_budget,
+        )
+
+        for p_data in proposals_raw[:config.max_proposals]:
+            proposal = create_proposal(
+                proposal_type=p_data.get("type", "new_tool"),
+                action=p_data.get("action", ""),
+                target_repo=p_data.get("target_repo", ""),
+                ownership=p_data.get("ownership", "self"),
+                motivation=p_data.get("motivation", ""),
+                observation_id=p_data.get("observation_id", ""),
+                complexity=p_data.get("complexity", "medium"),
+            )
+            save_proposal(proposal, proposals_dir)
+            this_run_proposal_ids.append(proposal["id"])
+            run["proposals_generated"] = run.get("proposals_generated", 0) + 1
+
+    if config.dry_run:
+        run["completed"] = datetime.now(timezone.utc).isoformat()
+        save_run(run, runs_dir)
+        return run
+
+    # 6. Implement — only proposals generated THIS run
+    pending_proposals = [
+        p for p in list_proposals(proposals_dir, status="pending")
+        if p["id"] in this_run_proposal_ids
+    ]
+    for proposal in pending_proposals:
+        obs_id = proposal.get("observation_id", "")
+        obs_path = obs_dir / f"{obs_id}.yaml"
+        observation = load_observation(obs_path) if obs_path.exists() else {
+            "description": proposal.get("motivation", "")
+        }
+
+        result = run_implementation(
+            proposal=proposal,
+            observation=observation or {"description": proposal.get("motivation", "")},
+            registry_summary=registry_summary,
+            model=config.model,
+            max_budget_usd=config.implementation_budget,
+        )
+
+        proposal_path = proposals_dir / f"{proposal['id']}.yaml"
+        if result["success"]:
+            update_proposal_status(proposal_path, "implemented")
+            if obs_path.exists():
+                obs = load_observation(obs_path)
+                if obs:
+                    obs["status"] = "addressed"
+                    save_observation(obs, obs_dir)
+            run["proposals_implemented"] = run.get("proposals_implemented", 0) + 1
+        else:
+            update_proposal_status(
+                proposal_path, "failed",
+                reason=result.get("error", "Unknown error"),
+            )
+            run["proposals_failed"] = run.get("proposals_failed", 0) + 1
+            run["errors"].append(f"Proposal {proposal['id']}: {result.get('error', '')}")
+
+    # 8. Report
+    run["completed"] = datetime.now(timezone.utc).isoformat()
+    save_run(run, runs_dir)
+    return run
+
+
+def _load_processed_sessions(run_path: Path) -> list[str]:
+    """Load processed session IDs from a run log file."""
+    try:
+        from orchestrator.run_log import load_run
+        r = load_run(run_path)
+        return r.get("processed_sessions", [])
+    except Exception:
+        return []
