@@ -7,17 +7,27 @@ learns from usage patterns, and auto-evolves tools via autoresearch.
 - Python 3.11+, PyYAML, Click
 - Claude Code hooks and skills
 
-## Key Files
-- `registry.yaml` — capability registry mapping MCP servers to their tools
-- `src/orchestrator/registry.py` — registry loader and validator
-- `src/orchestrator/capture.py` — session log writer (PostToolUse hook logic)
-- `hooks/post_tool_use.py` — Claude Code hook for session capture
-- `skills/orchestrator/SKILL.md` — Claude Code skill for cross-project routing
-
 ## Commands
 - `orchestrator registry show [--format summary|skill|json]` — display loaded registry
 - `orchestrator registry validate` — validate registry.yaml structure
 - `orchestrator sessions status` — show session log entry count and classification summary
+- `orchestrator improve` — run a full improvement cycle (analyze → propose → implement)
+- `orchestrator improve --observe-only` — analyze transcripts without proposing
+- `orchestrator improve --dry-run` — analyze and propose without implementing
+
+## Key Files
+- `registry.yaml` — capability registry mapping MCP servers to their tools
+- `src/orchestrator/registry.py` — registry loader and validator
+- `src/orchestrator/capture.py` — session log writer (PostToolUse hook logic)
+- `src/orchestrator/transcripts.py` — Claude Code transcript discovery and parsing
+- `src/orchestrator/observations.py` — observation data model (friction, gaps, patterns)
+- `src/orchestrator/proposals.py` — improvement proposal data model
+- `src/orchestrator/analyzer.py` — transcript analysis via claude -p
+- `src/orchestrator/proposer.py` — proposal generation via claude -p
+- `src/orchestrator/implementer.py` — implementation via claude -p in target repos
+- `src/orchestrator/pipeline.py` — full improvement cycle orchestration
+- `hooks/post_tool_use.py` — Claude Code hook for session capture
+- `skills/orchestrator/SKILL.md` — Claude Code skill for cross-project routing
 
 ## Testing
 - `pytest` from project root
