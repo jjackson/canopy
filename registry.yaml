@@ -73,6 +73,10 @@ domains:
 
       scout-data:
         description: "Query actual form submission and case data via SQL — completion rates, worker activity, analytics"
+        repo: "~/emdash-projects/scout-jjackson"
+        repo_remote: "git@github.com:jjackson/scout-jjackson.git"
+        mcp_path: "mcp_server/"
+        ownership: self
         transport: http
         local_config:
           command: "python"
@@ -103,6 +107,10 @@ domains:
 
       solicitations:
         description: "Create and manage solicitations for Connect opportunities — EOIs, RFPs"
+        repo: "~/emdash-projects/connect-labs"
+        repo_remote: "git@github.com:jjackson/connect-labs.git"
+        mcp_path: "tools/commcare_mcp/"
+        ownership: self
         transport: stdio
         local_config:
           command: "python"
