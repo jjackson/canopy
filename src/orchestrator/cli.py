@@ -8,6 +8,7 @@ from orchestrator.registry import (
 )
 from orchestrator.capture import read_session_log, group_by_session, classify_sessions
 from orchestrator.pipeline import run_cycle, CycleConfig
+from orchestrator.server import run_server
 
 
 def find_registry() -> Path:
@@ -229,6 +230,27 @@ def analyze_cmd(transcript, propose, model, budget):
         click.echo(f"  [{v.get('confidence', '?')}] {proposal['action'][:80]}")
         if v.get("test_description"):
             click.echo(f"       verify: {v['test_description'][:90]}")
+
+
+@main.command("serve")
+@click.option("--port", default=8484, type=int, help="Port to serve on")
+def serve(port):
+    """Start the transcript browser web UI."""
+    state_dir = Path.home() / ".claude" / "orchestrator"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    projects_dir = Path.home() / ".claude" / "projects"
+
+    try:
+        registry_path = find_registry()
+    except click.ClickException:
+        raise
+
+    run_server(
+        projects_dir=projects_dir,
+        state_dir=state_dir,
+        registry_path=registry_path,
+        port=port,
+    )
 
 
 def _print_cycle_result(result: dict) -> None:
