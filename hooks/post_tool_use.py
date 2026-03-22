@@ -14,6 +14,53 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 LOG_FILE = Path.home() / ".claude" / "orchestrator" / "session-log.jsonl"
+REPO_MAP_FILE = Path.home() / ".claude" / "orchestrator" / "repo-map.yaml"
+
+
+def maybe_capture_repo(project_dir: str):
+    """Capture git remote -> repo mapping if not already known."""
+    import subprocess
+    try:
+        import yaml
+    except ImportError:
+        return
+
+    project_key = "-" + project_dir.lstrip("/").replace("/", "-")
+
+    # Check if already mapped
+    repo_map = {}
+    if REPO_MAP_FILE.exists():
+        try:
+            with open(REPO_MAP_FILE) as f:
+                repo_map = yaml.safe_load(f) or {}
+        except Exception:
+            return
+
+    if project_key in repo_map:
+        return
+
+    # Try to get git remote
+    try:
+        result = subprocess.run(
+            ["git", "-C", project_dir, "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=2,
+        )
+        if result.returncode != 0:
+            return
+        url = result.stdout.strip()
+    except Exception:
+        return
+
+    # Extract owner/repo
+    import re
+    match = re.search(r"github\.com[:/]([^/]+/[^/\s]+?)(?:\.git)?$", url)
+    if not match:
+        return
+
+    repo_map[project_key] = match.group(1)
+    REPO_MAP_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(REPO_MAP_FILE, "w") as f:
+        yaml.dump(repo_map, f, default_flow_style=False, sort_keys=False)
 
 try:
     from orchestrator.capture import append_log_entry
@@ -50,6 +97,10 @@ def main():
                 input_summary[k] = v[:100] + "..."
             else:
                 input_summary[k] = v
+
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", "")
+    if project_dir:
+        maybe_capture_repo(project_dir)
 
     entry = {
         "ts": datetime.now(timezone.utc).isoformat(),
