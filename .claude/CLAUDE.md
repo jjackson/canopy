@@ -14,6 +14,7 @@ learns from usage patterns, and auto-evolves tools via autoresearch.
 - `orchestrator improve` — run a full improvement cycle (analyze → propose → implement)
 - `orchestrator improve --observe-only` — analyze transcripts without proposing
 - `orchestrator improve --dry-run` — analyze and propose without implementing
+- `orchestrator serve` — start transcript browser web UI on localhost:8484
 
 ## Key Files
 - `registry.yaml` — capability registry mapping MCP servers to their tools
@@ -26,6 +27,12 @@ learns from usage patterns, and auto-evolves tools via autoresearch.
 - `src/orchestrator/proposer.py` — proposal generation via claude -p
 - `src/orchestrator/implementer.py` — implementation via claude -p in target repos
 - `src/orchestrator/pipeline.py` — full improvement cycle orchestration
+- `src/orchestrator/server.py` — HTTP server for transcript browser
+- `src/orchestrator/scanner.py` — transcript discovery and metadata extraction
+- `src/orchestrator/labels.py` — transcript label storage
+- `src/orchestrator/repo_map.py` — project-to-GitHub-repo mapping
+- `src/orchestrator/reviewer.py` — AI strategic review via claude -p
+- `src/orchestrator/static/index.html` — transcript browser frontend
 - `hooks/post_tool_use.py` — Claude Code hook for session capture
 - `skills/orchestrator/SKILL.md` — Claude Code skill for cross-project routing
 
