@@ -19,15 +19,20 @@ def install():
     hooks = settings.setdefault("hooks", {})
     post_tool_use = hooks.setdefault("PostToolUse", [])
 
-    for hook in post_tool_use:
-        if "orchestrator" in hook.get("command", ""):
-            print("Hook already installed.")
-            return
+    for entry in post_tool_use:
+        for hook in entry.get("hooks", []):
+            if "orchestrator" in hook.get("command", ""):
+                print("Hook already installed.")
+                return
 
     post_tool_use.append({
-        "type": "command",
-        "command": f"python3 {HOOK_SCRIPT}",
-        "description": "Orchestrator session capture — logs MCP tool calls",
+        "hooks": [
+            {
+                "type": "command",
+                "command": f"python3 {HOOK_SCRIPT}",
+                "description": "Orchestrator session capture — logs MCP tool calls",
+            }
+        ],
     })
 
     with open(SETTINGS_FILE, "w") as f:
@@ -46,7 +51,10 @@ def uninstall():
 
     hooks = settings.get("hooks", {})
     post_tool_use = hooks.get("PostToolUse", [])
-    hooks["PostToolUse"] = [h for h in post_tool_use if "orchestrator" not in h.get("command", "")]
+    hooks["PostToolUse"] = [
+        entry for entry in post_tool_use
+        if not any("orchestrator" in h.get("command", "") for h in entry.get("hooks", []))
+    ]
 
     with open(SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=2)
