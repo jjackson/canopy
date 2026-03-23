@@ -19,7 +19,7 @@ Interactive menu-driven flow to pick a session and analyze it.
 Run this command, substituting the hours argument (default 24):
 
 ```bash
-uv run orchestrator sessions list --json-output --hours <HOURS>
+uv run canopy sessions list --json-output --hours <HOURS>
 ```
 
 Parse the JSON output. If no sessions found, tell the user and suggest increasing the hours window.
@@ -60,7 +60,7 @@ Wait for the user to pick a number.
 Run the analyzer on the selected session's `path`:
 
 ```bash
-uv run orchestrator analyze <PATH>
+uv run canopy analyze <PATH>
 ```
 
 Show the output to the user.
