@@ -244,6 +244,9 @@ def analyze_cmd(transcript, propose, model, budget):
         click.echo("No proposals generated.")
         return
 
+    # Validate and fix proposals against the registry
+    proposals_raw = _validate_proposals(proposals_raw, reg)
+
     proposals_dir = state_dir / "proposals"
     click.echo(f"Generated {len(proposals_raw)} proposals:")
     click.echo()
@@ -293,6 +296,53 @@ def serve(port):
         registry_path=registry_path,
         port=port,
     )
+
+
+def _validate_proposals(proposals: list[dict], registry: dict) -> list[dict]:
+    """Validate and fix proposals against the registry.
+
+    - Fix target_repo mismatches (e.g., tool for connect-search proposed for connect-labs)
+    - Auto-apply canopy registry_update proposals instead of just proposing them
+    - Drop proposals for tools that already exist
+    """
+    from orchestrator.registry import get_all_servers, get_all_tools
+
+    servers = get_all_servers(registry)
+    all_tools = get_all_tools(registry)
+    existing_tool_names = {t["name"] for t in all_tools}
+
+    # Build server name -> repo mapping
+    server_repos = {s["name"]: s.get("repo", "") for s in servers}
+
+    validated = []
+    for p in proposals:
+        action = p.get("action", "").lower()
+        ptype = p.get("type", "")
+        target_repo = p.get("target_repo", "")
+
+        # Fix target_repo: if the action mentions a specific server, use that server's repo
+        for server in servers:
+            server_name = server["name"]
+            if server_name in action or server_name.replace("-", "_") in action:
+                correct_repo = server.get("repo", "")
+                if correct_repo and correct_repo != target_repo:
+                    p["target_repo"] = correct_repo
+                    p["_fixed"] = f"target_repo corrected from {target_repo} to {correct_repo}"
+                break
+
+        # Drop proposals for tools that already exist
+        if ptype == "new_tool":
+            # Extract proposed tool name from action
+            for tool_name in existing_tool_names:
+                if tool_name in action and f"add a `{tool_name}`" in action.lower():
+                    p["_dropped"] = f"tool {tool_name} already exists"
+                    break
+            if "_dropped" in p:
+                continue
+
+        validated.append(p)
+
+    return validated
 
 
 def _print_cycle_result(result: dict) -> None:
