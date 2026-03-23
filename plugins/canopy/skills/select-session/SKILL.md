@@ -1,7 +1,7 @@
 ---
 name: select-session
 description: Menu-driven session picker — select a project, browse session history, analyze, and propose fixes
-version: 0.2.0
+version: 0.3.0
 ---
 
 # Select Session
@@ -28,48 +28,32 @@ Parse the JSON output. If no sessions found, tell the user and suggest increasin
 
 Group sessions by their `repo` field (fall back to `project_key` if repo is null). Sort by most recent activity.
 
-Present using `AskUserQuestion` with projects as options. Include session count and most recent timestamp in each option's description.
+Present a numbered text menu:
 
-Example:
 ```
-AskUserQuestion({
-  questions: [{
-    question: "Which project do you want to explore?",
-    header: "Project",
-    options: [
-      { label: "canopy-orchestrator", description: "5 sessions, latest: 03-23 15:08" },
-      { label: "connect-labs", description: "3 sessions, latest: 03-23 14:25" },
-      { label: "commcare-connect", description: "2 sessions, latest: 03-23 12:42" }
-    ],
-    multiSelect: false
-  }]
-})
+Select a project:
+
+  1  jjackson/canopy-orchestrator    (5 sessions)
+  2  jjackson/connect-labs           (3 sessions)
+  3  dimagi/commcare-connect         (2 sessions)
+  4  jjackson/connect-search         (2 sessions)
 ```
 
-Limit to 4 options (the most recently active projects). If the user selects "Other", ask them to type the project name.
+Wait for the user to pick a number.
 
 ### Step 3: Session selection
 
-Show sessions for the chosen project, sorted newest-first.
+Show sessions for the chosen project, sorted newest-first:
 
-Present using `AskUserQuestion` with sessions as options. Use the truncated first message as the label and message count + date as the description.
-
-Example:
 ```
-AskUserQuestion({
-  questions: [{
-    question: "Which session?",
-    header: "Session",
-    options: [
-      { label: "I would like a way to quickly nav...", description: "4 msgs · 03-23 15:08" },
-      { label: "I think we are ready to test, is...", description: "88 msgs · 03-23 14:25" }
-    ],
-    multiSelect: false
-  }]
-})
+jjackson/canopy-orchestrator — recent sessions:
+
+  1  [03-23 15:08]  "I would like a way to quickly navigate..."   (4 msgs)
+  2  [03-23 14:25]  "I think we are ready to test, is that..."    (88 msgs)
+  3  [03-23 14:17]  "What are my most recent connect-search..."   (2 msgs)
 ```
 
-Truncate first_msg to 35 characters in the label. Limit to 4 options (most recent). If the user selects "Other", show the full list as text and ask them to pick by number.
+Wait for the user to pick a number.
 
 ### Step 4: Analyze and propose
 
@@ -83,13 +67,13 @@ uv run canopy analyze --propose <PATH>
 
 ### Step 5: Disposition
 
-After showing the analysis and proposals, present each proposal using `AskUserQuestion` so the user can decide what to do:
+After showing the analysis and proposals, present each proposal using `AskUserQuestion` so the user can decide what to do. Bundle up to 4 proposals into a single `AskUserQuestion` call (one question per proposal):
 
 ```
 AskUserQuestion({
   questions: [
     {
-      question: "Proposal: <title>\n\n<what/why/how summary>\n\nWhat would you like to do?",
+      question: "Proposal: <title>\n\n<what/why/how summary>",
       header: "<short label>",
       options: [
         { label: "Implement", description: "Fix this now" },
@@ -102,6 +86,8 @@ AskUserQuestion({
   ]
 })
 ```
+
+If there are more than 4 proposals, batch them into multiple `AskUserQuestion` calls.
 
 ### Step 6: Implement
 
@@ -117,8 +103,11 @@ If no proposals were marked for implementation, summarize what was backlogged/sk
 ## Rules
 
 - Always use `uv run` to invoke the orchestrator CLI
-- Use `AskUserQuestion` for all menu selections — do not present plain text menus
+- Use plain text numbered menus for project and session selection (no item limit)
+- Use `AskUserQuestion` only for proposal disposition (fixed 3 options per proposal)
 - Show analysis and proposal output directly to the user, not hidden in tool results
 - The full flow is: select → analyze → propose → disposition → implement
-- If the user selects "Other" on any menu, handle gracefully
-- Keep labels short and descriptions informative
+- If the user types `b` or `back`, go back to the previous menu
+- If the user types `q` or `quit`, exit the flow
+- Truncate first_msg to 45 characters in the session list
+- Keep the menus clean and minimal — no extra decoration
