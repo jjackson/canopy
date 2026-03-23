@@ -78,6 +78,11 @@ def main():
     except (json.JSONDecodeError, EOFError):
         return
 
+    # Always capture repo mapping — runs on every tool call, not just MCP
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", "")
+    if project_dir:
+        maybe_capture_repo(project_dir)
+
     tool_name = hook_data.get("tool_name", "")
     if not tool_name.startswith("mcp__"):
         return
@@ -97,10 +102,6 @@ def main():
                 input_summary[k] = v[:100] + "..."
             else:
                 input_summary[k] = v
-
-    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", "")
-    if project_dir:
-        maybe_capture_repo(project_dir)
 
     entry = {
         "ts": datetime.now(timezone.utc).isoformat(),
