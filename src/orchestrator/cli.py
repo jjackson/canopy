@@ -339,6 +339,30 @@ def serve(port):
     )
 
 
+@main.command("brief")
+@click.option("--model", default="sonnet", help="Model to use for brief generation")
+@click.option("--budget", default=1.0, type=float, help="Max USD per claude -p call")
+def brief(model, budget):
+    """Generate a strategic brief from recent activity."""
+    from orchestrator.briefing import generate_brief
+
+    state_dir = Path.home() / ".claude" / "orchestrator"
+    state_dir.mkdir(parents=True, exist_ok=True)
+
+    # brief can run without registry (falls back to simple digest), unlike improve which requires it
+    try:
+        registry_path = find_registry()
+    except click.ClickException:
+        registry_path = None
+
+    click.echo(generate_brief(
+        state_dir=state_dir,
+        registry_path=registry_path,
+        model=model,
+        max_budget_usd=budget,
+    ))
+
+
 def _validate_proposals(proposals: list[dict], registry: dict) -> list[dict]:
     """Validate and fix proposals against the registry.
 
