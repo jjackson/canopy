@@ -24,7 +24,7 @@ def find_registry() -> Path:
 
 @click.group()
 def main():
-    """Orchestrator — self-improving MCP orchestration."""
+    """Canopy — self-improving MCP orchestration."""
 
 
 @main.group()

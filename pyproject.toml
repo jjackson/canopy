@@ -1,5 +1,5 @@
 [project]
-name = "canopy-orchestrator"
+name = "canopy"
 version = "0.1.0"
 description = "Self-improving MCP orchestration with autoresearch"
 requires-python = ">=3.11"
@@ -15,7 +15,7 @@ dev = [
 ]
 
 [project.scripts]
-orchestrator = "orchestrator.cli:main"
+canopy = "orchestrator.cli:main"
 
 [build-system]
 requires = ["setuptools>=68.0"]
