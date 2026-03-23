@@ -35,6 +35,8 @@ learns from usage patterns, and auto-evolves tools via autoresearch.
 - `src/orchestrator/briefing.py` — strategic brief with gstack cognitive patterns
 - `src/orchestrator/tracker.py` — self-improvement tracking (proposal outcomes)
 - `src/orchestrator/router.py` — tiered routing (inline/single/team)
+- `src/orchestrator/campaigns.py` — campaign persistence for multi-day improvement arcs
+- `src/orchestrator/scheduler.py` — persistent scheduling via launchd
 - `src/orchestrator/server.py` — HTTP server for transcript browser
 - `src/orchestrator/scanner.py` — transcript discovery and metadata extraction
 - `src/orchestrator/labels.py` — transcript label storage
