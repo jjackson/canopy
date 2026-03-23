@@ -47,6 +47,10 @@ Output a YAML list where each proposal has:
     test proves the improvement works?
 
 Guidelines:
+- **Fix at the source, not the metadata.** If a project's assistant didn't know
+  about its own MCP tools, fix that project's CLAUDE.md or tool documentation —
+  don't just update the canopy registry. Registry updates are appropriate only
+  when the tool genuinely isn't documented anywhere the assistant can see it.
 - Prefer adding to existing servers over creating new ones
 - Only propose `new_server` if no existing server is a natural fit
 - Be specific: "Add filter_by_status parameter to search_opportunities" not
