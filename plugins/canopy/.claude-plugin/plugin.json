@@ -1,0 +1,11 @@
+{
+  "name": "canopy",
+  "description": "Self-improving AI workflow skills — session analysis, improvement cycles, PM supervision, and learning loops",
+  "author": {
+    "name": "Jonathan Jackson",
+    "email": "jjackson@github.com"
+  },
+  "repository": "https://github.com/jjackson/canopy",
+  "license": "MIT",
+  "keywords": ["orchestration", "self-improving", "pm", "autonomous", "sessions"]
+}

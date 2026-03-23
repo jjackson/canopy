@@ -1,0 +1,19 @@
+{
+  "name": "canopy",
+  "description": "Self-improving AI orchestration — watches sessions, identifies gaps, builds improvements",
+  "owner": {
+    "name": "Jonathan Jackson",
+    "url": "https://github.com/jjackson"
+  },
+  "metadata": {
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "canopy",
+      "source": "./plugins/canopy",
+      "version": "0.1.0",
+      "description": "Self-improving AI workflow skills — session analysis, PM supervision, autonomous development"
+    }
+  ]
+}
