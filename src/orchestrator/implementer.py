@@ -1,4 +1,5 @@
 """Spawn claude -p sessions in target repos to execute proposals."""
+import re
 import subprocess
 from pathlib import Path
 
@@ -21,6 +22,30 @@ def build_implementation_prompt(
         registry_summary=registry_summary,
         registry_path=registry_path,
     )
+
+
+def extract_evidence(stdout: str, stderr: str) -> str:
+    """Extract test result evidence from subprocess output.
+
+    Looks for common test output patterns (pytest, unittest, etc.)
+    and returns the most relevant lines. If no test pattern found,
+    returns the last few lines of output.
+    """
+    lines = stdout.split("\n")
+
+    # Look for pytest-style summary: "X passed", "X failed"
+    for line in reversed(lines):
+        if re.search(r"\d+ passed", line) or re.search(r"\d+ failed", line):
+            return line.strip()
+
+    # Look for "tests passed" / "tests failed" patterns
+    for line in reversed(lines):
+        if "test" in line.lower() and ("pass" in line.lower() or "fail" in line.lower()):
+            return line.strip()
+
+    # Fallback: last non-empty lines
+    non_empty = [l.strip() for l in lines if l.strip()]
+    return "\n".join(non_empty[-3:]) if non_empty else stderr[:200]
 
 
 def resolve_repo_path(repo_path: str) -> Path:
@@ -48,6 +73,7 @@ def run_implementation(
             "success": False,
             "error": "External repos are registry-only — skipping implementation",
             "output": "",
+            "evidence": "",
         }
 
     prompt = build_implementation_prompt(
@@ -69,6 +95,7 @@ def run_implementation(
             "success": False,
             "error": f"Target repo not found: {repo_path}",
             "output": "",
+            "evidence": "",
         }
 
     try:
@@ -89,10 +116,12 @@ def run_implementation(
             "success": False,
             "error": "Implementation session timed out",
             "output": "",
+            "evidence": "",
         }
 
     return {
         "success": result.returncode == 0,
         "output": result.stdout,
         "error": result.stderr if result.returncode != 0 else None,
+        "evidence": extract_evidence(result.stdout, result.stderr),
     }
