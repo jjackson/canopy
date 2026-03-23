@@ -15,6 +15,7 @@ learns from usage patterns, and auto-evolves tools via autoresearch.
 - `orchestrator improve --observe-only` — analyze transcripts without proposing
 - `orchestrator improve --dry-run` — analyze and propose without implementing
 - `orchestrator serve` — start transcript browser web UI on localhost:8484
+- `orchestrator analyze <transcript.jsonl> [--propose]` — analyze a specific transcript
 
 ## Key Files
 - `registry.yaml` — capability registry mapping MCP servers to their tools
@@ -26,7 +27,10 @@ learns from usage patterns, and auto-evolves tools via autoresearch.
 - `src/orchestrator/analyzer.py` — transcript analysis via claude -p
 - `src/orchestrator/proposer.py` — proposal generation via claude -p
 - `src/orchestrator/implementer.py` — implementation via claude -p in target repos
-- `src/orchestrator/pipeline.py` — full improvement cycle orchestration
+- `src/orchestrator/pipeline.py` — full improvement cycle orchestration (scanner-based discovery, circuit breaker, rate limiter)
+- `src/orchestrator/skill_runner.py` — headless skill invocation (any plugin: gstack, superpowers, etc.)
+- `src/orchestrator/circuit_breaker.py` — stops pipeline after consecutive failures
+- `src/orchestrator/rate_limiter.py` — caps API calls per hour
 - `src/orchestrator/server.py` — HTTP server for transcript browser
 - `src/orchestrator/scanner.py` — transcript discovery and metadata extraction
 - `src/orchestrator/labels.py` — transcript label storage
