@@ -57,6 +57,39 @@ def registry_show(fmt):
             click.echo(f"  [{s['domain']}] {s['name']} — {s['description']} ({tool_count} tools, {s.get('data_access', '?')})")
 
 
+@registry.command("sync")
+def registry_sync():
+    """Sync registry tools with actual MCP server code."""
+    from orchestrator.registry_sync import sync_registry
+
+    try:
+        reg_path = find_registry()
+    except click.ClickException:
+        raise
+
+    click.echo(f"Scanning repos for MCP tools...")
+    summary = sync_registry(reg_path)
+
+    for server, info in sorted(summary.items()):
+        if isinstance(info, dict) and "error" in info:
+            click.echo(f"  {server}: {info['error']}")
+        elif isinstance(info, dict):
+            added = info.get("added", [])
+            removed = info.get("removed", [])
+            total = info.get("total", 0)
+            if added or removed:
+                click.echo(f"  {server}: {total} tools ({len(added)} added, {len(removed)} removed)")
+                for a in added:
+                    click.echo(f"    + {a}")
+                for r in removed:
+                    click.echo(f"    - {r}")
+            else:
+                click.echo(f"  {server}: {total} tools (up to date)")
+
+    click.echo()
+    click.echo("Registry synced.")
+
+
 @registry.command("validate")
 def registry_validate():
     """Validate registry.yaml structure."""

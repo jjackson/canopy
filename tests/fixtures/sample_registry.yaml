@@ -7,7 +7,7 @@ domains:
     servers:
       commcare-hq:
         description: "CommCare app structure"
-        repo: "~/emdash-projects/connect-labs"
+        repo: "/nonexistent/test-repo"
         repo_remote: "git@github.com:jjackson/connect-labs.git"
         mcp_path: "tools/commcare_mcp/"
         ownership: self
@@ -15,7 +15,7 @@ domains:
         local_config:
           command: "python"
           args: ["-m", "tools.commcare_mcp.server"]
-          cwd: "~/emdash-projects/connect-labs"
+          cwd: "/nonexistent/test-repo"
         answers:
           - "What forms does {app} have?"
           - "What questions are in {form}?"
@@ -31,7 +31,7 @@ domains:
 
       solicitations:
         description: "Manage solicitations"
-        repo: "~/emdash-projects/connect-labs"
+        repo: "/nonexistent/test-repo"
         repo_remote: "git@github.com:jjackson/connect-labs.git"
         mcp_path: "tools/commcare_mcp/"
         ownership: self
@@ -39,7 +39,7 @@ domains:
         local_config:
           command: "python"
           args: ["-m", "tools.commcare_mcp.server"]
-          cwd: "~/emdash-projects/connect-labs"
+          cwd: "/nonexistent/test-repo"
         answers:
           - "Create a solicitation for {program}"
           - "List active solicitations"
