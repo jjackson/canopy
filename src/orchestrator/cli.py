@@ -363,6 +363,48 @@ def brief(model, budget):
     ))
 
 
+@main.command("patterns")
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def patterns_cmd(as_json):
+    """Show cross-session friction patterns."""
+    import json as json_mod
+    from orchestrator.patterns import detect_patterns
+
+    state_dir = Path.home() / ".claude" / "orchestrator"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    obs_dir = state_dir / "observations"
+
+    results = detect_patterns(obs_dir)
+
+    if as_json:
+        click.echo(json_mod.dumps(results, indent=2, default=str))
+        return
+
+    if not results:
+        click.echo("No patterns detected. Run `canopy improve` to analyze sessions first.")
+        return
+
+    recurring = [p for p in results if p["type"] == "recurring_issue"]
+    hotspots = [p for p in results if p["type"] == "project_hotspot"]
+
+    if recurring:
+        click.echo("Recurring Issues:\n")
+        for p in recurring:
+            servers = ", ".join(p["related_servers"]) if p["related_servers"] else "general"
+            click.echo(f"  [{p['severity']}] {p['issue_type']} — {servers}")
+            click.echo(f"    Seen {p['total_frequency']}x across {p['unique_sessions']} sessions ({p['observation_count']} observations)")
+            for desc in p.get("descriptions", [])[:2]:
+                click.echo(f"    - {desc[:80]}")
+            click.echo()
+
+    if hotspots:
+        click.echo("Project Hotspots:\n")
+        for p in hotspots:
+            high = f" ({p['high_severity_count']} high)" if p["high_severity_count"] else ""
+            click.echo(f"  {p['server']}: {p['issue_count']} issues{high}")
+        click.echo()
+
+
 def _validate_proposals(proposals: list[dict], registry: dict) -> list[dict]:
     """Validate and fix proposals against the registry.
 
