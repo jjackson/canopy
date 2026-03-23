@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from orchestrator.analyzer import analyze_transcript
+from orchestrator.circuit_breaker import CircuitBreaker
 from orchestrator.implementer import run_implementation
 from orchestrator.observations import (
     create_observation,
@@ -20,9 +21,10 @@ from orchestrator.proposals import (
     update_proposal_status,
 )
 from orchestrator.proposer import generate_proposals
+from orchestrator.rate_limiter import RateLimiter
 from orchestrator.registry import load_registry, format_for_skill
 from orchestrator.run_log import create_run_entry, save_run, get_last_run_ts
-from orchestrator.transcripts import find_completed_transcripts
+from orchestrator.scanner import scan_all_transcripts
 
 
 @dataclass
@@ -35,6 +37,8 @@ class CycleConfig:
     analysis_budget: float = 0.50
     proposal_budget: float = 0.50
     implementation_budget: float = 2.00
+    max_failures: int = 3
+    max_calls_per_hour: int = 30
 
 
 def run_cycle(
@@ -49,34 +53,56 @@ def run_cycle(
     registry = load_registry(registry_path)
     registry_summary = format_for_skill(registry)
 
-    session_log = state_dir / "session-log.jsonl"
     obs_dir = state_dir / "observations"
     proposals_dir = state_dir / "proposals"
     runs_dir = state_dir / "runs"
 
-    # 1. Collect transcripts since last run
+    breaker = CircuitBreaker(max_failures=config.max_failures)
+    limiter = RateLimiter(max_calls_per_hour=config.max_calls_per_hour)
+
+    # 1. Collect transcripts via scanner (direct discovery)
+    projects_dir = Path.home() / ".claude" / "projects"
     last_ts = get_last_run_ts(runs_dir)
     processed = {
         s for r in (runs_dir.glob("run-*.yaml") if runs_dir.exists() else [])
         for s in _load_processed_sessions(r)
     }
 
-    transcripts = find_completed_transcripts(
-        session_log,
-        since_ts=last_ts,
-        processed=processed,
-    )[:config.max_transcripts]
+    all_transcripts = scan_all_transcripts(projects_dir)
+    transcripts = []
+    for t in all_transcripts:
+        sid = t["session_id"]
+        if sid in processed:
+            continue
+        transcripts.append(t)
+    transcripts = transcripts[:config.max_transcripts]
 
     # 2. Analyze each transcript
     all_new_observations = []
+    analyzed_count = 0
     for t in transcripts:
-        observations = analyze_transcript(
-            t["transcript_path"],
-            registry_summary,
-            model=config.model,
-            max_budget_usd=config.analysis_budget,
-        )
+        if breaker.is_open:
+            run["errors"].append(f"Circuit breaker open: {breaker.open_reason}")
+            break
+        if not limiter.can_proceed():
+            run["errors"].append(f"Rate limit reached: {limiter.summary()}")
+            break
+
+        limiter.record_call()
+        try:
+            observations = analyze_transcript(
+                Path(t["path"]),
+                registry_summary,
+                model=config.model,
+                max_budget_usd=config.analysis_budget,
+            )
+            breaker.record_success()
+        except Exception as e:
+            breaker.record_failure(f"Analysis error for {t['session_id']}: {e}")
+            observations = []
+
         run["processed_sessions"].append(t["session_id"])
+        analyzed_count += 1
 
         for obs_data in observations:
             obs = create_observation(
@@ -89,7 +115,7 @@ def run_cycle(
             )
             all_new_observations.append(obs)
 
-    run["transcripts_analyzed"] = len(transcripts)
+    run["transcripts_analyzed"] = analyzed_count
 
     # 3. Deduplicate against existing observations
     existing = list_observations(obs_dir, status="pending")
@@ -105,6 +131,8 @@ def run_cycle(
             run["observations_created"] = run.get("observations_created", 0) + 1
 
     if config.observe_only:
+        run["circuit_breaker_tripped"] = breaker.is_open
+        run["rate_limit_summary"] = limiter.summary()
         run["completed"] = datetime.now(timezone.utc).isoformat()
         save_run(run, runs_dir)
         return run
@@ -147,6 +175,8 @@ def run_cycle(
             run["proposals_generated"] = run.get("proposals_generated", 0) + 1
 
     if config.dry_run:
+        run["circuit_breaker_tripped"] = breaker.is_open
+        run["rate_limit_summary"] = limiter.summary()
         run["completed"] = datetime.now(timezone.utc).isoformat()
         save_run(run, runs_dir)
         return run
@@ -157,6 +187,13 @@ def run_cycle(
         if p["id"] in this_run_proposal_ids
     ]
     for proposal in pending_proposals:
+        if breaker.is_open:
+            run["errors"].append(f"Circuit breaker open: {breaker.open_reason}")
+            break
+        if not limiter.can_proceed():
+            run["errors"].append(f"Rate limit reached: {limiter.summary()}")
+            break
+        limiter.record_call()
         obs_id = proposal.get("observation_id", "")
         obs_path = obs_dir / f"{obs_id}.yaml"
         observation = load_observation(obs_path) if obs_path.exists() else {
@@ -174,6 +211,7 @@ def run_cycle(
         proposal_path = proposals_dir / f"{proposal['id']}.yaml"
         if result["success"]:
             update_proposal_status(proposal_path, "implemented")
+            breaker.record_success()
             if obs_path.exists():
                 obs = load_observation(obs_path)
                 if obs:
@@ -185,10 +223,13 @@ def run_cycle(
                 proposal_path, "failed",
                 reason=result.get("error", "Unknown error"),
             )
+            breaker.record_failure(result.get("error", "Unknown"))
             run["proposals_failed"] = run.get("proposals_failed", 0) + 1
             run["errors"].append(f"Proposal {proposal['id']}: {result.get('error', '')}")
 
     # 8. Report
+    run["circuit_breaker_tripped"] = breaker.is_open
+    run["rate_limit_summary"] = limiter.summary()
     run["completed"] = datetime.now(timezone.utc).isoformat()
     save_run(run, runs_dir)
     return run

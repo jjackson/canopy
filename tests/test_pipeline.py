@@ -4,6 +4,22 @@ import pytest
 from orchestrator.pipeline import run_cycle, CycleConfig
 
 
+SCANNER_ENTRY = {
+    "session_id": "s1",
+    "path": str(Path(__file__).parent / "fixtures" / "sample_transcript.jsonl"),
+    "project_key": "-test-project",
+    "lines": 100,
+    "user_msgs": 10,
+    "first_msg": "test",
+    "first_ts": "2026-03-20T10:00:00",
+    "last_ts": "2026-03-20T11:00:00",
+    "mcp_servers": [],
+    "mcp_call_count": 0,
+    "repo": None,
+    "label": {"quality": "unlabeled", "use_case_tags": [], "eval_candidate": False, "notes": ""},
+}
+
+
 class TestCycleConfig:
     def test_defaults(self):
         cfg = CycleConfig()
@@ -20,12 +36,20 @@ class TestCycleConfig:
         cfg = CycleConfig(dry_run=True)
         assert cfg.dry_run is True
 
+    def test_max_failures(self):
+        cfg = CycleConfig(max_failures=5)
+        assert cfg.max_failures == 5
+
+    def test_max_calls_per_hour(self):
+        cfg = CycleConfig(max_calls_per_hour=20)
+        assert cfg.max_calls_per_hour == 20
+
 
 class TestRunCycleNoData:
-    def test_no_transcripts_returns_run_with_zero_counts(self, tmp_path):
+    @patch("orchestrator.pipeline.scan_all_transcripts", return_value=[])
+    def test_no_transcripts_returns_run_with_zero_counts(self, mock_scan, tmp_path):
         state_dir = tmp_path / "orchestrator"
         state_dir.mkdir()
-        (state_dir / "session-log.jsonl").touch()
 
         result = run_cycle(
             state_dir=state_dir,
@@ -39,17 +63,12 @@ class TestRunCycleNoData:
 
 class TestRunCycleObserveOnly:
     @patch("orchestrator.pipeline.analyze_transcript")
-    @patch("orchestrator.pipeline.find_completed_transcripts")
-    def test_observe_only_skips_proposals(self, mock_find, mock_analyze, tmp_path):
+    @patch("orchestrator.pipeline.scan_all_transcripts")
+    def test_observe_only_skips_proposals(self, mock_scan, mock_analyze, tmp_path):
         state_dir = tmp_path / "orchestrator"
         state_dir.mkdir()
-        (state_dir / "session-log.jsonl").touch()
 
-        mock_find.return_value = [{
-            "session_id": "s1",
-            "project": "/test",
-            "transcript_path": Path(__file__).parent / "fixtures" / "sample_transcript.jsonl",
-        }]
+        mock_scan.return_value = [SCANNER_ENTRY]
         mock_analyze.return_value = [{
             "type": "gap",
             "description": "test gap",
@@ -72,17 +91,12 @@ class TestRunCycleObserveOnly:
 class TestRunCycleDryRun:
     @patch("orchestrator.pipeline.generate_proposals")
     @patch("orchestrator.pipeline.analyze_transcript")
-    @patch("orchestrator.pipeline.find_completed_transcripts")
-    def test_dry_run_skips_implementation(self, mock_find, mock_analyze, mock_propose, tmp_path):
+    @patch("orchestrator.pipeline.scan_all_transcripts")
+    def test_dry_run_skips_implementation(self, mock_scan, mock_analyze, mock_propose, tmp_path):
         state_dir = tmp_path / "orchestrator"
         state_dir.mkdir()
-        (state_dir / "session-log.jsonl").touch()
 
-        mock_find.return_value = [{
-            "session_id": "s1",
-            "project": "/test",
-            "transcript_path": Path(__file__).parent / "fixtures" / "sample_transcript.jsonl",
-        }]
+        mock_scan.return_value = [SCANNER_ENTRY]
         mock_analyze.return_value = [{
             "type": "gap",
             "description": "test",
@@ -108,3 +122,25 @@ class TestRunCycleDryRun:
         )
         assert result["proposals_generated"] == 1
         assert result["proposals_implemented"] == 0
+
+
+class TestRunCycleCircuitBreaker:
+    @patch("orchestrator.pipeline.analyze_transcript")
+    @patch("orchestrator.pipeline.scan_all_transcripts")
+    def test_stops_after_consecutive_failures(self, mock_scan, mock_analyze, tmp_path):
+        state_dir = tmp_path / "orchestrator"
+        state_dir.mkdir()
+
+        mock_scan.return_value = [
+            {**SCANNER_ENTRY, "session_id": f"s{i}"}
+            for i in range(5)
+        ]
+        mock_analyze.side_effect = RuntimeError("API error")
+
+        result = run_cycle(
+            state_dir=state_dir,
+            registry_path=Path(__file__).parent / "fixtures" / "sample_registry.yaml",
+            config=CycleConfig(observe_only=True, max_failures=3),
+        )
+        assert result.get("circuit_breaker_tripped") is True
+        assert len(result.get("errors", [])) > 0
