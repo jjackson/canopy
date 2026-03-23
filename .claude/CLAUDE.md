@@ -1,8 +1,9 @@
-# Canopy Orchestrator
+# Canopy
 
-Autonomous self-improving system that watches Claude Code sessions across all
-projects, identifies friction and gaps, and builds improvements — to MCP
-servers, skills, hooks, workflows, CLAUDE.md docs, or the orchestrator itself.
+Autonomous self-improving system and Claude Code plugin that watches Claude
+Code sessions across all projects, identifies friction and gaps, and builds
+improvements — to MCP servers, skills, hooks, workflows, CLAUDE.md docs, or
+the orchestrator itself.
 
 Converges with gstack and superpowers: invokes their skills headlessly via the
 skill runner for review, QA, and implementation quality.
@@ -34,15 +35,18 @@ cd ~/emdash-projects/canopy-orchestrator && git pull --rebase && git push
 - Subprocess invocation of `claude -p` for analysis, proposals, and implementation
 
 ## Commands
-- `orchestrator registry show [--format summary|skill|json]` — display loaded registry
-- `orchestrator registry sync` — scan repos for actual MCP tools and update registry
-- `orchestrator registry validate` — validate registry.yaml structure
-- `orchestrator sessions status` — show session log entry count and classification summary
-- `orchestrator improve` — run a full improvement cycle (analyze → propose → implement)
-- `orchestrator improve --observe-only` — analyze transcripts without proposing
-- `orchestrator improve --dry-run` — analyze and propose without implementing
-- `orchestrator serve` — start transcript browser web UI on localhost:8484
-- `orchestrator analyze <transcript.jsonl> [--propose]` — analyze a specific transcript
+- `canopy registry show [--format summary|skill|json]` — display loaded registry
+- `canopy registry sync` — scan repos for actual MCP tools and update registry
+- `canopy registry validate` — validate registry.yaml structure
+- `canopy sessions status` — show session log entry count and classification summary
+- `canopy sessions list [--hours N] [--json-output]` — list recent sessions
+- `canopy improve` — run a full improvement cycle (analyze → propose → implement)
+- `canopy improve --observe-only` — analyze transcripts without proposing
+- `canopy improve --dry-run` — analyze and propose without implementing
+- `canopy serve` — start transcript browser web UI on localhost:8484
+- `canopy analyze <transcript.jsonl> [--propose]` — analyze a specific transcript
+- `canopy brief [--model MODEL]` — generate strategic brief
+- `canopy patterns [--json-output]` — show cross-session friction patterns
 
 ## Key Modules
 
@@ -86,6 +90,12 @@ cd ~/emdash-projects/canopy-orchestrator && git pull --rebase && git push
 - `src/orchestrator/scheduler.py` — launchd plist generation
 - `src/orchestrator/circuit_breaker.py` — stops pipeline after consecutive failures
 - `src/orchestrator/rate_limiter.py` — caps API calls per hour
+
+### Plugin (Claude Code skills, commands, agents)
+- `plugins/canopy/skills/` — skill definitions (select-session, improve, brief, patterns, orchestrator, product-management, doc-regeneration)
+- `plugins/canopy/commands/` — slash commands (pm-scout, pm-status, doc-regen, improve, brief, patterns)
+- `plugins/canopy/agents/` — autonomous agents (pm-supervisor)
+- `.claude-plugin/marketplace.json` — plugin marketplace manifest
 
 ## Important: Hook Must Use Stdlib Only
 `hooks/post_tool_use.py` runs with system python3 which may not have PyYAML.
