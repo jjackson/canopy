@@ -247,7 +247,7 @@ def analyze_cmd(transcript, propose, model, budget):
     proposals_dir = state_dir / "proposals"
     click.echo(f"Generated {len(proposals_raw)} proposals:")
     click.echo()
-    for p_data in proposals_raw:
+    for i, p_data in enumerate(proposals_raw, 1):
         proposal = create_proposal(
             proposal_type=p_data.get("type", "new_tool"),
             action=p_data.get("action", ""),
@@ -260,9 +260,18 @@ def analyze_cmd(transcript, propose, model, budget):
         )
         save_proposal(proposal, proposals_dir)
         v = proposal.get("verification", {})
-        click.echo(f"  [{v.get('confidence', '?')}] {proposal['action'][:80]}")
+        target = p_data.get("target_system", "project")
+        confidence = v.get("confidence", "?")
+
+        click.echo(f"  {i}. [{confidence}] [{target}] {proposal['type']}")
+        click.echo(f"     {proposal['action']}")
+        click.echo(f"     Target: {proposal['target_repo']}")
+        click.echo(f"     Motivation: {proposal['motivation'][:120]}")
         if v.get("test_description"):
-            click.echo(f"       verify: {v['test_description'][:90]}")
+            click.echo(f"     Verify: {v['test_description']}")
+        if v.get("expected_outcome"):
+            click.echo(f"     Expected: {v['expected_outcome'][:120]}")
+        click.echo()
 
 
 @main.command("serve")
