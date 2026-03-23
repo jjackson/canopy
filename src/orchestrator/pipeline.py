@@ -3,8 +3,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+import yaml
+
 from orchestrator.analyzer import analyze_transcript
 from orchestrator.circuit_breaker import CircuitBreaker
+from orchestrator.registry_sync import sync_registry
 from orchestrator.implementer import run_implementation
 from orchestrator.observations import (
     create_observation,
@@ -49,6 +52,24 @@ def run_cycle(
     """Run one full improvement cycle. Returns the run log entry."""
     config = config or CycleConfig()
     run = create_run_entry()
+
+    # Step 0: Sync registry with actual MCP tools before anything else
+    # Only sync if repos exist (skip in tests with fixture registries)
+    try:
+        registry_check = yaml.safe_load(open(registry_path))
+        has_real_repos = any(
+            Path(s.get("repo", "")).expanduser().exists()
+            for d in (registry_check.get("domains") or {}).values()
+            for s in (d.get("servers") or {}).values()
+        )
+        if has_real_repos:
+            sync_summary = sync_registry(registry_path)
+            changes = {k: v for k, v in sync_summary.items()
+                       if isinstance(v, dict) and (v.get("added") or v.get("removed"))}
+            if changes:
+                run["registry_sync"] = changes
+    except Exception:
+        pass  # Registry sync is best-effort
 
     registry = load_registry(registry_path)
     registry_summary = format_for_skill(registry)
