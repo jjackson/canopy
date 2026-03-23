@@ -1,12 +1,12 @@
 ---
-description: Menu-driven session picker — select a project, browse session history, and analyze a chosen session
+description: Menu-driven session picker — select a project, browse history, analyze, propose fixes, and implement
 argument-hint: [hours]
-allowed-tools: [Read, Bash, AskUserQuestion]
+allowed-tools: [Read, Bash, Write, Edit, Agent, AskUserQuestion]
 ---
 
 # Select Session
 
-Browse and analyze recent Claude Code sessions interactively.
+Browse recent sessions, analyze friction, propose fixes, and implement improvements.
 
 ## Arguments
 
@@ -15,5 +15,4 @@ Browse and analyze recent Claude Code sessions interactively.
 ## Process
 
 1. Invoke the `select-session` skill
-2. Follow the interactive flow: project selection → session selection → analysis
-3. Display the analysis output
+2. Follow the interactive flow: select → analyze → propose → disposition → implement

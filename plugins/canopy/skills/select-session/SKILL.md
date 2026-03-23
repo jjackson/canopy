@@ -1,12 +1,12 @@
 ---
 name: select-session
-description: Menu-driven session picker — select a project, browse session history, and run the analyzer on a chosen session
-version: 0.1.0
+description: Menu-driven session picker — select a project, browse session history, analyze, and propose fixes
+version: 0.2.0
 ---
 
 # Select Session
 
-Interactive menu-driven flow to pick a session and analyze it.
+Interactive menu-driven flow to pick a session, analyze it, and propose improvements.
 
 ## Arguments
 
@@ -26,50 +26,99 @@ Parse the JSON output. If no sessions found, tell the user and suggest increasin
 
 ### Step 2: Project selection
 
-Group sessions by their `repo` field (fall back to `project_key` if repo is null).
+Group sessions by their `repo` field (fall back to `project_key` if repo is null). Sort by most recent activity.
 
-Present a numbered list of projects with session counts, sorted by most recent activity:
+Present using `AskUserQuestion` with projects as options. Include session count and most recent timestamp in each option's description.
 
+Example:
 ```
-Select a project:
-
-  1  jjackson/canopy-orchestrator    (5 sessions)
-  2  jjackson/connect-labs           (3 sessions)
-  3  dimagi/commcare-connect         (2 sessions)
-  4  jjackson/connect-search         (2 sessions)
+AskUserQuestion({
+  questions: [{
+    question: "Which project do you want to explore?",
+    header: "Project",
+    options: [
+      { label: "canopy-orchestrator", description: "5 sessions, latest: 03-23 15:08" },
+      { label: "connect-labs", description: "3 sessions, latest: 03-23 14:25" },
+      { label: "commcare-connect", description: "2 sessions, latest: 03-23 12:42" }
+    ],
+    multiSelect: false
+  }]
+})
 ```
 
-Wait for the user to pick a number.
+Limit to 4 options (the most recently active projects). If the user selects "Other", ask them to type the project name.
 
 ### Step 3: Session selection
 
-Show sessions for the chosen project, sorted newest-first:
+Show sessions for the chosen project, sorted newest-first.
 
+Present using `AskUserQuestion` with sessions as options. Use the truncated first message as the label and message count + date as the description.
+
+Example:
 ```
-jjackson/canopy-orchestrator — recent sessions:
-
-  1  [03-23 15:08]  "I would like a way to quickly navigate..."   (4 msgs)
-  2  [03-23 14:25]  "I think we are ready to test, is that..."    (88 msgs)
-  3  [03-23 14:17]  "What are my most recent connect-search..."   (2 msgs)
+AskUserQuestion({
+  questions: [{
+    question: "Which session?",
+    header: "Session",
+    options: [
+      { label: "I would like a way to quickly nav...", description: "4 msgs · 03-23 15:08" },
+      { label: "I think we are ready to test, is...", description: "88 msgs · 03-23 14:25" }
+    ],
+    multiSelect: false
+  }]
+})
 ```
 
-Wait for the user to pick a number.
+Truncate first_msg to 35 characters in the label. Limit to 4 options (most recent). If the user selects "Other", show the full list as text and ask them to pick by number.
 
-### Step 4: Analyze
+### Step 4: Analyze and propose
 
-Run the analyzer on the selected session's `path`:
+Run the analyzer with `--propose` to get both observations and implementation suggestions:
 
 ```bash
-uv run canopy analyze <PATH>
+uv run canopy analyze --propose <PATH>
 ```
 
-Show the output to the user.
+**Show the full output directly to the user** — do not summarize or hide it in a tool call. Present each observation with its severity, then each proposal with its implementation plan.
+
+### Step 5: Disposition
+
+After showing the analysis and proposals, present each proposal using `AskUserQuestion` so the user can decide what to do:
+
+```
+AskUserQuestion({
+  questions: [
+    {
+      question: "Proposal: <title>\n\n<what/why/how summary>\n\nWhat would you like to do?",
+      header: "<short label>",
+      options: [
+        { label: "Implement", description: "Fix this now" },
+        { label: "Backlog", description: "Good idea, not now" },
+        { label: "Skip", description: "Not worth doing" }
+      ],
+      multiSelect: false
+    }
+    // ... one per proposal, up to 4
+  ]
+})
+```
+
+### Step 6: Implement
+
+For any proposals the user marked "Implement":
+
+1. Identify the target repo from the session data
+2. Tell the user what will be implemented and in which repo
+3. Use `uv run canopy analyze` output as the implementation spec
+4. Create a branch, implement the fix, and verify
+
+If no proposals were marked for implementation, summarize what was backlogged/skipped and end.
 
 ## Rules
 
 - Always use `uv run` to invoke the orchestrator CLI
-- The working directory for commands is `~/emdash-projects/canopy-orchestrator` (or the current worktree)
-- If the user types `b` or `back`, go back to the previous menu
-- If the user types `q` or `quit`, exit the flow
-- Keep the menus clean and minimal — no extra decoration
-- Truncate first_msg to 45 characters in the session list
+- Use `AskUserQuestion` for all menu selections — do not present plain text menus
+- Show analysis and proposal output directly to the user, not hidden in tool results
+- The full flow is: select → analyze → propose → disposition → implement
+- If the user selects "Other" on any menu, handle gracefully
+- Keep labels short and descriptions informative
