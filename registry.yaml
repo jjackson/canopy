@@ -1,12 +1,12 @@
-version: 1
-updated: 2026-03-20
+version: 2
+updated: 2026-03-23
 
 domains:
   connect:
-    description: "CommCare Connect — worker management, programs, solicitations, payments"
+    description: "CommCare Connect — worker management, programs, solicitations, payments, document search"
     servers:
       connect-search:
-        description: "Search Connect project documents, program descriptions, opportunity details"
+        description: "Program management, Google Drive document search, access approval, and folder organization"
         repo: "~/emdash-projects/connect-search"
         repo_remote: "git@github.com:jjackson/connect-search.git"
         mcp_path: "mcp/"
@@ -17,22 +17,54 @@ domains:
           args: ["mcp/server.py"]
           cwd: "~/emdash-projects/connect-search"
           env:
-            CONNECT_SEARCH_BASE_URL: "http://localhost:8000"
-        http_endpoint: "/mcp/connect-search/"
+            CONNECT_SEARCH_BASE_URL: "http://localhost:8888"
         answers:
-          - "What programs exist for {topic}?"
-          - "Find project documents about {X}"
-          - "What opportunities are available for {worker type}?"
-          - "Search for information about {program name}"
+          - "What programs exist?"
+          - "Search Google Drive for documents about {topic}"
+          - "What documents are in {program}?"
+          - "Create a new program with a Drive folder"
+          - "Approve documents for AI reading"
+          - "Create a folder in Drive for {program}"
+          - "Share documents with {user}"
         tools:
-          - name: search_documents
-            description: "Full-text search across Connect project documents"
-            typical_use: "First step when exploring a program or topic"
-          - name: search_opportunities
-            description: "Search for opportunities by keyword, status, or program"
-            typical_use: "Finding specific work opportunities"
-        auth: connect-oauth
-        data_access: read-only
+          - name: list_programs
+            description: "List all programs"
+            typical_use: "Discovering available programs"
+          - name: get_program
+            description: "Get details of a specific program"
+            typical_use: "Looking up program config"
+          - name: search_drive
+            description: "Search Google Drive for documents matching a query within a program's folders"
+            typical_use: "Finding relevant documents for a program"
+          - name: list_documents
+            description: "List indexed documents for a program"
+            typical_use: "Browsing what's been indexed"
+          - name: add_document
+            description: "Add a Drive file to a program's document index"
+            typical_use: "Indexing a specific document"
+          - name: get_document_content
+            description: "Read the content of an approved document"
+            typical_use: "AI reading approved documents"
+          - name: approve_document
+            description: "Approve a document for AI reading (access approval gate)"
+            typical_use: "Human grants AI permission to read a specific doc"
+          - name: review_approved_documents
+            description: "Review all approved documents for a program"
+            typical_use: "AI reads approved docs to build understanding"
+          - name: share_documents
+            description: "Share documents with a user via Drive permissions"
+            typical_use: "Granting access to team members"
+          - name: organize_folder
+            description: "List contents of a Drive folder"
+            typical_use: "Browsing folder structure"
+          - name: create_folder
+            description: "Create a new folder in Google Drive"
+            typical_use: "Setting up program folder structure"
+          - name: preview_sheet
+            description: "Preview contents of a Google Sheet"
+            typical_use: "Quick look at spreadsheet data"
+        auth: google-oauth
+        data_access: read-write
 
       commcare-hq:
         description: "Understand CommCare app structure — forms, questions, case types, JSON data paths"
@@ -45,7 +77,6 @@ domains:
           command: "python"
           args: ["-m", "tools.commcare_mcp.server"]
           cwd: "~/emdash-projects/connect-labs"
-        http_endpoint: "/mcp/commcare-hq/"
         answers:
           - "What forms does {opportunity/app} have?"
           - "What questions are collected in {form}?"
@@ -71,6 +102,85 @@ domains:
         auth: commcare-api-key
         data_access: read-only
 
+      solicitations:
+        description: "Create and manage solicitations, reviews, funds for Connect opportunities"
+        repo: "~/emdash-projects/connect-labs"
+        repo_remote: "git@github.com:jjackson/connect-labs.git"
+        mcp_path: "tools/commcare_mcp/"
+        ownership: self
+        transport: stdio
+        local_config:
+          command: "python"
+          args: ["-m", "tools.commcare_mcp.server"]
+          cwd: "~/emdash-projects/connect-labs"
+        answers:
+          - "Create a solicitation for {program}"
+          - "What solicitations are active?"
+          - "Show responses to {solicitation}"
+          - "Award a response"
+          - "Manage funds for {program}"
+          - "Create a review for {solicitation}"
+        tools:
+          - name: list_solicitations
+            description: "List solicitations filtered by program, status, type"
+            typical_use: "Finding existing solicitations"
+          - name: get_solicitation
+            description: "Get full details of a specific solicitation"
+            typical_use: "Reviewing solicitation content"
+          - name: create_solicitation
+            description: "Create a new solicitation (EOI or RFP)"
+            typical_use: "End of a workflow — after gathering context"
+          - name: update_solicitation
+            description: "Modify an existing solicitation"
+            typical_use: "Iterating on solicitation content"
+          - name: list_responses
+            description: "List responses to a solicitation"
+            typical_use: "Reviewing applicant responses"
+          - name: get_response
+            description: "Get details of a specific response"
+            typical_use: "Evaluating individual applicants"
+          - name: award_response
+            description: "Award a solicitation response to a worker/org"
+            typical_use: "Completing the solicitation cycle"
+          - name: list_funds
+            description: "List funds available for programs"
+            typical_use: "Checking budget availability"
+          - name: get_fund
+            description: "Get fund details"
+            typical_use: "Reviewing fund allocation"
+          - name: create_fund
+            description: "Create a new fund"
+            typical_use: "Setting up program financing"
+          - name: update_fund
+            description: "Update fund details"
+            typical_use: "Adjusting allocations"
+          - name: add_fund_allocation
+            description: "Allocate funds to a program/opportunity"
+            typical_use: "Budgeting"
+          - name: remove_fund_allocation
+            description: "Remove a fund allocation"
+            typical_use: "Budget adjustment"
+          - name: list_reviews
+            description: "List reviews for solicitations"
+            typical_use: "Checking review status"
+          - name: get_review
+            description: "Get review details"
+            typical_use: "Reading review feedback"
+          - name: create_review
+            description: "Create a review for a solicitation response"
+            typical_use: "Evaluating responses"
+          - name: update_review
+            description: "Update a review"
+            typical_use: "Revising evaluation"
+          - name: read_google_sheet
+            description: "Read data from a Google Sheet by URL"
+            typical_use: "Pulling data from tracking spreadsheets"
+          - name: list_sheet_tabs
+            description: "List tabs in a Google Sheet"
+            typical_use: "Discovering sheet structure"
+        auth: connect-oauth
+        data_access: read-write
+
       scout-data:
         description: "Query actual form submission and case data via SQL — completion rates, worker activity, analytics"
         repo: "~/emdash-projects/scout-jjackson"
@@ -82,13 +192,14 @@ domains:
           command: "python"
           args: ["mcp_server/server.py"]
           cwd: "~/emdash-projects/scout-jjackson"
-        http_endpoint: "/mcp/scout/"
         answers:
           - "How many submissions were collected for {form/opportunity}?"
           - "What are completion rates for {opportunity}?"
           - "Show me worker activity for {program}"
           - "What does the data look like for {case type}?"
           - "Run analytics on {topic}"
+          - "What tables are available?"
+          - "Run a materialization pipeline"
         tools:
           - name: query
             description: "Execute read-only SQL against materialized CommCare data"
@@ -102,48 +213,26 @@ domains:
           - name: get_metadata
             description: "Full database schema including relationships"
             typical_use: "Understanding data model for complex queries"
+          - name: list_pipelines
+            description: "List materialization pipelines"
+            typical_use: "Checking data freshness"
+          - name: get_materialization_status
+            description: "Check status of a materialization run"
+            typical_use: "Monitoring data pipeline"
+          - name: run_materialization
+            description: "Trigger a materialization pipeline"
+            typical_use: "Refreshing data"
+          - name: cancel_materialization
+            description: "Cancel a running materialization"
+            typical_use: "Stopping a bad run"
+          - name: get_schema_status
+            description: "Check schema state"
+            typical_use: "Debugging schema issues"
+          - name: teardown_schema
+            description: "Tear down a schema (destructive)"
+            typical_use: "Resetting for re-materialization"
         auth: scout-api-key
         data_access: read-only
-
-      solicitations:
-        description: "Create and manage solicitations for Connect opportunities — EOIs, RFPs"
-        repo: "~/emdash-projects/connect-labs"
-        repo_remote: "git@github.com:jjackson/connect-labs.git"
-        mcp_path: "tools/commcare_mcp/"
-        ownership: self
-        transport: stdio
-        local_config:
-          command: "python"
-          args: ["-m", "tools.commcare_mcp.server"]
-          cwd: "~/emdash-projects/connect-labs"
-        http_endpoint: "/mcp/solicitations/"
-        answers:
-          - "Create a solicitation for {program}"
-          - "What solicitations are active?"
-          - "Update solicitation {X}"
-          - "Show responses to {solicitation}"
-          - "Draft an EOI for {opportunity}"
-        tools:
-          - name: list_solicitations
-            description: "List solicitations filtered by program, status, type"
-            typical_use: "Finding existing solicitations"
-          - name: get_solicitation
-            description: "Get full details of a specific solicitation"
-            typical_use: "Reviewing solicitation content"
-          - name: create_solicitation
-            description: "Create a new solicitation (EOI or RFP)"
-            typical_use: "End of a workflow — after gathering context from other tools"
-          - name: update_solicitation
-            description: "Modify an existing solicitation"
-            typical_use: "Iterating on solicitation content"
-          - name: list_responses
-            description: "List responses to a solicitation"
-            typical_use: "Reviewing applicant responses"
-          - name: get_response
-            description: "Get details of a specific response"
-            typical_use: "Evaluating individual applicants"
-        auth: connect-oauth
-        data_access: read-write
 
 workflows:
   create-solicitation:
@@ -167,4 +256,23 @@ workflows:
       - server: solicitations
         action: "Create the solicitation informed by all gathered context"
         purpose: "Build a solicitation that reflects actual program needs"
+    success_rate: null
+
+  onboard-program:
+    type: curated
+    description: "Set up a new Connect program with Drive folders and document indexing"
+    trigger_phrases:
+      - "set up a new program for {name}"
+      - "onboard {program} into Connect"
+      - "create program folders for {name}"
+    steps:
+      - server: connect-search
+        action: "Create the program record and Drive folder structure"
+        purpose: "Set up the program in the system"
+      - server: connect-search
+        action: "Search Drive for existing documents related to the program"
+        purpose: "Index relevant docs that already exist"
+      - server: connect-search
+        action: "Approve key documents for AI reading"
+        purpose: "Enable AI to read program context"
     success_rate: null
