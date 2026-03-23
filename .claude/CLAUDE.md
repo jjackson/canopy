@@ -101,5 +101,25 @@ cd ~/emdash-projects/canopy-orchestrator && git pull --rebase && git push
 `hooks/post_tool_use.py` runs with system python3 which may not have PyYAML.
 The repo map uses JSON (not YAML). Any hook code must use only stdlib modules.
 
+## Plugin Updates
+This repo is registered as a Claude Code plugin marketplace. Claude Code auto-syncs
+marketplace git repos on session start, so pushing to main automatically updates
+the plugin for all future sessions.
+
+To manually sync after pushing:
+```bash
+cd ~/.claude/plugins/marketplaces/canopy && git pull origin main
+```
+
+Then copy updated plugin to cache:
+```bash
+cp -r ~/.claude/plugins/marketplaces/canopy/plugins/canopy/* ~/.claude/plugins/cache/canopy/canopy/0.1.0/
+cp -r ~/.claude/plugins/marketplaces/canopy/plugins/canopy/.claude-plugin ~/.claude/plugins/cache/canopy/canopy/0.1.0/
+```
+
+Plugin registration files (do not edit unless re-registering):
+- `~/.claude/plugins/known_marketplaces.json` — marketplace entry pointing at git repo
+- `~/.claude/plugins/installed_plugins.json` — installed plugin entry with commit SHA
+
 ## Testing
-- `uv run pytest` from project root (411 tests)
+- `uv run pytest` from project root (420 tests)
