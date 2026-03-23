@@ -27,49 +27,52 @@ The internal Python module stays `src/orchestrator/` to avoid touching every imp
 
 ## Directory Structure
 
+Uses the marketplace pattern (Pattern A) matching the existing canopy-skills layout:
+
 ```
 canopy/
 ├── .claude-plugin/
-│   ├── marketplace.json
-│   └── plugins/
-│       └── canopy/
-│           ├── plugin.json
-│           ├── skills/
-│           │   ├── select-session/
-│           │   │   └── SKILL.md
-│           │   ├── product-management/
-│           │   │   ├── SKILL.md
-│           │   │   └── templates/
-│           │   │       ├── scout.md
-│           │   │       └── implement.md
-│           │   ├── doc-regeneration/
-│           │   │   └── SKILL.md
-│           │   ├── orchestrator/
-│           │   │   └── SKILL.md
-│           │   ├── improve/
-│           │   │   └── SKILL.md
-│           │   ├── brief/
-│           │   │   └── SKILL.md
-│           │   └── patterns/
-│           │   │   └── SKILL.md
-│           ├── commands/
-│           │   ├── pm-scout.md
-│           │   ├── pm-status.md
-│           │   ├── doc-regen.md
-│           │   ├── improve.md
-│           │   ├── brief.md
-│           │   └── patterns.md
-│           └── agents/
-│               └── pm-supervisor.md
-├── src/orchestrator/           # Python engine (unchanged)
-├── hooks/                      # Hooks (unchanged)
-├── registry.yaml               # Capability registry (unchanged)
-├── pyproject.toml              # Updated: name=canopy, entry point=canopy
+│   └── marketplace.json            # marketplace root — points to plugins/canopy/
+├── plugins/
+│   └── canopy/
+│       ├── .claude-plugin/
+│       │   └── plugin.json         # plugin metadata
+│       ├── skills/
+│       │   ├── select-session/
+│       │   │   └── SKILL.md
+│       │   ├── product-management/
+│       │   │   ├── SKILL.md
+│       │   │   └── templates/
+│       │   │       ├── scout.md
+│       │   │       └── implement.md
+│       │   ├── doc-regeneration/
+│       │   │   └── SKILL.md
+│       │   ├── orchestrator/
+│       │   │   └── SKILL.md
+│       │   ├── improve/
+│       │   │   └── SKILL.md
+│       │   ├── brief/
+│       │   │   └── SKILL.md
+│       │   └── patterns/
+│       │       └── SKILL.md
+│       ├── commands/
+│       │   ├── pm-scout.md
+│       │   ├── pm-status.md
+│       │   ├── doc-regen.md
+│       │   ├── improve.md
+│       │   ├── brief.md
+│       │   └── patterns.md
+│       └── agents/
+│           └── pm-supervisor.md
+├── src/orchestrator/               # Python engine (unchanged)
+├── hooks/                          # Hooks (unchanged)
+├── registry.yaml                   # Capability registry (unchanged)
+├── pyproject.toml                  # Updated: name=canopy, entry point=canopy
 ├── docs/
 └── tests/
 ```
 
-The old `skills/` directory at repo root is deleted — all skills live under `.claude-plugin/`.
+The old `skills/` directory at repo root is deleted — all skills live under `plugins/canopy/`.
 
 ## Skill Surface
 
@@ -203,48 +206,61 @@ Remove old `orchestrator` entry point.
 
 ## Migration Steps
 
-### 1. Plugin scaffolding
-- Create `.claude-plugin/marketplace.json` and `.claude-plugin/plugins/canopy/plugin.json`
-- Point marketplace at this repo
+### 1. Rename package
+- Update pyproject.toml: name → `canopy`, entry point → `canopy`
+- Update cli.py docstring: "Orchestrator" → "Canopy"
+- This goes first so all subsequent content can reference `canopy` CLI immediately
 
-### 2. Move canopy-skills content
-- Copy skills, commands, agents, templates from canopy-skills into `.claude-plugin/plugins/canopy/`
-- Update all references: `orchestrator` → `canopy` CLI
+### 2. Plugin scaffolding
+- Create `.claude-plugin/marketplace.json` at repo root
+- Create `plugins/canopy/.claude-plugin/plugin.json`
+- Follows Pattern A (marketplace pattern) matching existing canopy-skills layout
 
-### 3. Move repo-local skills
-- Move `skills/orchestrator/` and `skills/select-session/` into `.claude-plugin/plugins/canopy/skills/`
+### 3. Move canopy-skills content
+- Copy skills, commands, agents, templates from `~/.claude/plugins/marketplaces/canopy-skills/plugins/canopy/` into `plugins/canopy/`
+- Update all references: `uv run orchestrator` → `uv run canopy`
+- Update all working directory refs: `~/emdash-projects/canopy-orchestrator` → `~/emdash-projects/canopy`
+
+### 4. Move repo-local skills
+- Move `skills/orchestrator/` and `skills/select-session/` into `plugins/canopy/skills/`
+- Update their `uv run orchestrator` references to `uv run canopy`
 - Delete old `skills/` directory
 
-### 4. Create new skills
-- Write `improve/SKILL.md`, `brief/SKILL.md`, `patterns/SKILL.md`
-- Write `commands/improve.md`, `commands/brief.md`, `commands/patterns.md`
+### 5. Create new skills + commands
+- Write `plugins/canopy/skills/improve/SKILL.md`, `brief/SKILL.md`, `patterns/SKILL.md`
+- Write `plugins/canopy/commands/improve.md`, `brief.md`, `patterns.md`
 
-### 5. Add new CLI commands
-- Add `canopy brief` command to cli.py (wraps briefing.py)
-- Add `canopy patterns` command to cli.py (wraps patterns.py)
+### 6. Add new CLI commands
+- Add `canopy brief` command to cli.py (wraps `briefing.generate_brief()`)
+- Add `canopy patterns` command to cli.py (wraps `patterns.detect_patterns()`)
+- Add tests for both new commands
 
-### 6. Rename package
-- Update pyproject.toml: name → canopy, entry point → canopy
-- Update CLAUDE.md references
-- Update skill references from `uv run orchestrator` to `uv run canopy`
+### 7. Update CLAUDE.md
+- Rename all `orchestrator` CLI references to `canopy`
+- Update repo description and commands section
 
-### 7. Plugin registration
+### 8. Plugin registration
 - Uninstall old: `claude plugin uninstall canopy@canopy-skills`
-- Register new marketplace: point at `jjackson/canopy` (or local path)
+- Register new marketplace pointing at `jjackson/canopy` (or local path during dev)
 - Install: `claude plugin install canopy@canopy`
+- Plugin identifier changes from `canopy@canopy-skills` to `canopy@canopy`
 
-### 8. Verify
-- Run `uv run pytest` — all 411 tests pass
-- Verify `canopy` CLI works
-- Start new Claude Code session, verify all skills appear
+### 9. Verify
+- Run `uv run pytest` — all tests pass
+- Verify `canopy` CLI works: `uv run canopy --help`
+- Start new Claude Code session, verify all skills appear in `/` autocomplete
 - Test `/select-session`, `/improve`, `/brief`, `/patterns`
 
-### 9. Cleanup
-- Archive `jjackson/canopy-skills` repo
-- Remove select-session copy from old canopy-skills plugin cache
+### 10. Cleanup
+- Archive `jjackson/canopy-skills` repo on GitHub
+- Remove select-session copy from old canopy-skills plugin cache at `~/.claude/plugins/marketplaces/canopy-skills/`
+
+## Path during transition
+
+Until the GitHub repo is renamed, the working directory remains `~/emdash-projects/canopy-orchestrator`. Skills should reference the canopy CLI command (`uv run canopy`) which works regardless of directory name. After the GitHub rename, emdash worktrees will use the new name. Update skill working directory references at that point.
 
 ## What's NOT in scope
 
 - Renaming Python module `src/orchestrator/` → `src/canopy/` (separate task, touches every import)
-- GitHub repo rename via API (manual step — do after merge)
+- GitHub repo rename via API (manual step — do after merge, then update skill working dir refs)
 - New skills beyond improve/brief/patterns (add later as needed)
