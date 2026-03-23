@@ -120,6 +120,47 @@ def sessions():
     """Session log commands."""
 
 
+@sessions.command("list")
+@click.option("--hours", default=24, type=int, help="Only show sessions with activity in the last N hours")
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON (for skill consumption)")
+def sessions_list(hours, as_json):
+    """List recent sessions grouped by project."""
+    import json as json_mod
+    from datetime import datetime, timezone, timedelta
+
+    from orchestrator.scanner import scan_all_transcripts
+    from orchestrator.repo_map import load_repo_map
+    from orchestrator.labels import load_labels
+
+    projects_dir = Path.home() / ".claude" / "projects"
+    state_dir = Path.home() / ".claude" / "orchestrator"
+    repo_map = load_repo_map(state_dir / "repo-map.json")
+    labels = load_labels(state_dir / "labels.yaml")
+
+    all_sessions = scan_all_transcripts(projects_dir, repo_map, labels)
+
+    # Filter by recency
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    cutoff_iso = cutoff.isoformat()
+    recent = [s for s in all_sessions if s.get("last_ts") and s["last_ts"] >= cutoff_iso]
+    recent.sort(key=lambda s: s["last_ts"], reverse=True)
+
+    if as_json:
+        click.echo(json_mod.dumps(recent, indent=2, default=str))
+        return
+
+    if not recent:
+        click.echo(f"No sessions with activity in the last {hours} hours.")
+        return
+
+    click.echo(f"Sessions with activity in the last {hours} hours:\n")
+    for i, s in enumerate(recent, 1):
+        project = s.get("repo") or s["project_key"]
+        ts = s["last_ts"][:16].replace("T", " ")
+        msg = s["first_msg"][:50] + ("..." if len(s["first_msg"]) > 50 else "")
+        click.echo(f"  {i:>3}  [{ts}]  {project:<30}  \"{msg}\"  ({s['user_msgs']} msgs)")
+
+
 @sessions.command("status")
 def sessions_status():
     """Show session log status."""
