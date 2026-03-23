@@ -3,6 +3,27 @@
 Self-improving MCP orchestration system. Composes MCP servers across projects,
 learns from usage patterns, and auto-evolves tools via autoresearch.
 
+## Git Worktree Rules
+This repo uses emdash which manages git worktrees. If you are in a worktree
+(check: `git rev-parse --git-dir` contains `/worktrees/`), then `main` is
+checked out in the main repo at `~/emdash-projects/canopy-orchestrator/`.
+You CANNOT `git checkout main` from a worktree — it will fail.
+
+To merge to main:
+```bash
+cd ~/emdash-projects/canopy-orchestrator && git merge <branch-name> && git push
+```
+
+If that fails with local changes, stash first:
+```bash
+cd ~/emdash-projects/canopy-orchestrator && git stash && git merge <branch-name> && git push
+```
+
+If remote is ahead, pull first:
+```bash
+cd ~/emdash-projects/canopy-orchestrator && git pull --rebase && git push
+```
+
 ## Tech Stack
 - Python 3.11+, PyYAML, Click
 - Claude Code hooks and skills
