@@ -1,7 +1,11 @@
 # Canopy Orchestrator
 
-Self-improving MCP orchestration system. Composes MCP servers across projects,
-learns from usage patterns, and auto-evolves tools via autoresearch.
+Autonomous self-improving system that watches Claude Code sessions across all
+projects, identifies friction and gaps, and builds improvements — to MCP
+servers, skills, hooks, workflows, CLAUDE.md docs, or the orchestrator itself.
+
+Converges with gstack and superpowers: invokes their skills headlessly via the
+skill runner for review, QA, and implementation quality.
 
 ## Git Worktree Rules
 This repo uses emdash which manages git worktrees. If you are in a worktree
@@ -27,9 +31,11 @@ cd ~/emdash-projects/canopy-orchestrator && git pull --rebase && git push
 ## Tech Stack
 - Python 3.11+, PyYAML, Click
 - Claude Code hooks and skills
+- Subprocess invocation of `claude -p` for analysis, proposals, and implementation
 
 ## Commands
 - `orchestrator registry show [--format summary|skill|json]` — display loaded registry
+- `orchestrator registry sync` — scan repos for actual MCP tools and update registry
 - `orchestrator registry validate` — validate registry.yaml structure
 - `orchestrator sessions status` — show session log entry count and classification summary
 - `orchestrator improve` — run a full improvement cycle (analyze → propose → implement)
@@ -38,34 +44,52 @@ cd ~/emdash-projects/canopy-orchestrator && git pull --rebase && git push
 - `orchestrator serve` — start transcript browser web UI on localhost:8484
 - `orchestrator analyze <transcript.jsonl> [--propose]` — analyze a specific transcript
 
-## Key Files
-- `registry.yaml` — capability registry mapping MCP servers to their tools
-- `src/orchestrator/registry.py` — registry loader and validator
-- `src/orchestrator/capture.py` — session log writer (PostToolUse hook logic)
-- `src/orchestrator/transcripts.py` — Claude Code transcript discovery and parsing
-- `src/orchestrator/observations.py` — observation data model (friction, gaps, patterns)
-- `src/orchestrator/proposals.py` — improvement proposal data model
+## Key Modules
+
+### Core pipeline
+- `src/orchestrator/pipeline.py` — full improvement cycle (scanner discovery, circuit breaker, rate limiter)
 - `src/orchestrator/analyzer.py` — transcript analysis via claude -p
 - `src/orchestrator/proposer.py` — proposal generation via claude -p
 - `src/orchestrator/implementer.py` — implementation via claude -p in target repos
-- `src/orchestrator/pipeline.py` — full improvement cycle orchestration (scanner-based discovery, circuit breaker, rate limiter)
-- `src/orchestrator/skill_runner.py` — headless skill invocation (any plugin: gstack, superpowers, etc.)
-- `src/orchestrator/circuit_breaker.py` — stops pipeline after consecutive failures
-- `src/orchestrator/rate_limiter.py` — caps API calls per hour
+- `src/orchestrator/skill_runner.py` — headless invocation of any Claude Code skill
+
+### Data models
+- `src/orchestrator/observations.py` — friction, gaps, patterns extracted from sessions
+- `src/orchestrator/proposals.py` — improvement proposals with verification plans
+- `src/orchestrator/campaigns.py` — multi-day improvement arcs
+- `src/orchestrator/tracker.py` — proposal outcome tracking for self-improvement
+
+### Intelligence
 - `src/orchestrator/patterns.py` — cross-session pattern detection
 - `src/orchestrator/briefing.py` — strategic brief with gstack cognitive patterns
-- `src/orchestrator/tracker.py` — self-improvement tracking (proposal outcomes)
 - `src/orchestrator/router.py` — tiered routing (inline/single/team)
-- `src/orchestrator/campaigns.py` — campaign persistence for multi-day improvement arcs
-- `src/orchestrator/scheduler.py` — persistent scheduling via launchd
-- `src/orchestrator/server.py` — HTTP server for transcript browser
+
+### Registry & discovery
+- `registry.yaml` — capability registry mapping servers to tools (auto-synced)
+- `src/orchestrator/registry.py` — registry loader and validator
+- `src/orchestrator/registry_sync.py` — scans @mcp.tool decorators from repos to keep registry accurate
 - `src/orchestrator/scanner.py` — transcript discovery and metadata extraction
+- `src/orchestrator/transcripts.py` — Claude Code transcript parsing
+- `src/orchestrator/repo_map.py` — project-to-GitHub-repo mapping (JSON, stdlib only)
+
+### Capture & hooks
+- `hooks/post_tool_use.py` — captures repo mapping on every tool call, logs MCP calls
+- `src/orchestrator/capture.py` — session log writer
+
+### Browser UI (visibility tool, not primary interface)
+- `src/orchestrator/server.py` — HTTP server with JSON API
+- `src/orchestrator/static/index.html` — SPA frontend
 - `src/orchestrator/labels.py` — transcript label storage
-- `src/orchestrator/repo_map.py` — project-to-GitHub-repo mapping
 - `src/orchestrator/reviewer.py` — AI strategic review via claude -p
-- `src/orchestrator/static/index.html` — transcript browser frontend
-- `hooks/post_tool_use.py` — Claude Code hook for session capture
-- `skills/orchestrator/SKILL.md` — Claude Code skill for cross-project routing
+
+### Scheduling
+- `src/orchestrator/scheduler.py` — launchd plist generation
+- `src/orchestrator/circuit_breaker.py` — stops pipeline after consecutive failures
+- `src/orchestrator/rate_limiter.py` — caps API calls per hour
+
+## Important: Hook Must Use Stdlib Only
+`hooks/post_tool_use.py` runs with system python3 which may not have PyYAML.
+The repo map uses JSON (not YAML). Any hook code must use only stdlib modules.
 
 ## Testing
-- `pytest` from project root
+- `uv run pytest` from project root (411 tests)
