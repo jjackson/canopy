@@ -31,6 +31,10 @@ learns from usage patterns, and auto-evolves tools via autoresearch.
 - `src/orchestrator/skill_runner.py` — headless skill invocation (any plugin: gstack, superpowers, etc.)
 - `src/orchestrator/circuit_breaker.py` — stops pipeline after consecutive failures
 - `src/orchestrator/rate_limiter.py` — caps API calls per hour
+- `src/orchestrator/patterns.py` — cross-session pattern detection
+- `src/orchestrator/briefing.py` — strategic brief with gstack cognitive patterns
+- `src/orchestrator/tracker.py` — self-improvement tracking (proposal outcomes)
+- `src/orchestrator/router.py` — tiered routing (inline/single/team)
 - `src/orchestrator/server.py` — HTTP server for transcript browser
 - `src/orchestrator/scanner.py` — transcript discovery and metadata extraction
 - `src/orchestrator/labels.py` — transcript label storage
