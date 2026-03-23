@@ -18,7 +18,7 @@ from orchestrator.reviewer import load_review
 def get_transcripts(projects_dir: Path, state_dir: Path) -> list[dict]:
     """Get all transcripts with labels and repo mapping."""
     labels = load_labels(state_dir / "labels.yaml")
-    repo_map = load_repo_map(state_dir / "repo-map.yaml")
+    repo_map = load_repo_map(state_dir / "repo-map.json")
     return scan_all_transcripts(projects_dir, repo_map=repo_map, labels=labels)
 
 
@@ -99,7 +99,7 @@ def create_app(
                 project_key = path.split("/")[-1]
                 data = self._read_body()
                 save_repo_mapping(
-                    state_dir / "repo-map.yaml",
+                    state_dir / "repo-map.json",
                     project_key,
                     data.get("repo", ""),
                 )

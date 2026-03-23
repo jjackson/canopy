@@ -27,31 +27,31 @@ class TestExtractRepoFromGitUrl:
 
 class TestLoadRepoMap:
     def test_missing_file_returns_empty(self, tmp_path):
-        assert load_repo_map(tmp_path / "repo-map.yaml") == {}
+        assert load_repo_map(tmp_path / "repo-map.json") == {}
 
     def test_returns_dict(self, tmp_path):
-        assert isinstance(load_repo_map(tmp_path / "repo-map.yaml"), dict)
+        assert isinstance(load_repo_map(tmp_path / "repo-map.json"), dict)
 
 
 class TestSaveAndGet:
     def test_save_creates_file(self, tmp_path):
-        path = tmp_path / "repo-map.yaml"
+        path = tmp_path / "repo-map.json"
         save_repo_mapping(path, "-Users-jjackson-project", "jjackson/my-repo")
         assert path.exists()
 
     def test_round_trip(self, tmp_path):
-        path = tmp_path / "repo-map.yaml"
+        path = tmp_path / "repo-map.json"
         save_repo_mapping(path, "-Users-jjackson-project", "jjackson/my-repo")
         repo_map = load_repo_map(path)
         assert get_repo_for_project(repo_map, "-Users-jjackson-project") == "jjackson/my-repo"
 
     def test_unknown_project_returns_none(self, tmp_path):
-        path = tmp_path / "repo-map.yaml"
+        path = tmp_path / "repo-map.json"
         repo_map = load_repo_map(path)
         assert get_repo_for_project(repo_map, "unknown") is None
 
     def test_multiple_mappings(self, tmp_path):
-        path = tmp_path / "repo-map.yaml"
+        path = tmp_path / "repo-map.json"
         save_repo_mapping(path, "proj-a", "owner/repo-a")
         save_repo_mapping(path, "proj-b", "owner/repo-b")
         repo_map = load_repo_map(path)

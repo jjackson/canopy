@@ -14,16 +14,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 LOG_FILE = Path.home() / ".claude" / "orchestrator" / "session-log.jsonl"
-REPO_MAP_FILE = Path.home() / ".claude" / "orchestrator" / "repo-map.yaml"
+REPO_MAP_FILE = Path.home() / ".claude" / "orchestrator" / "repo-map.json"
 
 
 def maybe_capture_repo(project_dir: str):
-    """Capture git remote -> repo mapping if not already known."""
+    """Capture git remote -> repo mapping if not already known.
+
+    Uses JSON (stdlib) instead of YAML to avoid dependency issues —
+    the hook must work with any system Python.
+    """
     import subprocess
-    try:
-        import yaml
-    except ImportError:
-        return
+    import re
 
     project_key = "-" + project_dir.lstrip("/").replace("/", "-")
 
@@ -32,9 +33,9 @@ def maybe_capture_repo(project_dir: str):
     if REPO_MAP_FILE.exists():
         try:
             with open(REPO_MAP_FILE) as f:
-                repo_map = yaml.safe_load(f) or {}
+                repo_map = json.load(f)
         except Exception:
-            return
+            repo_map = {}
 
     if project_key in repo_map:
         return
@@ -52,7 +53,6 @@ def maybe_capture_repo(project_dir: str):
         return
 
     # Extract owner/repo
-    import re
     match = re.search(r"github\.com[:/]([^/]+/[^/\s]+?)(?:\.git)?$", url)
     if not match:
         return
@@ -60,7 +60,7 @@ def maybe_capture_repo(project_dir: str):
     repo_map[project_key] = match.group(1)
     REPO_MAP_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(REPO_MAP_FILE, "w") as f:
-        yaml.dump(repo_map, f, default_flow_style=False, sort_keys=False)
+        json.dump(repo_map, f, indent=2)
 
 try:
     from orchestrator.capture import append_log_entry
