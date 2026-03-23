@@ -16,9 +16,15 @@ Output a YAML list where each proposal has:
 
 - `type`: one of `new_tool`, `new_server`, `tool_improvement`, `new_skill`,
   `new_workflow`, `hook_improvement`, `registry_update`
+- `target_system`: one of:
+  - `canopy` — change to the orchestrator itself (registry, prompts, pipeline)
+  - `project` — change to a target project's MCP server code
+  - `skill` — new or updated Claude Code skill
+  - `hook` — new or updated Claude Code hook
 - `action`: what to do (be specific — name the tool, describe the feature)
 - `target_repo`: the repo path to modify (from the registry, e.g.,
-  `~/emdash-projects/connect-labs`)
+  `~/emdash-projects/connect-labs`). For canopy changes use
+  `~/emdash-projects/canopy-orchestrator`. For skills use `~/.claude/skills/`.
 - `ownership`: `self`, `team`, or `external` (from the registry)
 - `motivation`: why this is needed (reference the observation)
 - `observation_id`: the ID of the observation this addresses
