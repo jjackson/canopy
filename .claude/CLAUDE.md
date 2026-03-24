@@ -101,12 +101,14 @@ cd ~/emdash-projects/canopy-orchestrator && git pull --rebase && git push
 `hooks/post_tool_use.py` runs with system python3 which may not have PyYAML.
 The repo map uses JSON (not YAML). Any hook code must use only stdlib modules.
 
-## Plugin Updates
-This repo is a Claude Code plugin marketplace. Claude Code auto-syncs marketplace
-git repos on session start, detecting version changes in `plugin.json` to trigger
-re-installation into a fresh cache directory.
+## Plugin Updates — NEVER locally patch
 
-### Update workflow
+**CRITICAL: Never directly copy, rsync, or write files into `~/.claude/plugins/cache/`
+or edit `~/.claude/plugins/installed_plugins.json` by hand.** This is "local patching"
+and it bypasses the plugin system, creates version mismatches, and makes bugs hard to
+diagnose. If you feel the urge to locally patch, STOP — use `/canopy:update` instead.
+
+### Update workflow (the ONLY way to update)
 1. Make changes to skills, commands, or agents in `plugins/canopy/`
 2. Bump the **patch version** in `plugins/canopy/.claude-plugin/plugin.json` (e.g. `0.2.1` → `0.2.2`)
 3. Commit, merge to main, push:
@@ -115,12 +117,11 @@ re-installation into a fresh cache directory.
    git add -A && git commit -m "feat/fix: description"
    cd ~/emdash-projects/canopy && git merge <branch> && git push
    ```
-4. New sessions auto-detect the version bump and re-install from the marketplace repo
-5. For the **current session**, use `/reload-plugins` to pick up changes
+4. Run `/canopy:update` — this pulls from GitHub, creates a new cache dir, and updates
+   `installed_plugins.json` (the update skill handles all of this)
+5. Run `/reload-plugins` to activate the new version in the current session
 
-**Do NOT manually copy files into `~/.claude/plugins/cache/`** — that bypasses
-the plugin system and creates version mismatches. Always publish via git push
-and let Claude Code handle installation.
+New sessions auto-detect the version bump on startup — no manual steps needed.
 
 ### How it works
 - `~/.claude/plugins/known_marketplaces.json` — marketplace entry pointing at this git repo
@@ -128,6 +129,8 @@ and let Claude Code handle installation.
 - Cache dir is keyed by version: `~/.claude/plugins/cache/canopy/canopy/<version>/`
 - On session start, Claude Code pulls the marketplace repo and compares `plugin.json` version
   against the installed version — if different, it re-installs
+- `/reload-plugins` only reloads skills from the existing cache — it does NOT detect
+  version changes or re-install. That's why `/canopy:update` must run first.
 
 ## Testing
 - `uv run pytest` from project root (420 tests)
