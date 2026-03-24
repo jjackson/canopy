@@ -4,8 +4,9 @@
 # If Chrome is running without debugging, gracefully restarts it.
 #
 # KEY INSIGHT: Newer Chrome on macOS requires --user-data-dir to be
-# a non-default path for --remote-debugging-port to work. We copy the
-# real profile on first setup so tabs, extensions, and cookies carry over.
+# a non-default path for --remote-debugging-port to work. We rsync the
+# real profile every time (one-way) so tabs, extensions, and cookies
+# carry over. The real profile is never modified.
 
 PORT="${1:-9222}"
 DEBUG_PROFILE="$HOME/.chrome-debug-profile"
@@ -69,19 +70,33 @@ else
     echo "Chrome is not running. Starting with debugging on port $PORT..."
 fi
 
-# Set up the debug profile (one-time: copy from real Chrome profile)
+# Sync the real Chrome profile → debug profile (one-way, every time).
 # Chrome requires a non-default --user-data-dir for remote debugging to work.
+# We rsync the real profile so tabs, extensions, cookies, and logins carry over.
+# Excludes heavy cache dirs that aren't needed for tabs/auth.
 REAL_PROFILE="$HOME/Library/Application Support/Google/Chrome"
-if [ ! -d "$DEBUG_PROFILE" ]; then
-    if [ -d "$REAL_PROFILE" ]; then
-        echo "  First-time setup: copying Chrome profile to debug profile..."
-        echo "  (This may take a moment)"
-        cp -R "$REAL_PROFILE" "$DEBUG_PROFILE"
-        echo "  Debug profile created at $DEBUG_PROFILE"
-    else
-        echo "  Creating fresh debug profile..."
-        mkdir -p "$DEBUG_PROFILE"
-    fi
+if [ -d "$REAL_PROFILE" ]; then
+    echo "  Syncing Chrome profile to debug profile..."
+    mkdir -p "$DEBUG_PROFILE"
+    rsync -a --delete \
+        --exclude='Cache/' \
+        --exclude='Code Cache/' \
+        --exclude='GPUCache/' \
+        --exclude='GrShaderCache/' \
+        --exclude='ShaderCache/' \
+        --exclude='Service Worker/CacheStorage/' \
+        --exclude='DawnCache/' \
+        --exclude='component_crx_cache/' \
+        --exclude='BrowserMetrics/' \
+        --exclude='Crashpad/' \
+        --exclude='SingletonLock' \
+        --exclude='SingletonCookie' \
+        --exclude='SingletonSocket' \
+        "$REAL_PROFILE/" "$DEBUG_PROFILE/"
+    echo "  Profile synced."
+else
+    echo "  No Chrome profile found, creating fresh debug profile..."
+    mkdir -p "$DEBUG_PROFILE"
 fi
 
 # Launch Chrome with debugging.
