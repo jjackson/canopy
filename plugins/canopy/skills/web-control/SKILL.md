@@ -1,6 +1,6 @@
 ---
 name: web-control
-description: Connect to the user's running Chrome browser via CDP to see what they're working on — list tabs, take screenshots, read page content. Does NOT launch a new browser.
+description: Connect to the user's running Chrome browser via CDP to see what they're working on — take screenshots, read page content. Does NOT launch a new browser.
 version: 0.1.0
 ---
 
@@ -62,16 +62,7 @@ python3 CANOPY_REPO/scripts/web-control.py status
 
 Shows browser version and confirms CDP is reachable.
 
-### 3. List Tabs
-
-```bash
-python3 CANOPY_REPO/scripts/web-control.py tabs
-```
-
-Shows all open tabs with index numbers and URLs. Use these indices
-for screenshot and content commands.
-
-### 4. Screenshot a Tab
+### 3. Screenshot a Tab
 
 ```bash
 # Screenshot the active tab (index 0)
@@ -94,7 +85,7 @@ Default output: `/tmp/web-control-screenshot.png`
 
 After taking a screenshot, **read the image file** with the Read tool to see it.
 
-### 5. Read Page Content
+### 4. Read Page Content
 
 ```bash
 # Content of active tab
@@ -114,10 +105,9 @@ Returns the visible text content of the page (scripts/styles stripped).
 ```
 1. status          → is CDP already active?
 2. enable          → (only if status failed) restart Chrome with CDP
-3. tabs            → see what's open
-4. screenshot N    → capture what user is looking at
-5. Read screenshot → view the image
-6. content N       → get text if needed
+3. screenshot      → capture what user is looking at
+4. Read screenshot → view the image
+5. content         → get text if needed
 ```
 
 ## Important Notes

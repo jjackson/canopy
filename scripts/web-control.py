@@ -11,7 +11,6 @@ Prerequisites:
 
 Usage:
   web-control.py status              — check if CDP is available
-  web-control.py tabs                — list all open tabs
   web-control.py screenshot [INDEX]  — screenshot a tab (default: active)
   web-control.py screenshot --url URL — screenshot tab matching URL
   web-control.py content [INDEX]     — get text content of a tab
@@ -63,27 +62,6 @@ def cmd_status(args):
         print(f"  WebSocket: {ws}")
     return 0
 
-
-def cmd_tabs(args):
-    """List all open tabs."""
-    tabs = cdp_get("/json", args.port)
-    if tabs is None:
-        print(f"CDP not available on port {args.port}")
-        return 1
-
-    pages = [t for t in tabs if t.get("type") == "page"]
-    if not pages:
-        print("No tabs open")
-        return 0
-
-    for i, tab in enumerate(pages):
-        title = tab.get("title", "(untitled)")
-        url = tab.get("url", "")
-        active = " *" if i == 0 else ""
-        print(f"  [{i}]{active} {title}")
-        print(f"       {url}")
-    print(f"\n{len(pages)} tab(s)")
-    return 0
 
 
 def _find_tab_index(tabs: list, url: str | None, index: int | None) -> int | None:
@@ -302,9 +280,6 @@ def main():
     # status
     subs.add_parser("status", help="Check if CDP is available")
 
-    # tabs
-    subs.add_parser("tabs", help="List open tabs")
-
     # screenshot
     p_ss = subs.add_parser("screenshot", help="Screenshot a tab")
     p_ss.add_argument("index", type=int, nargs="?", default=None, help="Tab index")
@@ -328,7 +303,6 @@ def main():
 
     handlers = {
         "status": cmd_status,
-        "tabs": cmd_tabs,
         "screenshot": cmd_screenshot,
         "content": cmd_content,
         "enable": cmd_enable,

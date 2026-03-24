@@ -1,6 +1,6 @@
 ---
-description: Connect to the user's Chrome browser via CDP to see their open tabs, take screenshots, and read page content. Does NOT launch a new browser.
-argument-hint: [status|tabs|screenshot|content|enable]
+description: Connect to the user's Chrome browser via CDP to take screenshots and read page content. Does NOT launch a new browser.
+argument-hint: [status|screenshot|content|enable]
 allowed-tools: [Read, Bash]
 ---
 
@@ -11,11 +11,10 @@ Connect to the user's running Chrome via CDP (Chrome DevTools Protocol).
 ## Arguments
 
 - `status` — check if CDP is active
-- `tabs` — list all open tabs
 - `screenshot [INDEX|--url URL]` — screenshot a tab
 - `content [INDEX|--url URL]` — get text content
 - `enable` — enable CDP on Chrome (restarts with debugging port)
-- No args: run status, then tabs
+- No args: run status
 
 ## Process
 
