@@ -1,10 +1,14 @@
 #!/bin/bash
 # Ensure Chrome is running with remote debugging enabled.
 # If Chrome is already debuggable, does nothing.
-# If Chrome is running without debugging, gracefully restarts it
-# and restores all tabs.
+# If Chrome is running without debugging, gracefully restarts it.
+#
+# KEY INSIGHT: Newer Chrome on macOS requires --user-data-dir to be
+# a non-default path for --remote-debugging-port to work. We copy the
+# real profile on first setup so tabs, extensions, and cookies carry over.
 
 PORT="${1:-9222}"
+DEBUG_PROFILE="$HOME/.chrome-debug-profile"
 
 # Check if debugging is already on
 if curl -s "http://localhost:$PORT/json/version" > /dev/null 2>&1; then
@@ -21,12 +25,12 @@ if ! [ -x "$CHROME_BIN" ]; then
     exit 1
 fi
 
-# Check if Chrome is running
+# Save tab URLs from the current Chrome session (if running)
+TABS_FILE=""
 if pgrep -x "Google Chrome" > /dev/null 2>&1; then
     echo "Chrome is running without debugging."
     echo "Saving tabs and restarting with debugging on port $PORT..."
 
-    # Get all open tab URLs via AppleScript before quitting
     TABS_FILE=$(mktemp /tmp/chrome-tabs.XXXXXX)
     osascript -e '
     tell application "Google Chrome"
@@ -63,24 +67,38 @@ if pgrep -x "Google Chrome" > /dev/null 2>&1; then
     sleep 2
 else
     echo "Chrome is not running. Starting with debugging on port $PORT..."
-    TABS_FILE=""
 fi
 
-# Launch Chrome with debugging using the direct binary in background
-# This ensures the --remote-debugging-port flag is actually applied
-"$CHROME_BIN" --remote-debugging-port="$PORT" > /dev/null 2>&1 &
-CHROME_PID=$!
+# Set up the debug profile (one-time: copy from real Chrome profile)
+# Chrome requires a non-default --user-data-dir for remote debugging to work.
+REAL_PROFILE="$HOME/Library/Application Support/Google/Chrome"
+if [ ! -d "$DEBUG_PROFILE" ]; then
+    if [ -d "$REAL_PROFILE" ]; then
+        echo "  First-time setup: copying Chrome profile to debug profile..."
+        echo "  (This may take a moment)"
+        cp -R "$REAL_PROFILE" "$DEBUG_PROFILE"
+        echo "  Debug profile created at $DEBUG_PROFILE"
+    else
+        echo "  Creating fresh debug profile..."
+        mkdir -p "$DEBUG_PROFILE"
+    fi
+fi
+
+# Launch Chrome with debugging.
+# --user-data-dir is required on newer Chrome/macOS for the debug port to open.
+"$CHROME_BIN" \
+    --remote-debugging-port="$PORT" \
+    --user-data-dir="$DEBUG_PROFILE" > /dev/null 2>&1 &
 
 # Wait for debugging to become available
 echo "Waiting for Chrome to start..."
-for i in $(seq 1 20); do
+for i in $(seq 1 30); do
     if curl -s "http://localhost:$PORT/json/version" > /dev/null 2>&1; then
         echo "Chrome debugging active on port $PORT"
         curl -s "http://localhost:$PORT/json/version" | python3 -c "import sys,json; v=json.load(sys.stdin); print(f\"  Browser: {v.get('Browser','?')}\")" 2>/dev/null
 
-        # If we had tabs to restore and Chrome opened empty, reopen them
+        # Restore tabs if we captured them and Chrome didn't auto-restore
         if [ -n "$TABS_FILE" ] && [ -s "$TABS_FILE" ]; then
-            # Check if Chrome restored tabs on its own
             sleep 2
             CURRENT_TABS=$(curl -s "http://localhost:$PORT/json" 2>/dev/null | python3 -c "
 import sys,json
@@ -91,11 +109,9 @@ print(len(urls))
 
             if [ "$CURRENT_TABS" -le 1 ] && [ "$TAB_COUNT" -gt 1 ]; then
                 echo "  Restoring $TAB_COUNT tabs..."
-                # Open each saved tab via CDP
                 while IFS= read -r url; do
                     [ -z "$url" ] && continue
                     [[ "$url" == chrome://* ]] && continue
-                    # Use CDP to create new tab
                     curl -s "http://localhost:$PORT/json/new?$url" > /dev/null 2>&1
                 done < "$TABS_FILE"
                 echo "  Tabs restored."
@@ -109,6 +125,7 @@ print(len(urls))
 done
 
 echo "Warning: Chrome started but debugging port not responding."
-echo "Try running: $CHROME_BIN --remote-debugging-port=$PORT"
+echo "Try running manually:"
+echo "  $CHROME_BIN --remote-debugging-port=$PORT --user-data-dir=$DEBUG_PROFILE"
 rm -f "$TABS_FILE"
 exit 1
