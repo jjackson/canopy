@@ -1,7 +1,7 @@
 ---
 name: update
 description: Update the canopy plugin to the latest version from GitHub
-version: 0.4.0
+version: 0.5.0
 ---
 
 # Update Canopy
@@ -14,7 +14,21 @@ up to date but the plugin cache won't be — the marketplace repo feeds the cach
 
 ## Flow
 
-### Step 1: Pull latest from the MARKETPLACE repo
+### Step 1: Show current installed version
+
+```bash
+python3 -c "
+import json
+with open('$HOME/.claude/plugins/installed_plugins.json') as f:
+    data = json.load(f)
+entry = data.get('plugins', {}).get('canopy@canopy', [{}])[0]
+print(f'Installed: v{entry.get(\"version\", \"unknown\")}')
+print(f'Cache: {entry.get(\"installPath\", \"unknown\")}')
+print(f'Commit: {entry.get(\"gitCommitSha\", \"unknown\")[:8]}')
+"
+```
+
+### Step 2: Pull latest from the MARKETPLACE repo
 
 ```bash
 cd ~/.claude/plugins/marketplaces/canopy && git pull origin main
@@ -23,18 +37,22 @@ cd ~/.claude/plugins/marketplaces/canopy && git pull origin main
 If this fails (e.g. directory doesn't exist), tell the user the canopy marketplace
 is not installed and stop.
 
-### Step 2: Read the new version from the marketplace
+### Step 3: Show GitHub version and compare
 
 ```bash
-cat ~/.claude/plugins/marketplaces/canopy/plugins/canopy/.claude-plugin/plugin.json
+python3 -c "
+import json
+with open('$HOME/.claude/plugins/marketplaces/canopy/plugins/canopy/.claude-plugin/plugin.json') as f:
+    data = json.load(f)
+print(f'GitHub:    v{data[\"version\"]}')
+" && cd ~/.claude/plugins/marketplaces/canopy && git log --oneline -5
 ```
 
-Extract the `version` field (e.g. `0.2.6`).
+Show the user a clear comparison:
 
-### Step 3: Check current installed version
-
-```bash
-python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugins.json')); print(d['plugins']['canopy@canopy'][0]['version'])"
+```
+Installed: v0.2.6
+GitHub:    v0.2.8
 ```
 
 If the installed version matches the marketplace version, say "Already up to date
@@ -45,7 +63,7 @@ at version X" and stop.
 Create the new cache directory and copy the plugin contents:
 
 ```bash
-NEW_VERSION=<version from step 2>
+NEW_VERSION=<version from step 3>
 mkdir -p ~/.claude/plugins/cache/canopy/canopy/$NEW_VERSION
 rsync -a ~/.claude/plugins/marketplaces/canopy/plugins/canopy/ ~/.claude/plugins/cache/canopy/canopy/$NEW_VERSION/
 ```
@@ -77,13 +95,8 @@ marketplace = json.load(open('$HOME/.claude/plugins/marketplaces/canopy/plugins/
 iv = installed['plugins']['canopy@canopy'][0]['version']
 mv = marketplace['version']
 match = 'VERIFIED' if iv == mv else 'MISMATCH'
-print(f'Installed: {iv}  |  Marketplace: {mv}  |  {match}')
+print(f'Installed: v{iv}  |  GitHub: v{mv}  |  {match}')
 "
-```
-
-Show the recent commits:
-```bash
-cd ~/.claude/plugins/marketplaces/canopy && git log --oneline -5
 ```
 
 Then output EXACTLY this message (fill in the version):
@@ -103,6 +116,7 @@ install step, then `/reload-plugins` picks up the new cache.
 ## Rules
 
 - **Always pull from `~/.claude/plugins/marketplaces/canopy`** — never the source repo
+- Always show installed vs GitHub version comparison upfront
 - Always create a new cache dir for the new version (don't overwrite old ones)
 - Always update installed_plugins.json so Claude Code knows the current version
 - Always verify the installed version matches the marketplace version at the end
