@@ -146,41 +146,97 @@ For each scene in the spec:
 
 5. **Show the screenshot to the user** using the Read tool on the PNG file.
 
-6. **Evaluate AI quality** (if the scene has `ai_quality`):
-   - Read the page text:
-     ```bash
-     $B text
-     ```
-   - Evaluate against the `ai_quality` rubric in the spec.
-   - Score on **4 independent dimensions** (1-5 each). The overall scene score
-     is the **lowest** of the four (weakest-link principle):
+6. **Evaluate EVERY scene.** Be an extremely tough judge. You are evaluating whether
+   this is ready to project in front of a stakeholder deciding whether to use this product.
 
-     **Content Quality** — Is the AI output actually good?
-     - Quote the worst sentence you can find verbatim
-     - Check for demo data artifacts (duplicate applicants, same person appearing twice, placeholder names)
-     - Verify factual claims: do AI-cited numbers match what's on the page?
-     - Stakeholder smell test: read it as the CEO — would anything embarrass you?
-     - 5=specific and impressive, 3=correct but generic, 1=wrong or empty
+   Read the FULL page text carefully — every word, not just headings:
 
-     **Visual Presentation** — Does the AI output look polished?
-     - Is markdown rendered (not raw `##` headers or `**bold**` showing)?
-     - Does it have proper spacing, hierarchy, and styling?
-     - Would it look professional in a stakeholder meeting?
-     - 5=polished card/panel with styled content, 3=readable but plain, 1=raw text wall
+   ```bash
+   $B text
+   ```
 
-     **Screenshot Quality** — Is the capture itself clean?
-     - No overlapping fixed headers, no blank regions, no cut-off content
-     - Full relevant content visible (not hidden below scroll)
-     - No browser chrome, error modals, or dev tools visible
-     - 5=perfect capture, 3=usable but has issues, 1=blank or broken
+   Score on **5 dimensions**. The overall scene score is the **LOWEST** of all applicable
+   dimensions (weakest link). ALL scenes get scored, not just AI ones.
 
-     **Demo Readiness** — Would you show this slide to a stakeholder?
-     - Realistic data (real-looking org names, varied responses, proper amounts)
-     - No "test-user", "Unknown Organization", "None None" visible
-     - The narrative (impressive_because) actually matches what's shown
-     - 5=stakeholder-ready, 3=needs polish, 1=not demoable
+   **A. Content Quality** (EVERY scene, not just AI):
 
-   - Write a 1-3 sentence commentary per dimension, plus the overall score.
+   For AI scenes (`ai_quality` in spec): You MUST read the AI output word by word. Do not skim.
+
+   - **Quote the worst sentence** verbatim. If you can't find anything bad, score may be high.
+   - **Check for demo data artifacts:** same person/org appearing multiple times as different
+     applicants, "Unknown Organization", "None None", identical responses. Any = max 2.
+   - **Verify factual claims:** numbers cited by AI must match the actual page data. Wrong = max 3.
+   - **Stakeholder smell test:** read as the CEO of the company being demoed to. What makes you raise an eyebrow?
+
+   For non-AI scenes: Check the DATA on the page.
+
+   - Are KPIs populated or showing "loading..."/"—"?
+   - Do organization/user names look real or like test data?
+   - Are charts populated with meaningful data or empty?
+   - Do numbers make sense (e.g., $0 distributed, 0 users)?
+   - Is there anything embarrassing a stakeholder would notice?
+
+   Scoring:
+
+   - **5** — All data/content accurate, specific, and impressive. Nothing embarrassing.
+   - **4** — Mostly good but one item is slightly off or one field shows placeholder data
+   - **3** — Noticeable issues a careful reader would catch (loading states, generic content)
+   - **2** — Demo data artifacts, wrong facts, or embarrassing content
+   - **1** — Would actively damage credibility
+
+   **B. App Page Quality** — How does the actual product page look? (NOT the walkthrough slide)
+   This evaluates the actual product being demoed, not the walkthrough HTML.
+
+   - **5** — Professional, polished UI a designer would approve. Clear hierarchy, good spacing.
+   - **4** — Good layout but one area feels cramped or unpolished
+   - **3** — Functional but looks like a developer tool — dense text, no visual hierarchy
+   - **2** — Messy layout, overlapping elements, broken styling
+   - **1** — Broken or unusable
+
+   **C. Screenshot Quality** — Is the capture clean and complete?
+
+   - **5** — Clean, properly framed, content starts at top, nothing cut off
+   - **4** — Good but slightly cropped or minor framing issue
+   - **3** — Content visible but awkwardly framed — header overlap, too much whitespace
+   - **2** — Important content missing or wrong scroll position
+   - **1** — Wrong page, blank, or mostly empty
+
+   **D. Walkthrough Slide Quality** — How does THIS SLIDE in the deck look?
+   This evaluates the walkthrough presentation, not the app.
+
+   - **5** — Screenshot is readable, narration tells the story, persona badge is clear
+   - **4** — Good but narration could be more specific or screenshot needs scroll to see key part
+   - **3** — Slide works but doesn't highlight the impressive thing about this scene
+   - **2** — Screenshot dominates with no clear story, or narration is generic
+   - **1** — Slide adds no value — just a raw screenshot dump
+
+   **E. Demo Readiness** — Would you show this to the stakeholder without apologizing?
+
+   - **5** — Yes, confidently. Clear story, polished look, accurate content.
+   - **4** — Yes, with one minor caveat
+   - **3** — Maybe, but you'd talk over the rough spots
+   - **2** — You'd skip this slide or preface with "still a prototype"
+   - **1** — Would hurt credibility
+
+   Write commentary that:
+
+   1. Quotes the worst thing you found (verbatim) — from CONTENT, not styling
+   2. Names the WEAKEST dimension and why — be specific
+   3. Suggests ONE concrete fix that would have the most impact, classified as:
+      - **[CODE]** — app bug or template fix (Claude can implement)
+      - **[SPEC]** — adjust the YAML walkthrough spec (Claude can implement)
+      - **[DATA]** — demo data needs updating (may need user input)
+      - **[INFRA]** — auth expired, server down, browse binary missing (user action)
+
+   **BLOCKING RULE:** If ANY scene scores 2 or below on Demo Readiness, STOP the
+   walkthrough and tell the user:
+
+   > "Scene {n} scored {score}/5 on Demo Readiness — this would hurt the demo.
+   > The issue is: {quote the problem}. Recommended fix: {fix}.
+   > Should I fix this now before continuing, or skip this scene?"
+
+   Do NOT silently log a 2/5 and keep going. A 2/5 means the slide would embarrass
+   you in a meeting — that's a blocker, not a warning. Either fix it or drop it.
 
 7. **Record issues.** If anything goes wrong (element not found, page error, slow load,
    empty state), note it as an issue with severity (error/warning) and description.
@@ -209,6 +265,38 @@ For each scene in the spec:
       before capturing: `$B js "var el=document.querySelector('.target'); document.body.insertBefore(el, document.body.firstChild)"`
     - Alternatively, use viewport-only screenshots for problematic pages
     - If content is behind a scroll container, scroll it into view first
+
+## After All Scenes: Prioritized Action List
+
+After scoring all scenes, generate a **prioritized action list** — concrete fixes
+ordered by impact on Demo Readiness. Present it to the user before generating the deck:
+
+```
+## Suggested Actions (highest impact first)
+
+1. [CODE] Scene 4 "AI Report": AI cites "$0-5 per visit" — fix the report
+   agent to say "payment data pending" when amounts are zero
+   Impact: Stakeholder would question data accuracy
+   Dimensions affected: Content (2/5), Demo Readiness (2/5)
+
+2. [DATA] Scene 1 "Fund Dashboard": Budget shows "---" and KPIs show "loading..."
+   Impact: First impression slide looks broken
+   Dimensions affected: Content (1/5), Demo Readiness (1/5)
+
+3. [CODE] Scene 2 "Criteria": Plain text list looks like admin output — needs
+   card grid with weight badges
+   Impact: Looks unfinished to a designer
+   Dimensions affected: App Page Quality (2/5), Demo Readiness (3/5)
+```
+
+Then ask the user:
+
+> "I found {n} issues across {m} scenes. {code_count} are code fixes I can implement,
+> {data_count} need data changes, {infra_count} need your action.
+> Want me to fix all [CODE] and [SPEC] issues automatically?"
+
+If the user says yes, implement the fixes (create branches, PRs if appropriate),
+then offer to rerun the walkthrough to verify improvements.
 
 ### Data Collection
 
