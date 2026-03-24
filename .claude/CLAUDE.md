@@ -102,24 +102,32 @@ cd ~/emdash-projects/canopy-orchestrator && git pull --rebase && git push
 The repo map uses JSON (not YAML). Any hook code must use only stdlib modules.
 
 ## Plugin Updates
-This repo is registered as a Claude Code plugin marketplace. Claude Code auto-syncs
-marketplace git repos on session start, so pushing to main automatically updates
-the plugin for all future sessions.
+This repo is a Claude Code plugin marketplace. Claude Code auto-syncs marketplace
+git repos on session start, detecting version changes in `plugin.json` to trigger
+re-installation into a fresh cache directory.
 
-To manually sync after pushing:
-```bash
-cd ~/.claude/plugins/marketplaces/canopy && git pull origin main
-```
+### Update workflow
+1. Make changes to skills, commands, or agents in `plugins/canopy/`
+2. Bump the **patch version** in `plugins/canopy/.claude-plugin/plugin.json` (e.g. `0.2.1` → `0.2.2`)
+3. Commit, merge to main, push:
+   ```bash
+   # From a worktree:
+   git add -A && git commit -m "feat/fix: description"
+   cd ~/emdash-projects/canopy && git merge <branch> && git push
+   ```
+4. New sessions auto-detect the version bump and re-install from the marketplace repo
+5. For the **current session**, use `/reload-plugins` to pick up changes
 
-Then copy updated plugin to cache:
-```bash
-cp -r ~/.claude/plugins/marketplaces/canopy/plugins/canopy/* ~/.claude/plugins/cache/canopy/canopy/0.1.0/
-cp -r ~/.claude/plugins/marketplaces/canopy/plugins/canopy/.claude-plugin ~/.claude/plugins/cache/canopy/canopy/0.1.0/
-```
+**Do NOT manually copy files into `~/.claude/plugins/cache/`** — that bypasses
+the plugin system and creates version mismatches. Always publish via git push
+and let Claude Code handle installation.
 
-Plugin registration files (do not edit unless re-registering):
-- `~/.claude/plugins/known_marketplaces.json` — marketplace entry pointing at git repo
-- `~/.claude/plugins/installed_plugins.json` — installed plugin entry with commit SHA
+### How it works
+- `~/.claude/plugins/known_marketplaces.json` — marketplace entry pointing at this git repo
+- `~/.claude/plugins/installed_plugins.json` — installed plugin entry with version + commit SHA
+- Cache dir is keyed by version: `~/.claude/plugins/cache/canopy/canopy/<version>/`
+- On session start, Claude Code pulls the marketplace repo and compares `plugin.json` version
+  against the installed version — if different, it re-installs
 
 ## Testing
 - `uv run pytest` from project root (420 tests)
