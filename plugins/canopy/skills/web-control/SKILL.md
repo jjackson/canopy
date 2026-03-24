@@ -1,7 +1,7 @@
 ---
 name: web-control
 description: Connect to the user's running Chrome browser via CDP to see what they're working on — take screenshots, read page content. Does NOT launch a new browser.
-version: 0.1.0
+version: 0.2.0
 ---
 
 # Web Control — Connect to the User's Chrome via CDP
@@ -19,37 +19,39 @@ their tabs, and read page content — without launching a headless browser.
 
 ## Prerequisites
 
-Chrome must be running with `--remote-debugging-port`. The `enable` command
-handles this automatically (gracefully restarts Chrome, preserving all tabs).
+- Chrome running with `--remote-debugging-port` (the `enable` command handles this)
+- `playwright` Python package (`pip install playwright && playwright install chromium`)
 
-## Tool Location
+## Finding the Script
 
-The control script lives in the canopy repo:
+The script ships with the canopy plugin. Find it by searching for the plugin cache:
 
+```bash
+# Find web-control.py in the plugin cache
+find ~/.claude/plugins/cache/canopy -name "web-control.py" 2>/dev/null
 ```
-CANOPY_REPO/scripts/web-control.py
+
+Common locations:
+- `~/.claude/plugins/cache/canopy/canopy/<version>/scripts/web-control.py`
+
+Set a variable for convenience:
+```bash
+WC=$(find ~/.claude/plugins/cache/canopy -name "web-control.py" 2>/dev/null | head -1)
 ```
-
-Find it by locating the canopy repo (has `pyproject.toml` with `name = "canopy"`),
-or check common locations:
-- `~/emdash-projects/canopy-orchestrator/scripts/web-control.py`
-- The repo where this skill is defined
-
-**Requires:** `playwright` (`pip install playwright && playwright install chromium`)
 
 ## Commands
 
 ### 1. Enable CDP (first time or after Chrome restart)
 
 ```bash
-python3 CANOPY_REPO/scripts/web-control.py enable
+python3 $WC enable
 ```
 
 This runs `chrome-debug.sh` which:
 - Checks if CDP is already active (does nothing if so)
 - Saves all open tabs via AppleScript
 - Gracefully quits Chrome
-- Restarts with `--remote-debugging-port=9222`
+- Restarts with `--remote-debugging-port=9222` and `--user-data-dir`
 - Restores all tabs
 
 **Always run `status` first** — if CDP is already active, skip enable.
@@ -57,7 +59,7 @@ This runs `chrome-debug.sh` which:
 ### 2. Check Status
 
 ```bash
-python3 CANOPY_REPO/scripts/web-control.py status
+python3 $WC status
 ```
 
 Shows browser version and confirms CDP is reachable.
@@ -66,19 +68,19 @@ Shows browser version and confirms CDP is reachable.
 
 ```bash
 # Screenshot the active tab (index 0)
-python3 CANOPY_REPO/scripts/web-control.py screenshot
+python3 $WC screenshot
 
 # Screenshot tab by index
-python3 CANOPY_REPO/scripts/web-control.py screenshot 2
+python3 $WC screenshot 2
 
 # Screenshot tab matching a URL
-python3 CANOPY_REPO/scripts/web-control.py screenshot --url "localhost:3000"
+python3 $WC screenshot --url "localhost:3000"
 
 # Viewport only (not full page)
-python3 CANOPY_REPO/scripts/web-control.py screenshot --viewport-only
+python3 $WC screenshot --viewport-only
 
 # Custom output path
-python3 CANOPY_REPO/scripts/web-control.py screenshot -o /tmp/my-screenshot.png
+python3 $WC screenshot -o /tmp/my-screenshot.png
 ```
 
 Default output: `/tmp/web-control-screenshot.png`
@@ -89,13 +91,13 @@ After taking a screenshot, **read the image file** with the Read tool to see it.
 
 ```bash
 # Content of active tab
-python3 CANOPY_REPO/scripts/web-control.py content
+python3 $WC content
 
 # Content of specific tab
-python3 CANOPY_REPO/scripts/web-control.py content 1
+python3 $WC content 1
 
 # Content matching URL
-python3 CANOPY_REPO/scripts/web-control.py content --url "github.com"
+python3 $WC content --url "github.com"
 ```
 
 Returns the visible text content of the page (scripts/styles stripped).
