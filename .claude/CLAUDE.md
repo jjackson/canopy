@@ -108,7 +108,7 @@ re-installation into a fresh cache directory.
 
 ### Update workflow
 1. Make changes to skills, commands, or agents in `plugins/canopy/`
-2. Bump the **patch version** in `plugins/canopy/.claude-plugin/plugin.json` (e.g. `0.2.6` → `0.2.7`)
+2. Bump the **patch version** in BOTH `plugins/canopy/.claude-plugin/plugin.json` AND `VERSION` (e.g. `0.2.6` → `0.2.7`). These must always match.
 3. Commit, merge to main, push:
    ```bash
    # From a worktree:
