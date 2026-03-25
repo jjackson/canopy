@@ -21,10 +21,8 @@ Execute demo walkthroughs, improve products, and generate stakeholder-ready pres
 You MUST read the walkthrough SKILL.md before doing anything else. Find it:
 
 ```bash
-# Check plugin cache first (most common)
-for d in ~/.claude/plugins/cache/canopy/canopy/*/skills/walkthrough/SKILL.md; do
-  [ -f "$d" ] && echo "$d" && break
-done
+# Find the latest version in the plugin cache
+ls -d ~/.claude/plugins/cache/canopy/canopy/*/skills/walkthrough/SKILL.md 2>/dev/null | sort -V | tail -1
 ```
 
 Read that file with the Read tool and follow it **step by step**. The SKILL.md contains:
