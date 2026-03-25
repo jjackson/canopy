@@ -110,7 +110,7 @@ diagnose. If you feel the urge to locally patch, STOP — use `/canopy:update` i
 
 ### Update workflow (the ONLY way to update)
 1. Make changes to skills, commands, or agents in `plugins/canopy/`
-2. Bump the **patch version** in BOTH `plugins/canopy/.claude-plugin/plugin.json` AND `VERSION` (e.g. `0.2.6` → `0.2.7`). These must always match.
+2. Bump the **patch version** in BOTH `plugins/canopy/.claude-plugin/plugin.json` AND `VERSION` (e.g. `0.2.6` → `0.2.7`). A GitHub Actions check will fail if they don't match.
 3. Commit, merge to main, push:
    ```bash
    # From a worktree:
