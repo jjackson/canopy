@@ -1,0 +1,19 @@
+name: Version sync check
+on: [push, pull_request]
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify VERSION matches plugin.json
+        run: |
+          VERSION_FILE=$(cat VERSION | tr -d '[:space:]')
+          PLUGIN_VERSION=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' plugins/canopy/.claude-plugin/plugin.json | head -1 | tr -d '[:space:]')
+          echo "VERSION file: $VERSION_FILE"
+          echo "plugin.json:  $PLUGIN_VERSION"
+          if [ "$VERSION_FILE" != "$PLUGIN_VERSION" ]; then
+            echo "::error::VERSION ($VERSION_FILE) does not match plugin.json ($PLUGIN_VERSION). Update both files."
+            exit 1
+          fi
+          echo "Versions match."

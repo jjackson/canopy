@@ -5,7 +5,8 @@
 #   UPGRADE_AVAILABLE <installed> <remote>  — remote version differs
 #   (nothing)                               — up to date or check skipped
 #
-# Pure bash + curl, no Python. Fetches a single VERSION file (~10 bytes).
+# Pure bash + curl, no Python. Fetches a ~10 byte VERSION file from GitHub.
+# plugin.json is the source of truth; VERSION must match (enforced by CI).
 set -euo pipefail
 
 STATE_DIR="$HOME/.canopy"
@@ -19,7 +20,6 @@ if [ ! -f "$INSTALLED_PLUGINS" ]; then
   exit 0
 fi
 
-# Extract version with grep/sed — no Python needed
 LOCAL=$(grep -o '"canopy@canopy"' "$INSTALLED_PLUGINS" >/dev/null 2>&1 && \
   sed -n '/"canopy@canopy"/,/\]/{ s/.*"version": *"\([^"]*\)".*/\1/p; }' "$INSTALLED_PLUGINS" | head -1 || echo "unknown")
 
