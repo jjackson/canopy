@@ -179,8 +179,14 @@ For each scene in the spec:
    ```bash
    $B screenshot $SHOT_DIR/scene_{n}.png
    ```
-   That's it — no DOM manipulation, no element neutralization. Full-page captures
-   are fine even for tall pages (the HTML deck makes slides scrollable).
+   Always use full-page captures — the HTML deck makes slides scrollable, so tall
+   pages are fine. Do NOT switch to `--viewport` screenshots.
+
+   **If the screenshot is absurdly tall (10,000+ pixels):** This is a BUG in the app,
+   not a screenshot problem. An infinitely growing element (e.g., Chart.js canvas with
+   `maintainAspectRatio: false` in an unconstrained container) is making the page
+   impossibly tall. Flag it as a **[CODE]** issue with Demo Readiness ≤ 2 and use the
+   blocking rule — do NOT silently switch to viewport captures and score 4/5.
 
 5. **Show the screenshot to the user** using the Read tool on the PNG file.
 
