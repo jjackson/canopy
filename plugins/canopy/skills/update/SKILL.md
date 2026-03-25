@@ -1,7 +1,6 @@
 ---
 name: update
 description: Update the canopy plugin to the latest version from GitHub
-version: 0.3.0
 ---
 
 ## Preamble (run first)

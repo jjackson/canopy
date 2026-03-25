@@ -1,7 +1,6 @@
 ---
 name: select-session
 description: Menu-driven session picker — select a project, browse session history, analyze, and propose fixes
-version: 0.3.0
 ---
 
 ## Preamble (run first)

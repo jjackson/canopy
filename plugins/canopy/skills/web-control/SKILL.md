@@ -1,7 +1,6 @@
 ---
 name: web-control
 description: Connect to the user's running Chrome browser via CDP to see what they're working on — take screenshots, read page content. Does NOT launch a new browser.
-version: 0.1.0
 ---
 
 ## Preamble (run first)

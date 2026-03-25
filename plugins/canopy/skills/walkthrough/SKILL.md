@@ -4,7 +4,6 @@ description: |
   Execute a demo walkthrough spec against a live app and generate a stakeholder-ready
   HTML slideshow with screenshots, AI quality scores, and run-to-run comparison.
   Use when asked to "run the walkthrough", "demo prep", or "walkthrough <name>".
-version: 0.1.0
 ---
 
 ## Preamble (run first)

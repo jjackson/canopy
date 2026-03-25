@@ -1,7 +1,6 @@
 ---
 name: improve
 description: Run a full canopy improvement cycle — analyze recent sessions, propose improvements, and optionally implement them
-version: 0.1.0
 ---
 
 ## Preamble (run first)
