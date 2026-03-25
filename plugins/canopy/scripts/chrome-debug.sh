@@ -3,10 +3,13 @@
 # If Chrome is already debuggable, does nothing.
 # If Chrome is running without debugging, gracefully restarts it.
 #
+# Uses a persistent debug profile at ~/.chrome-debug-profile. This is
+# separate from your main Chrome profile. On first run you'll get a
+# fresh Chrome — log into your accounts once and it persists across
+# restarts. Your main Chrome profile is never touched.
+#
 # KEY INSIGHT: Newer Chrome on macOS requires --user-data-dir to be
-# a non-default path for --remote-debugging-port to work. We rsync the
-# real profile every time (one-way) so tabs, extensions, and cookies
-# carry over. The real profile is never modified.
+# a non-default path for --remote-debugging-port to work.
 
 PORT="${1:-9222}"
 DEBUG_PROFILE="$HOME/.chrome-debug-profile"
@@ -26,32 +29,12 @@ if ! [ -x "$CHROME_BIN" ]; then
     exit 1
 fi
 
-# Save tab URLs from the current Chrome session (if running)
-TABS_FILE=""
+# If Chrome is running (without debugging), quit it first
 if pgrep -x "Google Chrome" > /dev/null 2>&1; then
-    echo "Chrome is running without debugging."
-    echo "Saving tabs and restarting with debugging on port $PORT..."
+    echo "Chrome is running without debugging. Quitting to restart with CDP on port $PORT..."
 
-    TABS_FILE=$(mktemp /tmp/chrome-tabs.XXXXXX)
-    osascript -e '
-    tell application "Google Chrome"
-        set tabList to ""
-        repeat with w in windows
-            repeat with t in tabs of w
-                set tabList to tabList & URL of t & linefeed
-            end repeat
-        end repeat
-        return tabList
-    end tell
-    ' > "$TABS_FILE" 2>/dev/null
-
-    TAB_COUNT=$(grep -c "http" "$TABS_FILE" 2>/dev/null || echo "0")
-    echo "  Captured $TAB_COUNT tabs"
-
-    # Graceful quit
     osascript -e 'tell application "Google Chrome" to quit' 2>/dev/null
 
-    # Wait for Chrome to fully exit
     for i in $(seq 1 15); do
         if ! pgrep -x "Google Chrome" > /dev/null 2>&1; then
             break
@@ -61,7 +44,6 @@ if pgrep -x "Google Chrome" > /dev/null 2>&1; then
 
     if pgrep -x "Google Chrome" > /dev/null 2>&1; then
         echo "Error: Chrome didn't quit cleanly. Close it manually and try again."
-        rm -f "$TABS_FILE"
         exit 1
     fi
 
@@ -70,37 +52,15 @@ else
     echo "Chrome is not running. Starting with debugging on port $PORT..."
 fi
 
-# Sync the real Chrome profile → debug profile (one-way, every time).
-# Chrome requires a non-default --user-data-dir for remote debugging to work.
-# We rsync the real profile so tabs, extensions, cookies, and logins carry over.
-# Excludes heavy cache dirs that aren't needed for tabs/auth.
-REAL_PROFILE="$HOME/Library/Application Support/Google/Chrome"
-if [ -d "$REAL_PROFILE" ]; then
-    echo "  Syncing Chrome profile to debug profile..."
-    mkdir -p "$DEBUG_PROFILE"
-    rsync -a --delete \
-        --exclude='Cache/' \
-        --exclude='Code Cache/' \
-        --exclude='GPUCache/' \
-        --exclude='GrShaderCache/' \
-        --exclude='ShaderCache/' \
-        --exclude='Service Worker/CacheStorage/' \
-        --exclude='DawnCache/' \
-        --exclude='component_crx_cache/' \
-        --exclude='BrowserMetrics/' \
-        --exclude='Crashpad/' \
-        --exclude='SingletonLock' \
-        --exclude='SingletonCookie' \
-        --exclude='SingletonSocket' \
-        "$REAL_PROFILE/" "$DEBUG_PROFILE/"
-    echo "  Profile synced."
-else
-    echo "  No Chrome profile found, creating fresh debug profile..."
+# Create debug profile dir if it doesn't exist (first-time only).
+# This profile is persistent — logins, tabs, and cookies survive across restarts.
+if [ ! -d "$DEBUG_PROFILE" ]; then
+    echo "  First run: creating debug profile at $DEBUG_PROFILE"
+    echo "  You'll need to log into your accounts once — they'll persist after that."
     mkdir -p "$DEBUG_PROFILE"
 fi
 
 # Launch Chrome with debugging.
-# --user-data-dir is required on newer Chrome/macOS for the debug port to open.
 "$CHROME_BIN" \
     --remote-debugging-port="$PORT" \
     --user-data-dir="$DEBUG_PROFILE" > /dev/null 2>&1 &
@@ -111,29 +71,6 @@ for i in $(seq 1 30); do
     if curl -s "http://localhost:$PORT/json/version" > /dev/null 2>&1; then
         echo "Chrome debugging active on port $PORT"
         curl -s "http://localhost:$PORT/json/version" | python3 -c "import sys,json; v=json.load(sys.stdin); print(f\"  Browser: {v.get('Browser','?')}\")" 2>/dev/null
-
-        # Restore tabs if we captured them and Chrome didn't auto-restore
-        if [ -n "$TABS_FILE" ] && [ -s "$TABS_FILE" ]; then
-            sleep 2
-            CURRENT_TABS=$(curl -s "http://localhost:$PORT/json" 2>/dev/null | python3 -c "
-import sys,json
-tabs = json.load(sys.stdin)
-urls = [t['url'] for t in tabs if not t['url'].startswith('chrome://')]
-print(len(urls))
-" 2>/dev/null || echo "0")
-
-            if [ "$CURRENT_TABS" -le 1 ] && [ "$TAB_COUNT" -gt 1 ]; then
-                echo "  Restoring $TAB_COUNT tabs..."
-                while IFS= read -r url; do
-                    [ -z "$url" ] && continue
-                    [[ "$url" == chrome://* ]] && continue
-                    curl -s "http://localhost:$PORT/json/new?$url" > /dev/null 2>&1
-                done < "$TABS_FILE"
-                echo "  Tabs restored."
-            fi
-        fi
-
-        rm -f "$TABS_FILE"
         exit 0
     fi
     sleep 1
@@ -142,5 +79,4 @@ done
 echo "Warning: Chrome started but debugging port not responding."
 echo "Try running manually:"
 echo "  $CHROME_BIN --remote-debugging-port=$PORT --user-data-dir=$DEBUG_PROFILE"
-rm -f "$TABS_FILE"
 exit 1
