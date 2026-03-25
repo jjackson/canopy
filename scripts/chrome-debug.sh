@@ -2,15 +2,25 @@
 # Ensure a Chrome debug instance is running with remote debugging enabled.
 # NEVER quits or interferes with the user's main Chrome.
 #
-# Uses a dedicated debug profile (~/.chrome-debug-profile) so the debug
-# instance is completely isolated. Logins/cookies persist across restarts.
+# Runs HEADLESS by default so it doesn't steal the dock icon, Spotlight,
+# or new-window focus from the user's main Chrome. Claude interacts via
+# CDP only — no visible window needed for screenshots or content.
 #
-# NOTE: macOS treats both Chrome instances as one app in Spotlight/dock.
-# If new windows open in the debug instance, Cmd+W to close the window
-# (Chrome stays running with CDP active in the background).
+# For first-time login or manual interaction, use: chrome-debug.sh --visible
+# This launches a visible window so you can log into accounts. Those
+# logins persist in the debug profile for future headless runs.
 
 PORT="${1:-9222}"
 DEBUG_PROFILE="$HOME/.chrome-debug-profile"
+HEADLESS="--headless=new"
+
+# Parse flags
+for arg in "$@"; do
+    case "$arg" in
+        --visible) HEADLESS="" ;;
+        [0-9]*) PORT="$arg" ;;
+    esac
+done
 
 # Check if debugging is already on
 if curl -s "http://localhost:$PORT/json/version" > /dev/null 2>&1; then
@@ -30,13 +40,22 @@ fi
 # Create debug profile dir if it doesn't exist (first-time only).
 if [ ! -d "$DEBUG_PROFILE" ]; then
     echo "First run: creating debug profile at $DEBUG_PROFILE"
-    echo "You'll need to log into your accounts once — they'll persist after that."
+    if [ -z "$HEADLESS" ]; then
+        echo "Log into your accounts in the debug window — they'll persist for future runs."
+    else
+        echo "Run with --visible to log into accounts: chrome-debug.sh --visible"
+    fi
     mkdir -p "$DEBUG_PROFILE"
 fi
 
 # Launch Chrome with the debug profile.
-echo "Starting Chrome debug instance on port $PORT..."
+if [ -n "$HEADLESS" ]; then
+    echo "Starting headless Chrome debug instance on port $PORT..."
+else
+    echo "Starting visible Chrome debug instance on port $PORT..."
+fi
 "$CHROME_BIN" \
+    $HEADLESS \
     --remote-debugging-port="$PORT" \
     --user-data-dir="$DEBUG_PROFILE" > /dev/null 2>&1 &
 
@@ -52,5 +71,5 @@ done
 
 echo "Warning: Chrome started but debugging port not responding."
 echo "Try running manually:"
-echo "  \"$CHROME_BIN\" --remote-debugging-port=$PORT --user-data-dir=$DEBUG_PROFILE"
+echo "  \"$CHROME_BIN\" $HEADLESS --remote-debugging-port=$PORT --user-data-dir=$DEBUG_PROFILE"
 exit 1
