@@ -4,6 +4,15 @@ description: Run a full canopy improvement cycle — analyze recent sessions, pr
 version: 0.1.0
 ---
 
+## Preamble (run first)
+
+```bash
+_CANOPY_UPD=$(bash ~/emdash-projects/canopy/scripts/canopy-update-check.sh 2>/dev/null || true)
+[ -n "$_CANOPY_UPD" ] && echo "$_CANOPY_UPD"
+```
+
+If output shows `UPGRADE_AVAILABLE <old> <new>`: tell the user "canopy **v{new}** is available (you're on v{old}). Run `/canopy:update` to upgrade." Then continue with the skill — do not block on the upgrade.
+
 # Improve
 
 Runs the canopy improvement pipeline on recent Claude Code sessions.

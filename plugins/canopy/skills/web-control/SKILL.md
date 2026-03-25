@@ -4,6 +4,15 @@ description: Connect to the user's running Chrome browser via CDP to see what th
 version: 0.2.0
 ---
 
+## Preamble (run first)
+
+```bash
+_CANOPY_UPD=$(bash ~/emdash-projects/canopy/scripts/canopy-update-check.sh 2>/dev/null || true)
+[ -n "$_CANOPY_UPD" ] && echo "$_CANOPY_UPD"
+```
+
+If output shows `UPGRADE_AVAILABLE <old> <new>`: tell the user "canopy **v{new}** is available (you're on v{old}). Run `/canopy:update` to upgrade." Then continue with the skill — do not block on the upgrade.
+
 # Web Control — Connect to the User's Chrome via CDP
 
 Connect to the user's **actual running Chrome** browser via the Chrome DevTools
