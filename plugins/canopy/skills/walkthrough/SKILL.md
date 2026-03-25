@@ -152,6 +152,28 @@ Verify the response indicates success (check for error messages).
 
 **If no `auth` block:** Skip authentication (public pages).
 
+## Pre-flight Check
+
+Before executing any scenes, verify the target app is healthy:
+
+```bash
+$B goto <base_url>
+$B wait --networkidle
+```
+
+Check for:
+- **CSS loading:** Does the page look styled? Check for 404s on CSS/JS bundles in
+  console output. If assets are missing (common with worktree servers that haven't
+  run a build step), STOP and tell the user: "The server at {base_url} is missing
+  CSS assets — the app looks unstyled. Run the build step first."
+- **Correct app:** Does the page content match what you expect? If you see content
+  from a different app, the browse session is stale.
+- **Server responding:** If the page is blank or shows a connection error, the server
+  isn't running.
+
+Do NOT proceed to scene capture if the pre-flight fails. Bad captures waste time
+and the user will catch it before you do.
+
 ## Execution
 
 For each scene in the spec:
@@ -426,9 +448,36 @@ Then open the result:
 open screenshots/walkthroughs/<name>.html
 ```
 
-Tell the user:
-"Walkthrough complete! HTML deck saved to `screenshots/walkthroughs/<name>.html`.
-Review it in your browser. Let me know if you want to fix anything and rerun."
+## Verify Deck (MANDATORY — do not skip)
+
+After generating the HTML deck, you MUST verify your own output before presenting
+it to the user. The deck may contain problems invisible during live browsing:
+
+1. **Open the deck in browse:**
+   ```bash
+   $B goto file://$PWD/screenshots/walkthroughs/<name>.html
+   ```
+
+2. **Navigate to each scene slide** and take a viewport screenshot. For each slide:
+   - Read the screenshot with the Read tool
+   - Does the embedded screenshot show the right page? (not a different app, not a stale capture)
+   - Is the content styled? (not raw unstyled HTML from a server missing CSS)
+   - Are there loading spinners, black screens, or blank areas?
+   - Does the score shown match what the screenshot actually looks like?
+
+3. **Flag mismatches.** If any slide's screenshot doesn't match the score you gave it
+   during live browsing, update the score and note the discrepancy. Common problems:
+   - Screenshot captured from wrong server (worktree without built CSS)
+   - Screenshot captured before page finished loading (spinners visible)
+   - Screenshot shows a different page than expected (stale browse session)
+   - Screenshot is absurdly tall or blank
+
+4. **Report to the user** with confidence level:
+   - "Deck verified — all slides match their scores" (if everything checks out)
+   - "Deck has issues — slides {n, m} need retaking: {reasons}" (if problems found)
+
+**Do NOT tell the user the deck is ready without verifying it yourself.**
+The user should never be the first person to catch a bad screenshot.
 
 ## Generate Mode
 
