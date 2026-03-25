@@ -1,13 +1,13 @@
 #!/bin/bash
 # Ensure a Chrome debug instance is running with remote debugging enabled.
-# NEVER quits the user's main Chrome. Launches a separate instance using
-# a dedicated debug profile (~/.chrome-debug-profile).
+# NEVER quits or interferes with the user's main Chrome.
 #
-# Chrome supports multiple simultaneous instances when each has its own
-# --user-data-dir. The debug instance runs alongside the user's main browser.
+# Uses a dedicated debug profile (~/.chrome-debug-profile) so the debug
+# instance is completely isolated. Logins/cookies persist across restarts.
 #
-# On first run you get a fresh Chrome — log into accounts once and they
-# persist across restarts.
+# NOTE: macOS treats both Chrome instances as one app in Spotlight/dock.
+# If new windows open in the debug instance, Cmd+W to close the window
+# (Chrome stays running with CDP active in the background).
 
 PORT="${1:-9222}"
 DEBUG_PROFILE="$HOME/.chrome-debug-profile"
@@ -34,8 +34,7 @@ if [ ! -d "$DEBUG_PROFILE" ]; then
     mkdir -p "$DEBUG_PROFILE"
 fi
 
-# Launch a separate Chrome instance with the debug profile.
-# This does NOT touch the user's main Chrome — both run side by side.
+# Launch Chrome with the debug profile.
 echo "Starting Chrome debug instance on port $PORT..."
 "$CHROME_BIN" \
     --remote-debugging-port="$PORT" \
