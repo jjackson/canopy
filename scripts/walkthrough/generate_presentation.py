@@ -121,7 +121,7 @@ def _render_scene_slide(slide, personas, slide_index, total_slides):
 
 def _render_summary_slide(slide, run_data):
     """Render the summary slide with scores, issues, and comparison."""
-    duration = run_data["duration_seconds"]
+    duration = int(run_data.get("duration_seconds", 0))
     mins, secs = divmod(duration, 60)
     completed = slide["scenes_completed"]
     total = slide["scenes_total"]
