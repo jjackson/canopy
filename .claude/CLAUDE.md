@@ -108,15 +108,18 @@ re-installation into a fresh cache directory.
 
 ### Update workflow
 1. Make changes to skills, commands, or agents in `plugins/canopy/`
-2. Bump the **patch version** in `plugins/canopy/.claude-plugin/plugin.json` (e.g. `0.2.1` → `0.2.2`)
+2. Bump the **patch version** in `plugins/canopy/.claude-plugin/plugin.json` (e.g. `0.2.6` → `0.2.7`)
 3. Commit, merge to main, push:
    ```bash
    # From a worktree:
    git add -A && git commit -m "feat/fix: description"
    cd ~/emdash-projects/canopy && git merge <branch> && git push
    ```
-4. New sessions auto-detect the version bump and re-install from the marketplace repo
-5. For the **current session**, use `/reload-plugins` to pick up changes
+4. **IMMEDIATELY after pushing**, run `/canopy:update` in the current session to
+   install the new version from GitHub. This is mandatory — without it, the current
+   session runs stale code while other sessions get the new version on next start.
+   Do NOT skip this step or patch files locally as a shortcut.
+5. New sessions auto-detect the version bump and re-install from the marketplace repo
 
 **Do NOT manually copy files into `~/.claude/plugins/cache/`** — that bypasses
 the plugin system and creates version mismatches. Always publish via git push
