@@ -71,12 +71,21 @@ else
 fi
 ```
 
-**CRITICAL:** Set the browse state file to avoid lock conflicts with other sessions:
+**CRITICAL:** Set the browse state file to avoid lock conflicts and stale sessions:
 ```bash
 export BROWSE_STATE_FILE=/tmp/walkthrough-browse-$$.json
 ```
 Without this, the browse server will fail with "Another instance is starting" if any
 other session has used browse recently. Each walkthrough gets its own state file.
+
+**After starting browse, verify it's pointing at the right app:**
+```bash
+$B goto <base_url>
+$B text
+```
+If the page content is from a different app (e.g., you see "Fund Dashboard" when you
+expected "Programs"), the browse session is stale. Kill it and restart with the state
+file set.
 
 ### 2. Read the walkthrough spec
 
@@ -97,10 +106,18 @@ If a previous run exists, keep its data for the summary slide comparison.
 
 ### 4. Create output directories
 
+**CRITICAL:** Use a per-walkthrough screenshot directory, not a shared global one.
+Without this, screenshots from different projects or previous runs bleed through.
+
 ```bash
 mkdir -p screenshots/walkthroughs
-mkdir -p /tmp/walkthrough-screenshots
+SHOT_DIR="/tmp/walkthrough-screenshots/<name>-$(date +%s)"
+mkdir -p "$SHOT_DIR"
+echo "Screenshots: $SHOT_DIR"
 ```
+
+Use `$SHOT_DIR/scene_{n}.png` for all screenshots in this run. Never use a bare
+`/tmp/walkthrough-screenshots/` — that's shared across all sessions and projects.
 
 ### 5. Authenticate
 
@@ -148,7 +165,7 @@ For each scene in the spec:
    overlap content in full-page captures:
    ```bash
    $B js "document.querySelectorAll('*').forEach(function(el){var s=getComputedStyle(el);if(s.position==='fixed'||s.position==='sticky')el.style.position='absolute'})"
-   $B screenshot /tmp/walkthrough-screenshots/scene_{n}.png
+   $B screenshot $SHOT_DIR/scene_{n}.png
    ```
 
 5. **Show the screenshot to the user** using the Read tool on the PNG file.
@@ -369,7 +386,7 @@ all 5 dimension scores in the format shown above.
 
 **Base64 encoding screenshots:**
 ```bash
-base64 -i /tmp/walkthrough-screenshots/scene_{n}.png
+base64 -i $SHOT_DIR/scene_{n}.png
 ```
 
 **Persona intro slides:** Insert a `persona_intro` slide before the first scene
