@@ -110,15 +110,17 @@ diagnose. If you feel the urge to locally patch, STOP — use `/canopy:update` i
 
 ### Update workflow (the ONLY way to update)
 1. Make changes to skills, commands, or agents in `plugins/canopy/`
-2. Bump the **patch version** in `plugins/canopy/.claude-plugin/plugin.json` (e.g. `0.2.1` → `0.2.2`)
+2. Bump the **patch version** in `plugins/canopy/.claude-plugin/plugin.json` (e.g. `0.2.6` → `0.2.7`)
 3. Commit, merge to main, push:
    ```bash
    # From a worktree:
    git add -A && git commit -m "feat/fix: description"
    cd ~/emdash-projects/canopy && git merge <branch> && git push
    ```
-4. Run `/canopy:update` — this pulls from GitHub, creates a new cache dir, and updates
-   `installed_plugins.json` (the update skill handles all of this)
+4. **IMMEDIATELY after pushing**, run `/canopy:update` in the current session.
+   This is mandatory — it pulls from GitHub, creates a new cache dir, and updates
+   `installed_plugins.json`. Without it, the current session runs stale code while
+   other sessions get the new version on next start. Do NOT skip this step.
 5. Run `/reload-plugins` to activate the new version in the current session
 
 New sessions auto-detect the version bump on startup — no manual steps needed.
