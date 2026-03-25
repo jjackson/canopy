@@ -57,7 +57,7 @@ scenes:
 
 ## Setup
 
-### 1. Find the browse binary
+### 1. Find the browse binary and set state file
 
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -70,6 +70,13 @@ else
   echo "NEEDS_SETUP: run 'cd ~/.claude/skills/browse && ./setup'"
 fi
 ```
+
+**CRITICAL:** Set the browse state file to avoid lock conflicts with other sessions:
+```bash
+export BROWSE_STATE_FILE=/tmp/walkthrough-browse-$$.json
+```
+Without this, the browse server will fail with "Another instance is starting" if any
+other session has used browse recently. Each walkthrough gets its own state file.
 
 ### 2. Read the walkthrough spec
 
@@ -218,18 +225,26 @@ For each scene in the spec:
    - **2** — You'd skip this slide or preface with "still a prototype"
    - **1** — Would hurt credibility
 
-   Write commentary that:
+   **MANDATORY: Output this exact format for every scene.** Do not skip dimensions.
+   Do not fabricate scores without reading the page. You MUST run `$B text` and read
+   the output before scoring.
 
-   1. Quotes the worst thing you found (verbatim) — from CONTENT, not styling
-   2. Names the WEAKEST dimension and why — be specific
-   3. Suggests ONE concrete fix that would have the most impact, classified as:
-      - **[CODE]** — app bug or template fix (Claude can implement)
-      - **[SPEC]** — adjust the YAML walkthrough spec (Claude can implement)
-      - **[DATA]** — demo data needs updating (may need user input)
-      - **[INFRA]** — auth expired, server down, browse binary missing (user action)
+   ```
+   ### Scene {n}: {title}
+   Worst thing found: "{verbatim quote from page content}"
+
+   A. Content:      {1-5}/5 — {one sentence}
+   B. App Page:     {1-5}/5 — {one sentence}
+   C. Screenshot:   {1-5}/5 — {one sentence}
+   D. Slide:        {1-5}/5 — {one sentence}
+   E. Demo Ready:   {1-5}/5 — {one sentence}
+
+   Overall: {lowest}/5 (weakest: {dimension name})
+   Fix: [{CODE|SPEC|DATA|INFRA}] {concrete fix description}
+   ```
 
    **BLOCKING RULE:** If ANY scene scores 2 or below on Demo Readiness, STOP the
-   walkthrough and tell the user:
+   walkthrough IMMEDIATELY and tell the user:
 
    > "Scene {n} scored {score}/5 on Demo Readiness — this would hurt the demo.
    > The issue is: {quote the problem}. Recommended fix: {fix}.
@@ -237,6 +252,11 @@ For each scene in the spec:
 
    Do NOT silently log a 2/5 and keep going. A 2/5 means the slide would embarrass
    you in a meeting — that's a blocker, not a warning. Either fix it or drop it.
+
+   **NEVER fabricate scores.** If you did not run `$B text` and read the page content
+   for a scene, you cannot score it. If you are building a JSON data file and writing
+   scores inline, you are doing it wrong — score each scene interactively after
+   viewing the screenshot and reading the page text.
 
 7. **Record issues.** If anything goes wrong (element not found, page error, slow load,
    empty state), note it as an issue with severity (error/warning) and description.
@@ -308,7 +328,7 @@ write it to `/tmp/walkthrough-run-data.json`:
   "name": "<from spec>",
   "narrative": "<from spec>",
   "generated_at": "<current ISO timestamp>",
-  "duration_seconds": "<elapsed time>",
+  "duration_seconds": 180,
   "personas": "<from spec — the full personas dict>",
   "slides": [
     { "type": "title" },
@@ -321,19 +341,27 @@ write it to `/tmp/walkthrough-run-data.json`:
       "title": "<scene title>",
       "narration": "<impressive_because from spec>",
       "screenshot_b64": "<base64 encoded PNG>",
-      "ai_evaluation": { "score": 4, "max_score": 5, "commentary": "..." }
+      "ai_evaluation": {
+        "score": 3,
+        "max_score": 5,
+        "commentary": "Overall: 3/5 (weakest: Content). A: Content 3/5 — generic. B: App Page 4/5 — clean. C: Screenshot 4/5 — good. D: Slide 4/5 — clear. E: Demo Ready 3/5 — needs polish."
+      }
     },
     {
       "type": "summary",
       "scenes_completed": "<count>",
       "scenes_total": "<total>",
-      "ai_scores": [{ "feature": "<title>", "score": 4, "max_score": 5 }],
+      "ai_scores": [{ "feature": "<title>", "score": 3, "max_score": 5 }],
       "issues": [{ "scene": 1, "severity": "warning", "description": "..." }],
       "previous_run": "<previous sidecar JSON or null>"
     }
   ]
 }
 ```
+
+**IMPORTANT:** `duration_seconds` MUST be an integer, not a string. `ai_evaluation.score`
+must be the LOWEST of the 5 dimension scores (weakest-link). The commentary must include
+all 5 dimension scores in the format shown above.
 
 **Base64 encoding screenshots:**
 ```bash
