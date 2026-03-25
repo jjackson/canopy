@@ -4,6 +4,15 @@ description: Generate a strategic brief from recent canopy activity — patterns
 version: 0.1.0
 ---
 
+## Preamble (run first)
+
+```bash
+_CANOPY_UPD=$(bash ~/emdash-projects/canopy/scripts/canopy-update-check.sh 2>/dev/null || true)
+[ -n "$_CANOPY_UPD" ] && echo "$_CANOPY_UPD"
+```
+
+If output shows `UPGRADE_AVAILABLE <old> <new>`: tell the user "canopy **v{new}** is available (you're on v{old}). Run `/canopy:update` to upgrade." Then continue with the skill — do not block on the upgrade.
+
 # Brief
 
 Generates a CEO-level strategic brief from recent orchestrator activity. Applies inversion reflex, leverage obsession, and focus-as-subtraction to the pipeline's data.
