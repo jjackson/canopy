@@ -5,13 +5,13 @@
 #   UPGRADE_AVAILABLE <installed> <remote>  — remote version differs
 #   (nothing)                               — up to date or check skipped
 #
-# Runs in <100ms when cached (checks GitHub at most once per hour).
+# Pure bash + curl, no Python. Fetches a single VERSION file (~10 bytes).
 set -euo pipefail
 
 STATE_DIR="$HOME/.canopy"
 CACHE_FILE="$STATE_DIR/last-update-check"
 INSTALLED_PLUGINS="$HOME/.claude/plugins/installed_plugins.json"
-REMOTE_URL="https://raw.githubusercontent.com/jjackson/canopy/main/plugins/canopy/.claude-plugin/plugin.json"
+REMOTE_URL="https://raw.githubusercontent.com/jjackson/canopy/main/VERSION"
 CACHE_TTL=0  # seconds (check every time — set to 3600 once stable)
 
 # ─── Step 1: Get installed version ────────────────────────────
@@ -19,22 +19,17 @@ if [ ! -f "$INSTALLED_PLUGINS" ]; then
   exit 0
 fi
 
-LOCAL=$(python3 -c "
-import json
-try:
-    d = json.load(open('$INSTALLED_PLUGINS'))
-    print(d['plugins']['canopy@canopy'][0]['version'])
-except (KeyError, IndexError, FileNotFoundError):
-    print('unknown')
-" 2>/dev/null || echo "unknown")
+# Extract version with grep/sed — no Python needed
+LOCAL=$(grep -o '"canopy@canopy"' "$INSTALLED_PLUGINS" >/dev/null 2>&1 && \
+  sed -n '/"canopy@canopy"/,/\]/{ s/.*"version": *"\([^"]*\)".*/\1/p; }' "$INSTALLED_PLUGINS" | head -1 || echo "unknown")
 
-if [ "$LOCAL" = "unknown" ]; then
+if [ -z "$LOCAL" ] || [ "$LOCAL" = "unknown" ]; then
   exit 0
 fi
 
 # ─── Step 2: Check cache ─────────────────────────────────────
 mkdir -p "$STATE_DIR"
-if [ -f "$CACHE_FILE" ]; then
+if [ -f "$CACHE_FILE" ] && [ "$CACHE_TTL" -gt 0 ]; then
   CACHE_AGE=$(( $(date +%s) - $(stat -f %m "$CACHE_FILE" 2>/dev/null || stat -c %Y "$CACHE_FILE" 2>/dev/null || echo 0) ))
   if [ "$CACHE_AGE" -lt "$CACHE_TTL" ]; then
     CACHED=$(cat "$CACHE_FILE")
@@ -47,16 +42,16 @@ if [ -f "$CACHE_FILE" ]; then
   fi
 fi
 
-# ─── Step 3: Fetch remote version ────────────────────────────
-REMOTE_JSON=$(curl -sf --max-time 5 "$REMOTE_URL" 2>/dev/null || true)
-if [ -z "$REMOTE_JSON" ]; then
+# ─── Step 3: Fetch remote VERSION file ────────────────────────
+REMOTE=$(curl -sf --max-time 5 "$REMOTE_URL" 2>/dev/null | tr -d '[:space:]' || true)
+
+if [ -z "$REMOTE" ]; then
   echo "UP_TO_DATE $LOCAL" > "$CACHE_FILE"
   exit 0
 fi
 
-REMOTE=$(echo "$REMOTE_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])" 2>/dev/null || true)
-
-if [ -z "$REMOTE" ]; then
+# Validate: must look like a version number
+if ! echo "$REMOTE" | grep -qE '^[0-9]+\.[0-9.]+$'; then
   echo "UP_TO_DATE $LOCAL" > "$CACHE_FILE"
   exit 0
 fi
