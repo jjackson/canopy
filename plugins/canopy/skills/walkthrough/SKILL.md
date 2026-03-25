@@ -158,17 +158,21 @@ For each scene in the spec:
    high-level — you figure out the clicks and navigation. Use the app's UI, links, and
    URL patterns to get where you need to be.
 
-3. **Wait for content.** If the page has dynamic content (SSE, AJAX, animations):
+3. **Wait for the page to fully load.** Always wait for network idle before
+   screenshotting — this catches SSE streaming, AJAX calls, lazy-loaded images,
+   and chart rendering:
    ```bash
    $B wait --networkidle
    ```
+   If the page still shows loading spinners or "loading..." text after networkidle,
+   wait a few more seconds and check again with `$B text`.
 
-4. **Take screenshots.** First neutralize fixed/sticky elements so they don't
-   overlap content in full-page captures:
+4. **Take a full-page screenshot.**
    ```bash
-   $B js "document.querySelectorAll('*').forEach(function(el){var s=getComputedStyle(el);if(s.position==='fixed'||s.position==='sticky')el.style.position='absolute'})"
    $B screenshot $SHOT_DIR/scene_{n}.png
    ```
+   That's it — no DOM manipulation, no element neutralization. Full-page captures
+   are fine even for tall pages (the HTML deck makes slides scrollable).
 
 5. **Show the screenshot to the user** using the Read tool on the PNG file.
 
@@ -295,19 +299,6 @@ For each scene in the spec:
    - IDs or slugs showing instead of human-readable names
    If found, note it as an issue so the user knows the demo won't look right
    with this data.
-
-10. **Screenshot troubleshooting.** If a screenshot comes back blank or shows the
-    wrong content:
-    - Pages with hidden sidebars or collapsed sections can inflate page height to
-      millions of pixels, causing full-page screenshots to render blank
-    - **Workaround — DOM Clone (not Move):** Clone the target element to the top of
-      the page and hide everything else. Do NOT move it — moving breaks SSE streaming
-      and event handler references:
-      ```bash
-      $B js "var el=document.querySelector('.target'); var clone=el.cloneNode(true); document.body.querySelectorAll(':scope > *').forEach(function(c){c.style.display='none'}); document.body.insertBefore(clone, document.body.firstChild)"
-      ```
-    - Alternatively, use viewport-only screenshots for problematic pages
-    - If content is behind a scroll container, scroll it into view first
 
 ## After All Scenes: Prioritized Action List
 
