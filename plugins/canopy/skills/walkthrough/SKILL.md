@@ -281,8 +281,12 @@ For each scene in the spec:
     wrong content:
     - Pages with hidden sidebars or collapsed sections can inflate page height to
       millions of pixels, causing full-page screenshots to render blank
-    - **Workaround:** Use JS to move the target element to the top of the page
-      before capturing: `$B js "var el=document.querySelector('.target'); document.body.insertBefore(el, document.body.firstChild)"`
+    - **Workaround — DOM Clone (not Move):** Clone the target element to the top of
+      the page and hide everything else. Do NOT move it — moving breaks SSE streaming
+      and event handler references:
+      ```bash
+      $B js "var el=document.querySelector('.target'); var clone=el.cloneNode(true); document.body.querySelectorAll(':scope > *').forEach(function(c){c.style.display='none'}); document.body.insertBefore(clone, document.body.firstChild)"
+      ```
     - Alternatively, use viewport-only screenshots for problematic pages
     - If content is behind a scroll container, scroll it into view first
 
@@ -429,3 +433,14 @@ The walkthrough is designed for iterative improvement:
 The summary slide automatically shows score progression when a previous run exists.
 Each iteration should improve the average AI quality score. Target: 4.5+/5 before
 declaring the demo stakeholder-ready.
+
+### Efficient reruns
+
+Don't re-run all scenes when only a few need fixing:
+
+- **Selective retake:** If 2 of 8 scenes need fixing after code changes, retake only
+  those screenshots. Keep the good captures from the previous run.
+- **Screenshot reuse:** If the underlying data hasn't changed for a scene, reuse the
+  previous run's screenshot rather than recapturing (avoids fighting capture issues).
+- **Incremental fixes:** Fix the lowest-scoring scenes first. Each fix-and-retake cycle
+  should target the biggest Demo Readiness blockers.
