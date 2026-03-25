@@ -279,8 +279,12 @@ For each scene in the spec:
    walkthrough IMMEDIATELY and tell the user:
 
    > "Scene {n} scored {score}/5 on Demo Readiness — this would hurt the demo.
+   > Page: {full URL that was loaded for this scene}
    > The issue is: {quote the problem}. Recommended fix: {fix}.
    > Should I fix this now before continuing, or skip this scene?"
+
+   Always include the **full URL** so the user can open the page directly and
+   confirm the issue before deciding how to proceed.
 
    Do NOT silently log a 2/5 and keep going. A 2/5 means the slide would embarrass
    you in a meeting — that's a blocker, not a warning. Either fix it or drop it.
