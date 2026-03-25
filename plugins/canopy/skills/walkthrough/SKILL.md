@@ -81,12 +81,14 @@ else
 fi
 ```
 
-**CRITICAL:** Set the browse state file to avoid lock conflicts and stale sessions:
+**CRITICAL:** Set the browse state file to avoid lock conflicts and stale sessions.
+Pick a fixed path for this walkthrough and use it for ALL browse commands in this run:
 ```bash
-export BROWSE_STATE_FILE=/tmp/walkthrough-browse-$$.json
+export BROWSE_STATE_FILE=/tmp/walkthrough-browse-<name>.json
 ```
-Without this, the browse server will fail with "Another instance is starting" if any
-other session has used browse recently. Each walkthrough gets its own state file.
+Replace `<name>` with the walkthrough spec name (e.g., `baobab-demo`). Do NOT use `$$`
+(shell PID) — it changes across Bash calls. Without this, the browse server will fail
+with "Another instance is starting" if another session has used browse recently.
 
 **After starting browse, verify it's pointing at the right app:**
 ```bash
