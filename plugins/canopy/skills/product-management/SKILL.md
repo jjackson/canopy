@@ -1,7 +1,6 @@
 ---
 name: product-management
 description: Use when acting as a product manager for autonomous development — exploring a codebase, proposing improvements, implementing, and learning from outcomes. Invoked by open claws or humans who want structured PM-style development cycles.
-version: 0.2.0
 ---
 
 ## Preamble (run first)

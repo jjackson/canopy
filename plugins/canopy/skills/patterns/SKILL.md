@@ -1,7 +1,6 @@
 ---
 name: patterns
 description: Show cross-session friction patterns — recurring issues and project hotspots detected across Claude Code sessions
-version: 0.1.0
 ---
 
 ## Preamble (run first)

@@ -1,7 +1,6 @@
 ---
 name: orchestrator
 description: Cross-project MCP orchestration — routes queries to the right tools across multiple projects
-version: 0.1.0
 ---
 
 ## Preamble (run first)

@@ -1,7 +1,6 @@
 ---
 name: doc-regeneration
 description: Audit project documentation for staleness and coverage gaps, then regenerate CLAUDE.md and learnings. Use when docs may be out of sync with actual project state.
-version: 0.2.0
 ---
 
 ## Preamble (run first)

@@ -1,7 +1,6 @@
 ---
 name: brief
 description: Generate a strategic brief from recent canopy activity — patterns, success rates, and improvement opportunities
-version: 0.1.0
 ---
 
 ## Preamble (run first)
