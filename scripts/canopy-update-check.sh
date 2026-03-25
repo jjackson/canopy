@@ -12,7 +12,7 @@ STATE_DIR="$HOME/.canopy"
 CACHE_FILE="$STATE_DIR/last-update-check"
 INSTALLED_PLUGINS="$HOME/.claude/plugins/installed_plugins.json"
 REMOTE_URL="https://raw.githubusercontent.com/jjackson/canopy/main/plugins/canopy/.claude-plugin/plugin.json"
-CACHE_TTL=3600  # seconds (1 hour)
+CACHE_TTL=0  # seconds (check every time — set to 3600 once stable)
 
 # ─── Step 1: Get installed version ────────────────────────────
 if [ ! -f "$INSTALLED_PLUGINS" ]; then
