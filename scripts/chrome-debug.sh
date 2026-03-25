@@ -1,15 +1,13 @@
 #!/bin/bash
-# Ensure Chrome is running with remote debugging enabled.
-# If Chrome is already debuggable, does nothing.
-# If Chrome is running without debugging, gracefully restarts it.
+# Ensure a Chrome debug instance is running with remote debugging enabled.
+# NEVER quits the user's main Chrome. Launches a separate instance using
+# a dedicated debug profile (~/.chrome-debug-profile).
 #
-# Uses a persistent debug profile at ~/.chrome-debug-profile. This is
-# separate from your main Chrome profile. On first run you'll get a
-# fresh Chrome — log into your accounts once and it persists across
-# restarts. Your main Chrome profile is never touched.
+# Chrome supports multiple simultaneous instances when each has its own
+# --user-data-dir. The debug instance runs alongside the user's main browser.
 #
-# KEY INSIGHT: Newer Chrome on macOS requires --user-data-dir to be
-# a non-default path for --remote-debugging-port to work.
+# On first run you get a fresh Chrome — log into accounts once and they
+# persist across restarts.
 
 PORT="${1:-9222}"
 DEBUG_PROFILE="$HOME/.chrome-debug-profile"
@@ -29,44 +27,21 @@ if ! [ -x "$CHROME_BIN" ]; then
     exit 1
 fi
 
-# If Chrome is running (without debugging), quit it first
-if pgrep -x "Google Chrome" > /dev/null 2>&1; then
-    echo "Chrome is running without debugging. Quitting to restart with CDP on port $PORT..."
-
-    osascript -e 'tell application "Google Chrome" to quit' 2>/dev/null
-
-    for i in $(seq 1 15); do
-        if ! pgrep -x "Google Chrome" > /dev/null 2>&1; then
-            break
-        fi
-        sleep 1
-    done
-
-    if pgrep -x "Google Chrome" > /dev/null 2>&1; then
-        echo "Error: Chrome didn't quit cleanly. Close it manually and try again."
-        exit 1
-    fi
-
-    sleep 2
-else
-    echo "Chrome is not running. Starting with debugging on port $PORT..."
-fi
-
 # Create debug profile dir if it doesn't exist (first-time only).
-# This profile is persistent — logins, tabs, and cookies survive across restarts.
 if [ ! -d "$DEBUG_PROFILE" ]; then
-    echo "  First run: creating debug profile at $DEBUG_PROFILE"
-    echo "  You'll need to log into your accounts once — they'll persist after that."
+    echo "First run: creating debug profile at $DEBUG_PROFILE"
+    echo "You'll need to log into your accounts once — they'll persist after that."
     mkdir -p "$DEBUG_PROFILE"
 fi
 
-# Launch Chrome with debugging.
+# Launch a separate Chrome instance with the debug profile.
+# This does NOT touch the user's main Chrome — both run side by side.
+echo "Starting Chrome debug instance on port $PORT..."
 "$CHROME_BIN" \
     --remote-debugging-port="$PORT" \
     --user-data-dir="$DEBUG_PROFILE" > /dev/null 2>&1 &
 
 # Wait for debugging to become available
-echo "Waiting for Chrome to start..."
 for i in $(seq 1 30); do
     if curl -s "http://localhost:$PORT/json/version" > /dev/null 2>&1; then
         echo "Chrome debugging active on port $PORT"
@@ -78,5 +53,5 @@ done
 
 echo "Warning: Chrome started but debugging port not responding."
 echo "Try running manually:"
-echo "  $CHROME_BIN --remote-debugging-port=$PORT --user-data-dir=$DEBUG_PROFILE"
+echo "  \"$CHROME_BIN\" --remote-debugging-port=$PORT --user-data-dir=$DEBUG_PROFILE"
 exit 1
