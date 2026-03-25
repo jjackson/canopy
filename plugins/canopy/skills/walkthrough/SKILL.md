@@ -482,7 +482,7 @@ that averages ≤ 3/5 or has any scene scoring ≤ 2:
 
 | Dimension | Route to | What it does |
 |-----------|----------|-------------|
-| **Content Quality** | `/codex challenge` | Adversarial review of the code that generates AI content. Pass the specific file (agent prompt, template) and ask Codex to find the most embarrassing output it can produce. |
+| **Content Quality** | `/review` | Adversarial code review of the files generating AI content (agent prompts, templates). Uses Codex + Claude dual voices when available, Claude-only otherwise. |
 | **App Page Quality** | `/design-review` | Live site visual audit of the failing page URL. Produces atomic fix commits for typography, spacing, color, hierarchy issues. |
 | **Screenshot Quality** | Self-fix | Adjust browse commands — try viewport crop, DOM clone, different scroll position. No external skill needed. |
 | **Slide Quality** | Self-fix | Improve narration in the spec's `impressive_because`, adjust scene framing. Update the YAML spec. |
@@ -490,23 +490,23 @@ that averages ≤ 3/5 or has any scene scoring ≤ 2:
 
 **How to dispatch:**
 
-For `/design-review`:
+For `/review` (Content Quality):
+```
+Invoke the review skill. It will run adversarial review on the code diff,
+using Codex + Claude dual voices if available, Claude-only otherwise.
+Focus on the files that generate AI content (agent prompts, templates).
+```
+
+For `/design-review` (App Page Quality):
 ```
 Invoke the design-review skill with the base_url + page path for the failing scene.
-Let it audit and fix. It will make atomic commits.
+Let it audit and fix. It will make atomic commits with before/after screenshots.
 ```
 
-For `/codex challenge`:
-```
-Run codex in challenge mode on the specific file that generates the AI content
-(e.g., the agent prompt file, the template file). Ask it to find the most
-embarrassing output a stakeholder would see.
-```
-
-For `/qa`:
+For `/qa` (Demo Readiness):
 ```
 Invoke the qa skill with the base_url + page path. Use Quick tier (critical/high only)
-to keep it focused. It will find and fix functional bugs.
+to keep it focused. It will find and fix functional bugs with atomic commits.
 ```
 
 ### Step 3: Rerun failing scenes
@@ -542,17 +542,23 @@ Execute the spec as normal. Verify all scenes score 4+/5. If not, suggest
 
 ### Step 2: Dispatch adversarial review
 
-Run `/codex challenge` with this framing:
+Run two parallel adversarial passes using the Agent tool:
 
-> "Here is a demo walkthrough for [product name]. It currently scores 4+/5.
-> Your job is to find the most embarrassing thing a stakeholder would notice
-> that the walkthrough missed. Navigate the app freely — don't limit yourself
-> to the spec'd scenes. Look for:
-> - AI content that sounds impressive but is factually wrong
-> - Data that looks realistic but has subtle artifacts (duplicate orgs, zero amounts)
-> - Pages that work in the demo flow but break with edge case inputs
-> - Visual inconsistencies between pages (different header styles, mixed fonts)
-> - Empty states that the demo conveniently avoids"
+**Pass 1 — Code adversarial (via Agent subagent):**
+Dispatch a Claude subagent with adversarial framing to review the codebase:
+
+> "You are an adversarial reviewer. This product currently passes a demo walkthrough
+> at 4+/5. Your job is to find the most embarrassing thing a stakeholder would notice.
+> Read the code that generates AI content, check data models for edge cases, and look
+> for scenarios the demo flow conveniently avoids. Be harsh — find real problems."
+
+**Pass 2 — Live site adversarial (via `/qa`):**
+Run `/qa` in Exhaustive tier against the base_url. This clicks everything, fills forms
+with edge-case inputs, checks empty states, and tests responsive viewports — going
+far beyond the walkthrough's scripted scenes.
+
+The combination of code-level and browser-level adversarial testing catches both
+logic bugs and UI/UX issues that the walkthrough's happy path misses.
 
 ### Step 3: Incorporate findings
 
