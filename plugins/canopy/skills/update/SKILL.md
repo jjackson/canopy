@@ -3,130 +3,108 @@ name: update
 description: Update the canopy plugin to the latest version from GitHub
 ---
 
-## Preamble (run first)
-
-```bash
-_CANOPY_UPD=$(bash ~/emdash-projects/canopy/scripts/canopy-update-check.sh 2>/dev/null || true)
-[ -n "$_CANOPY_UPD" ] && echo "$_CANOPY_UPD"
-```
-
-If output shows `UPGRADE_AVAILABLE <old> <new>`: tell the user "canopy **v{new}** is available (you're on v{old}). Run `/canopy:update` to upgrade." Then continue with the skill — do not block on the upgrade.
-
 # Update Canopy
 
-Pull the latest canopy plugin from GitHub and install it into the plugin cache.
+**This is a rigid, scripted skill. Run the bash blocks EXACTLY as written. Do NOT
+explore, ls, glob, read files, or improvise. The scripts below are the complete
+procedure — there is nothing else to discover.**
 
-**IMPORTANT:** Always pull from `~/.claude/plugins/marketplaces/canopy` (the marketplace
-repo), NOT from `~/emdash-projects/canopy` (the source repo). The source repo may be
-up to date but the plugin cache won't be — the marketplace repo feeds the cache.
+## Step 1: Pull and compare (ONE command)
 
-## Flow
-
-### Step 1: Show current installed version
+Run this single bash command. Do NOT split it up or run anything before it:
 
 ```bash
-python3 -c "
-import json
-with open('$HOME/.claude/plugins/installed_plugins.json') as f:
-    data = json.load(f)
-entry = data.get('plugins', {}).get('canopy@canopy', [{}])[0]
-print(f'Installed: v{entry.get(\"version\", \"unknown\")}')
-print(f'Cache: {entry.get(\"installPath\", \"unknown\")}')
-print(f'Commit: {entry.get(\"gitCommitSha\", \"unknown\")[:8]}')
-"
-```
+cd ~/.claude/plugins/marketplaces/canopy && git pull origin main 2>&1 && python3 -c "
+import json, subprocess, sys, os
 
-### Step 2: Pull latest from the MARKETPLACE repo
+home = os.path.expanduser('~')
 
-```bash
-cd ~/.claude/plugins/marketplaces/canopy && git pull origin main
-```
+# Read installed version
+with open(f'{home}/.claude/plugins/installed_plugins.json') as f:
+    installed = json.load(f)
+entry = installed.get('plugins', {}).get('canopy@canopy', [{}])[0]
+iv = entry.get('version', 'unknown')
+sha = entry.get('gitCommitSha', 'unknown')[:8]
 
-If this fails (e.g. directory doesn't exist), tell the user the canopy marketplace
-is not installed and stop.
-
-### Step 3: Show GitHub version and compare
-
-```bash
-python3 -c "
-import json
-with open('$HOME/.claude/plugins/marketplaces/canopy/plugins/canopy/.claude-plugin/plugin.json') as f:
-    data = json.load(f)
-print(f'GitHub:    v{data[\"version\"]}')
-" && cd ~/.claude/plugins/marketplaces/canopy && git log --oneline -5
-```
-
-Show the user a clear comparison:
-
-```
-Installed: v0.2.6
-GitHub:    v0.2.8
-```
-
-If the installed version matches the marketplace version, say "Already up to date
-at version X" and stop.
-
-### Step 4: Install to cache
-
-Create the new cache directory and copy the plugin contents:
-
-```bash
-NEW_VERSION=<version from step 3>
-mkdir -p ~/.claude/plugins/cache/canopy/canopy/$NEW_VERSION
-rsync -a ~/.claude/plugins/marketplaces/canopy/plugins/canopy/ ~/.claude/plugins/cache/canopy/canopy/$NEW_VERSION/
-```
-
-### Step 5: Update installed_plugins.json
-
-Update the `canopy@canopy` entry in `~/.claude/plugins/installed_plugins.json`:
-- Set `version` to the new version
-- Set `installPath` to the new cache directory
-- Set `gitCommitSha` to the current HEAD of the marketplace repo
-- Set `lastUpdated` to the current timestamp
-
-```bash
-cd ~/.claude/plugins/marketplaces/canopy && git rev-parse HEAD
-```
-
-Use python3 to read, update, and write the JSON file.
-
-### Step 6: Verify and report
-
-Read back `installed_plugins.json` and confirm the version matches what the
-marketplace has:
-
-```bash
-python3 -c "
-import json
-installed = json.load(open('$HOME/.claude/plugins/installed_plugins.json'))
-marketplace = json.load(open('$HOME/.claude/plugins/marketplaces/canopy/plugins/canopy/.claude-plugin/plugin.json'))
-iv = installed['plugins']['canopy@canopy'][0]['version']
+# Read marketplace version
+with open(f'{home}/.claude/plugins/marketplaces/canopy/plugins/canopy/.claude-plugin/plugin.json') as f:
+    marketplace = json.load(f)
 mv = marketplace['version']
-match = 'VERIFIED' if iv == mv else 'MISMATCH'
-print(f'Installed: v{iv}  |  GitHub: v{mv}  |  {match}')
+
+# Recent commits
+log = subprocess.run(['git', 'log', '--oneline', '-5'], capture_output=True, text=True).stdout.strip()
+
+print(f'Installed: v{iv} ({sha})')
+print(f'GitHub:    v{mv}')
+print(f'')
+print(log)
+print(f'')
+if iv == mv:
+    print('STATUS: UP_TO_DATE')
+else:
+    print(f'STATUS: UPGRADE_AVAILABLE {iv} {mv}')
 "
 ```
 
-Then output EXACTLY this message (fill in the version):
+**Read the STATUS line at the end of the output:**
+- `UP_TO_DATE` → Tell the user "Already up to date at **vX.Y.Z**." and **STOP. Do nothing else.**
+- `UPGRADE_AVAILABLE <old> <new>` → Continue to Step 2.
 
+If the `cd` or `git pull` fails, tell the user the canopy marketplace is not installed and **STOP**.
+
+## Step 2: Install and update (ONE command)
+
+Run this single bash command. Replace `NEW_VERSION` with the version from Step 1:
+
+```bash
+NEW_VERSION=<version from step 1> && \
+mkdir -p ~/.claude/plugins/cache/canopy/canopy/$NEW_VERSION && \
+rsync -a ~/.claude/plugins/marketplaces/canopy/plugins/canopy/ ~/.claude/plugins/cache/canopy/canopy/$NEW_VERSION/ && \
+cd ~/.claude/plugins/marketplaces/canopy && python3 -c "
+import json, subprocess, os
+from datetime import datetime, timezone
+
+home = os.path.expanduser('~')
+version = '$NEW_VERSION'
+cache_path = f'{home}/.claude/plugins/cache/canopy/canopy/{version}'
+sha = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
+now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+
+path = f'{home}/.claude/plugins/installed_plugins.json'
+with open(path) as f:
+    data = json.load(f)
+
+entries = data.get('plugins', {}).get('canopy@canopy', [{}])
+entries[0]['version'] = version
+entries[0]['installPath'] = cache_path
+entries[0]['gitCommitSha'] = sha
+entries[0]['lastUpdated'] = now
+
+with open(path, 'w') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+
+# Verify
+with open(path) as f:
+    check = json.load(f)
+cv = check['plugins']['canopy@canopy'][0]['version']
+with open(f'{home}/.claude/plugins/marketplaces/canopy/plugins/canopy/.claude-plugin/plugin.json') as f:
+    mv = json.load(f)['version']
+
+if cv == mv:
+    print(f'VERIFIED: v{cv} installed and matches GitHub')
+else:
+    print(f'MISMATCH: installed v{cv} but GitHub has v{mv}')
+"
 ```
-Updated canopy to **X.Y.Z** (verified against GitHub).
-Run `/reload-plugins` to activate.
-```
 
-## Why this flow
-
-`/reload-plugins` only reloads skill definitions from the existing cache directory.
-It does NOT detect version changes or re-install from the marketplace. Only a new
-session does that automatically. This update skill bridges the gap by doing the
-install step, then `/reload-plugins` picks up the new cache.
+**Read the output:**
+- `VERIFIED` → Tell the user exactly: "Updated canopy to **vX.Y.Z** (verified against GitHub). Run `/reload-plugins` to activate."
+- `MISMATCH` → Tell the user the update failed and show the mismatch.
 
 ## Rules
 
-- **Always pull from `~/.claude/plugins/marketplaces/canopy`** — never the source repo
-- Always show installed vs GitHub version comparison upfront
-- Always create a new cache dir for the new version (don't overwrite old ones)
-- Always update installed_plugins.json so Claude Code knows the current version
-- Always verify the installed version matches the marketplace version at the end
-- Always tell the user to run `/reload-plugins`
-- If already up to date, say the version number so the user can confirm
+- **Run EXACTLY the two bash blocks above.** No exploring, no ls, no reading files, no globbing.
+- Always pull from `~/.claude/plugins/marketplaces/canopy` — NEVER from `~/emdash-projects/canopy`
+- If Step 1 says UP_TO_DATE, STOP immediately. Do not run Step 2.
+- Always tell the user to run `/reload-plugins` after a successful update.
