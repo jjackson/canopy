@@ -3,6 +3,7 @@ name: walkthrough
 description: |
   Execute a demo walkthrough spec against a live app and generate a stakeholder-ready
   HTML slideshow with screenshots, AI quality scores, and run-to-run comparison.
+  Core run procedure only — for improve/adversarial/eval modes, use the walkthrough agent.
   Use when asked to "run the walkthrough", "demo prep", or "walkthrough <name>".
 ---
 
@@ -19,15 +20,17 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: tell the user "canopy **v{new}*
 
 Execute a YAML demo spec against a live app using a headless browser. Generate a
 stakeholder-ready HTML presentation with screenshots, narrative, and AI quality
-evaluations. Iterate: run → review → fix → rerun until scores converge.
+evaluations.
 
 ## Modes
 
 - `/walkthrough <name>` — Execute `docs/walkthroughs/<name>.yaml`
-- `/walkthrough improve <name>` — Run, score, auto-fix failing dimensions, rerun until 4+/5
-- `/walkthrough adversarial <name>` — After passing at 4+, adversarial review to find embarrassments
 - `/walkthrough generate` — Interactively create a new walkthrough spec
 - `/walkthrough` (no args) — List available specs in `docs/walkthroughs/`
+
+For orchestrated improvement cycles, adversarial reviews, and eval tracking,
+use the walkthrough **agent** (invoked via `/walkthrough improve`, `/walkthrough adversarial`,
+or `/walkthrough eval`).
 
 ## YAML Spec Format
 
@@ -338,38 +341,6 @@ For each scene in the spec:
    If found, note it as an issue so the user knows the demo won't look right
    with this data.
 
-## After All Scenes: Prioritized Action List
-
-After scoring all scenes, generate a **prioritized action list** — concrete fixes
-ordered by impact on Demo Readiness. Present it to the user before generating the deck:
-
-```
-## Suggested Actions (highest impact first)
-
-1. [CODE] Scene 4 "AI Report": AI cites "$0-5 per visit" — fix the report
-   agent to say "payment data pending" when amounts are zero
-   Impact: Stakeholder would question data accuracy
-   Dimensions affected: Content (2/5), Demo Readiness (2/5)
-
-2. [DATA] Scene 1 "Fund Dashboard": Budget shows "---" and KPIs show "loading..."
-   Impact: First impression slide looks broken
-   Dimensions affected: Content (1/5), Demo Readiness (1/5)
-
-3. [CODE] Scene 2 "Criteria": Plain text list looks like admin output — needs
-   card grid with weight badges
-   Impact: Looks unfinished to a designer
-   Dimensions affected: App Page Quality (2/5), Demo Readiness (3/5)
-```
-
-Then ask the user:
-
-> "I found {n} issues across {m} scenes. {code_count} are code fixes I can implement,
-> {data_count} need data changes, {infra_count} need your action.
-> Want me to fix all [CODE] and [SPEC] issues automatically?"
-
-If the user says yes, implement the fixes (create branches, PRs if appropriate),
-then offer to rerun the walkthrough to verify improvements.
-
 ### Data Collection
 
 As you execute scenes, build a JSON data structure. After all scenes complete,
@@ -496,22 +467,9 @@ When invoked as `/walkthrough generate`:
 5. Write the YAML to `docs/walkthroughs/<name>.yaml`.
 6. Offer to execute it immediately.
 
-## The Iteration Loop
+## Efficient Reruns
 
-The walkthrough is designed for iterative improvement:
-
-1. **Run** — Execute the walkthrough, generate the deck
-2. **Review** — User opens the HTML, spots issues (app bugs AND presentation problems)
-3. **Fix** — Claude creates branches, implements fixes, creates PRs
-4. **Rerun** — Verify improvements, compare scores against previous run via JSON sidecar
-
-The summary slide automatically shows score progression when a previous run exists.
-Each iteration should improve the average AI quality score. Target: 4.5+/5 before
-declaring the demo stakeholder-ready.
-
-### Efficient reruns
-
-Don't re-run all scenes when only a few need fixing:
+When rerunning after fixes, don't re-run all scenes:
 
 - **Selective retake:** If 2 of 8 scenes need fixing after code changes, retake only
   those screenshots. Keep the good captures from the previous run.
@@ -519,111 +477,3 @@ Don't re-run all scenes when only a few need fixing:
   previous run's screenshot rather than recapturing (avoids fighting capture issues).
 - **Incremental fixes:** Fix the lowest-scoring scenes first. Each fix-and-retake cycle
   should target the biggest Demo Readiness blockers.
-
-## Improve Mode
-
-When invoked as `/walkthrough improve <name>`:
-
-The walkthrough becomes a **product improvement orchestrator**, not just a scorecard.
-When dimensions score poorly, it dispatches specialized skills to fix the actual product.
-
-### Step 1: Run the walkthrough
-
-Execute the spec as normal — all scenes, 5-dimension scoring, blocking rule.
-
-### Step 2: Route failing dimensions to specialists
-
-After scoring all scenes, check each dimension across all scenes. For any dimension
-that averages ≤ 3/5 or has any scene scoring ≤ 2:
-
-| Dimension | Route to | What it does |
-|-----------|----------|-------------|
-| **Content Quality** | `/review` | Adversarial code review of the files generating AI content (agent prompts, templates). Uses Codex + Claude dual voices when available, Claude-only otherwise. |
-| **App Page Quality** | `/design-review` | Live site visual audit of the failing page URL. Produces atomic fix commits for typography, spacing, color, hierarchy issues. |
-| **Screenshot Quality** | Self-fix | Adjust browse commands — try viewport crop, DOM clone, different scroll position. No external skill needed. |
-| **Slide Quality** | Self-fix | Improve narration in the spec's `impressive_because`, adjust scene framing. Update the YAML spec. |
-| **Demo Readiness** | `/qa` | Systematic QA testing of the failing page — click everything, check states, find broken flows. Produces fix commits. |
-
-**How to dispatch:**
-
-For `/review` (Content Quality):
-```
-Invoke the review skill. It will run adversarial review on the code diff,
-using Codex + Claude dual voices if available, Claude-only otherwise.
-Focus on the files that generate AI content (agent prompts, templates).
-```
-
-For `/design-review` (App Page Quality):
-```
-Invoke the design-review skill with the base_url + page path for the failing scene.
-Let it audit and fix. It will make atomic commits with before/after screenshots.
-```
-
-For `/qa` (Demo Readiness):
-```
-Invoke the qa skill with the base_url + page path. Use Quick tier (critical/high only)
-to keep it focused. It will find and fix functional bugs with atomic commits.
-```
-
-### Step 3: Rerun failing scenes
-
-After specialist skills have made their fixes:
-
-1. Rerun ONLY the scenes that scored ≤ 3 on any dimension
-2. Compare scores against the previous run
-3. If all scenes are now 4+/5, generate the deck and declare ship-ready
-4. If any scene is still ≤ 3, report what's left and ask the user for guidance
-
-### Step 4: Generate the deck
-
-Generate the HTML deck with the improved scores. The summary slide shows the
-progression: initial scores → post-improvement scores.
-
-**The goal is making the PRODUCT better, not the slideshow.** Every `/design-review`
-commit improves the actual app. Every `/qa` fix removes a real bug. Every `/codex
-challenge` finding hardens the AI output. The walkthrough deck is evidence of
-improvement, not the improvement itself.
-
-## Adversarial Mode
-
-When invoked as `/walkthrough adversarial <name>`:
-
-Use this AFTER a walkthrough passes at 4+/5. The adversarial mode tries to break
-what looks good.
-
-### Step 1: Run the standard walkthrough
-
-Execute the spec as normal. Verify all scenes score 4+/5. If not, suggest
-`/walkthrough improve` instead.
-
-### Step 2: Dispatch adversarial review
-
-Run two parallel adversarial passes using the Agent tool:
-
-**Pass 1 — Code adversarial (via Agent subagent):**
-Dispatch a Claude subagent with adversarial framing to review the codebase:
-
-> "You are an adversarial reviewer. This product currently passes a demo walkthrough
-> at 4+/5. Your job is to find the most embarrassing thing a stakeholder would notice.
-> Read the code that generates AI content, check data models for edge cases, and look
-> for scenarios the demo flow conveniently avoids. Be harsh — find real problems."
-
-**Pass 2 — Live site adversarial (via `/qa`):**
-Run `/qa` in Exhaustive tier against the base_url. This clicks everything, fills forms
-with edge-case inputs, checks empty states, and tests responsive viewports — going
-far beyond the walkthrough's scripted scenes.
-
-The combination of code-level and browser-level adversarial testing catches both
-logic bugs and UI/UX issues that the walkthrough's happy path misses.
-
-### Step 3: Incorporate findings
-
-For each finding Codex reports:
-1. Verify it's real (Codex may hallucinate issues)
-2. If real, add it as a new scene in the spec or a fix to the existing code
-3. Rerun the expanded walkthrough
-
-### Step 4: Report
-
-Tell the user what the adversarial review found and what was fixed. The walkthrough
-deck now covers both the happy path AND the adversarial findings.
