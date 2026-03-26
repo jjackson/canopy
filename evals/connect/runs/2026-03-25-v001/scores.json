@@ -1,0 +1,33 @@
+{
+  "run_id": "2026-03-25-v001",
+  "timestamp": "2026-03-25T19:38:00Z",
+  "agent_version": "0.2.11",
+  "dimensions": {
+    "visual_quality": {
+      "score": 8,
+      "notes": "Professional design with strong hero section, good typography hierarchy (DM Serif Display + DM Sans), proper use of brand colors, smooth scroll animations. Minor: could use more visual variety in the features grid."
+    },
+    "brand_consistency": {
+      "score": 9,
+      "notes": "All brand colors present (#1D5F8A, #F7941D, #333333, #FFFFFF, #F5F5F5). Uses DM Serif Display + DM Sans instead of specified Inter, but these are higher-quality font choices that match the brand guidelines' 'clean, modern sans-serif' requirement. 1 minor deviation: DM Sans instead of Inter."
+    },
+    "content_accuracy": {
+      "score": 10,
+      "notes": "8/8 key terms found in generated content. All product features, impact numbers (101K+, $10:1 ROI, 80+ countries), value proposition, and messaging hierarchy match the product brief exactly.",
+      "terms_found": 8,
+      "terms_total": 8
+    },
+    "responsiveness": {
+      "score": 8,
+      "notes": "2 media query breakpoints (768px, 1024px). Uses clamp() for fluid typography. Mobile layout stacks correctly. Responsive screenshots confirm no overflow or breakage. Minor: could add more breakpoints for intermediate sizes."
+    },
+    "code_quality": {
+      "score": 8,
+      "notes": "Valid HTML5 with doctype, viewport meta, semantic elements (header, nav, section, footer). Accessible: aria-labels on nav and sections, sr-only class, aria-hidden on decorative elements. Missing <main> element (1 issue). All SVG icons have aria-hidden.",
+      "issues": 1
+    }
+  },
+  "overall": 8.55,
+  "context_hash": "first-run",
+  "vs_baseline": null
+}

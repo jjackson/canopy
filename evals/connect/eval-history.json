@@ -1,4 +1,15 @@
 {
   "product": "connect",
-  "runs": []
+  "runs": [
+    {
+      "run_id": "2026-03-25-v001",
+      "timestamp": "2026-03-25T19:38:00Z",
+      "overall": 8.55,
+      "visual_quality": 8,
+      "brand_consistency": 9,
+      "content_accuracy": 10,
+      "responsiveness": 8,
+      "code_quality": 8
+    }
+  ]
 }

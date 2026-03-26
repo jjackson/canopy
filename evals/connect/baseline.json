@@ -1,6 +1,12 @@
 {
-  "run_id": null,
-  "overall": 0,
-  "dimensions": {},
-  "note": "No baseline set yet. Run @website-builder eval connect --update-baseline after first satisfactory run."
+  "run_id": "2026-03-25-v001",
+  "overall": 8.55,
+  "dimensions": {
+    "visual_quality": 8,
+    "brand_consistency": 9,
+    "content_accuracy": 10,
+    "responsiveness": 8,
+    "code_quality": 8
+  },
+  "set_at": "2026-03-25T19:38:00Z"
 }
