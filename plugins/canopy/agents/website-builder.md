@@ -65,26 +65,59 @@ Run the full generation pipeline:
 4. If `/design-consultation` fails, create a minimal DESIGN.md from the brand
    guidelines in your memory.
 
+**Stage 2.5: Save Creative Brief**
+Write the synthesized creative brief to `./creative-brief.md` so it's captured
+as an artifact. For eval runs, also copy this to the run directory.
+
 **Stage 3: Generation**
-1. Use the Skill tool to invoke `/frontend-design` with this prompt structure:
+1. Use the Skill tool to invoke `/frontend-design` with a **narrative creative
+   brief** — not a flat list of requirements. Structure the prompt like a
+   creative director briefing a designer:
 
-   "Build a marketing landing page for {product_name}.
+   "## The feeling
 
-   CREATIVE BRIEF:
-   {creative_brief_content}
+   Imagine a global health funder lands on this page. In 2 seconds they should
+   feel: 'This is serious, credible, and human.' Not corporate. Not charity.
+   Professional confidence with warmth — like a trusted partner who delivers.
 
-   DESIGN SYSTEM:
+   ## The product
+
+   {product_name}: {one_sentence_value_prop}
+
+   ## The story (page flow)
+
+   1. **Hero** — {hero_message}. This is the first thing anyone sees. Make it
+      count. Large, confident typography. One clear CTA.
+   2. **Features** (3-4 cards) — {feature_names}. Each gets an icon, a bold
+      heading, and one sentence of proof. Visual variety between cards.
+   3. **How It Works** — {steps}. Three numbered steps with a visual connector.
+      Simple enough that a funder understands in 5 seconds.
+   4. **Impact** — {impact_numbers}. These numbers are the strongest proof
+      points. Make them LARGE. Dark background for contrast. This section
+      should stop the scroll.
+   5. **CTA** — {cta_text}. Single action. No distractions.
+
+   ## Brand constraints
+
    {design_md_content}
 
-   REQUIREMENTS:
-   - Single-page marketing landing page
-   - Self-contained HTML/CSS/JS (no external dependencies except Google Fonts)
-   - Sections: Hero, Key Features (3-4), How It Works, Impact/Social Proof, CTA
-   - Mobile-first responsive design
+   MANDATORY font: Use the exact fonts specified in the design system above.
+   Do not substitute.
+
+   ## Technical requirements
+
+   - Single self-contained HTML file with inline CSS and JS
+   - Google Fonts only for external resources
+   - Mobile-first responsive (test at 375px, 768px, 1280px)
+   - Semantic HTML structure: must include <header>, <main>, <section>, <footer>
+   - All images must have alt text
+   - Viewport meta tag required
+   - Scroll animations must work AND content must be visible without JavaScript
+     (use CSS that defaults to visible, JS adds the animation class)
    - Output files to ./output/ directory"
 
-2. If generation fails, retry once with a simplified prompt (remove DESIGN
-   SYSTEM section). If it fails again, report the error.
+2. If generation fails, retry once with a simplified prompt (remove brand
+   constraints section). If it fails again, report the error.
 
 **Stage 4: QA**
 1. Start a local HTTP server:
@@ -93,11 +126,16 @@ Run the full generation pipeline:
    ```
    Parse the actual port from the output.
 
-2. Use the Skill tool to invoke `/browse` commands:
+2. Use `/browse` to navigate and capture:
    - `goto http://localhost:{port}`
+   - Force all scroll-reveal animations to trigger (many pages use opacity:0
+     until scrolled into view, which makes screenshots appear blank):
+     `js "document.querySelectorAll('[class*=reveal],[class*=fade],[class*=animate]').forEach(el => { el.style.opacity = '1'; el.style.transform = 'none'; el.classList.add('visible','active','show') })"`
    - `screenshot ./screenshots/desktop.png` (default viewport)
+   - `responsive ./screenshots/responsive` (captures mobile, tablet, desktop)
 
-3. Read the screenshot to visually verify the page looks correct.
+3. Read the desktop screenshot to visually verify the page looks correct.
+   Read the responsive screenshots to verify mobile/tablet layouts.
 
 4. Kill the HTTP server.
 
@@ -136,7 +174,12 @@ eval workflow. In short:
 1. Read fixed context from `evals/<product>/context/`
 2. Copy context to a temp `./context/` directory
 3. Run the full generation pipeline (stages 1-4, no user review)
-4. Save outputs to `evals/<product>/runs/YYYY-MM-DD-vNNN/`
+4. Save ALL artifacts to `evals/<product>/runs/YYYY-MM-DD-vNNN/`:
+   - `creative-brief.md` — the synthesized brief from Stage 1
+   - `input-prompt.md` — the exact prompt sent to /frontend-design
+   - `design-system.md` — the DESIGN.md used
+   - `output/` — generated HTML/CSS/JS
+   - `screenshots/` — desktop + responsive screenshots
 5. Score each dimension (visual, brand, content, responsive, code)
 6. Compare against baseline
 7. Report results

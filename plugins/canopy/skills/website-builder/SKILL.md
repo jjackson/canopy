@@ -49,12 +49,22 @@ Determine the product name from the argument. Set EVAL_DIR to `evals/<product>` 
 Score each dimension 1-10 by analyzing the generated output.
 
 **visual_quality (weight: 0.30)**
-Read the desktop screenshot. Evaluate against professional marketing site standards:
-- Layout balance and visual hierarchy
-- Typography quality (size contrast, line height, font pairing)
-- Whitespace usage
-- Overall polish and intentionality
-Score 1-10. Write a one-sentence justification.
+Score mechanically by checking these criteria in the generated HTML/CSS source.
+Award 1 point for each (max 10):
+
+1. **Font pairing**: Uses at least 2 distinct font families (display + body)
+2. **Font size contrast**: Largest heading is >= 3x body font size
+3. **Color palette coherence**: All colors used are from a defined set in CSS variables
+4. **Whitespace**: Sections have >= 80px vertical padding
+5. **Visual hierarchy**: Hero section has larger text than all other sections
+6. **Animation/motion**: At least one CSS animation or transition present
+7. **Layout variety**: Not all sections use the same layout pattern (e.g., mix of grid, centered, cards)
+8. **Dark/light contrast section**: At least one section uses inverted colors (dark bg + light text)
+9. **Hover/interaction states**: At least 2 interactive elements have hover styles
+10. **No visual clutter**: No more than 3 CTAs visible per viewport height
+
+Count how many criteria pass. That's the score.
+Write which criteria passed and which failed.
 
 **brand_consistency (weight: 0.20)**
 Read the generated HTML/CSS source and the brand guidelines from context. Check mechanically:
@@ -68,7 +78,21 @@ Write which specific deviations were found.
 Read the generated HTML text content and the product brief from context. Extract key terms from the product brief (listed under "Key Terms" if present, otherwise extract product name, feature names, value props). Count how many appear in the generated output. Score: (terms_found / total_terms) * 10, rounded. Write which terms were found and which were missing.
 
 **responsiveness (weight: 0.15)**
-If multiple viewport screenshots exist (desktop, tablet, mobile), compare them for layout breakage. If only desktop exists, check the HTML/CSS for responsive patterns (media queries, flexible units, viewport meta tag). Score 1-10 based on responsive design quality.
+Score mechanically by checking these criteria in the HTML/CSS source.
+Award 1 point for each that passes (max 10, scale proportionally):
+
+1. **Viewport meta tag** present
+2. **At least 1 media query** for mobile (max-width: ~768px)
+3. **At least 1 media query** for tablet or intermediate size
+4. **Fluid typography** (uses clamp(), vw units, or calc() for font sizes)
+5. **Flexible layout** (uses flexbox or grid, not fixed pixel widths for containers)
+6. **Images are responsive** (max-width: 100% or object-fit, no fixed pixel widths)
+7. **Touch targets** (buttons/links have min 44px height on mobile)
+8. **No horizontal overflow** (no elements wider than viewport — check for overflow-x: hidden on body as a proxy)
+9. **Stack on mobile** (grid/flex items wrap or stack at small viewports)
+10. **Mobile navigation** adapts (nav changes layout or collapses at small widths)
+
+Count passing criteria, scale to 10. Write which passed/failed.
 
 **code_quality (weight: 0.10)**
 Read the generated HTML source. Check:

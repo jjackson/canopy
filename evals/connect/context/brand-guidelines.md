@@ -16,8 +16,12 @@
 - **Secondary color**: Dimagi Orange (#F7941D)
 - **Accent**: White (#FFFFFF), Light Gray (#F5F5F5)
 - **Dark text**: #333333
-- **Typography**: Clean, modern sans-serif. Prefer system fonts or widely
-  available web fonts (e.g., Inter, Source Sans Pro). No decorative fonts.
+- **Display font**: DM Serif Display (Google Fonts) — warm, authoritative serif
+  for headlines and hero text. Conveys credibility without being corporate.
+- **Body font**: DM Sans (Google Fonts) — clean, modern sans-serif for body text,
+  navigation, and UI elements. Highly readable at all sizes.
+- **MANDATORY**: Use these exact fonts. Do not substitute with Inter, Roboto,
+  or system fonts.
 - **Imagery style**: Real photos of frontline workers in the field, not
   stock photos. When illustrations are used, they should be simple and
   warm, not corporate.
