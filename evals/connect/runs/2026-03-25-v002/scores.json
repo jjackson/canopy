@@ -1,0 +1,37 @@
+{
+  "run_id": "2026-03-25-v002",
+  "timestamp": "2026-03-25T20:52:00Z",
+  "agent_version": "0.2.11",
+  "dimensions": {
+    "visual_quality": {
+      "score": 10,
+      "notes": "All 10 criteria pass: 2 font families (DM Serif Display + DM Sans), 3rem hero vs 1rem body (3x+), all colors via CSS variables, 120px section padding, hero clamp(3rem) largest, 13 transitions/animations, 8 grid variations, dark impact section, 10 hover states, max 1 CTA per section viewport.",
+      "criteria_passed": ["font_pairing", "font_size_contrast", "color_palette_coherence", "whitespace", "visual_hierarchy", "animation", "layout_variety", "dark_light_contrast", "hover_states", "no_visual_clutter"]
+    },
+    "brand_consistency": {
+      "score": 10,
+      "notes": "DM Serif Display + DM Sans match updated brand guidelines exactly. All brand colors present (#1D5F8A, #F7941D, #333333, #FFFFFF, #F5F5F5). CSS variables enforce consistency. 0 deviations.",
+      "deviations": 0
+    },
+    "content_accuracy": {
+      "score": 10,
+      "notes": "8/8 key terms found. All product features, impact numbers (101K+, $10:1, 350K+, 80+), value proposition, and Learn/Deliver/Verify & Pay flow present. 4 impact stats vs 3 in v001.",
+      "terms_found": 8,
+      "terms_total": 8
+    },
+    "responsiveness": {
+      "score": 9,
+      "notes": "9/10 criteria pass: viewport meta present, 3 media queries (768px, 480px, 1024px), fluid typography (5 clamp() uses), flexbox+grid (13 instances), overflow-x hidden on body, grids wrap on mobile, nav adapts. Missing: explicit min-height 44px on touch targets (buttons use padding instead). No explicit touch target size.",
+      "criteria_passed": ["viewport_meta", "mobile_query", "tablet_query", "fluid_typography", "flexible_layout", "responsive_images", "no_overflow", "stack_on_mobile", "mobile_nav"],
+      "criteria_failed": ["touch_targets"]
+    },
+    "code_quality": {
+      "score": 10,
+      "notes": "0 issues. DOCTYPE present, viewport meta, semantic HTML (header, main, 4 sections, footer, nav, article elements), 7 aria-labels, 10 aria-hidden on decorative elements, sr-only class for screen readers. All SVGs have aria-hidden. No broken references.",
+      "issues": 0
+    }
+  },
+  "overall": 9.85,
+  "context_hash": "v002-updated-brand-fonts",
+  "vs_baseline": "+1.30"
+}

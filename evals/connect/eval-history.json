@@ -10,6 +10,16 @@
       "content_accuracy": 10,
       "responsiveness": 8,
       "code_quality": 8
+    },
+    {
+      "run_id": "2026-03-25-v002",
+      "timestamp": "2026-03-25T20:52:00Z",
+      "overall": 9.85,
+      "visual_quality": 10,
+      "brand_consistency": 10,
+      "content_accuracy": 10,
+      "responsiveness": 9,
+      "code_quality": 10
     }
   ]
 }
