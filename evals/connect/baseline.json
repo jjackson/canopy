@@ -1,0 +1,6 @@
+{
+  "run_id": null,
+  "overall": 0,
+  "dimensions": {},
+  "note": "No baseline set yet. Run @website-builder eval connect --update-baseline after first satisfactory run."
+}
