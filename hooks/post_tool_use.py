@@ -2,7 +2,7 @@
 """Claude Code PostToolUse hook for orchestrator session capture.
 
 Reads hook data from stdin (JSON), detects MCP tool calls,
-and appends to ~/.claude/orchestrator/session-log.jsonl.
+and appends to ~/.claude/canopy/session-log.jsonl.
 
 Exit 0 always — hook failures should never block Claude Code.
 """
@@ -13,8 +13,8 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-LOG_FILE = Path.home() / ".claude" / "orchestrator" / "session-log.jsonl"
-REPO_MAP_FILE = Path.home() / ".claude" / "orchestrator" / "repo-map.json"
+LOG_FILE = Path.home() / ".claude" / "canopy" / "session-log.jsonl"
+REPO_MAP_FILE = Path.home() / ".claude" / "canopy" / "repo-map.json"
 
 
 def maybe_capture_repo(project_dir: str):
