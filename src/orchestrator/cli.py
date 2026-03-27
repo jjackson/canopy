@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import click
+from orchestrator.paths import CANOPY_DIR, ensure_canopy_dir
 from orchestrator.registry import (
     load_registry, get_all_servers, get_all_tools, get_workflows,
     format_for_skill, RegistryError,
@@ -133,7 +134,7 @@ def sessions_list(hours, as_json):
     from orchestrator.labels import load_labels
 
     projects_dir = Path.home() / ".claude" / "projects"
-    state_dir = Path.home() / ".claude" / "orchestrator"
+    state_dir = ensure_canopy_dir()
     repo_map = load_repo_map(state_dir / "repo-map.json")
     labels = load_labels(state_dir / "labels.yaml")
 
@@ -164,7 +165,7 @@ def sessions_list(hours, as_json):
 @sessions.command("status")
 def sessions_status():
     """Show session log status."""
-    log_file = Path.home() / ".claude" / "orchestrator" / "session-log.jsonl"
+    log_file = CANOPY_DIR / "session-log.jsonl"
     entries = read_session_log(log_file)
     if not entries:
         click.echo("No session log entries found.")
@@ -187,8 +188,7 @@ def sessions_status():
 @click.option("--model", default="sonnet", help="Model to use for analysis/proposals")
 def improve(observe_only, dry_run, model):
     """Run an improvement cycle — analyze sessions, propose and implement improvements."""
-    state_dir = Path.home() / ".claude" / "orchestrator"
-    state_dir.mkdir(parents=True, exist_ok=True)
+    state_dir = ensure_canopy_dir()
 
     try:
         registry_path = find_registry()
@@ -237,8 +237,7 @@ def analyze_cmd(transcript, propose, model, budget):
     reg = load_registry(registry_path)
     registry_summary = format_for_skill(reg)
 
-    state_dir = Path.home() / ".claude" / "orchestrator"
-    state_dir.mkdir(parents=True, exist_ok=True)
+    state_dir = ensure_canopy_dir()
 
     click.echo(f"Analyzing: {transcript}")
     click.echo()
@@ -322,8 +321,7 @@ def analyze_cmd(transcript, propose, model, budget):
 @click.option("--port", default=8484, type=int, help="Port to serve on")
 def serve(port):
     """Start the transcript browser web UI."""
-    state_dir = Path.home() / ".claude" / "orchestrator"
-    state_dir.mkdir(parents=True, exist_ok=True)
+    state_dir = ensure_canopy_dir()
     projects_dir = Path.home() / ".claude" / "projects"
 
     try:
@@ -346,8 +344,7 @@ def brief(model, budget):
     """Generate a strategic brief from recent activity."""
     from orchestrator.briefing import generate_brief
 
-    state_dir = Path.home() / ".claude" / "orchestrator"
-    state_dir.mkdir(parents=True, exist_ok=True)
+    state_dir = ensure_canopy_dir()
 
     # brief can run without registry (falls back to simple digest), unlike improve which requires it
     try:
@@ -370,8 +367,7 @@ def patterns_cmd(as_json):
     import json as json_mod
     from orchestrator.patterns import detect_patterns
 
-    state_dir = Path.home() / ".claude" / "orchestrator"
-    state_dir.mkdir(parents=True, exist_ok=True)
+    state_dir = ensure_canopy_dir()
     obs_dir = state_dir / "observations"
 
     results = detect_patterns(obs_dir)
