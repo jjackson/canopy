@@ -11,22 +11,22 @@ skill runner for review, QA, and implementation quality.
 ## Git Worktree Rules
 This repo uses emdash which manages git worktrees. If you are in a worktree
 (check: `git rev-parse --git-dir` contains `/worktrees/`), then `main` is
-checked out in the main repo at `~/emdash-projects/canopy-orchestrator/`.
+checked out in the main repo at `~/emdash-projects/canopy/`.
 You CANNOT `git checkout main` from a worktree — it will fail.
 
 To merge to main:
 ```bash
-cd ~/emdash-projects/canopy-orchestrator && git merge <branch-name> && git push
+cd ~/emdash-projects/canopy && git merge <branch-name> && git push
 ```
 
 If that fails with local changes, stash first:
 ```bash
-cd ~/emdash-projects/canopy-orchestrator && git stash && git merge <branch-name> && git push
+cd ~/emdash-projects/canopy && git stash && git merge <branch-name> && git push
 ```
 
 If remote is ahead, pull first:
 ```bash
-cd ~/emdash-projects/canopy-orchestrator && git pull --rebase && git push
+cd ~/emdash-projects/canopy && git pull --rebase && git push
 ```
 
 ## Tech Stack
@@ -91,10 +91,16 @@ cd ~/emdash-projects/canopy-orchestrator && git pull --rebase && git push
 - `src/orchestrator/circuit_breaker.py` — stops pipeline after consecutive failures
 - `src/orchestrator/rate_limiter.py` — caps API calls per hour
 
+### CLI & utilities
+- `src/orchestrator/cli.py` — Click CLI entry point
+- `src/orchestrator/corpus.py` — activity corpus builder for analysis
+- `src/orchestrator/digest.py` — daily digest generation from improvement runs
+- `src/orchestrator/run_log.py` — improvement cycle run log tracking
+
 ### Plugin (Claude Code skills, commands, agents)
-- `plugins/canopy/skills/` — skill definitions (select-session, improve, brief, patterns, orchestrator, product-management, doc-regeneration)
-- `plugins/canopy/commands/` — slash commands (pm-scout, pm-status, doc-regen, improve, brief, patterns)
-- `plugins/canopy/agents/` — autonomous agents (pm-supervisor)
+- `plugins/canopy/skills/` — skill definitions (select-session, improve, brief, patterns, orchestrator, product-management, doc-regeneration, update, walkthrough, walkthrough-defect-creator, walkthrough-eval, website-builder)
+- `plugins/canopy/commands/` — slash commands (pm-scout, pm-status, doc-regen, improve, brief, patterns, select-session, update, walkthrough, walkthrough-defect-creator, walkthrough-eval, website-builder)
+- `plugins/canopy/agents/` — autonomous agents (pm-supervisor, walkthrough, website-builder)
 - `.claude-plugin/marketplace.json` — plugin marketplace manifest
 
 ## Important: Hook Must Use Stdlib Only
