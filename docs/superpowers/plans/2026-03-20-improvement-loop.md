@@ -2547,7 +2547,7 @@ Install the PostToolUse hook globally and run a manual smoke test.
 uv run python hooks/install.py
 ```
 
-Expected: "Hook installed. Logging to ~/.claude/orchestrator/session-log.jsonl"
+Expected: "Hook installed. Logging to ~/.claude/canopy/session-log.jsonl"
 
 - [ ] **Step 2: Run the CLI to verify everything loads**
 

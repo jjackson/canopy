@@ -640,7 +640,7 @@ uv run canopy patterns
 
 ## Rules
 
-- This reads from `~/.claude/orchestrator/observations/` — requires running `canopy improve` at least once first
+- This reads from `~/.claude/canopy/observations/` — requires running `canopy improve` at least once first
 - If no patterns are detected, suggest running `canopy improve` to populate observations
 ```
 

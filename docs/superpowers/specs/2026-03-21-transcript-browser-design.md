@@ -65,7 +65,7 @@ Scans `~/.claude/projects/*/` for JSONL files. For each transcript, extracts:
 **Problem:** Emdash creates worktrees with random names that get cleaned up,
 so `git remote get-url origin` often fails for old transcripts.
 
-**Solution:** A mapping file at `~/.claude/orchestrator/repo-map.yaml` that
+**Solution:** A mapping file at `~/.claude/canopy/repo-map.yaml` that
 maps project directory names to GitHub repos:
 
 ```yaml
@@ -90,7 +90,7 @@ no remote), it silently skips. The project directory comes from
 
 ### Labels Storage
 
-Labels are stored in `~/.claude/orchestrator/labels.yaml`:
+Labels are stored in `~/.claude/canopy/labels.yaml`:
 
 ```yaml
 cfaf8c29-7785-4190-aef7-756b25390f34:
@@ -144,17 +144,17 @@ Clicking a session row expands to show:
 
 **Actions:**
 - **Analyze** — runs `analyze_transcript()`, saves observations to
-  `~/.claude/orchestrator/observations/` via `save_observation()`, displays
+  `~/.claude/canopy/observations/` via `save_observation()`, displays
   results inline. Proposals can then be generated from these saved observations.
 - **AI Review** — strategic review applying Gstack-style thinking (see below).
-  Results saved to `~/.claude/orchestrator/ai-reviews/<session_id>.yaml`.
+  Results saved to `~/.claude/canopy/ai-reviews/<session_id>.yaml`.
 - **Full Transcript** — expand to show the complete conversation as a chat log
 - **Label controls** — quality dropdown, use-case tag input, notes textarea
 
 **Propose** (`POST /api/propose/:id`): reads observations from
-`~/.claude/orchestrator/observations/` that were created by a prior Analyze
+`~/.claude/canopy/observations/` that were created by a prior Analyze
 action for this session, then calls `generate_proposals()`. Results saved to
-`~/.claude/orchestrator/proposals/` via `save_proposal()`. This reuses the
+`~/.claude/canopy/proposals/` via `save_proposal()`. This reuses the
 existing pipeline data stores — observations and proposals persist across
 server restarts.
 
@@ -176,7 +176,7 @@ but with a different prompt that applies product-thinking:
 - What recurring patterns could be automated as workflows?
 - If you could only build one thing from this session, what would it be?
 
-Results are saved to `~/.claude/orchestrator/ai-reviews/<session_id>.yaml`
+Results are saved to `~/.claude/canopy/ai-reviews/<session_id>.yaml`
 as free-form markdown (not structured observations). Displayed in the detail
 view under an "AI Review" section. Same 120-second timeout as analysis.
 
