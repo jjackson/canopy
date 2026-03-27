@@ -7,6 +7,7 @@ The scheduler also supports Claude Code's /loop skill as an alternative
 for session-scoped recurring runs.
 """
 from pathlib import Path
+from orchestrator.paths import CANOPY_DIR
 
 PLIST_TEMPLATE = """\
 <?xml version="1.0" encoding="UTF-8"?>
@@ -52,7 +53,7 @@ def generate_plist(
 ) -> str:
     """Generate launchd plist content for scheduled improvement runs."""
     if log_dir is None:
-        log_dir = Path.home() / ".claude" / "orchestrator" / "logs"
+        log_dir = CANOPY_DIR / "logs"
 
     return PLIST_TEMPLATE.format(
         python_path=python_path,
@@ -73,7 +74,7 @@ def install_schedule(
     plist_dir.mkdir(parents=True, exist_ok=True)
     plist_path = plist_dir / PLIST_NAME
 
-    log_dir = Path.home() / ".claude" / "orchestrator" / "logs"
+    log_dir = CANOPY_DIR / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
     content = generate_plist(
