@@ -56,6 +56,7 @@ cd ~/emdash-projects/canopy && git pull --rebase && git push
 - `src/orchestrator/proposer.py` — proposal generation via claude -p
 - `src/orchestrator/implementer.py` — implementation via claude -p in target repos
 - `src/orchestrator/skill_runner.py` — headless invocation of any Claude Code skill
+- `src/orchestrator/paths.py` — shared CANOPY_DIR constant and legacy migration
 
 ### Data models
 - `src/orchestrator/observations.py` — friction, gaps, patterns extracted from sessions
@@ -99,8 +100,8 @@ cd ~/emdash-projects/canopy && git pull --rebase && git push
 
 ### Plugin (Claude Code skills, commands, agents)
 - `plugins/canopy/skills/` — skill definitions (select-session, improve, brief, patterns, orchestrator, product-management, doc-regeneration, update, walkthrough, walkthrough-defect-creator, walkthrough-eval, website-builder)
-- `plugins/canopy/commands/` — slash commands (pm-scout, pm-status, doc-regen, improve, brief, patterns, select-session, update, walkthrough, walkthrough-defect-creator, walkthrough-eval, website-builder)
-- `plugins/canopy/agents/` — autonomous agents (pm-supervisor, walkthrough, website-builder)
+- `plugins/canopy/commands/` — slash commands (pm-scout, pm-status, doc-regen, improve, brief, patterns, select-session, session-review, update, walkthrough, walkthrough-defect-creator, walkthrough-eval, website-builder)
+- `plugins/canopy/agents/` — autonomous agents (pm-supervisor, session-review, walkthrough, website-builder)
 - `.claude-plugin/marketplace.json` — plugin marketplace manifest
 
 ## Important: Hook Must Use Stdlib Only
