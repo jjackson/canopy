@@ -326,6 +326,34 @@ For each scene in the spec:
    scores inline, you are doing it wrong — score each scene interactively after
    viewing the screenshot and reading the page text.
 
+### Fixing Data Issues
+
+When a scene fails due to bad demo data (`[DATA]` issues — duplicates, placeholder names,
+missing records, wrong values), **do not try to fix data through the browser**. The browser
+is for observing and verifying, not for clicking edit/delete links or submitting forms.
+
+Instead, step into the codebase:
+
+1. **Understand the data layer.** Read the app's models, views, and API endpoints to
+   understand how the data is structured and how it's created/updated/deleted. Use Grep
+   and Read — not the browser — to find the relevant code.
+
+2. **Check for existing tools.** Look for:
+   - Management commands (e.g., `python manage.py seed_data`, `create_demo_data`)
+   - Fixture files or seed scripts
+   - REST/GraphQL API endpoints for CRUD operations
+   - Available MCP tools that interact with the app's data layer
+
+3. **Fix through the proper interface.** Use the app's own APIs, management commands,
+   or ORM-level scripts to create, update, or delete data. This is faster, more reliable,
+   and less error-prone than navigating forms in a headless browser.
+
+4. **Verify through the browser.** After making the data fix, re-navigate to the scene's
+   page in browse and confirm the issue is resolved before re-scoring.
+
+The system IS allowed to mutate data — on localhost or production — but it should do so
+by understanding the codebase's data APIs, not by fumbling through UI forms.
+
 7. **Record issues.** If anything goes wrong (element not found, page error, slow load,
    empty state), note it as an issue with severity (error/warning) and description.
 

@@ -58,6 +58,7 @@ For any dimension averaging ≤ 3/5 or with any scene scoring ≤ 2:
 | Screenshot Quality | Self-fix | Adjust browse commands — viewport crop, DOM clone, scroll position |
 | Slide Quality | Self-fix | Improve narration in spec's `impressive_because`, adjust scene framing |
 | Demo Readiness | `/qa` | Systematic QA of failing pages — click everything, check states, find broken flows |
+| Data Issues (`[DATA]`) | Self-fix | Read models/APIs, use management commands or API endpoints to fix data (see below) |
 
 Before dispatching, present a **prioritized action list**:
 
@@ -79,11 +80,23 @@ Before dispatching, present a **prioritized action list**:
 
 Ask the user:
 
-> "I found {n} issues across {m} scenes. {code_count} are code fixes I can
-> implement, {data_count} need data changes, {infra_count} need your action.
-> Want me to fix all [CODE] and [SPEC] issues automatically?"
+> "I found {n} issues across {m} scenes. {code_count} are code fixes,
+> {data_count} are data fixes, {infra_count} need your action.
+> Want me to fix all [CODE], [DATA], and [SPEC] issues automatically?"
 
-If yes, dispatch specialists. If no, report and stop.
+If yes, dispatch specialists and fix data issues directly. If no, report and stop.
+
+**Fixing `[DATA]` issues:**
+
+Do NOT fix data through the browser (clicking edit/delete links, submitting forms).
+Instead, read the app's models, views, and API endpoints to understand the data layer,
+then use the proper interface:
+- Management commands (e.g., `python manage.py ...`)
+- REST API endpoints with curl or scripts
+- Fixture files or seed scripts
+- Available MCP tools that interact with the app's data
+
+After fixing, verify through the browser that the scene now looks correct.
 
 **How to dispatch specialists:**
 
