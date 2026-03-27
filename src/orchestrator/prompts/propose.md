@@ -24,7 +24,7 @@ Output a YAML list where each proposal has:
 - `action`: what to do (be specific — name the tool, describe the feature)
 - `target_repo`: the repo path to modify (from the registry, e.g.,
   `~/emdash-projects/connect-labs`). For canopy changes use
-  `~/emdash-projects/canopy-orchestrator`. For skills use `~/.claude/skills/`.
+  `~/emdash-projects/canopy`. For skills use `~/.claude/skills/`.
 - `ownership`: `self`, `team`, or `external` (from the registry)
 - `motivation`: why this is needed (reference the observation)
 - `observation_id`: the ID of the observation this addresses

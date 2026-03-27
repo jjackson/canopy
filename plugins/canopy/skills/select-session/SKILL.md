@@ -41,7 +41,7 @@ Present a numbered text menu:
 ```
 Select a project:
 
-  1  jjackson/canopy-orchestrator    (5 sessions)
+  1  jjackson/canopy    (5 sessions)
   2  jjackson/connect-labs           (3 sessions)
   3  dimagi/commcare-connect         (2 sessions)
   4  jjackson/connect-search         (2 sessions)
@@ -54,7 +54,7 @@ Wait for the user to pick a number.
 Show sessions for the chosen project, sorted newest-first:
 
 ```
-jjackson/canopy-orchestrator — recent sessions:
+jjackson/canopy — recent sessions:
 
   1  [03-23 15:08]  "I would like a way to quickly navigate..."   (4 msgs)
   2  [03-23 14:25]  "I think we are ready to test, is that..."    (88 msgs)

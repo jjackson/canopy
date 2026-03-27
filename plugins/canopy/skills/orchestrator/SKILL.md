@@ -36,7 +36,7 @@ When the user asks a question that might require tools from multiple MCP servers
 
 Read the registry file to understand available MCP servers and workflows:
 
-**Registry location:** `~/emdash-projects/canopy-orchestrator/registry.yaml`
+**Registry location:** `~/emdash-projects/canopy/registry.yaml`
 
 Read this file at the start of any session where cross-project orchestration may be needed.
 The registry contains:

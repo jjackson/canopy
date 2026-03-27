@@ -1,5 +1,5 @@
 version: 2
-updated: '2026-03-23'
+updated: '2026-03-27'
 domains:
   connect:
     description: CommCare Connect — worker management, programs, solicitations, payments, document search
@@ -63,10 +63,14 @@ domains:
         - name: preview_sheet
           description: Preview contents of a Google Sheet
           typical_use: Quick look at spreadsheet data
+        - name: create_program
+          description: (auto-discovered — needs description)
+          typical_use: ''
         auth: google-oauth
         data_access: read-write
       connect-labs:
-        description: "CommCare app structure, solicitations, reviews, funds, and Google Sheets — one MCP server with all connect-labs tools"
+        description: CommCare app structure, solicitations, reviews, funds, and Google Sheets — one MCP server with all connect-labs
+          tools
         repo: ~/emdash-projects/connect-labs
         repo_remote: git@github.com:jjackson/connect-labs.git
         mcp_path: tools/commcare_mcp/
@@ -160,6 +164,12 @@ domains:
         - name: list_sheet_tabs
           description: List tabs in a Google Sheet
           typical_use: Discovering sheet structure
+        - name: get_opportunity_url
+          description: (auto-discovered — needs description)
+          typical_use: ''
+        - name: get_sample_ids
+          description: (auto-discovered — needs description)
+          typical_use: ''
         auth: connect-oauth
         data_access: read-write
       scout-data:
@@ -237,6 +247,28 @@ workflows:
     - server: connect-labs
       action: Create the solicitation informed by all gathered context
       purpose: Build a solicitation that reflects actual program needs
+    success_rate: null
+  connect-drive-indexing:
+    type: curated
+    description: Full document lifecycle — discover, index, approve, and read Drive documents for a program
+    trigger_phrases:
+    - index documents for {program}
+    - find and approve documents for {program}
+    - what documents does {program} have?
+    - read approved documents for {program}
+    steps:
+    - server: connect-search
+      action: search_drive for documents matching the program or topic
+      purpose: Discover relevant documents in Google Drive
+    - server: connect-search
+      action: add_document for each relevant result
+      purpose: Index discovered documents into the program
+    - server: connect-search
+      action: approve_document for documents that should be AI-readable
+      purpose: Human grants AI permission to read specific docs
+    - server: connect-search
+      action: get_document_content or review_approved_documents
+      purpose: AI reads approved documents to build understanding
     success_rate: null
   onboard-program:
     type: curated

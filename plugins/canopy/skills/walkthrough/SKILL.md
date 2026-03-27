@@ -434,7 +434,6 @@ After collecting all data, find the generator script:
 # Check canopy repo locations
 GEN=""
 for P in \
-  ~/emdash-projects/canopy-orchestrator/scripts/walkthrough/generate_presentation.py \
   ~/emdash-projects/canopy/scripts/walkthrough/generate_presentation.py; do
   [ -f "$P" ] && GEN="$P" && break
 done

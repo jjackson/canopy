@@ -31,8 +31,7 @@ _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 EVAL_DIR=""
 for P in \
   "$_ROOT/evals/walkthrough" \
-  ~/emdash-projects/canopy/evals/walkthrough \
-  ~/emdash-projects/canopy-orchestrator/evals/walkthrough; do
+  ~/emdash-projects/canopy/evals/walkthrough; do
   [ -d "$P/fixtures" ] && EVAL_DIR="$P" && break
 done
 echo "${EVAL_DIR:-NOT_FOUND}"
