@@ -2,7 +2,7 @@
 """Claude Code PostToolUse hook for orchestrator session capture.
 
 Reads hook data from stdin (JSON), detects MCP tool calls,
-and appends to ~/.claude/orchestrator/session-log.jsonl.
+and appends to ~/.claude/canopy/session-log.jsonl.
 
 Exit 0 always — hook failures should never block Claude Code.
 """
@@ -13,8 +13,34 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-LOG_FILE = Path.home() / ".claude" / "orchestrator" / "session-log.jsonl"
-REPO_MAP_FILE = Path.home() / ".claude" / "orchestrator" / "repo-map.json"
+LOG_FILE = Path.home() / ".claude" / "canopy" / "session-log.jsonl"
+REPO_MAP_FILE = Path.home() / ".claude" / "canopy" / "repo-map.json"
+_PLUGINS_FILE = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
+
+_seen_sessions: set[str] = set()
+_cached_version: str | None = None
+
+
+def _get_plugin_version() -> str:
+    """Return the installed canopy plugin version, cached after first read."""
+    global _cached_version
+    if _cached_version is not None:
+        return _cached_version
+    try:
+        with open(_PLUGINS_FILE) as f:
+            data = json.load(f)
+        plugins = data.get("plugins", {})
+        for key, value in plugins.items():
+            if "canopy" in key:
+                entries = value if isinstance(value, list) else [value]
+                if entries:
+                    version = entries[0].get("version", "unknown")
+                    _cached_version = version
+                    return _cached_version
+    except Exception:
+        pass
+    _cached_version = "unknown"
+    return _cached_version
 
 
 def maybe_capture_repo(project_dir: str):
@@ -83,7 +109,36 @@ def main():
     if project_dir:
         maybe_capture_repo(project_dir)
 
+    # Emit session_start on first call for this session
+    session_id = hook_data.get("session_id", "unknown")
+    if session_id not in _seen_sessions:
+        _seen_sessions.add(session_id)
+        start_entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "session_id": session_id,
+            "event": "session_start",
+            "plugin_version": _get_plugin_version(),
+            "project": os.environ.get("CLAUDE_PROJECT_DIR", "unknown"),
+        }
+        append_log_entry(LOG_FILE, start_entry)
+
     tool_name = hook_data.get("tool_name", "")
+
+    # Emit skill_invoked for Skill tool calls and return
+    if tool_name == "Skill":
+        tool_input = hook_data.get("tool_input", {})
+        skill_name = tool_input.get("skill", "") if isinstance(tool_input, dict) else ""
+        skill_entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "session_id": session_id,
+            "event": "skill_invoked",
+            "skill": skill_name,
+            "plugin_version": _get_plugin_version(),
+            "project": os.environ.get("CLAUDE_PROJECT_DIR", "unknown"),
+        }
+        append_log_entry(LOG_FILE, skill_entry)
+        return
+
     if not tool_name.startswith("mcp__"):
         return
 

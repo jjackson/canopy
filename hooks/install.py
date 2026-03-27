@@ -38,7 +38,7 @@ def install():
     with open(SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=2)
 
-    print(f"Hook installed. Logging to {Path.home() / '.claude' / 'orchestrator' / 'session-log.jsonl'}")
+    print(f"Hook installed. Logging to {Path.home() / '.claude' / 'canopy' / 'session-log.jsonl'}")
 
 
 def uninstall():

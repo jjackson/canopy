@@ -5,7 +5,7 @@ the lifecycle of a specific improvement from observation through
 implementation and verification.
 
 Campaigns survive across sessions via markdown files at:
-~/.claude/orchestrator/campaigns/
+~/.claude/canopy/campaigns/
 
 States: active → implementing → verifying → completed | failed | stalled
 """

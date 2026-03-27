@@ -134,7 +134,7 @@ Key functions:
 - `compute_success_rates(outcomes) -> dict` — success rate by type and confidence
 - `get_prioritization_weights(outcomes) -> dict` — suggested weights based on track record
 
-Storage: `~/.claude/orchestrator/tracker.jsonl` — append-only JSONL
+Storage: `~/.claude/canopy/tracker.jsonl` — append-only JSONL
 
 - [ ] **Step 1: Write tests**
 - [ ] **Step 2: Implement module**

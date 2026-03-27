@@ -53,7 +53,7 @@ what it's planning next — providing visibility without requiring supervision.
 **Subsystem 1 — Capture** *(built)*
 
 PostToolUse hook logs every MCP tool call across all Claude Code sessions to
-`~/.claude/orchestrator/session-log.jsonl`. Captures: server, tool, inputs
+`~/.claude/canopy/session-log.jsonl`. Captures: server, tool, inputs
 (truncated), success/failure, session ID, project. Runs globally — every
 session, every project.
 
@@ -69,7 +69,7 @@ observations:
 - **Missing capabilities**: things that were asked for that no MCP server,
   skill, or hook could handle
 
-Stores observations in `~/.claude/orchestrator/observations/` as structured
+Stores observations in `~/.claude/canopy/observations/` as structured
 YAML files. This is the "eyes" of the system — everything downstream depends on
 the quality of this analysis.
 
@@ -286,7 +286,7 @@ proposal generation, implementation). To keep costs bounded:
 ### Run State
 
 ```
-~/.claude/orchestrator/
+~/.claude/canopy/
 ├── session-log.jsonl          # raw capture (exists)
 ├── observations/              # structured observations from transcript analysis
 ├── proposals/                 # improvement proposals (pending, implemented, rejected)
