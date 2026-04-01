@@ -454,8 +454,8 @@ def _print_cycle_result(result: dict) -> None:
     click.echo(f"Observations created: {result.get('observations_created', 0)}")
     click.echo(f"Observations merged:  {result.get('observations_merged', 0)}")
     click.echo(f"Proposals generated:  {result.get('proposals_generated', 0)}")
-    click.echo(f"Proposals implemented: {result.get('proposals_implemented', 0)}")
-    click.echo(f"Proposals failed:     {result.get('proposals_failed', 0)}")
+    click.echo()
+    click.echo("Implementation is handled by /canopy:improve skill agents.")
 
     if result.get("errors"):
         click.echo()

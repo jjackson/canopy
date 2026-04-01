@@ -1,6 +1,6 @@
 ---
 name: improve
-description: Run a full canopy improvement cycle — analyze recent sessions, propose improvements, and optionally implement them
+description: Run a full canopy improvement cycle — analyze recent sessions, propose improvements, and implement via agents
 ---
 
 ## Preamble (run first)
@@ -14,35 +14,217 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: tell the user "canopy **v{new}*
 
 # Improve
 
-Runs the canopy improvement pipeline on recent Claude Code sessions.
+Run a canopy improvement cycle: analyze recent Claude Code sessions for friction
+and gaps, propose concrete improvements, then dispatch agents to implement them.
 
 ## Arguments
 
-- No args: full cycle (analyze + propose + implement)
-- `observe`: analyze only, no proposals
-- `dry-run`: analyze + propose, no implementation
+- No args → full cycle (analyze + propose + implement via agents)
+- `observe` → analyze only, write observations
+- `dry-run` → analyze + propose, no implementation
 
-## Flow
+## Phase 1 — Discover transcripts
 
-1. Run the appropriate command from the canopy repo working directory:
+Run this to get recent session metadata:
 
 ```bash
-# Full cycle
-uv run canopy improve
-
-# Observe only
-uv run canopy improve --observe-only
-
-# Dry run
-uv run canopy improve --dry-run
+uv run canopy sessions list --hours 168 --json-output 2>/dev/null
 ```
 
-2. Show progress as it runs (the command streams output)
-3. Display the results summary: transcripts analyzed, observations created, proposals generated, implementations completed
+Then read the run logs from `~/.claude/canopy/runs/` to find already-processed
+session IDs. Filter those out. Take the last 10 unprocessed sessions.
 
-## Rules
+If fewer than 2 unprocessed sessions exist, tell the user and stop.
 
-- Always use `uv run` to invoke the canopy CLI
-- The working directory is the canopy repo (wherever `pyproject.toml` with `name = "canopy"` is)
-- The command may take several minutes — it invokes `claude -p` for analysis and proposal generation
-- If the circuit breaker trips (too many consecutive failures), the command will report this
+## Phase 2 — Analyze transcripts (direct, in-context)
+
+1. Read `~/emdash-projects/canopy/registry.yaml` — this is the ecosystem context
+   describing all MCP servers, tools, and workflows.
+
+2. For each transcript, read the JSONL file. Each line is a JSON object with
+   `type` (user/assistant/summary) and `message` content. Extract:
+   - User messages (what they asked)
+   - Tool calls and results (what was attempted, what failed)
+   - Assistant text (what Claude said — especially error explanations)
+
+   For large transcripts (>500 lines), read only the first 100 and last 200 lines
+   to stay within context limits.
+
+3. Analyze ALL transcripts together. Look for:
+
+   - **friction** — a tool was used but worked poorly (failed, retried, unhelpful)
+   - **gap** — the user did something manually that could have been automated
+   - **pattern** — a multi-step sequence that recurs and could become a workflow
+   - **missing_capability** — the user needed something no tool/skill could handle
+
+   Because you're analyzing all transcripts at once, you can spot cross-session
+   patterns that isolated analysis would miss.
+
+4. Read existing observations from `~/.claude/canopy/observations/` (glob for
+   `*.yaml`, read each one). Deduplicate:
+   - If a new observation matches an existing one (same type + related_servers +
+     lifecycle_stage, status=pending), merge by incrementing frequency and adding
+     the session ID
+   - Otherwise create a new observation
+
+5. Write observation YAML files. Format:
+
+```yaml
+id: <12-char hex>
+type: friction|gap|pattern|missing_capability
+description: "1-2 sentence description"
+severity: low|medium|high
+frequency: 1
+sessions:
+  - <session-id>
+related_servers:
+  - <server-name>
+lifecycle_stage: null
+status: pending
+created: 'YYYY-MM-DD'
+```
+
+Save each to `~/.claude/canopy/observations/<id>.yaml`.
+
+If mode is `observe`, show a summary table and stop here.
+
+## Phase 3 — Propose improvements (direct, in-context)
+
+Read all pending observations sorted by frequency (desc) then severity (high first).
+Take the top 6.
+
+For each observation (or group of related ones), generate a proposal:
+
+```yaml
+id: <12-char hex>
+type: new_tool|tool_improvement|new_skill|new_workflow|hook_improvement|registry_update
+action: "Specific description of what to build/change"
+target_repo: ~/emdash-projects/<repo>
+ownership: self|team|external
+motivation: "Why — reference the observation"
+observation_id: <observation-id>
+complexity: low|medium|high
+verification:
+  type: replay|tool_exists|integration_test|observational
+  test_description: "One sentence"
+  sample_inputs: {}
+  expected_outcome: "What success looks like"
+  confidence: high|medium|low
+status: pending
+failure_reason: null
+created: 'YYYY-MM-DD'
+```
+
+**Guidelines:**
+- Fix at the source, not metadata. If CLAUDE.md is missing info, fix CLAUDE.md.
+- Prefer adding to existing servers over creating new ones.
+- Be specific: "Add filter_by_status param to search_opportunities" not "improve search".
+- Strongly prefer proposals with high verification confidence.
+- For `ownership: external`, only propose registry updates — skip implementation.
+
+Save each to `~/.claude/canopy/proposals/<id>.yaml`.
+
+If mode is `dry-run`, show a summary table and stop here.
+
+## Phase 4 — User approval gate
+
+Present proposals in a summary table:
+
+| # | Type | Target | Action (summary) | Complexity |
+|---|------|--------|-------------------|------------|
+
+Ask: "Which proposals should I implement? (all / numbers / none)"
+
+Wait for user response. If "none", stop. If specific numbers, filter to those.
+
+## Phase 5 — Implement via parallel agents
+
+For each approved proposal, dispatch an Agent:
+
+```
+Agent(
+  description: "Implement <short-summary>",
+  isolation: "worktree",
+  prompt: <see agent prompt below>
+)
+```
+
+**Parallelism rules:**
+- Proposals targeting DIFFERENT repos → dispatch in parallel (single message, multiple Agent calls)
+- Proposals targeting the SAME repo → dispatch sequentially (worktrees share the repo)
+- For `ownership: external` → skip (registry-only, no implementation)
+
+**Agent prompt template:**
+
+> You are implementing an improvement to a codebase based on a proposal from
+> usage analysis.
+>
+> ## Proposal
+> <proposal YAML>
+>
+> ## Why This Is Needed
+> <observation YAML>
+>
+> ## Ecosystem Context
+> <registry summary — abbreviated, just the relevant server>
+>
+> ## Instructions
+>
+> 1. Read the existing code to understand current structure
+> 2. Implement the change described in the proposal
+> 3. Write tests if the change is testable
+> 4. Run existing tests to make sure nothing broke
+> 5. Commit with a descriptive message on a feature branch
+> 6. Push the branch and open a PR via `gh pr create`
+>
+> For team-owned repos: always create a PR, never merge directly.
+> For self-owned repos: create a PR for visibility.
+>
+> If the implementation is not feasible (missing dependencies, would break
+> existing functionality, or the proposal is unclear), explain why and exit
+> without making changes.
+>
+> IMPORTANT: Your work must result in a git commit and a PR URL. If you
+> cannot create a PR, clearly state why in your response.
+
+## Phase 6 — Verify and report
+
+After all agents complete, for each result:
+
+1. Check if the agent returned a PR URL
+2. If yes: update the proposal YAML — set `status: implemented`, add `pr_url: <url>`
+3. If no: update the proposal YAML — set `status: failed`, set `failure_reason`
+4. If proposal was implemented, update the observation — set `status: addressed`
+
+Write a run log to `~/.claude/canopy/runs/run-<ISO-timestamp>.yaml`:
+
+```yaml
+started: '<ISO>'
+completed: '<ISO>'
+transcripts_analyzed: N
+observations_created: N
+observations_merged: N
+proposals_generated: N
+proposals_implemented: N
+proposals_failed: N
+processed_sessions:
+  - <session-id>
+  - ...
+errors: []
+```
+
+Show a final summary table:
+
+| Proposal | Status | PR |
+|----------|--------|----|
+
+## Important notes
+
+- The canopy state directory is `~/.claude/canopy/`
+- Observations live in `~/.claude/canopy/observations/`
+- Proposals live in `~/.claude/canopy/proposals/`
+- Run logs live in `~/.claude/canopy/runs/`
+- Use 12-char hex IDs (e.g., from `uuid4().hex[:12]` or generate manually)
+- All YAML files use `default_flow_style: False` (block style)
+- Dates are ISO format: `YYYY-MM-DD`
+- Timestamps are ISO format with timezone: `YYYY-MM-DDTHH:MM:SS+00:00`

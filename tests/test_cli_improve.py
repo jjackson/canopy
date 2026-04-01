@@ -11,7 +11,6 @@ class TestImproveCommand:
             "transcripts_analyzed": 0,
             "observations_created": 0,
             "proposals_generated": 0,
-            "proposals_implemented": 0,
         }
         runner = CliRunner()
         result = runner.invoke(main, ["improve"])
@@ -23,7 +22,6 @@ class TestImproveCommand:
             "transcripts_analyzed": 2,
             "observations_created": 3,
             "proposals_generated": 0,
-            "proposals_implemented": 0,
         }
         runner = CliRunner()
         result = runner.invoke(main, ["improve", "--observe-only"])
@@ -36,7 +34,6 @@ class TestImproveCommand:
             "transcripts_analyzed": 1,
             "observations_created": 1,
             "proposals_generated": 2,
-            "proposals_implemented": 0,
         }
         runner = CliRunner()
         result = runner.invoke(main, ["improve", "--dry-run"])
@@ -48,7 +45,6 @@ class TestImproveCommand:
             "transcripts_analyzed": 3,
             "observations_created": 2,
             "proposals_generated": 1,
-            "proposals_implemented": 1,
         }
         runner = CliRunner()
         result = runner.invoke(main, ["improve"])

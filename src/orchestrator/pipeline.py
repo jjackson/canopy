@@ -8,7 +8,6 @@ import yaml
 from orchestrator.analyzer import analyze_transcript
 from orchestrator.circuit_breaker import CircuitBreaker
 from orchestrator.registry_sync import sync_registry
-from orchestrator.implementer import run_implementation
 from orchestrator.observations import (
     create_observation,
     find_matching_observation,
@@ -39,7 +38,6 @@ class CycleConfig:
     model: str = "sonnet"
     analysis_budget: float = 0.50
     proposal_budget: float = 0.50
-    implementation_budget: float = 2.00
     max_failures: int = 3
     max_calls_per_hour: int = 30
 
@@ -195,60 +193,10 @@ def run_cycle(
             this_run_proposal_ids.append(proposal["id"])
             run["proposals_generated"] = run.get("proposals_generated", 0) + 1
 
-    if config.dry_run:
-        run["circuit_breaker_tripped"] = breaker.is_open
-        run["rate_limit_summary"] = limiter.summary()
-        run["completed"] = datetime.now(timezone.utc).isoformat()
-        save_run(run, runs_dir)
-        return run
+    # Implementation is handled by Claude Code agents via the /canopy:improve
+    # skill, not by the Python pipeline. The pipeline stops after proposals.
 
-    # 6. Implement — only proposals generated THIS run
-    pending_proposals = [
-        p for p in list_proposals(proposals_dir, status="pending")
-        if p["id"] in this_run_proposal_ids
-    ]
-    for proposal in pending_proposals:
-        if breaker.is_open:
-            run["errors"].append(f"Circuit breaker open: {breaker.open_reason}")
-            break
-        if not limiter.can_proceed():
-            run["errors"].append(f"Rate limit reached: {limiter.summary()}")
-            break
-        limiter.record_call()
-        obs_id = proposal.get("observation_id", "")
-        obs_path = obs_dir / f"{obs_id}.yaml"
-        observation = load_observation(obs_path) if obs_path.exists() else {
-            "description": proposal.get("motivation", "")
-        }
-
-        result = run_implementation(
-            proposal=proposal,
-            observation=observation or {"description": proposal.get("motivation", "")},
-            registry_summary=registry_summary,
-            model=config.model,
-            max_budget_usd=config.implementation_budget,
-        )
-
-        proposal_path = proposals_dir / f"{proposal['id']}.yaml"
-        if result["success"]:
-            update_proposal_status(proposal_path, "implemented")
-            breaker.record_success()
-            if obs_path.exists():
-                obs = load_observation(obs_path)
-                if obs:
-                    obs["status"] = "addressed"
-                    save_observation(obs, obs_dir)
-            run["proposals_implemented"] = run.get("proposals_implemented", 0) + 1
-        else:
-            update_proposal_status(
-                proposal_path, "failed",
-                reason=result.get("error", "Unknown error"),
-            )
-            breaker.record_failure(result.get("error", "Unknown"))
-            run["proposals_failed"] = run.get("proposals_failed", 0) + 1
-            run["errors"].append(f"Proposal {proposal['id']}: {result.get('error', '')}")
-
-    # 8. Report
+    # Report
     run["circuit_breaker_tripped"] = breaker.is_open
     run["rate_limit_summary"] = limiter.summary()
     run["completed"] = datetime.now(timezone.utc).isoformat()
