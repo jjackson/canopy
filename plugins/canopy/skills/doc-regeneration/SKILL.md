@@ -26,6 +26,14 @@ Audit CLAUDE.md and docs/ against the actual project state (GitHub issues, PRs, 
 
 To select mode, the invoker specifies `--dry-run` or `--apply` when calling the skill. Default is `--dry-run`.
 
+## Genesis mode (no existing CLAUDE.md)
+
+If the project has no CLAUDE.md at repo root, the skill runs in **genesis mode**:
+
+- Checks 1 (Staleness), 3 (Checklist Drift), and 4 (Size) in Phase 2 degenerate to "n/a" — there's no prior doc to compare against. Note this explicitly in the review report; do not silently skip.
+- **Check 5 (Reference Integrity) becomes mandatory, not optional.** When authoring a CLAUDE.md from scratch, the skill is transcribing facts from README, plans, and code into the highest-visibility doc in the repo. Every path, file count, table row, and external reference must be traced to a file read or shell command run in this session. No transcription from README or plan files without an independent `test -e` / `ls` / `wc -l` on the claim.
+- Prefer fewer verified facts over more unverified ones. If a reference can't be verified, omit it or mark it `TODO: verify <reason>` in the draft so the user catches it in review.
+
 ## Process
 
 ### Phase 1: Read Everything (no output yet)
@@ -73,6 +81,20 @@ If CLAUDE.md contains a checklist or rules section:
   - Flat learning lists → categorize by topic
 - Target: keep CLAUDE.md under ~200 lines of essential content. Every line must earn its place in the agent context window.
 
+**Check 5 — Reference Integrity:**
+For every file path, directory, cross-repo reference, and link that appears in the current CLAUDE.md OR would be copied from README/plans/learnings into the regenerated CLAUDE.md:
+
+- Run `test -e <path>` (absolute or resolved relative to repo root) before trusting the reference.
+- For cross-repo references (e.g. `../ace/docs/...`), resolve and `ls` the target. Do not trust sibling-repo paths just because README mentions them.
+- If a reference is broken:
+  1. **Do not copy it verbatim into the regenerated CLAUDE.md.** Elevating a broken reference into the highest-visibility doc makes staleness worse.
+  2. Try to find the real file: glob the parent directory for the nearest match by name or date stamp.
+  3. Record the finding in the review report under **Staleness → broken references**, including: where the bad path came from (README, plan file, old CLAUDE.md), the path that was claimed, and the path that actually exists (if found).
+  4. If the broken reference lives in a source-of-truth doc (README, plan), flag it as a follow-up fix to that doc — don't silently "fix it forward" by only correcting CLAUDE.md.
+- File-count claims in CLAUDE.md (e.g. "10 Python files, 5 tests") must be re-counted at regen time, not copied from an older CLAUDE.md or plan. Either re-count, or omit — never transcribe stale counts.
+
+**Principle:** the skill's own output becomes a source of truth for the next agent. A broken path written to CLAUDE.md is worse than the same broken path in README, because CLAUDE.md is loaded into every session's context.
+
 ### Phase 3: Produce Output
 
 Generate these files:
@@ -82,8 +104,9 @@ Generate these files:
 2. **Coverage findings** — table of each learning and whether it's reflected in CLAUDE.md
 3. **Checklist drift findings** — dead rules, missing rules, redundancies
 4. **Size analysis** — current line count, breakdown by section, compression recommendations
-5. **Opinionated assessment** — "If I were an agent starting today, here's what would confuse me and what I'd need." Be specific and direct.
-6. **Recommended changes** — bullet list of what the regenerated CLAUDE.md changes
+5. **Reference integrity findings** — broken paths, bad cross-repo refs, and which source doc propagated them. Include "verified: N references checked, M broken" even when M=0.
+6. **Opinionated assessment** — "If I were an agent starting today, here's what would confuse me and what I'd need." Be specific and direct.
+7. **Recommended changes** — bullet list of what the regenerated CLAUDE.md changes
 
 **`CLAUDE.md`** — The regenerated version. Rules:
 - Preserve the existing structure and section order exactly
@@ -138,5 +161,5 @@ Generate these files:
 - **Preserve structure.** CLAUDE.md's section order is intentional. Don't reorganize.
 - **Be opinionated.** The assessment should say what would confuse a new agent, not just list facts.
 - **Minimal changes.** Only change what's wrong or missing. Don't rewrite correct content.
-- **Evidence-based.** Every finding must cite the source (issue number, learning filename, PR number).
+- **Evidence-based.** Every finding must cite the source (issue number, learning filename, PR number). Every path or file reference written into the regenerated CLAUDE.md must be verified to exist on disk this session — citing README as the source is not enough if README is itself stale.
 - **Size-conscious.** CLAUDE.md is loaded into every agent context. Every line must earn its place. Completed milestones become one-liners; active work gets detail.
