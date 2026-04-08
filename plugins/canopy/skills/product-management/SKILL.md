@@ -55,9 +55,11 @@ All project-level data lives in `.claude/pm/` within the current project:
 
 If `.claude/pm/context.md` doesn't exist, build it interactively before doing anything else.
 
+**Run all bootstrap steps sequentially.** Do not issue parallel tool calls during bootstrap — `.claude/pm/` doesn't exist yet, so any parallel call that touches it will fail and cancel its siblings.
+
 ### Step 1: Gather what you can automatically
 
-Read these silently (don't dump them to the user):
+Read these silently (don't dump them to the user). Issue them as **sequential** Read/Bash calls, not parallel:
 - `CLAUDE.md` and `README.md` for project identity
 - `package.json`, `pyproject.toml`, or equivalent for tech stack
 - `git log --oneline -10` for recent activity
@@ -124,6 +126,48 @@ Items closed or rejected during PM cycles. Read this before every scout run to a
 
 ## The Loop
 
+### Phase 0: Pre-flight (single sequential check, NEVER parallel)
+
+**Run this ONE bash command synchronously before any other tool calls.** Do not parallelize anything until this completes — issuing parallel reads against `.claude/pm/` when the directory doesn't exist cancels every sibling call and forces sequential retries.
+
+```bash
+PM_DIR=".claude/pm"
+if [ ! -d "$PM_DIR" ]; then
+  echo "PM_STATE: missing"
+elif [ ! -f "$PM_DIR/research-snapshot.md" ]; then
+  echo "PM_STATE: ready_no_snapshot"
+else
+  SNAP_AGE=$(( ($(date +%s) - $(stat -f %m "$PM_DIR/research-snapshot.md" 2>/dev/null || stat -c %Y "$PM_DIR/research-snapshot.md")) / 86400 ))
+  SNAP_DATE=$(head -1 "$PM_DIR/research-snapshot.md" | sed 's/^# Research Snapshot — //')
+  echo "PM_STATE: ready_with_snapshot age=${SNAP_AGE}d date=${SNAP_DATE}"
+fi
+```
+
+Branch on the output:
+
+- **`PM_STATE: missing`** → Run the **Bootstrap** flow (see "Bootstrapping: Building context.md" above) **synchronously**. Do not issue parallel reads. After bootstrap completes, proceed to Phase 1 with a fresh research pass.
+
+- **`PM_STATE: ready_no_snapshot`** → Proceed to Phase 1 with a full research pass. Write a snapshot at the end (see "Research Snapshot" below).
+
+- **`PM_STATE: ready_with_snapshot age=N date=...`** → Ask the user which mode to use:
+
+  ```
+  AskUserQuestion({
+    questions: [{
+      question: "Found a research snapshot from <date> (<N> days ago). Use saved research or do a full refresh?",
+      header: "Snapshot",
+      options: [
+        { label: "Use snapshot", description: "Skip the deep file reads and use the saved summary" },
+        { label: "Full refresh", description: "Re-read README, skills, git log, etc. and rewrite the snapshot" }
+      ],
+      multiSelect: false
+    }]
+  })
+  ```
+
+  - If **Use snapshot**: read `.claude/pm/research-snapshot.md` instead of re-reading source files. Skip the wide research and go straight to lens-specific exploration in Phase 1.
+  - If **Full refresh**: do the full Phase 1 research pass and overwrite the snapshot.
+
 ### Phase 1: Scout (explore, read-only)
 
 **What to do:**
@@ -133,6 +177,31 @@ Items closed or rejected during PM cycles. Read this before every scout run to a
 4. Run the test suite — what passes, fails, is missing?
 5. Look through open issues / TODO files
 6. Explore through a specific lens (see below)
+
+**Research Snapshot:**
+
+After Phase 1's wide research pass (steps 1–5 above), write a condensed summary to `.claude/pm/research-snapshot.md` so subsequent runs can skip the re-reads:
+
+```markdown
+# Research Snapshot — YYYY-MM-DD
+
+## Project Identity (from README, design docs, CLAUDE.md)
+2-4 sentences capturing what the project is and current state.
+
+## Tech Stack & Architecture
+Bullet list of key technologies and module layout.
+
+## Recent Activity (git log -20)
+3-5 bullet points on what's been changing.
+
+## Key Skills / Commands / Hooks
+Bullet list of the agent surface area worth knowing about.
+
+## Known Friction
+Anything surfaced in the research pass that isn't yet in learnings.md.
+```
+
+The snapshot is read-or-refresh, not auto-invalidated. The user decides freshness via the Phase 0 prompt — explicit human-in-the-loop is preferred over silent staleness detection.
 
 **Exploration Lenses** (use one per run, rotate):
 - **User value**: what features would users love? What workflows are clunky?
