@@ -36,7 +36,7 @@ def scan_transcript(path: Path) -> dict:
                 if isinstance(content, str) and content:
                     user_msgs += 1
                     if not first_msg:
-                        first_msg = content[:100]
+                        first_msg = content[:500]
 
         elif entry.get("type") == "assistant":
             msg = entry.get("message", {})

@@ -7,7 +7,7 @@ description: Menu-driven session picker — select a project, browse session his
 
 ```bash
 _CANOPY_UPD=$(bash ~/emdash-projects/canopy/scripts/canopy-update-check.sh 2>/dev/null || true)
-[ -n "$_CANOPY_UPD" ] && echo "$_CANOPY_UPD"
+if [ -n "$_CANOPY_UPD" ]; then echo "$_CANOPY_UPD"; fi
 ```
 
 If output shows `UPGRADE_AVAILABLE <old> <new>`: tell the user "canopy **v{new}** is available (you're on v{old}). Run `/canopy:update` to upgrade." Then continue with the skill — do not block on the upgrade.
@@ -51,15 +51,27 @@ Wait for the user to pick a number.
 
 ### Step 3: Session selection
 
-Show sessions for the chosen project, sorted newest-first:
+Show sessions for the chosen project, sorted newest-first.
+
+**Before displaying, clean each `first_msg`:**
+
+1. Strip wrapper blocks (in order): `<local-command-caveat>...</local-command-caveat>`, `<local-command-stdout>...</local-command-stdout>`, `<command-message>...</command-message>`, `<command-name>...</command-name>`, `<command-args>...</command-args>`, `<stdin>...</stdin>`
+2. If the cleaned result contains a slash-command invocation (e.g. `/canopy:pm-scout`), prefix the display with `[<slash-command>] ` so the session's purpose is obvious
+3. Collapse whitespace (replace newlines/tabs with single spaces, trim)
+4. Truncate to 120 characters, appending `…` if truncated
+5. If the cleaned result is empty after stripping, fall back to the raw `first_msg` truncated to 120 chars
+
+**Format the list like this:**
 
 ```
 jjackson/canopy — recent sessions:
 
-  1  [03-23 15:08]  "I would like a way to quickly navigate..."   (4 msgs)
-  2  [03-23 14:25]  "I think we are ready to test, is that..."    (88 msgs)
-  3  [03-23 14:17]  "What are my most recent connect-search..."   (2 msgs)
+  1  [03-23 15:08]  (4 msgs)   I would like a way to quickly navigate between the worktrees in emdash and see which ones need…
+  2  [03-23 14:25]  (88 msgs)  I think we are ready to test, is that your read? Can you walk me through the full pipeline…
+  3  [03-23 14:17]  (2 msgs)   [/canopy:pm-scout] quick scout of the new proposal backlog
 ```
+
+Keep message count before the text so the longer preview has room to breathe.
 
 Wait for the user to pick a number.
 
@@ -117,5 +129,5 @@ If no proposals were marked for implementation, summarize what was backlogged/sk
 - The full flow is: select → analyze → propose → disposition → implement
 - If the user types `b` or `back`, go back to the previous menu
 - If the user types `q` or `quit`, exit the flow
-- Truncate first_msg to 45 characters in the session list
+- Clean wrapper tags from first_msg and truncate to 120 characters in the session list (see Step 3)
 - Keep the menus clean and minimal — no extra decoration
