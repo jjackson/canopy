@@ -108,6 +108,15 @@ cd ~/emdash-projects/canopy && git pull --rebase && git push
 `hooks/post_tool_use.py` runs with system python3 which may not have PyYAML.
 The repo map uses JSON (not YAML). Any hook code must use only stdlib modules.
 
+## Skill Authoring: Bash Positional Parameters
+Bash code blocks in skill/command markdown files must NOT use `$1`, `$2`, etc.
+for function arguments. Claude Code's slash-command argument expansion strips
+these before the shell sees them, causing silent failures (empty strings).
+
+**Workaround:** Move complex bash logic to standalone scripts in `bin/` or
+`scripts/` and invoke them from the skill. Simple inline commands (no functions)
+are fine.
+
 ## Plugin Updates — NEVER locally patch
 
 **CRITICAL: Never directly copy, rsync, or write files into `~/.claude/plugins/cache/`
