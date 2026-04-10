@@ -27,7 +27,7 @@ Interactive menu-driven flow to pick a session, analyze it, and propose improvem
 Run this command, substituting the hours argument (default 24):
 
 ```bash
-uv run canopy sessions list --json-output --hours <HOURS>
+cd ~/emdash-projects/canopy && uv run canopy sessions list --json-output --hours <HOURS>
 ```
 
 Parse the JSON output. If no sessions found, tell the user and suggest increasing the hours window.
@@ -80,7 +80,7 @@ Wait for the user to pick a number.
 Run the analyzer with `--propose` to get both observations and implementation suggestions:
 
 ```bash
-uv run canopy analyze --propose <PATH>
+cd ~/emdash-projects/canopy && uv run canopy analyze --propose <PATH>
 ```
 
 **Show the full output directly to the user** — do not summarize or hide it in a tool call. Present each observation with its severity, then each proposal with its implementation plan.
