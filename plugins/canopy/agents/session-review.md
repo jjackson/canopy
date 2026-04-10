@@ -37,6 +37,7 @@ Parse arguments from the command invocation:
 - `hours <N>`: time window instead of count
 - `project <name>`: filter to a specific project
 - `auto-improve`: enable auto-implementation of high-confidence proposals
+- `path <transcript-path>`: analyze a specific transcript file directly, skipping session listing
 
 ## Pipeline
 
@@ -50,7 +51,15 @@ Parse arguments from the command invocation:
 
 ### Step 2: Fetch Sessions
 
-Run from the canopy repo working directory:
+If a `path` argument was provided, skip this step and Step 3 — go directly to
+Step 4 (Check Version Staleness) using the provided transcript path. Run
+`canopy analyze` on just that one file:
+
+```bash
+cd ~/emdash-projects/canopy && uv run canopy analyze <transcript-path> --propose
+```
+
+Otherwise, run from the canopy repo working directory:
 
 ```bash
 cd ~/emdash-projects/canopy && uv run canopy sessions list --json-output --hours <H>
@@ -64,6 +73,8 @@ Parse the JSON output. Filter out any session IDs found in `reviewed-sessions.md
 If no unreviewed sessions remain, tell the user and stop.
 
 ### Step 3: Analyze Individually
+
+Skip this step if a direct `path` was provided (already analyzed in Step 2).
 
 For each unreviewed session, run:
 
