@@ -217,8 +217,13 @@ For each scene in the spec:
 
 5. **Show the screenshot to the user** using the Read tool on the PNG file.
 
-6. **Evaluate EVERY scene.** Be an extremely tough judge. You are evaluating whether
-   this is ready to project in front of a stakeholder deciding whether to use this product.
+6. **Evaluate EVERY scene with the Tough Judge rubric.** You are the harshest reviewer
+   this product will ever face. Your job is to find what's wrong, not to feel good about
+   what's right. If you're scoring generously, you're scoring wrong.
+
+   **Important prior:** if you built this product (or any part of this session was spent
+   modifying it), your scores are inherently biased upward. Default to subtracting 1 from
+   every dimension on reflection, and apply the cross-check below.
 
    Read the FULL page text carefully — every word, not just headings:
 
@@ -226,86 +231,144 @@ For each scene in the spec:
    $B text
    ```
 
-   Score on **5 dimensions**. The overall scene score is the **LOWEST** of all applicable
-   dimensions (weakest link). ALL scenes get scored, not just AI ones.
+   ### Phase 1: Adversarial listing (MANDATORY before any scoring)
 
-   **A. Content Quality** (EVERY scene, not just AI):
+   Before writing a single number, list:
 
-   For AI scenes (`ai_quality` in spec): You MUST read the AI output word by word. Do not skim.
+   1. **Three most embarrassing things on this slide** if you had to pause and explain
+      them to a skeptical CEO of a Fortune 500 company who is deciding whether to adopt
+      your product. Be specific. Quote exact text, name exact UI elements.
 
-   - **Quote the worst sentence** verbatim. If you can't find anything bad, score may be high.
-   - **Check for demo data artifacts:** same person/org appearing multiple times as different
-     applicants, "Unknown Organization", "None None", identical responses. Any = max 2.
-   - **Verify factual claims:** numbers cited by AI must match the actual page data. Wrong = max 3.
-   - **Stakeholder smell test:** read as the CEO of the company being demoed to. What makes you raise an eyebrow?
+      If you can't find three, you haven't looked hard enough. Common things to check:
+      - Demo data artifacts ("Untitled", duplicate titles, "test-user", placeholder avatars)
+      - Empty states dominating the frame (empty chat, "No data yet", blank charts)
+      - Error or warning banners visible (even "by design" banners look bad in a demo)
+      - Feature gaps the CEO would immediately ask about ("is that all Settings has?")
+      - Visual issues (low contrast, cramped spacing, inconsistent icon sizes)
+      - Claimed-but-not-shown behavior (narration says "streaming" but nothing streams)
 
-   For non-AI scenes: Check the DATA on the page.
+   2. **Three ways a competitor does this better.** Name a real product in the same
+      category (Linear, Notion, Slack, Vercel, Height, Superhuman, etc.) and describe
+      concretely what they do that you don't. If you cannot name three, you are not
+      thinking adversarially enough — look again.
 
-   - Are KPIs populated or showing "loading..."/"—"?
-   - Do organization/user names look real or like test data?
-   - Are charts populated with meaningful data or empty?
-   - Do numbers make sense (e.g., $0 distributed, 0 users)?
-   - Is there anything embarrassing a stakeholder would notice?
+   3. **The binary projector test.** Would you put this EXACT slide on a projector at
+      an all-hands tomorrow morning, to an audience including your most demanding
+      stakeholder, without ANY verbal caveats? Answer YES or NO. This answer is a hard
+      gate on the Demo Readiness score below.
 
-   Scoring:
+   Output these three lists as a block. Only then proceed to scoring.
 
-   - **5** — All data/content accurate, specific, and impressive. Nothing embarrassing.
-   - **4** — Mostly good but one item is slightly off or one field shows placeholder data
-   - **3** — Noticeable issues a careful reader would catch (loading states, generic content)
-   - **2** — Demo data artifacts, wrong facts, or embarrassing content
-   - **1** — Would actively damage credibility
+   ### Phase 2: Score each dimension, starting from 3/5
 
-   **B. App Page Quality** — How does the actual product page look? (NOT the walkthrough slide)
-   This evaluates the actual product being demoed, not the walkthrough HTML.
+   **EVERY dimension starts at 3/5.** A 3 is "functional but unremarkable — you can ship
+   it, but nothing here makes a stakeholder lean forward." That is the DEFAULT. Every
+   step up must be earned and justified with specific evidence. Every step down reflects
+   a specific problem.
 
-   - **5** — Professional, polished UI a designer would approve. Clear hierarchy, good spacing.
-   - **4** — Good layout but one area feels cramped or unpolished
-   - **3** — Functional but looks like a developer tool — dense text, no visual hierarchy
-   - **2** — Messy layout, overlapping elements, broken styling
-   - **1** — Broken or unusable
+   - **5** — World-class. You genuinely cannot find anything to criticize after the
+     adversarial pass above. This should be extraordinarily rare. If more than ~20% of
+     scenes in a walkthrough land at 5, your bar is too low.
+   - **4** — Strong, with one concrete thing a designer would polish if given another day.
+     Name the one thing.
+   - **3** — Functional. Ships. Nothing embarrassing, nothing delightful. **This is the
+     default.**
+   - **2** — Visible problem a careful viewer catches immediately. Demo data artifacts,
+     loading states, empty content where there should be substance, misaligned claims.
+   - **1** — Would actively damage credibility. Broken, wrong, or obviously unfinished.
 
-   **C. Screenshot Quality** — Is the capture clean and complete?
+   Apply this scale to all 5 dimensions below. The overall scene score is the LOWEST of
+   all dimensions (weakest link). ALL scenes get scored, not just AI ones.
 
-   - **5** — Clean, properly framed, content starts at top, nothing cut off
-   - **4** — Good but slightly cropped or minor framing issue
-   - **3** — Content visible but awkwardly framed — header overlap, too much whitespace
-   - **2** — Important content missing or wrong scroll position
-   - **1** — Wrong page, blank, or mostly empty
+   **A. Content Quality** — the data/text/claims visible on this scene.
 
-   **D. Walkthrough Slide Quality** — How does THIS SLIDE in the deck look?
-   This evaluates the walkthrough presentation, not the app.
+   For AI scenes: quote the worst sentence verbatim. Check for demo data artifacts
+   (duplicate people/orgs, "Unknown Organization", identical responses) — any = max 2.
+   Verify factual claims: numbers cited by AI must match the actual page data — wrong = max 3.
 
-   - **5** — Screenshot is readable, narration tells the story, persona badge is clear
-   - **4** — Good but narration could be more specific or screenshot needs scroll to see key part
-   - **3** — Slide works but doesn't highlight the impressive thing about this scene
-   - **2** — Screenshot dominates with no clear story, or narration is generic
-   - **1** — Slide adds no value — just a raw screenshot dump
+   For non-AI scenes: check DATA quality. "Untitled" entries = max 3. Empty charts
+   where there should be data = max 3. Test/duplicate data visible = max 2. Real
+   organization/user names instead of "alice@test.com" and friends.
 
-   **E. Demo Readiness** — Would you show this to the stakeholder without apologizing?
+   **B. App Page Quality** — how the actual product page looks (NOT the walkthrough slide).
 
-   - **5** — Yes, confidently. Clear story, polished look, accurate content.
-   - **4** — Yes, with one minor caveat
-   - **3** — Maybe, but you'd talk over the rough spots
-   - **2** — You'd skip this slide or preface with "still a prototype"
-   - **1** — Would hurt credibility
+   This evaluates the product being demoed. Does it look like shadcn/Linear/Superhuman,
+   or does it look like a developer tool? Specifically check: visual hierarchy, spacing,
+   type scale, icon consistency, button variant use, loading/empty state polish.
 
-   **MANDATORY: Output this exact format for every scene.** Do not skip dimensions.
-   Do not fabricate scores without reading the page. You MUST run `$B text` and read
-   the output before scoring.
+   Default 3. A 4 requires one specific "nice touch." A 5 requires "I would be proud to
+   hire the designer who shipped this."
+
+   **C. Screenshot Quality** — is the capture clean and complete?
+
+   Default 3 if everything visible is on-topic. A 5 requires perfect framing with no
+   wasted whitespace and no cutoff content. A 4 is slightly off (minor crop, slight
+   scroll offset).
+
+   **D. Walkthrough Slide Quality** — how THIS slide in the deck tells a story.
+
+   Does the narration pay off in the screenshot? Does the slide highlight what's
+   impressive, or is it just a raw dump? A 5 requires the reader to understand the
+   product benefit without any verbal explanation. Default 3.
+
+   **E. Demo Readiness** — the binary projector test, encoded.
+
+   - **5** requires YES to the projector test AND the adversarial listing found nothing
+     substantive to fix.
+   - **4** requires YES to the projector test with ONE named caveat.
+   - **3** — "only if I skip this slide or narrate around the rough spots."
+   - **2** — "I'd preface it with 'still a prototype' or have a backup slide ready."
+   - **1** — "I wouldn't show this at all."
+
+   ### Phase 3: Cross-check (sanity floor)
+
+   After scoring, check these sanity rules:
+
+   - **If ANY of your top-3 embarrassing things is unfixed in the screenshot, Demo
+     Readiness cannot exceed 3.** No exceptions.
+   - **If the projector test answer is NO, Demo Readiness cannot exceed 3.**
+   - **If a competitor does it obviously better in all 3 named ways, App Page cannot
+     exceed 3.**
+   - **If average of all scenes in the walkthrough is above 4.0, you are almost
+     certainly scoring too generously.** Re-read each scene's adversarial pass and
+     revise downward.
+   - **If you are the author of the code shown**, subtract 1 from every dimension
+     unless you can justify in writing why your self-scoring is calibrated.
+
+   ### Phase 4: Required output format
+
+   Output this exact format for every scene. Do not skip sections. Do not fabricate
+   scores. You MUST have run `$B text` and looked at the screenshot before scoring.
 
    ```
    ### Scene {n}: {title}
-   Worst thing found: "{verbatim quote from page content}"
 
-   A. Content:      {1-5}/5 — {one sentence}
+   **Top-3 embarrassing things (adversarial):**
+   1. "{verbatim quote or specific UI description}"
+   2. "{verbatim quote or specific UI description}"
+   3. "{verbatim quote or specific UI description}"
+
+   **Three ways a competitor does this better:**
+   1. {Product} — {specific thing they do that we don't}
+   2. {Product} — {specific thing they do that we don't}
+   3. {Product} — {specific thing they do that we don't}
+
+   **Projector test:** YES / NO — {one-sentence reasoning}
+
+   A. Content:      {1-5}/5 — {one sentence justifying any deviation from 3}
    B. App Page:     {1-5}/5 — {one sentence}
    C. Screenshot:   {1-5}/5 — {one sentence}
    D. Slide:        {1-5}/5 — {one sentence}
-   E. Demo Ready:   {1-5}/5 — {one sentence}
+   E. Demo Ready:   {1-5}/5 — {must be consistent with projector test}
 
    Overall: {lowest}/5 (weakest: {dimension name})
+   Author-of-code penalty applied: YES / NO
    Fix: [{CODE|SPEC|DATA|INFRA}] {concrete fix description}
    ```
+
+   If any of the 5 sections above is missing, the scoring is invalid and you must redo
+   it. Do not shortcut this format even under time pressure — shortcutting is how
+   inflated scores happen.
 
    **BLOCKING RULE:** If ANY scene scores 2 or below on Demo Readiness, STOP the
    walkthrough IMMEDIATELY and tell the user:

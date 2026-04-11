@@ -188,6 +188,57 @@ def _render_summary_slide(slide, run_data):
 
 
 CSS_STYLES = """
+/* Geist Variable from Google Fonts — matches canopy-web aesthetic */
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&display=swap');
+
+/* Dark-mode shadcn-style tokens (OKLCH). Default is dark; override
+   with .light on the body to force light mode. */
+:root {
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+  --card: #0a0a0a;
+  --card-foreground: #fafafa;
+  --muted: #171717;
+  --muted-foreground: #a1a1aa;
+  --border: #262626;
+  --primary: #fafafa;
+  --primary-foreground: #0a0a0a;
+  --accent: #262626;
+  --accent-foreground: #fafafa;
+  --success: #10b981;
+  --success-subtle: #052e22;
+  --warning: #f59e0b;
+  --warning-subtle: #3b2706;
+  --danger: #ef4444;
+  --danger-subtle: #3b0f0f;
+  --info: #60a5fa;
+  --info-subtle: #0c1f3a;
+
+  --radius: 10px;
+}
+
+body.light {
+  --background: #fafafa;
+  --foreground: #0a0a0a;
+  --card: #ffffff;
+  --card-foreground: #0a0a0a;
+  --muted: #f4f4f5;
+  --muted-foreground: #52525b;
+  --border: #e5e7eb;
+  --primary: #18181b;
+  --primary-foreground: #fafafa;
+  --accent: #f4f4f5;
+  --accent-foreground: #18181b;
+  --success: #059669;
+  --success-subtle: #ecfdf5;
+  --warning: #d97706;
+  --warning-subtle: #fffbeb;
+  --danger: #dc2626;
+  --danger-subtle: #fef2f2;
+  --info: #2563eb;
+  --info-subtle: #eff6ff;
+}
+
 /* Reset and base */
 *, *::before, *::after {
   box-sizing: border-box;
@@ -195,12 +246,23 @@ CSS_STYLES = """
   padding: 0;
 }
 
+html {
+  background: var(--background);
+}
+
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: 'Geist', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-feature-settings: "cv11", "ss01", "ss03";
   font-size: 16px;
   line-height: 1.6;
-  color: #1f2937;
-  background: #f9fafb;
+  color: var(--foreground);
+  background: var(--background);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code, pre, .font-mono {
+  font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
 }
 
 /* Slide system */
@@ -214,9 +276,7 @@ body {
   max-width: 960px;
   margin: 0 auto;
   padding: 3rem 2rem 6rem;
-  background: #ffffff;
-  border-left: 1px solid #e5e7eb;
-  border-right: 1px solid #e5e7eb;
+  background: var(--background);
 }
 
 .slide.active {
@@ -231,37 +291,40 @@ body {
 
 /* Scene slides get more room for screenshots */
 .slide-scene {
-  max-width: 1100px;
+  max-width: 1180px;
   padding-top: 2rem;
 }
 
 /* Typography */
 h1 {
-  font-size: 2.5rem;
-  font-weight: 700;
-  color: #111827;
+  font-size: 3rem;
+  font-weight: 600;
+  color: var(--foreground);
   margin-bottom: 1rem;
-  line-height: 1.2;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
 }
 
 h2 {
-  font-size: 1.75rem;
+  font-size: 1.875rem;
   font-weight: 600;
-  color: #111827;
+  color: var(--foreground);
   margin-bottom: 0.75rem;
+  letter-spacing: -0.02em;
 }
 
 h3 {
   font-size: 1.25rem;
   font-weight: 600;
-  color: #374151;
+  color: var(--foreground);
   margin-top: 1.5rem;
   margin-bottom: 0.5rem;
+  letter-spacing: -0.01em;
 }
 
 p {
   margin-bottom: 0.75rem;
-  color: #374151;
+  color: var(--muted-foreground);
 }
 
 ul {
@@ -272,7 +335,8 @@ ul {
 
 ul li {
   padding: 0.4rem 0;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
 }
 
 /* Title slide */
@@ -291,49 +355,51 @@ ul li {
   display: flex;
 }
 
-
 .title-accent-bar {
   width: 100%;
-  height: 6px;
-  background: linear-gradient(90deg, #2563eb, #7c3aed);
+  height: 4px;
+  background: linear-gradient(90deg, var(--info), var(--success));
   flex-shrink: 0;
 }
 
 .title-content {
-  padding: 4rem 2rem 3rem;
+  padding: 4rem 3rem 3rem;
   display: flex;
   flex-direction: column;
   justify-content: center;
   flex: 1;
+  max-width: 880px;
 }
 
 .title-divider {
   border: none;
-  border-top: 1px solid #e5e7eb;
-  margin: 1.5rem 0 1rem;
+  border-top: 1px solid var(--border);
+  margin: 2rem 0 1rem;
   max-width: 640px;
 }
 
 .slide-title .narrative {
   font-size: 1.25rem;
-  font-style: italic;
-  color: #6b7280;
+  color: var(--muted-foreground);
   margin: 1rem 0 0;
-  max-width: 640px;
+  max-width: 720px;
+  line-height: 1.5;
+  font-style: normal;
 }
 
 .title-subtitle {
-  font-size: 1rem;
-  color: #6b7280;
+  font-size: 0.95rem;
+  color: var(--muted-foreground);
   font-weight: 500;
-  margin-top: 0.75rem;
+  margin-top: 1rem;
   margin-bottom: 0;
 }
 
 .slide-title .meta {
   font-size: 0.8rem;
-  color: #9ca3af;
-  margin-top: 0.25rem;
+  color: var(--muted-foreground);
+  opacity: 0.7;
+  margin-top: 0.5rem;
   margin-bottom: 0;
 }
 
@@ -345,6 +411,7 @@ ul li {
   flex-direction: column;
   min-height: 100vh;
   text-align: center;
+  background: var(--background);
 }
 
 .slide-persona.active {
@@ -354,43 +421,46 @@ ul li {
 .persona-card {
   max-width: 560px;
   padding: 3rem;
-  background: #ffffff;
-  border-radius: 16px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 1.6);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
 }
 
 .persona-avatar {
-  width: 100px;
-  height: 100px;
+  width: 96px;
+  height: 96px;
   border-radius: 50%;
   color: #ffffff;
-  font-size: 2rem;
-  font-weight: 700;
+  font-size: 1.75rem;
+  font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 auto 1rem;
+  margin: 0 auto 1.25rem;
+  letter-spacing: -0.02em;
 }
 
 .persona-up-next {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #9ca3af;
+  color: var(--muted-foreground);
+  opacity: 0.7;
   margin-bottom: 1rem;
 }
 
 .persona-role {
   font-size: 1rem;
-  color: #6b7280;
+  color: var(--muted-foreground);
   font-weight: 500;
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
 }
 
 .persona-intro {
   font-size: 1.05rem;
-  color: #374151;
+  color: var(--muted-foreground);
   line-height: 1.7;
 }
 
@@ -399,7 +469,7 @@ ul li {
   display: flex;
   align-items: center;
   gap: 1rem;
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
   flex-wrap: wrap;
 }
 
@@ -408,15 +478,16 @@ ul li {
   padding: 0.25rem 0.75rem;
   border-radius: 9999px;
   color: #ffffff;
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   font-weight: 600;
   flex-shrink: 0;
+  letter-spacing: 0.01em;
 }
 
 .slide-progress-bar {
   flex: 1;
-  height: 3px;
-  background: #f3f4f6;
+  height: 2px;
+  background: var(--muted);
   border-radius: 9999px;
   overflow: hidden;
   min-width: 60px;
@@ -429,109 +500,122 @@ ul li {
 }
 
 .narration-box {
-  background: #f9fafb;
-  border-radius: 8px;
-  padding: 1rem;
-  margin-bottom: 1.25rem;
+  background: var(--muted);
+  border-left: 2px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
 }
 
 .narration {
-  font-size: 1.05rem;
-  color: #4b5563;
+  font-size: 1rem;
+  color: var(--muted-foreground);
   margin-bottom: 0;
-  font-style: italic;
+  line-height: 1.6;
 }
 
 /* Screenshot */
 .screenshot {
   width: 100%;
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-  border: 1px solid #e5e7eb;
+  border-radius: var(--radius);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border);
   display: block;
   margin: 1rem 0;
 }
 
 .screenshot-placeholder {
-  background: #f3f4f6;
-  border: 2px dashed #d1d5db;
-  border-radius: 8px;
-  min-height: 200px;
+  background: var(--muted);
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  min-height: 240px;
   display: flex;
   align-items: center;
   justify-content: center;
   margin: 1rem 0;
   padding: 2rem;
   text-align: center;
-  color: #9ca3af;
+  color: var(--muted-foreground);
   font-size: 0.95rem;
 }
 
 /* AI quality card */
 .ai-quality-card {
-  border-left: 4px solid #2563eb;
-  background: #eff6ff;
-  border-radius: 0 8px 8px 0;
+  border-left: 3px solid var(--info);
+  background: var(--info-subtle);
+  border-radius: 0 var(--radius) var(--radius) 0;
   padding: 1rem 1.25rem;
-  margin-top: 1.25rem;
+  margin-top: 1.5rem;
 }
 
 .ai-quality-header {
   font-weight: 600;
-  color: #1e40af;
+  color: var(--foreground);
   margin-bottom: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.ai-quality-card p {
+  color: var(--muted-foreground);
+  font-size: 0.9rem;
+  line-height: 1.6;
 }
 
 /* Stars */
 .stars {
-  color: #d97706;
-  font-size: 1.1em;
+  color: var(--warning);
+  font-size: 1.05em;
   letter-spacing: 0.05em;
 }
 
 /* Focus flag */
 .focus-flag {
-  color: #dc2626;
-  font-size: 0.875rem;
+  color: var(--danger);
+  font-size: 0.8rem;
   font-weight: 500;
 }
 
 /* Issues */
 .issue-warning {
-  color: #b45309;
+  color: var(--warning);
 }
 
 .issue-error {
-  color: #dc2626;
+  color: var(--danger);
+}
+
+.issue-info {
+  color: var(--info);
 }
 
 /* Summary slide */
 .verdict {
   font-size: 1.5rem;
-  font-weight: 700;
-  margin: 0.75rem 0 1.25rem;
+  font-weight: 600;
+  margin: 0.75rem 0 1.5rem;
+  letter-spacing: -0.02em;
 }
 
 .verdict-green {
-  color: #059669;
+  color: var(--success);
 }
 
 .verdict-amber {
-  color: #d97706;
+  color: var(--warning);
 }
 
 .verdict-red {
-  color: #dc2626;
+  color: var(--danger);
 }
 
 .scenes-badge {
   display: inline-block;
-  background: #f3f4f6;
-  border: 1px solid #e5e7eb;
+  background: var(--muted);
+  border: 1px solid var(--border);
   border-radius: 9999px;
   padding: 0.2rem 0.75rem;
-  font-size: 0.875rem;
-  color: #374151;
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
   font-weight: 500;
   margin-bottom: 0.75rem;
 }
@@ -539,8 +623,9 @@ ul li {
 .score-feature {
   display: block;
   font-weight: 500;
-  color: #374151;
+  color: var(--foreground);
   margin-bottom: 0.25rem;
+  font-size: 0.95rem;
 }
 
 .score-bar-row {
@@ -552,8 +637,8 @@ ul li {
 
 .score-bar-bg {
   flex: 1;
-  height: 8px;
-  background: #f3f4f6;
+  height: 6px;
+  background: var(--muted);
   border-radius: 4px;
   overflow: hidden;
   min-width: 80px;
@@ -567,17 +652,17 @@ ul li {
 
 /* Summary slide comparison */
 .comparison li {
-  color: #374151;
+  color: var(--muted-foreground);
 }
 
 .arrow-up {
-  color: #059669;
-  font-weight: 700;
+  color: var(--success);
+  font-weight: 600;
 }
 
 .arrow-down {
-  color: #dc2626;
-  font-weight: 700;
+  color: var(--danger);
+  font-weight: 600;
 }
 
 /* Summary slide */
@@ -585,10 +670,9 @@ ul li {
   padding-bottom: 8rem;
 }
 
-/* Summary meta */
 .slide-summary .meta {
-  font-size: 0.9rem;
-  color: #6b7280;
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
   margin-bottom: 0.5rem;
 }
 
@@ -598,14 +682,14 @@ ul li {
   bottom: 0;
   left: 0;
   width: 100%;
-  height: 3px;
-  background: #f3f4f6;
+  height: 2px;
+  background: var(--muted);
   z-index: 99;
 }
 
 #nav-progress-bar-fill {
   height: 100%;
-  background: #2563eb;
+  background: var(--foreground);
   transition: width 0.2s ease;
 }
 
@@ -617,11 +701,11 @@ ul li {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  background: rgba(255, 255, 255, 0.95);
-  border: 1px solid #e5e7eb;
+  background: var(--card);
+  border: 1px solid var(--border);
   border-radius: 9999px;
   padding: 0.5rem 1.25rem;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
   z-index: 100;
 }
 
@@ -629,43 +713,57 @@ ul li {
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 1.25rem;
-  color: #374151;
+  font-size: 1.1rem;
+  color: var(--foreground);
   padding: 0.25rem 0.5rem;
-  border-radius: 4px;
+  border-radius: 6px;
   transition: background 0.15s;
 }
 
 #nav-controls button:hover {
-  background: #f3f4f6;
+  background: var(--accent);
 }
 
 #nav-progress {
-  font-size: 0.875rem;
-  color: #6b7280;
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
   min-width: 60px;
   text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 #nav-slide-title {
   font-size: 0.8rem;
-  color: #6b7280;
-  max-width: 200px;
+  color: var(--muted-foreground);
+  max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+#theme-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  color: var(--muted-foreground);
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+#theme-toggle:hover {
+  background: var(--accent);
 }
 
 /* Print styles */
 @media print {
   body {
     background: white;
+    color: #0a0a0a;
   }
 
-  #nav-controls {
-    display: none;
-  }
-
+  #nav-controls,
   #nav-progress-bar {
     display: none;
   }
@@ -677,6 +775,7 @@ ul li {
     min-height: auto;
     border: none;
     padding: 2rem;
+    background: white;
   }
 
   .slide:last-child {
@@ -783,10 +882,41 @@ JS_NAVIGATION = """
   nextBtn.title = 'Next slide (ArrowRight)';
   nextBtn.addEventListener('click', nextSlide);
 
+  // Theme toggle: dark is the default, user can flip to light
+  var themeBtn = document.createElement('button');
+  themeBtn.id = 'theme-toggle';
+  themeBtn.title = 'Toggle light/dark (T)';
+  var updateThemeIcon = function () {
+    themeBtn.textContent = document.body.classList.contains('light') ? '\\u263C' : '\\u263D';
+  };
+  updateThemeIcon();
+  var toggleTheme = function () {
+    document.body.classList.toggle('light');
+    try {
+      localStorage.setItem('walkthrough-theme',
+        document.body.classList.contains('light') ? 'light' : 'dark');
+    } catch (e) {}
+    updateThemeIcon();
+  };
+  themeBtn.addEventListener('click', toggleTheme);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 't' || e.key === 'T') {
+      toggleTheme();
+    }
+  });
+  // Restore saved theme (default dark)
+  try {
+    if (localStorage.getItem('walkthrough-theme') === 'light') {
+      document.body.classList.add('light');
+      updateThemeIcon();
+    }
+  } catch (e) {}
+
   nav.appendChild(prevBtn);
   nav.appendChild(progress);
   nav.appendChild(slideTitle);
   nav.appendChild(nextBtn);
+  nav.appendChild(themeBtn);
   document.body.appendChild(nav);
 
   // Initialize
