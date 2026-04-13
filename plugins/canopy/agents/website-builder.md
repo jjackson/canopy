@@ -38,15 +38,33 @@ Product-specific context lives in the working directory:
 
 ```
 ./context/
+├── manifest.json          — Content inventory (from context-ingestion)
+├── information-architecture.md — Sitemap, nav, templates (from IA skill)
+├── brand/
+│   ├── guidelines.md      — Brand colors, fonts, logo specs
+│   └── messaging.md       — Tagline, elevator pitch, key terminology
+├── programs/
+│   ├── _index.md          — List of all programs with metadata
+│   └── <program-slug>/    — Per-program content (overview, resources)
+├── pages/
+│   ├── homepage.md        — Content mapped to homepage sections
+│   ├── learn.md           — LDVP step content
+│   ├── deliver.md
+│   ├── verify.md
+│   └── pay.md
+├── assets/
+│   └── inventory.md       — Available media assets with sources
 ├── product-brief.md       — What the product does, features, audience
 ├── value-propositions.md  — Key messaging hierarchy
 ├── target-audience.md     — Who we're talking to
 └── reference-materials/   — 2-pagers, decks, supporting docs
 ```
 
-If `./context/` doesn't exist, tell the user:
-"No product context found. Create a `context/` directory with at least a
-`product-brief.md` describing the product."
+If `./context/` doesn't exist, offer two paths:
+1. "Run `/canopy:website-builder ingest` to pull content from connected
+   MCP sources (Google Drive, Confluence)."
+2. "Or create a `context/` directory manually with at least a
+   `product-brief.md` describing the product."
 
 ## Commands
 
@@ -57,11 +75,18 @@ Run the full generation pipeline:
 **Stage 1: Context Ingestion**
 1. Read all files in `./context/`
 2. Read your agent memory for brand guidelines
-3. Synthesize into a **creative brief** — a single markdown document that
+3. If `./context/information-architecture.md` exists, read it — this is
+   the blueprint for what pages to generate, what content goes where, and
+   how navigation works. Use it to structure the creative brief and
+   determine how many pages/variants to generate.
+4. If `./context/manifest.json` exists, read it to understand content
+   availability and gaps. Handle "coming soon" programs appropriately.
+5. Synthesize into a **creative brief** — a single markdown document that
    contains: product name, value proposition, target audience, key features,
-   tone profile, brand constraints, and design direction.
-4. Print a summary: "Creative brief ready. Product: {name}. Audience: {audience}.
-   Tone: {tone}. Generating..."
+   tone profile, brand constraints, design direction, and (if IA exists)
+   the sitemap and page template specs.
+6. Print a summary: "Creative brief ready. Product: {name}. Audience: {audience}.
+   Tone: {tone}. Pages: {page_count}. Generating..."
 
 **Stage 2: Design System**
 1. Check if `DESIGN.md` exists in the working directory.
