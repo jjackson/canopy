@@ -103,6 +103,56 @@ For each template type, specify:
 - Resources (public links only)
 - CTA (back to catalog, request demo)
 
+### Step 4b: Content Routing
+
+This is critical for making pages insightful rather than skeletal.
+
+Insights from reports, learnings, and program data often belong on **multiple
+pages simultaneously**. A single finding can be evidence for:
+- A **program page** (proving the specific intervention works)
+- A **platform/mechanism page** (proving the LDVP step works in general)
+- An **audience page** (proving value for funders, LLOs, or workers)
+
+For every significant insight in the content inventory, create a routing entry:
+
+```markdown
+## Content Routing Table
+
+| Insight | Source | Program Page | LDVP Page | Audience Page |
+|---------|--------|-------------|-----------|--------------|
+| 88% of FLWs scored >70% on first observed visits | ECD report | ECD | Learn | Funders |
+| 94% population coverage with microplanning | FP report | CHC | Verify | Funders |
+| 22% cost reduction per verified visit | FP report | CHC | Pay | Funders |
+| AI coach: 97.8% queries without human escalation | ECD report | ECD | Learn | — |
+```
+
+**Rules:**
+- Every insight gets at least one page assignment
+- Cross-cutting insights (platform-level evidence) go on LDVP pages
+- Program-specific implementation details go on program pages
+- Cost/ROI/impact evidence always goes on audience pages too
+- Don't duplicate long content — reference the same data differently on each page
+  (e.g., the Learn page frames AI coaching as "how training works at scale"
+  while the ECD page frames it as "what makes this program unique")
+
+### Step 4c: Multi-Variant Design Direction
+
+The generator should NOT lock in on a single approach. For each page template,
+define 2-3 **design directions** that the generator can explore:
+
+**Example directions for program detail pages:**
+1. **Data-dashboard** — Lead with metrics, charts, key numbers. Clinical, credible.
+2. **Case-study narrative** — Lead with the problem/challenge. Storytelling arc.
+3. **Magazine editorial** — Lead with a bold visual statement. Pull quotes, large type.
+
+**Example directions for LDVP pages:**
+1. **Mechanism-first** — Explain how it works technically, then show evidence
+2. **Evidence-first** — Lead with results/stats, then explain the mechanism
+3. **Story-first** — Lead with a worker's journey, then generalize
+
+Include these directions in the IA document so the generator can produce
+multiple variants. The user should be able to see and compare approaches.
+
 ### Step 5: Write IA Document
 
 Save to `./context/information-architecture.md`:
@@ -142,11 +192,20 @@ Save to `./context/information-architecture.md`:
 ## Page Templates
 [Detailed section specs for each template type]
 
+## Content Routing
+[Insight → page mapping table. Each insight lists which pages it appears on
+and how it's framed differently on each.]
+
+## Design Directions
+[For each page template, 2-3 variant approaches the generator should explore.
+The user picks after seeing them, or mixes elements from multiple.]
+
 ## Content Mapping
 [Which context files feed which page sections]
 
 ## Media Placement
-[Where public videos, images go — with actual URLs]
+[Where public videos, images go — with actual URLs.
+Internal links (Drive, Confluence) must NOT appear as public hrefs.]
 
 ## Content Gaps
 [What's missing and how to handle: placeholder text, "coming soon", omit]
