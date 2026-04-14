@@ -103,6 +103,70 @@ For each template type, specify:
 - Resources (public links only)
 - CTA (back to catalog, request demo)
 
+### Step 4z: Foundation Judge — Harsh Review
+
+After insights are extracted and before they're routed to pages, run a **harsh
+judge pass**. Imagine a specific reader: a program officer at a large
+foundation (Gates, GiveWell, CIFF, Founders Pledge) evaluating a $10M+ grant.
+They've read hundreds of pitches. They've seen every "empower communities"
+marketing site. They're looking for reasons to say no.
+
+For each insight, check:
+
+**1. Is the scale number the *systemic* number or a pilot number?**
+A pilot of 76 FLWs in one country is a methodology footnote. The systemic
+truth — 5,000+ FLWs across 12 countries delivering 1M+ visits — is the
+headline. Never lead with pilot numbers when program-scale numbers exist.
+
+**2. Does every significant number have a benchmark?**
+"94% coverage" — vs what? "880,000 visits" — worth how much? Relative to
+what market? Numbers without benchmarks fail the "so what?" test.
+
+**3. Are small-N studies framed with sensitivity/power context?**
+A 50-caregiver survey or 20-interview qualitative study is fine, but needs
+framing: "qualitative findings (n=20); RCT with [partner] underway" or
+"power sufficient to detect X% change at 80% confidence." Otherwise a
+hardened reader will note the sample as a weakness.
+
+**4. Are satisfaction/self-report metrics distinguished from impact metrics?**
+"9.5/10 satisfaction from LLOs" is sticky upward and measures happiness,
+not impact. Replace with performance signals: "7/7 LLOs completed campaigns
+vs X% industry baseline."
+
+**5. Does the "why this is hard" framing earn the claim?**
+Why is 94% coverage impressive? (Traditional campaigns plateau at 82%.
+Measured against GRID3 gold-standard population estimates.) Why is the
+Trial Run model insightful? (Conventional funder wisdom was pre-vetting;
+we proved it doesn't predict performance.) Without the hard-fought context,
+claims land as ordinary.
+
+**6. Are we being defensive where we should be confident?**
+"We are piloting" where we mean "live across 12 countries." "Early results
+suggest" where multi-year data exists. "~400 FLWs" where precision exists.
+The squiggle tilde signals uncertainty — remove it when you have real numbers.
+
+**7. Are squiggles (~) and vague descriptors hiding real data?**
+"~100 applications" reads as "we didn't track." "37 LLOs (from 107
+applications based on governance maturity, geographic need, health systems
+alignment)" reads as rigorous.
+
+**8. Does each insight own its failure mode honestly?**
+A foundation officer looks for willingness to name what didn't work — not
+as weakness but as credibility. "In CAR both LLOs dropped out; we now
+require in-country presence in fragile contexts" is stronger than silence.
+
+**Rewrite each insight after this audit.** Apply the principle that what
+impresses a foundation is not the marketing polish, it's the specificity
+and the willingness to show your work. Aim for:
+- Scale: always cite systemic numbers, reserve pilot numbers for methodology
+- Benchmark: every claim comparable to a known baseline
+- Precision: real numbers, no squiggles
+- Honesty: name what's unproven or still underway
+- Asymmetry: cost per outcome, not cost per activity
+
+Save the revised insights back to `./context/insights.md`. They are now
+foundation-ready and routable to pages.
+
 ### Step 4a: Insight Extraction (DO THIS BEFORE ROUTING)
 
 **This step is the difference between a skeletal site and an impressive one.**
