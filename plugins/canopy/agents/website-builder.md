@@ -81,10 +81,24 @@ Run the full generation pipeline:
    determine how many pages/variants to generate.
 4. If `./context/manifest.json` exists, read it to understand content
    availability and gaps. Handle "coming soon" programs appropriately.
-5. Synthesize into a **creative brief** — a single markdown document that
+5. **If `./context/insights.md` exists, read it carefully.** Insights are the
+   signature content that makes pages impressive rather than generic. Every
+   insight has a "what we thought / what we learned / what we changed"
+   structure. On each page, at least one insight should get a **signature
+   moment** — it should not be buried in a stat ribbon or a paragraph. The
+   insight IS the moment. Examples of signature moments:
+   - A full-width section that sets up tension ("We thought X...") then pays
+     it off ("...we learned Y")
+   - A pull quote where an insight is stated provocatively
+   - A visual that dramatizes the learning (a before/after chart showing
+     0.4 → 1.4 visits per child, not just a stat)
+   - A dark section that breaks the page's rhythm for one important claim
+   Generic sites list facts. Impressive sites stage insights.
+6. Synthesize into a **creative brief** — a single markdown document that
    contains: product name, value proposition, target audience, key features,
    tone profile, brand constraints, design direction, and (if IA exists)
-   the sitemap and page template specs.
+   the sitemap and page template specs. **Include the list of insights the
+   site must dramatize.**
 6. Print a summary: "Creative brief ready. Product: {name}. Audience: {audience}.
    Tone: {tone}. Pages: {page_count}. Generating..."
 
@@ -126,7 +140,13 @@ as an artifact. For eval runs, also copy this to the run directory.
    4. **Impact** — {impact_numbers}. These numbers are the strongest proof
       points. Make them LARGE. Dark background for contrast. This section
       should stop the scroll.
-   5. **CTA** — {cta_text}. Single action. No distractions.
+   5. **Signature insight moments** — {insights}. Each insight has a setup
+      ("we thought") and a payoff ("we learned"). Stage at least one per page
+      as its own visual moment — not buried in a card grid. Use typography
+      contrast, dark sections, or asymmetric layouts to mark these as
+      different from the surrounding content. The insight is what makes the
+      page worth reading; design accordingly.
+   6. **CTA** — {cta_text}. Single action. No distractions.
 
    ## Brand constraints
 

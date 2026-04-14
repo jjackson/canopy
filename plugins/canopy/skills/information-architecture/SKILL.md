@@ -103,27 +103,83 @@ For each template type, specify:
 - Resources (public links only)
 - CTA (back to catalog, request demo)
 
+### Step 4a: Insight Extraction (DO THIS BEFORE ROUTING)
+
+**This step is the difference between a skeletal site and an impressive one.**
+
+Facts are not insights. "AUC 0.91" is a fact. "We paid people bonuses to defeat
+our fraud detection and they still couldn't" is an insight. A site full of
+facts reads like a marketing page. A site full of insights reads like you're
+getting inside knowledge from a team that knows what it's doing.
+
+Before routing content to pages, read through every source report and extract
+the genuine **learnings** — the moments where the team figured something out,
+changed approach, or surfaced a counterintuitive finding. Save these to
+`./context/insights.md`.
+
+**What qualifies as an insight (all four should be true):**
+1. **There's a "before" and an "after"** — something was thought, tried, or assumed; something was learned; something changed as a result
+2. **It's specific to *this* team's work** — it couldn't appear on a competitor's site verbatim
+3. **It demonstrates methodological sophistication** — shows rigor, honesty, or hard-won judgment
+4. **A practitioner would find it interesting** — not just marketing language, but something worth their time
+
+**What DOESN'T qualify (even if dressed up):**
+- Generic claims ("data-driven," "evidence-based," "scalable")
+- Aspirational statements about impact
+- Quotes from mission statements
+- Numbers without tension (e.g., "100,000 visits delivered" — impressive scale, but no insight unless paired with what it proves)
+
+**Insight structure (use this exact shape):**
+
+```markdown
+## Insight N: [Short, specific claim]
+
+**What we thought:** [The prior assumption or standard approach]
+
+**What we learned:** [The finding — specific, often surprising or counterintuitive]
+
+**What we changed:** [The resulting change — a new model, a new mechanism, a new policy]
+
+**Why it matters:** [The implication — what this enables, what it prevents, or what it reveals]
+
+**What didn't work / honest caveats:** [Optional, but powerful when present]
+
+**Home:** [Which pages get this insight, and how each frames it differently]
+```
+
+**Where to look for insights in source material:**
+- Sentences containing: "we found," "we learned," "it turned out," "contrary to," "despite," "however," "we realized," "we assumed"
+- Sections labeled: Learnings, Retrospective, Lessons, Limitations, What Didn't Work
+- Places where the team describes why something is different from the standard approach
+- Places where a failure or limitation is named explicitly
+- Methodological details that reveal rigor (e.g., adversarial testing, iterative experiments)
+
+**Aim for 8-12 insights for a multi-page site.** Fewer, and the site will feel
+thin. More, and individual insights lose their weight.
+
+**Then and only then, route them.**
+
 ### Step 4b: Content Routing
 
-This is critical for making pages insightful rather than skeletal.
-
-Insights from reports, learnings, and program data often belong on **multiple
-pages simultaneously**. A single finding can be evidence for:
+Once insights are extracted, map them to pages. Insights from reports,
+learnings, and program data often belong on **multiple pages simultaneously**.
+A single insight can be evidence for:
 - A **program page** (proving the specific intervention works)
 - A **platform/mechanism page** (proving the LDVP step works in general)
 - An **audience page** (proving value for funders, LLOs, or workers)
 
-For every significant insight in the content inventory, create a routing entry:
+For every insight, create a routing entry:
 
 ```markdown
 ## Content Routing Table
 
 | Insight | Source | Program Page | LDVP Page | Audience Page |
 |---------|--------|-------------|-----------|--------------|
-| 88% of FLWs scored >70% on first observed visits | ECD report | ECD | Learn | Funders |
-| 94% population coverage with microplanning | FP report | CHC | Verify | Funders |
-| 22% cost reduction per verified visit | FP report | CHC | Pay | Funders |
-| AI coach: 97.8% queries without human escalation | ECD report | ECD | Learn | — |
+| LLO performance can't be pre-vetted; invented Trial Run model | FP report | CHC | Deliver | Funders |
+| Workers cluster; microplans force outward (0.4→1.4 visits/child) | FP report | CHC | Verify | Funders |
+| Paid FLWs to defeat fraud detection; still detected 97.5% | FP report | CHC | Verify | Funders |
+| Connect gets leaner as it scales (22% cost reduction) | FP report | CHC | Pay | Funders |
+| Knowledge ≠ competence; layered training with AI coach | ECD report | ECD | Learn | — |
 ```
 
 **Rules:**
