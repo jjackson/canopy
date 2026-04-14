@@ -191,6 +191,72 @@ For every insight, create a routing entry:
   (e.g., the Learn page frames AI coaching as "how training works at scale"
   while the ECD page frames it as "what makes this program unique")
 
+### Step 4b2: Learning Presentation Pattern (how to show each insight)
+
+Once insights are extracted and routed, decide how each page will **present**
+them. On a deep sub-page — program detail, LDVP step — the visitor has already
+clicked in. They're not looking for a hook; they're looking for substance.
+
+**The unit is not a "signature moment." It's a well-written case entry.**
+Roughly 250-600 words per learning, with structure that rewards both skimming
+and close reading.
+
+Pick a presentation pattern for each page template. Different variants of the
+same site can use different patterns on the same IA — one variant might use
+Pattern A for LDVP pages, another variant might use Pattern D. The content
+stays the same; the treatment changes.
+
+#### Pattern A: Engineering Retrospective
+Each learning gets structured sub-headings: **The question we had** → **What
+we tried** → **What we found** → **What changed** → **What's still open**.
+Like a really good engineering blog post. Data and specific examples live in
+the prose, not floating in stat cards. Sources in small grey text at the
+bottom of each learning. Best for: platform/mechanism pages (Verify, Deliver),
+technical audiences, teams who want to show methodological rigor.
+
+#### Pattern B: Two-Column Long-Form
+Body text on the left (~60% width), a narrower right column for supporting
+material: methodology notes, specific numbers, links to deeper reading, pull
+quotes *drawn from the body*. Reads like a New Yorker piece, but with data.
+Best for: narrative-heavy pages, program detail pages where the story matters
+as much as the mechanism.
+
+#### Pattern C: Annotated Discovery
+The body reads as one piece of well-structured prose. Numbers and claims are
+visually marked with a small superscript or underline — hover/click reveals
+a source note, methodology detail, or caveat. Clean narrative surface,
+research-paper depth underneath. Best for: pages with high-density evidence
+where inline citations matter (Verify, detailed program pages).
+
+#### Pattern D: Progression of Thinking
+Treat the learning as a timeline: "In early 2025 we assumed X. Then we ran
+the pilot. In Q2 the data suggested Y. By Q4 we had redesigned the
+intervention." Each phase has its data and reasoning. Feels like watching a
+team actually think. Best for: showing how a program evolved, learning pages,
+case studies where iteration is part of the story.
+
+#### Pattern E: Question-Led
+Each learning is framed as a real question the team had to answer: *"How do
+we vet LLOs when past reputation doesn't predict performance?"* Answer runs
+300-500 words covering the approach, the data, and what's still unresolved.
+Very readable, invites both skimming and close reading. Best for: program
+detail pages where each program surfaces different questions, or audience
+pages (funders, LLOs, workers) where each audience has different questions.
+
+### Choosing patterns
+
+For a three-variant site, pick three distinct pattern combinations. For example:
+- **Variant 1:** Pattern A (Engineering Retrospective) for all LDVP + Pattern E (Question-Led) for program details
+- **Variant 2:** Pattern B (Two-Column Long-Form) throughout
+- **Variant 3:** Pattern D (Progression of Thinking) for LDVP + Pattern C (Annotated Discovery) for program details
+
+Record your pattern choices per page in the IA document. The generator will
+follow these as the treatment spec.
+
+**Core principle:** detail, not one-liners. A visitor on a sub-page has already
+committed. Reward the commitment with substance. 250-600 words per learning is
+the right weight.
+
 ### Step 4c: Multi-Variant Design Direction
 
 The generator should NOT lock in on a single approach. For each page template,
@@ -255,6 +321,17 @@ and how it's framed differently on each.]
 ## Design Directions
 [For each page template, 2-3 variant approaches the generator should explore.
 The user picks after seeing them, or mixes elements from multiple.]
+
+## Learning Presentation Patterns
+[For each variant × page-template, specify the learning presentation pattern
+(A-E) to use. Detail not one-liners: 250-600 words per learning. Example:
+
+| Variant | LDVP pages | Program detail pages |
+|---------|-----------|---------------------|
+| 1 | Pattern A (Engineering Retrospective) | Pattern E (Question-Led) |
+| 2 | Pattern B (Two-Column Long-Form) | Pattern B (Two-Column Long-Form) |
+| 3 | Pattern D (Progression of Thinking) | Pattern C (Annotated Discovery) |
+]
 
 ## Content Mapping
 [Which context files feed which page sections]

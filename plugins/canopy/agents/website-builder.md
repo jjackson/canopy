@@ -82,18 +82,34 @@ Run the full generation pipeline:
 4. If `./context/manifest.json` exists, read it to understand content
    availability and gaps. Handle "coming soon" programs appropriately.
 5. **If `./context/insights.md` exists, read it carefully.** Insights are the
-   signature content that makes pages impressive rather than generic. Every
-   insight has a "what we thought / what we learned / what we changed"
-   structure. On each page, at least one insight should get a **signature
-   moment** — it should not be buried in a stat ribbon or a paragraph. The
-   insight IS the moment. Examples of signature moments:
-   - A full-width section that sets up tension ("We thought X...") then pays
-     it off ("...we learned Y")
-   - A pull quote where an insight is stated provocatively
-   - A visual that dramatizes the learning (a before/after chart showing
-     0.4 → 1.4 visits per child, not just a stat)
-   - A dark section that breaks the page's rhythm for one important claim
-   Generic sites list facts. Impressive sites stage insights.
+   substance that makes sub-pages worth reading. Every insight has a "what
+   we thought / what we learned / what we changed" structure.
+
+   **On a sub-page (LDVP step, program detail), the visitor has already
+   committed.** They're not looking for a hook — they're looking for
+   substance. Each insight should be treated as **a well-written case
+   entry**: roughly 250-600 words, with internal structure that rewards
+   both skimming and close reading. Detail, not one-liners.
+
+   Check the IA document for the **Learning Presentation Pattern** chosen
+   for each page template. The patterns are:
+   - **Pattern A: Engineering Retrospective** — Sub-headings (The question
+     we had / What we tried / What we found / What changed / What's still
+     open). Data in prose. Sources small at bottom.
+   - **Pattern B: Two-Column Long-Form** — Body text left (~60%),
+     supporting material right (methodology notes, stats, pull quotes).
+   - **Pattern C: Annotated Discovery** — Clean prose surface; numbers
+     and claims marked with superscripts/underlines revealing sources and
+     caveats.
+   - **Pattern D: Progression of Thinking** — Timeline of how the team's
+     thinking evolved, with data and reasoning at each phase.
+   - **Pattern E: Question-Led** — Each learning framed as a question
+     the team had to answer, with 300-500 word answer covering approach,
+     data, and unresolved questions.
+
+   Apply the chosen pattern consistently across the page. Do NOT reduce
+   learnings to pull quotes, stat ribbons, or 20-word summaries. The
+   visitor wants to understand the learning in depth.
 6. Synthesize into a **creative brief** — a single markdown document that
    contains: product name, value proposition, target audience, key features,
    tone profile, brand constraints, design direction, and (if IA exists)
@@ -140,12 +156,13 @@ as an artifact. For eval runs, also copy this to the run directory.
    4. **Impact** — {impact_numbers}. These numbers are the strongest proof
       points. Make them LARGE. Dark background for contrast. This section
       should stop the scroll.
-   5. **Signature insight moments** — {insights}. Each insight has a setup
-      ("we thought") and a payoff ("we learned"). Stage at least one per page
-      as its own visual moment — not buried in a card grid. Use typography
-      contrast, dark sections, or asymmetric layouts to mark these as
-      different from the surrounding content. The insight is what makes the
-      page worth reading; design accordingly.
+   5. **Learning sections** — {insights}. On sub-pages, visitors want
+      substance, not hooks. Each insight gets a full section (250-600 words)
+      in the **{learning_pattern}** treatment specified in the IA. Detail,
+      not one-liners. Structure the section so it rewards both skimming
+      (clear sub-headings, strong opening sentences) and close reading (data,
+      specific examples, caveats, sources). The learning is what makes the
+      page worth reading; write and lay it out accordingly.
    6. **CTA** — {cta_text}. Single action. No distractions.
 
    ## Brand constraints
