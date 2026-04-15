@@ -111,7 +111,23 @@ foundation (Gates, GiveWell, CIFF, Founders Pledge) evaluating a $10M+ grant.
 They've read hundreds of pitches. They've seen every "empower communities"
 marketing site. They're looking for reasons to say no.
 
-For each insight, check:
+**The judge has three possible verdicts for each insight:**
+
+1. **Keep as-is** — the insight passes every check, scope is accurate, evidence is sound.
+2. **Rewrite** — the underlying finding is real and worth including, but the framing, scope, numbers, or "why this is hard" context need work.
+3. **Drop** — the insight should not appear on the site at all. A weak, misframed, or misattributed insight is worse than no insight. Do not try to improve something that shouldn't ship.
+
+**When to drop an insight (not rewrite):**
+- It's actually just a fact or marketing claim dressed up as a learning — there's no real "before / after," nothing changed.
+- Its strongest form is still generic and couldn't survive a "so what?" from a skeptical reader.
+- The evidence base is too thin (e.g., one anecdote, a single small-N study with no planned follow-up).
+- The scope cannot be fixed: the source material is ambiguous about what's a program result vs a platform claim, and no amount of reframing resolves it without new evidence.
+- It duplicates a stronger insight with no new dimension.
+- Including it would require overclaiming (attributing a program's result to the platform) in order to be interesting.
+
+Drop decisions matter. A site with 6 sharp insights outperforms a site with 10 where 4 are weak or overreaching. Log drops in `./context/insights-dropped.md` with the insight, the reason, and whether it could be revived later with better evidence.
+
+For each kept or rewritten insight, check:
 
 **1. Is the scale number the *systemic* number or a pilot number?**
 A pilot of 76 FLWs in one country is a methodology footnote. The systemic
@@ -155,17 +171,30 @@ A foundation officer looks for willingness to name what didn't work — not
 as weakness but as credibility. "In CAR both LLOs dropped out; we now
 require in-country presence in fragile contexts" is stronger than silence.
 
-**Rewrite each insight after this audit.** Apply the principle that what
-impresses a foundation is not the marketing polish, it's the specificity
-and the willingness to show your work. Aim for:
+**9. Is the scope accurate? Is a program-specific result being passed off as a platform claim?**
+A program result is evidence for that program. It is not evidence that the platform produces the same result everywhere. If an insight's `Scope:` is "Platform" but the supporting data comes from one program, the scope is wrong — either rescope it to the program (and reframe for LDVP/audience pages as a named example), or drop it. A diligence reader reading "Connect reduces delivery cost 22%" and then finding the supporting data is from a single CHC cohort will discount every other claim on the page. Overclaiming poisons credible claims nearby.
+
+Specifically watch for:
+- A single program's stat (cost, completion, detection, satisfaction, coverage) stated as a Connect-wide fact.
+- "Connect does X" where the evidence is actually "in program P, Connect did X."
+- Platform-level claims that cite a single program's report as the only source.
+- LDVP / audience-page copy that strips the program name from a program-scoped insight.
+
+Verdict: Rewrite (reframe with scope + named example) or Drop (if the cross-program evidence doesn't exist and won't soon).
+
+**For each insight, decide Keep / Rewrite / Drop and act on the verdict.**
+
+**Rewrites** apply the principle that what impresses a foundation is not the marketing polish, it's the specificity and the willingness to show your work. Aim for:
+- Scope: accurate and named — "In the CHC program…" not "Connect…"
 - Scale: always cite systemic numbers, reserve pilot numbers for methodology
 - Benchmark: every claim comparable to a known baseline
 - Precision: real numbers, no squiggles
 - Honesty: name what's unproven or still underway
 - Asymmetry: cost per outcome, not cost per activity
 
-Save the revised insights back to `./context/insights.md`. They are now
-foundation-ready and routable to pages.
+**Drops** are recorded with their reason in `./context/insights-dropped.md`.
+
+Save the kept and rewritten insights back to `./context/insights.md`. They are now foundation-ready and routable to pages.
 
 ### Step 4a: Insight Extraction (DO THIS BEFORE ROUTING)
 
@@ -193,10 +222,26 @@ changed approach, or surfaced a counterintuitive finding. Save these to
 - Quotes from mission statements
 - Numbers without tension (e.g., "100,000 visits delivered" — impressive scale, but no insight unless paired with what it proves)
 
+**Scope every insight to its origin. Do not generalize.**
+
+An insight extracted from a specific program's report is a *program-level* insight — not a platform-wide claim. Tag each insight to its source context and keep the claim scoped to that context.
+
+- **Good:** "In the CHC program, Connect got leaner as it scaled — 22% cost reduction per delivery between year 1 and year 2." Scoped to CHC. Can run on the CHC page confidently. Can appear on a platform/LDVP page only as a named example ("For example, in CHC…"), not as a Connect-wide claim.
+- **Bad:** "Connect reduces delivery costs by 22% as it scales." This misattributes one program's result to the whole platform. A diligence reader will spot it and lose trust.
+
+Rules:
+- A program's stat (cost, completion rate, detection rate, satisfaction, coverage) stays scoped to that program unless multiple programs *independently* produced the same result **and** the underlying mechanism is platform-level.
+- Platform-level claims require evidence drawn from across programs ("across N programs in M countries…") or from a platform mechanism that is the same code path regardless of program (e.g., fraud detection logic).
+- When in doubt, scope it down. A well-scoped specific claim is stronger than a loosely-scoped general one.
+- Scoping must survive routing (Step 4b): when an insight is routed to an LDVP page or audience page, it must be reframed as a named example — never stripped of its origin.
+- In the insight structure below, the `Scope:` field is mandatory.
+
 **Insight structure (use this exact shape):**
 
 ```markdown
 ## Insight N: [Short, specific claim]
+
+**Scope:** [Program name, or "Platform" if drawn from cross-program / mechanism evidence. Required — do not leave blank.]
 
 **What we thought:** [The prior assumption or standard approach]
 
@@ -208,7 +253,7 @@ changed approach, or surfaced a counterintuitive finding. Save these to
 
 **What didn't work / honest caveats:** [Optional, but powerful when present]
 
-**Home:** [Which pages get this insight, and how each frames it differently]
+**Home:** [Which pages get this insight, and how each frames it differently. For scope=Program insights appearing on LDVP/audience pages, specify the named-example framing: "Pay page: framed as 'In CHC, Connect got leaner as it scaled…'"]
 ```
 
 **Where to look for insights in source material:**
@@ -237,20 +282,21 @@ For every insight, create a routing entry:
 ```markdown
 ## Content Routing Table
 
-| Insight | Source | Program Page | LDVP Page | Audience Page |
-|---------|--------|-------------|-----------|--------------|
-| LLO performance can't be pre-vetted; invented Trial Run model | FP report | CHC | Deliver | Funders |
-| Workers cluster; microplans force outward (0.4→1.4 visits/child) | FP report | CHC | Verify | Funders |
-| Paid FLWs to defeat fraud detection; still detected 97.5% | FP report | CHC | Verify | Funders |
-| Connect gets leaner as it scales (22% cost reduction) | FP report | CHC | Pay | Funders |
-| Knowledge ≠ competence; layered training with AI coach | ECD report | ECD | Learn | — |
+| Insight | Scope | Source | Program Page | LDVP Page (as named example) | Audience Page (as named example) |
+|---------|-------|--------|-------------|------------------------------|----------------------------------|
+| LLO performance can't be pre-vetted; invented Trial Run model | CHC | FP report | CHC | Deliver ("In CHC…") | Funders ("In CHC…") |
+| Workers cluster; microplans force outward (0.4→1.4 visits/child) | CHC | FP report | CHC | Verify ("In CHC…") | Funders ("In CHC…") |
+| Paid FLWs to defeat fraud detection; still detected 97.5% | Platform (mechanism is Connect fraud detection, tested in CHC) | FP report | CHC | Verify | Funders |
+| CHC delivery cost fell 22% from year 1 to year 2 as scale grew | CHC | FP report | CHC | Pay ("In CHC…") | Funders ("In CHC…") |
+| Knowledge ≠ competence; layered training with AI coach | ECD | ECD report | ECD | Learn ("In ECD…") | — |
 ```
 
 **Rules:**
 - Every insight gets at least one page assignment
-- Cross-cutting insights (platform-level evidence) go on LDVP pages
+- A program-scoped insight appearing on an LDVP or audience page must be reframed as a **named example** ("In the CHC program…"), not restated as a platform claim. Strip the program name and the claim becomes an overclaim.
+- Platform-scoped insights (cross-program evidence, or a mechanism that is the same code path regardless of program) can appear on LDVP/audience pages without named-example framing.
 - Program-specific implementation details go on program pages
-- Cost/ROI/impact evidence always goes on audience pages too
+- Cost/ROI/impact evidence can appear on audience pages, but keep scope intact — cite the program, don't promote the number to platform-wide.
 - Don't duplicate long content — reference the same data differently on each page
   (e.g., the Learn page frames AI coaching as "how training works at scale"
   while the ECD page frames it as "what makes this program unique")
