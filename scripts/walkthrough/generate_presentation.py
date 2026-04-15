@@ -95,6 +95,28 @@ def _render_scene_slide(slide, personas, slide_index, total_slides):
         error_msg = html.escape(slide.get("error", "Screenshot not captured"))
         img_html = f'<div class="screenshot-placeholder"><p>{error_msg}</p></div>'
 
+    # Context row: logged-in user and URL (both optional)
+    logged_in_as = slide.get("logged_in_as")
+    url = slide.get("url")
+    context_parts = []
+    if logged_in_as:
+        context_parts.append(
+            f'<span class="slide-context-user">Logged in as <strong>{html.escape(logged_in_as)}</strong></span>'
+        )
+    if url:
+        url_esc = html.escape(url, quote=True)
+        url_display = html.escape(url)
+        context_parts.append(
+            f'<a class="slide-context-url" href="{url_esc}" target="_blank" rel="noopener noreferrer">{url_display}</a>'
+        )
+    context_html = ""
+    if context_parts:
+        context_html = (
+            '<div class="slide-context">'
+            + '<span class="slide-context-sep"> &middot; </span>'.join(context_parts)
+            + "</div>"
+        )
+
     # AI evaluation card
     ai_html = ""
     if slide.get("ai_evaluation"):
@@ -113,6 +135,7 @@ def _render_scene_slide(slide, personas, slide_index, total_slides):
       style="width:{progress_pct}%;background:{p_color};"></div></div>
   </div>
   <h2>{title}</h2>
+  {context_html}
   <div class="narration-box"><p class="narration">{narration}</p></div>
   {img_html}
   {ai_html}
@@ -497,6 +520,37 @@ ul li {
   height: 100%;
   border-radius: 9999px;
   transition: width 0.3s ease;
+}
+
+.slide-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: -0.25rem;
+  margin-bottom: 1rem;
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+}
+
+.slide-context-user strong {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.slide-context-url {
+  font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  color: var(--info);
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.slide-context-url:hover {
+  text-decoration: underline;
+}
+
+.slide-context-sep {
+  color: var(--border);
 }
 
 .narration-box {
