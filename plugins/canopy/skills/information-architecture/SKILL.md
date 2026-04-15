@@ -184,6 +184,76 @@ Verdict: Rewrite (reframe with scope + named example) or Drop (if the cross-prog
 
 **For each insight, decide Keep / Rewrite / Drop and act on the verdict.**
 
+### Step 4z.5: Benchmark Hydration (required before routing)
+
+After scope and drops are settled, every numeric claim in a Kept or Rewritten
+insight needs a benchmark. Un-benchmarked numbers fail the "so what?" test —
+a program officer reading "94% coverage" or "880,000 visits" has no way to
+know whether to be impressed.
+
+**For each number that survives the audit, attach at least one of:**
+
+**(a) A named comparable.** Industry baseline, WHO/UN guideline, a competitor
+program's published result, a prior Dimagi program's measured result.
+- Weak: "94% coverage."
+- Strong: "94% coverage, measured against GRID3 gold-standard population
+  estimates at 300×300m resolution — vs. 82–84% for non-Connect CommCare
+  campaigns in the same regions and timeframes."
+
+**(b) A market-scale translation.** Reframe the raw number as a share of a
+known denominator or a time-equivalent of conventional output.
+- Weak: "880,000+ verified visits."
+- Strong: "880,000+ verified visits — roughly four years of traditional
+  NGO-led Vitamin A supplementation output in the same geographies,
+  completed in 14 months."
+
+**(c) A forward pointer.** If the supporting evidence is thin (small-N
+qualitative, single-site pilot, non-randomized), name the validation that's
+underway.
+- Weak: "n=20 FLW interviews found no displacement of routine care."
+- Strong: "n=20 FLW interviews found no displacement. Validated by a $1.5M
+  RCT with IPA as evaluation partner, 2026."
+
+**If none of (a), (b), or (c) can be honestly produced, the claim is not
+foundation-ready.** Options:
+- Scope tighter: a specific measured claim often survives where a broad
+  claim doesn't ("in these 12 villages with these methods" vs. "globally").
+- Drop the claim: record in `insights-dropped.md` with reason "no benchmark
+  available; could be revived with X."
+- Keep but demote: move from "Evidence" sections to "What we're measuring
+  next" sections where the tentativeness is part of the framing.
+
+**Program-specific cost breakdowns are required when an average hides
+asymmetry.** If the headline cost is a weighted average across programs
+with different commodity bundles, separate the bundles:
+- Weak: "$1.70 per verified visit (down from $2.20)."
+- Strong: "$1.70 per verified visit weighted average. Nigeria CHC with
+  ORS/Zinc co-packs: $1.30. Outside Nigeria (VAS + deworming, no ORS):
+  $0.78. Fully-loaded — commodity + FLW + LLO + 20% Dimagi margin."
+
+### Step 4z.6: Squiggle Removal (required)
+
+Scan every Kept or Rewritten insight for `~` or "approximately" preceding a
+number. For each occurrence:
+
+1. **Open the source report.** Find the precise number.
+2. **Replace the squiggle with the actual number** if precision exists.
+3. **If the source itself is imprecise**, either scope the claim to what
+   is precisely measured, or acknowledge the imprecision directly ("our
+   records for this pilot cohort are incomplete; forward cohorts track
+   this cleanly" — better than "~400 FLWs").
+
+Examples:
+- `~400 FLWs in iterative experiments` → `400+ FLWs across ECD and CLP
+  validation cohorts, drawn from 5,000+ FLWs active across 12 countries`
+- `~100 applications` → `107 applications; 37 advanced to Trial Runs
+  based on governance maturity, geographic need, and health systems
+  alignment; 24 passed and received larger campaigns — 65% conversion`
+
+**The squiggle is a signal to a foundation reader that you did not measure
+carefully.** Remove it everywhere the source data allows. When it must
+stay, own the imprecision; don't hide behind the tilde.
+
 **Rewrites** apply the principle that what impresses a foundation is not the marketing polish, it's the specificity and the willingness to show your work. Aim for:
 - Scope: accurate and named — "In the CHC program…" not "Connect…"
 - Scale: always cite systemic numbers, reserve pilot numbers for methodology
