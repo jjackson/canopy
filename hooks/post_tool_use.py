@@ -17,6 +17,29 @@ LOG_FILE = Path.home() / ".claude" / "canopy" / "session-log.jsonl"
 REPO_MAP_FILE = Path.home() / ".claude" / "canopy" / "repo-map.json"
 _PLUGINS_FILE = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
 
+CANOPY_WEB_API = os.environ.get(
+    "CANOPY_WEB_API_URL",
+    "https://canopy-web-hhhi4yut3q-uc.a.run.app",
+)
+WORKBENCH_TOKEN_FILE = Path.home() / ".claude" / "canopy" / "workbench-token"
+
+TRACKED_SKILLS = {
+    "canopy:doc-regen",
+    "canopy:doc-regeneration",
+    "canopy:improve",
+    "canopy:patterns",
+    "canopy:brief",
+    "canopy:session-review",
+    "canopy:walkthrough",
+    "canopy:walkthrough-eval",
+    "canopy:portfolio-review",
+    "canopy:activity-summary",
+    "code-review:code-review",
+    "superpowers:requesting-code-review",
+    "dev-utils:resolve-ci-failures",
+    "dev-utils:resolve-pr-comments",
+}
+
 _seen_sessions: set[str] = set()
 _cached_version: str | None = None
 
@@ -98,6 +121,58 @@ except ImportError:
             f.write(json.dumps(entry, default=str) + "\n")
 
 
+def _post_action_to_workbench(skill_name: str, session_id: str, project_dir: str):
+    """POST a skill action to canopy-web's project actions API. Silent on failure."""
+    import urllib.request
+
+    # Need auth token — read from file if not in env
+    token = os.environ.get("WORKBENCH_WRITE_TOKEN", "")
+    if not token and WORKBENCH_TOKEN_FILE.exists():
+        try:
+            token = WORKBENCH_TOKEN_FILE.read_text().strip()
+        except Exception:
+            return
+    if not token:
+        return
+
+    repo_map = {}
+    if REPO_MAP_FILE.exists():
+        try:
+            with open(REPO_MAP_FILE) as f:
+                repo_map = json.load(f)
+        except Exception:
+            return
+
+    project_key = "-" + project_dir.lstrip("/").replace("/", "-")
+    github_repo = repo_map.get(project_key, "")
+    if not github_repo or "/" not in github_repo:
+        return
+
+    slug = github_repo.split("/")[-1]
+    now = datetime.now(timezone.utc).isoformat()
+    payload = json.dumps({
+        "skill_name": skill_name,
+        "session_id": session_id,
+        "status": "completed",
+        "started_at": now,
+        "completed_at": now,
+    }).encode()
+
+    try:
+        req = urllib.request.Request(
+            f"{CANOPY_WEB_API}/api/projects/{slug}/actions/",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}",
+            },
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=3)
+    except Exception:
+        pass
+
+
 def main():
     try:
         hook_data = json.loads(sys.stdin.read())
@@ -137,6 +212,8 @@ def main():
             "project": os.environ.get("CLAUDE_PROJECT_DIR", "unknown"),
         }
         append_log_entry(LOG_FILE, skill_entry)
+        if skill_name in TRACKED_SKILLS and project_dir:
+            _post_action_to_workbench(skill_name, session_id, project_dir)
         return
 
     if not tool_name.startswith("mcp__"):
