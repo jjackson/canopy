@@ -124,9 +124,37 @@ or edit `~/.claude/plugins/installed_plugins.json` by hand.** This is "local pat
 and it bypasses the plugin system, creates version mismatches, and makes bugs hard to
 diagnose. If you feel the urge to locally patch, STOP — use `/canopy:update` instead.
 
+### ⛔ STOP — the #1 mistake: forgetting to bump VERSION
+
+**If you change ANYTHING under `plugins/canopy/` (skills, commands, agents, the
+`.claude-plugin/plugin.json` `description`, anything) you MUST bump the version.**
+
+The version bump is the ONLY signal that tells installed sessions "there is new work to
+pick up." Without it:
+
+- `/canopy:update` reports `UP_TO_DATE` and refuses to sync the cache
+- Every existing Claude session keeps running the OLD cached copy of your skill
+- Your PR effectively didn't ship — you changed `main` but nobody will ever see it
+- The version-sync CI check passes (it only checks VERSION and plugin.json match each
+  other, NOT that you bumped). It will not save you.
+
+**This is a ridiculous, silent failure mode.** If you merge a canopy PR without bumping,
+you have essentially opened a PR and then quietly thrown the commit into a drawer. Worse,
+you'll report to the user that the change is shipped and point them at `/canopy:update`
+— which will then tell them there's nothing to update. Cue confusion.
+
+**Mental checklist before EVERY canopy commit touching `plugins/canopy/`:**
+
+1. Did I bump `VERSION`?
+2. Did I bump `plugins/canopy/.claude-plugin/plugin.json`'s `version` to match?
+3. Are the two numbers identical?
+
+If any answer is no, amend the commit before pushing. Do not rely on the CI check — it
+only verifies the two files match, it does NOT verify you actually incremented.
+
 ### Update workflow (the ONLY way to update)
 1. Make changes to skills, commands, or agents in `plugins/canopy/`
-2. Bump the **patch version** in BOTH `plugins/canopy/.claude-plugin/plugin.json` AND `VERSION` (e.g. `0.2.6` → `0.2.7`). A GitHub Actions check will fail if they don't match.
+2. Bump the **patch version** in BOTH `plugins/canopy/.claude-plugin/plugin.json` AND `VERSION` (e.g. `0.2.6` → `0.2.7`). See the STOP block above — this is the #1 mistake. A GitHub Actions check will fail if they don't match, but it will NOT catch a missing bump.
 3. Commit, merge to main, push:
    ```bash
    # From a worktree:
