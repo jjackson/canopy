@@ -458,6 +458,8 @@ write it to `/tmp/walkthrough-run-data.json`:
       "persona_key": "<persona>",
       "title": "<scene title>",
       "narration": "<impressive_because from spec>",
+      "url": "<full URL that was screenshotted, including query string>",
+      "logged_in_as": "<auth profile / username active when captured, e.g. 'ace' or 'ace@dimagi-ai.com'>",
       "screenshot_b64": "<base64 encoded PNG>",
       "ai_evaluation": {
         "score": 3,
@@ -480,6 +482,13 @@ write it to `/tmp/walkthrough-run-data.json`:
 **IMPORTANT:** `duration_seconds` MUST be an integer, not a string. `ai_evaluation.score`
 must be the LOWEST of the 5 dimension scores (weakest-link). The commentary must include
 all 5 dimension scores in the format shown above.
+
+**Capture `url` and `logged_in_as` for every scene.** These render as a context row under
+the slide title so a viewer can tell at a glance where the screenshot came from and under
+which account. Use `$B url` right before the screenshot to grab the full current URL
+(including query string), and use the auth profile name from the spec's `auth` block
+(`--profile <name>` or `profile=<name>` in `inject_url`). Without these fields, the
+context row is hidden — decks still render, but viewers lose that grounding.
 
 **Base64 encoding screenshots:**
 ```bash
