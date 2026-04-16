@@ -21,11 +21,7 @@ CANOPY_WEB_API = os.environ.get(
     "CANOPY_WEB_API_URL",
     "https://canopy-web-hhhi4yut3q-uc.a.run.app",
 )
-_PLUGIN_DATA = Path(os.environ.get("CLAUDE_PLUGIN_DATA", ""))
-WORKBENCH_TOKEN_FILE = (
-    _PLUGIN_DATA / "workbench-token" if _PLUGIN_DATA.is_dir()
-    else Path.home() / ".claude" / "canopy" / "workbench-token"
-)
+WORKBENCH_TOKEN_FILE = Path.home() / ".claude" / "canopy" / "workbench-token"
 
 TRACKED_SKILLS = {
     "canopy:doc-regen",
@@ -129,13 +125,12 @@ def _post_action_to_workbench(skill_name: str, session_id: str, project_dir: str
     """POST a skill action to canopy-web's project actions API. Silent on failure."""
     import urllib.request
 
-    # Need auth token — read from file if not in env
-    token = os.environ.get("WORKBENCH_WRITE_TOKEN", "")
-    if not token and WORKBENCH_TOKEN_FILE.exists():
-        try:
-            token = WORKBENCH_TOKEN_FILE.read_text().strip()
-        except Exception:
-            return
+    if not WORKBENCH_TOKEN_FILE.exists():
+        return
+    try:
+        token = WORKBENCH_TOKEN_FILE.read_text().strip()
+    except Exception:
+        return
     if not token:
         return
 
