@@ -21,7 +21,11 @@ CANOPY_WEB_API = os.environ.get(
     "CANOPY_WEB_API_URL",
     "https://canopy-web-hhhi4yut3q-uc.a.run.app",
 )
-WORKBENCH_TOKEN_FILE = Path.home() / ".claude" / "canopy" / "workbench-token"
+_PLUGIN_DATA = Path(os.environ.get("CLAUDE_PLUGIN_DATA", ""))
+WORKBENCH_TOKEN_FILE = (
+    _PLUGIN_DATA / "workbench-token" if _PLUGIN_DATA.is_dir()
+    else Path.home() / ".claude" / "canopy" / "workbench-token"
+)
 
 TRACKED_SKILLS = {
     "canopy:doc-regen",
