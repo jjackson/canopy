@@ -179,6 +179,27 @@ Check for:
 Do NOT proceed to scene capture if the pre-flight fails. Bad captures waste time
 and the user will catch it before you do.
 
+### Target identity: announce and don't substitute
+
+Every spec has an implicit or explicit **target** — the specific slug, id, entity,
+or URL path its scenes are written against (e.g., a named opportunity, a project
+id, a user account). Before Scene 1:
+
+1. **State the target in one line.** Name the identifier and what's visible about
+   its state right now:
+   > "Target: `<identifier>`, <N>/<M> preconditions met (e.g. 1/19 skills complete).
+   > Spec asserts: `<key ai_quality or show claim>`."
+2. **If the visible state falsifies the spec's premise, STOP.** Don't guess, don't
+   improvise a save, don't pivot. Ask the user:
+   > "Spec targets `<X>` and asserts `<Y>`, but the live state shows `<Z>`. Options:
+   > (1) fix the data, (2) switch target (requires spec edit), (3) truncate to the
+   > scenes that do work, (4) abort. Which?"
+
+**You may NOT silently substitute a different target.** If scenes 2–5 can't run
+against `<X>` and you find `<X2>` looks more populated, that is not authorization
+to switch — it's a signal to ask. Silent substitution breaks the narrative premise
+and the user will catch it.
+
 ## Execution
 
 For each scene in the spec:
@@ -221,9 +242,10 @@ For each scene in the spec:
    this product will ever face. Your job is to find what's wrong, not to feel good about
    what's right. If you're scoring generously, you're scoring wrong.
 
-   **Important prior:** if you built this product (or any part of this session was spent
-   modifying it), your scores are inherently biased upward. Default to subtracting 1 from
-   every dimension on reflection, and apply the cross-check below.
+   **Calibration prior:** you are biased upward, especially if you built or modified
+   this product in this session. Don't mechanically deduct — instead, **justify every
+   4 or 5 in one sentence a skeptical stranger would accept.** If the justification
+   reads as "it works" or "it's clean," the score isn't a 4 — that's a 3.
 
    Read the FULL page text carefully — every word, not just headings:
 
@@ -332,8 +354,9 @@ For each scene in the spec:
    - **If average of all scenes in the walkthrough is above 4.0, you are almost
      certainly scoring too generously.** Re-read each scene's adversarial pass and
      revise downward.
-   - **If you are the author of the code shown**, subtract 1 from every dimension
-     unless you can justify in writing why your self-scoring is calibrated.
+   - **Every 4 or 5 needs a one-sentence justification a stranger would accept.**
+     "It works" / "it's clean" is not a 4 — that's a 3. If you can't name the
+     specific thing that earns the step up, revise down.
 
    ### Phase 4: Required output format
 
@@ -362,7 +385,6 @@ For each scene in the spec:
    E. Demo Ready:   {1-5}/5 — {must be consistent with projector test}
 
    Overall: {lowest}/5 (weakest: {dimension name})
-   Author-of-code penalty applied: YES / NO
    Fix: [{CODE|SPEC|DATA|INFRA}] {concrete fix description}
    ```
 
@@ -370,8 +392,16 @@ For each scene in the spec:
    it. Do not shortcut this format even under time pressure — shortcutting is how
    inflated scores happen.
 
-   **BLOCKING RULE:** If ANY scene scores 2 or below on Demo Readiness, STOP the
-   walkthrough IMMEDIATELY and tell the user:
+   **BLOCKING RULES:**
+
+   1. **Demo Readiness ≤ 2.** If ANY scene scores 2 or below on Demo Readiness, STOP.
+   2. **Narrative falsified.** If the live page contradicts the spec's narrative or
+      `ai_quality` assertions on Scene 1 or 2 (wrong domain, missing preconditions,
+      unrun prerequisites), STOP before spending tokens on remaining scenes. This
+      is distinct from a scored embarrassment — the premise itself is wrong, not
+      just polish.
+
+   When either rule fires, STOP the walkthrough IMMEDIATELY and tell the user:
 
    > "Scene {n} scored {score}/5 on Demo Readiness — this would hurt the demo.
    > Page: {full URL that was loaded for this scene}
