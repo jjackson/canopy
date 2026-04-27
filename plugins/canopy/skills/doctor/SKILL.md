@@ -138,6 +138,18 @@ else:
 "
 ```
 
+### 7. Auth checks
+
+Run the auth preflight to surface stale GitHub, 1Password, or AWS SSO
+credentials. Treat results as informational here — auth-preflight failures do
+not change overall canopy plugin health, but they're worth reporting so the
+user can fix them before a deploy. The same checks are also available
+standalone via `canopy:auth-preflight`.
+
+```bash
+bash scripts/canopy-auth-preflight.sh || true
+```
+
 ## Report
 
 After running all checks, present a summary table:
