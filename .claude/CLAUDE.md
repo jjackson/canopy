@@ -51,6 +51,8 @@ cd ~/emdash-projects/canopy && git pull --rebase && git push
 - `canopy observations show <id>` — show full YAML for one observation (id prefix accepted)
 - `canopy proposals list [--status S --complexity X --limit N --json-output]` — list proposals
 - `canopy proposals show <id>` — show full YAML for one proposal (id prefix accepted)
+- `canopy skills list [--scope all|plugin|user --source PLUGIN --search TERM --json-output]` — list installed skills
+- `canopy skills overlap <action text>` — check whether a proposed skill action duplicates an existing skill (exit 1 on overlap)
 
 ## Key Modules
 
@@ -72,6 +74,7 @@ cd ~/emdash-projects/canopy && git pull --rebase && git push
 - `src/orchestrator/patterns.py` — cross-session pattern detection
 - `src/orchestrator/briefing.py` — strategic brief with gstack cognitive patterns
 - `src/orchestrator/router.py` — tiered routing (inline/single/team)
+- `src/orchestrator/skill_catalog.py` — enumerates installed skills (plugin + user) and detects when a `new_skill` proposal duplicates one that already exists. Wired into the proposer prompt and `_validate_proposals` to silence the "we just proposed building something that already ships" pattern.
 
 ### Registry & discovery
 - `registry.yaml` — capability registry mapping servers to tools (auto-synced)

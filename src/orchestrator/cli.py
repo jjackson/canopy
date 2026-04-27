@@ -276,16 +276,21 @@ def analyze_cmd(transcript, propose, model, budget):
     click.echo("Generating proposals...")
     click.echo()
 
+    from orchestrator.skill_catalog import build_catalog, format_for_prompt
+    catalog = build_catalog()
+    catalog_text = format_for_prompt(catalog)
+
     proposals_raw = generate_proposals(
         saved, registry_summary, model=model, max_budget_usd=budget,
+        skill_catalog=catalog_text,
     )
 
     if not proposals_raw:
         click.echo("No proposals generated.")
         return
 
-    # Validate and fix proposals against the registry
-    proposals_raw = _validate_proposals(proposals_raw, reg)
+    # Validate and fix proposals against the registry + skill catalog
+    proposals_raw = _validate_proposals(proposals_raw, reg, catalog)
 
     proposals_dir = state_dir / "proposals"
     click.echo(f"Generated {len(proposals_raw)} proposals:")
@@ -399,6 +404,69 @@ def patterns_cmd(as_json):
             high = f" ({p['high_severity_count']} high)" if p["high_severity_count"] else ""
             click.echo(f"  {p['server']}: {p['issue_count']} issues{high}")
         click.echo()
+
+
+@main.group()
+def skills():
+    """Inspect installed skills (plugin + user)."""
+
+
+@skills.command("list")
+@click.option("--scope", type=click.Choice(["all", "plugin", "user"]), default="all")
+@click.option("--source", default=None, help="Filter by plugin name (e.g. 'canopy', 'ace')")
+@click.option("--search", default=None, help="Filter by substring in name or description")
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def skills_list(scope, source, search, as_json):
+    """List skills available across plugin and user scopes."""
+    import json as json_mod
+    from orchestrator.skill_catalog import build_catalog
+
+    catalog = build_catalog()
+    if scope != "all":
+        catalog = [e for e in catalog if e["scope"] == scope]
+    if source:
+        catalog = [e for e in catalog if e["source"] == source]
+    if search:
+        s = search.lower()
+        catalog = [e for e in catalog if s in e["name"].lower() or s in (e["description"] or "").lower()]
+
+    if as_json:
+        click.echo(json_mod.dumps(catalog, indent=2, default=str))
+        return
+
+    if not catalog:
+        click.echo("No skills match the given filters.")
+        return
+
+    click.echo(f"{len(catalog)} skill(s):\n")
+    for e in catalog:
+        desc = (e.get("description") or "").replace("\n", " ")
+        if len(desc) > 80:
+            desc = desc[:77] + "..."
+        click.echo(f"  {e['qualified']:<45} [{e['scope']}]")
+        if desc:
+            click.echo(f"    {desc}")
+
+
+@skills.command("overlap")
+@click.argument("action_text", nargs=-1, required=True)
+def skills_overlap(action_text):
+    """Check whether a proposed skill action overlaps with an existing skill."""
+    from orchestrator.skill_catalog import build_catalog, find_overlap, extract_candidate_names
+
+    text = " ".join(action_text)
+    catalog = build_catalog()
+    match = find_overlap(text, catalog)
+    if match:
+        click.echo(f"OVERLAP: {match['qualified']} ({match['scope']})")
+        if match.get("description"):
+            click.echo(f"  {match['description']}")
+        click.echo(f"  {match['path']}")
+        raise click.exceptions.Exit(1)
+    click.echo("No overlap detected.")
+    candidates = extract_candidate_names(text)
+    if candidates:
+        click.echo(f"  Candidates examined: {', '.join(candidates[:8])}")
 
 
 @main.group()
@@ -527,32 +595,36 @@ def proposals_show(proposal_id):
     click.echo(matches[0].read_text())
 
 
-def _validate_proposals(proposals: list[dict], registry: dict) -> list[dict]:
-    """Validate and fix proposals against the registry.
+def _validate_proposals(
+    proposals: list[dict],
+    registry: dict,
+    skill_catalog: list[dict] | None = None,
+) -> list[dict]:
+    """Validate and fix proposals against the registry and skill catalog.
 
     - Fix target_repo mismatches (e.g., tool for connect-search proposed for connect-labs)
-    - Auto-apply canopy registry_update proposals instead of just proposing them
     - Drop proposals for tools that already exist
+    - Drop `new_skill` proposals that overlap with an existing skill
     """
     from orchestrator.registry import get_all_servers, get_all_tools
+    from orchestrator.skill_catalog import find_overlap
 
     servers = get_all_servers(registry)
     all_tools = get_all_tools(registry)
     existing_tool_names = {t["name"] for t in all_tools}
-
-    # Build server name -> repo mapping
-    server_repos = {s["name"]: s.get("repo", "") for s in servers}
+    catalog = skill_catalog or []
 
     validated = []
     for p in proposals:
-        action = p.get("action", "").lower()
+        action = p.get("action", "")
+        action_lc = action.lower()
         ptype = p.get("type", "")
         target_repo = p.get("target_repo", "")
 
         # Fix target_repo: if the action mentions a specific server, use that server's repo
         for server in servers:
             server_name = server["name"]
-            if server_name in action or server_name.replace("-", "_") in action:
+            if server_name in action_lc or server_name.replace("-", "_") in action_lc:
                 correct_repo = server.get("repo", "")
                 if correct_repo and correct_repo != target_repo:
                     p["target_repo"] = correct_repo
@@ -561,12 +633,18 @@ def _validate_proposals(proposals: list[dict], registry: dict) -> list[dict]:
 
         # Drop proposals for tools that already exist
         if ptype == "new_tool":
-            # Extract proposed tool name from action
             for tool_name in existing_tool_names:
-                if tool_name in action and f"add a `{tool_name}`" in action.lower():
+                if tool_name in action_lc and f"add a `{tool_name}`" in action_lc:
                     p["_dropped"] = f"tool {tool_name} already exists"
                     break
             if "_dropped" in p:
+                continue
+
+        # Drop new_skill proposals that overlap with an existing skill
+        if ptype == "new_skill" and catalog:
+            overlap = find_overlap(action, catalog)
+            if overlap:
+                p["_dropped"] = f"skill {overlap['qualified']} already exists"
                 continue
 
         validated.append(p)
