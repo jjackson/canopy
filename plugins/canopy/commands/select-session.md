@@ -14,5 +14,10 @@ Browse recent sessions, analyze friction, propose fixes, and implement improveme
 
 ## Process
 
-1. Invoke the `select-session` skill
-2. Follow the interactive flow: select → analyze → propose → disposition → implement
+Read the select-session SKILL.md from disk and follow it:
+
+```bash
+python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugins.json')); print(d['plugins']['canopy@canopy'][0]['installPath'] + '/skills/select-session/SKILL.md')"
+```
+
+Read that file with the Read tool and follow it step by step, passing the `hours` argument (if provided) to the skill. **Do NOT improvise from memory.** The SKILL.md is the authoritative source.

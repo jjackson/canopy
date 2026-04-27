@@ -23,26 +23,19 @@ Build marketing websites from product context or evaluate generation quality.
 - `eval <product> --compare <run1> <run2>` — Compare two runs
 - No args: same as `generate`
 
-## Process
+## Routing
 
-For `ingest`:
-1. Invoke the `context-ingestion` skill
-2. Follow its process to discover MCP sources and pull content into ./context/
+First, resolve the canopy install path once:
 
-For `ia`:
-1. Check that ./context/ exists (suggest running `ingest` first if not)
-2. Invoke the `information-architecture` skill
-3. Follow its process to design the sitemap and write ./context/information-architecture.md
-4. Get user approval on the IA before proceeding
+```bash
+python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugins.json')); print(d['plugins']['canopy@canopy'][0]['installPath'])"
+```
 
-For `generate`:
-1. Check if ./context/ exists. If not, suggest running `ingest` first.
-2. Check if ./context/information-architecture.md exists. If not, suggest running `ia` first.
-3. If running as the `website-builder` agent (has memory), follow the agent's generate pipeline,
-   using the IA document as the blueprint for what pages to create and what content goes where.
-4. If running as a skill (no agent memory), read ./context/ and the IA document directly,
-   then run the pipeline inline.
+Then read the SKILL.md for the requested mode and follow it step by step. **Do NOT improvise from memory.** The SKILL.md is the authoritative source.
 
-For `eval`:
-1. Invoke the `website-builder` skill
-2. Follow the eval workflow for the specified product
+- `ingest` → `<installPath>/skills/context-ingestion/SKILL.md`
+- `ia` → `<installPath>/skills/information-architecture/SKILL.md` (after confirming `./context/` exists)
+- `generate` (or no args) → `<installPath>/skills/website-builder/SKILL.md` (after confirming `./context/` and `./context/information-architecture.md` exist)
+- `eval <product> [...flags]` → `<installPath>/skills/website-builder/SKILL.md`, eval workflow
+
+If running as the `website-builder` agent (has memory), follow the agent's generate pipeline instead of the skill for the `generate` mode, using the IA document as the blueprint.

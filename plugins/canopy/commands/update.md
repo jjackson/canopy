@@ -5,9 +5,10 @@ allowed-tools: [Bash, Read]
 
 # Update Canopy
 
-Pull the latest canopy plugin and refresh the local cache.
+Read the update SKILL.md from disk and follow it exactly:
 
-## Process
+```bash
+python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugins.json')); print(d['plugins']['canopy@canopy'][0]['installPath'] + '/skills/update/SKILL.md')"
+```
 
-1. Invoke the `update` skill
-2. Pull latest from GitHub, copy to cache, show what changed
+Read that file with the Read tool and follow it step by step. The SKILL.md contains the rigid two-step procedure (fast version check, then pull/install/register). **Do NOT improvise from memory.** The SKILL.md is the authoritative source.

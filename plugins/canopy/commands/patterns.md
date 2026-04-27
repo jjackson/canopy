@@ -5,10 +5,10 @@ allowed-tools: [Read, Bash]
 
 # Patterns
 
-Show cross-session friction patterns.
+Read the patterns SKILL.md from disk and follow it:
 
-## Process
+```bash
+python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugins.json')); print(d['plugins']['canopy@canopy'][0]['installPath'] + '/skills/patterns/SKILL.md')"
+```
 
-1. Invoke the `patterns` skill
-2. Run `uv run canopy patterns`
-3. Display the output
+Read that file with the Read tool and follow it step by step. **Do NOT improvise from memory.** The SKILL.md is the authoritative source.

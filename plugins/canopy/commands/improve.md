@@ -16,11 +16,10 @@ Run a canopy improvement cycle on recent Claude Code sessions.
 
 ## Process
 
-1. Invoke the `improve` skill
-2. The skill orchestrates all phases directly:
-   - Discovers unprocessed transcripts
-   - Reads and analyzes them in-context (no subprocess calls)
-   - Generates proposals in-context
-   - Dispatches parallel agents with worktree isolation for implementation
-   - Agents create PRs for each improvement
-3. Display results with PR links
+Read the improve SKILL.md from disk and follow it:
+
+```bash
+python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugins.json')); print(d['plugins']['canopy@canopy'][0]['installPath'] + '/skills/improve/SKILL.md')"
+```
+
+Read that file with the Read tool and follow it step by step, passing the user's argument (if any) to the skill. **Do NOT improvise from memory.** The SKILL.md is the authoritative source.
