@@ -47,6 +47,10 @@ cd ~/emdash-projects/canopy && git pull --rebase && git push
 - `canopy analyze <transcript.jsonl> [--propose]` — analyze a specific transcript
 - `canopy brief [--model MODEL]` — generate strategic brief
 - `canopy patterns [--json-output]` — show cross-session friction patterns
+- `canopy observations list [--type T --status S --severity X --limit N --json-output]` — list observations
+- `canopy observations show <id>` — show full YAML for one observation (id prefix accepted)
+- `canopy proposals list [--status S --complexity X --limit N --json-output]` — list proposals
+- `canopy proposals show <id>` — show full YAML for one proposal (id prefix accepted)
 
 ## Key Modules
 

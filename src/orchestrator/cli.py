@@ -401,6 +401,132 @@ def patterns_cmd(as_json):
         click.echo()
 
 
+@main.group()
+def observations():
+    """Inspect saved observations."""
+
+
+@observations.command("list")
+@click.option("--type", "obs_type", default=None, help="Filter by observation type (friction, gap, etc.)")
+@click.option("--status", default=None, help="Filter by status (pending, addressed, etc.)")
+@click.option("--severity", default=None, help="Filter by severity (low, medium, high)")
+@click.option("--limit", default=20, type=int, help="Maximum rows to display")
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def observations_list(obs_type, status, severity, limit, as_json):
+    """List observations with optional filters."""
+    import json as json_mod
+    from orchestrator.observations import list_observations
+
+    state_dir = ensure_canopy_dir()
+    obs_dir = state_dir / "observations"
+    rows = list_observations(obs_dir, obs_type=obs_type, status=status)
+    if severity:
+        rows = [o for o in rows if o.get("severity") == severity]
+    rows.sort(key=lambda o: (o.get("created", ""), o.get("frequency", 0)), reverse=True)
+    rows = rows[:limit]
+
+    if as_json:
+        click.echo(json_mod.dumps(rows, indent=2, default=str))
+        return
+
+    if not rows:
+        click.echo("No observations match the given filters.")
+        return
+
+    click.echo(f"{len(rows)} observation(s):\n")
+    for o in rows:
+        sev = o.get("severity", "?")
+        otype = o.get("type", "?")
+        st = o.get("status", "?")
+        freq = o.get("frequency", 1)
+        desc = (o.get("description") or "").replace("\n", " ")
+        if len(desc) > 100:
+            desc = desc[:97] + "..."
+        click.echo(f"  {o['id']}  [{sev}] [{otype}] [{st}]  freq={freq}")
+        click.echo(f"    {desc}")
+
+
+@observations.command("show")
+@click.argument("obs_id")
+def observations_show(obs_id):
+    """Show full YAML for a single observation by id (or id prefix)."""
+    state_dir = ensure_canopy_dir()
+    obs_dir = state_dir / "observations"
+    matches = sorted(obs_dir.glob(f"{obs_id}*.yaml"))
+    if not matches:
+        raise click.ClickException(f"No observation found matching id '{obs_id}'")
+    if len(matches) > 1:
+        click.echo(f"Multiple matches for '{obs_id}':", err=True)
+        for m in matches:
+            click.echo(f"  {m.stem}", err=True)
+        raise click.ClickException("Specify a more unique id prefix.")
+    click.echo(matches[0].read_text())
+
+
+@main.group()
+def proposals():
+    """Inspect saved proposals."""
+
+
+@proposals.command("list")
+@click.option("--status", default=None, help="Filter by status (pending, implemented, failed)")
+@click.option("--complexity", default=None, help="Filter by complexity (low, medium, high)")
+@click.option("--limit", default=20, type=int, help="Maximum rows to display")
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def proposals_list(status, complexity, limit, as_json):
+    """List proposals with optional filters."""
+    import json as json_mod
+    from orchestrator.proposals import list_proposals
+
+    state_dir = ensure_canopy_dir()
+    proposals_dir = state_dir / "proposals"
+    rows = list_proposals(proposals_dir, status=status)
+    if complexity:
+        rows = [p for p in rows if p.get("complexity") == complexity]
+    rows.sort(key=lambda p: p.get("created", ""), reverse=True)
+    rows = rows[:limit]
+
+    if as_json:
+        click.echo(json_mod.dumps(rows, indent=2, default=str))
+        return
+
+    if not rows:
+        click.echo("No proposals match the given filters.")
+        return
+
+    click.echo(f"{len(rows)} proposal(s):\n")
+    for p in rows:
+        ptype = p.get("type", "?")
+        st = p.get("status", "?")
+        cx = p.get("complexity", "?")
+        conf = (p.get("verification") or {}).get("confidence", "?")
+        action = (p.get("action") or "").replace("\n", " ")
+        if len(action) > 100:
+            action = action[:97] + "..."
+        click.echo(f"  {p['id']}  [{st}] [{ptype}] complexity={cx} conf={conf}")
+        click.echo(f"    {action}")
+        target = p.get("target_repo")
+        if target:
+            click.echo(f"    target: {target}")
+
+
+@proposals.command("show")
+@click.argument("proposal_id")
+def proposals_show(proposal_id):
+    """Show full YAML for a single proposal by id (or id prefix)."""
+    state_dir = ensure_canopy_dir()
+    proposals_dir = state_dir / "proposals"
+    matches = sorted(proposals_dir.glob(f"{proposal_id}*.yaml"))
+    if not matches:
+        raise click.ClickException(f"No proposal found matching id '{proposal_id}'")
+    if len(matches) > 1:
+        click.echo(f"Multiple matches for '{proposal_id}':", err=True)
+        for m in matches:
+            click.echo(f"  {m.stem}", err=True)
+        raise click.ClickException("Specify a more unique id prefix.")
+    click.echo(matches[0].read_text())
+
+
 def _validate_proposals(proposals: list[dict], registry: dict) -> list[dict]:
     """Validate and fix proposals against the registry.
 
