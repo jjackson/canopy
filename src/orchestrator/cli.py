@@ -290,7 +290,16 @@ def analyze_cmd(transcript, propose, model, budget):
         return
 
     # Validate and fix proposals against the registry + skill catalog
-    proposals_raw = _validate_proposals(proposals_raw, reg, catalog)
+    proposals_raw, dropped = _validate_proposals(proposals_raw, reg, catalog)
+
+    if dropped:
+        click.echo(f"Dropped {len(dropped)} duplicate/redundant proposal(s):")
+        for d in dropped:
+            reason = d.get("_dropped", "unknown reason")
+            preview = (d.get("action") or "").replace("\n", " ")[:80]
+            click.echo(f"  [dropped: {reason}]")
+            click.echo(f"    {preview}")
+        click.echo()
 
     proposals_dir = state_dir / "proposals"
     click.echo(f"Generated {len(proposals_raw)} proposals:")
@@ -599,8 +608,12 @@ def _validate_proposals(
     proposals: list[dict],
     registry: dict,
     skill_catalog: list[dict] | None = None,
-) -> list[dict]:
+) -> tuple[list[dict], list[dict]]:
     """Validate and fix proposals against the registry and skill catalog.
+
+    Returns `(kept, dropped)`. Each dropped proposal has `_dropped` set to a
+    human-readable reason; callers can surface this so users see what was
+    filtered out and why.
 
     - Fix target_repo mismatches (e.g., tool for connect-search proposed for connect-labs)
     - Drop proposals for tools that already exist
@@ -614,7 +627,8 @@ def _validate_proposals(
     existing_tool_names = {t["name"] for t in all_tools}
     catalog = skill_catalog or []
 
-    validated = []
+    kept: list[dict] = []
+    dropped: list[dict] = []
     for p in proposals:
         action = p.get("action", "")
         action_lc = action.lower()
@@ -638,6 +652,7 @@ def _validate_proposals(
                     p["_dropped"] = f"tool {tool_name} already exists"
                     break
             if "_dropped" in p:
+                dropped.append(p)
                 continue
 
         # Drop new_skill proposals that overlap with an existing skill
@@ -645,11 +660,12 @@ def _validate_proposals(
             overlap = find_overlap(action, catalog)
             if overlap:
                 p["_dropped"] = f"skill {overlap['qualified']} already exists"
+                dropped.append(p)
                 continue
 
-        validated.append(p)
+        kept.append(p)
 
-    return validated
+    return kept, dropped
 
 
 def _print_cycle_result(result: dict) -> None:

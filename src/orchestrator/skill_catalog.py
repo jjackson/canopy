@@ -57,7 +57,18 @@ def _parse_frontmatter_description(skill_md: Path) -> str:
 
 
 def _scan_plugin_caches(cache_root: Path = PLUGIN_CACHE) -> list[dict]:
-    """Scan ~/.claude/plugins/cache/<plugin>/<plugin>/<version>/skills/."""
+    """Scan ~/.claude/plugins/cache/<plugin>/<plugin>/<version>/{skills,commands,agents}.
+
+    Plugins expose three kinds of named entities to the assistant:
+    - `skills/<name>/SKILL.md` — full skill bodies
+    - `commands/<name>.md` — slash commands (also surfaced as `plugin:name`)
+    - `agents/<name>.md` — sub-agents (also surfaced as `plugin:name`)
+
+    All three appear in the assistant's available-skills list under the same
+    `plugin:name` namespace. For overlap detection we treat them uniformly —
+    a `new_skill` proposal that names an existing command or agent is just as
+    duplicative as one that names an existing skill.
+    """
     entries: list[dict] = []
     if not cache_root.exists():
         return entries
@@ -65,32 +76,51 @@ def _scan_plugin_caches(cache_root: Path = PLUGIN_CACHE) -> list[dict]:
         if not plugin_root.is_dir():
             continue
         plugin_name = plugin_root.name
-        # Find the highest-version dir under <plugin>/<plugin>/<version>/
         versioned = plugin_root / plugin_name
         if not versioned.is_dir():
             continue
         version_dirs = [d for d in versioned.iterdir() if d.is_dir()]
         if not version_dirs:
             continue
-        # Pick the lexicographically largest version dir as "current"
         current = max(version_dirs, key=lambda d: d.name)
+
+        # skills/: each is a directory with SKILL.md
         skills_dir = current / "skills"
-        if not skills_dir.is_dir():
-            continue
-        for skill_dir in sorted(skills_dir.iterdir()):
-            if not skill_dir.is_dir():
+        if skills_dir.is_dir():
+            for skill_dir in sorted(skills_dir.iterdir()):
+                if not skill_dir.is_dir():
+                    continue
+                skill_md = skill_dir / "SKILL.md"
+                if not skill_md.is_file():
+                    continue
+                entries.append({
+                    "name": skill_dir.name,
+                    "qualified": f"{plugin_name}:{skill_dir.name}",
+                    "scope": "plugin",
+                    "source": plugin_name,
+                    "kind": "skill",
+                    "description": _parse_frontmatter_description(skill_md),
+                    "path": str(skill_md),
+                })
+
+        # commands/ and agents/: each is a single .md file
+        for kind, subdir in (("command", "commands"), ("agent", "agents")):
+            kind_dir = current / subdir
+            if not kind_dir.is_dir():
                 continue
-            skill_md = skill_dir / "SKILL.md"
-            if not skill_md.is_file():
-                continue
-            entries.append({
-                "name": skill_dir.name,
-                "qualified": f"{plugin_name}:{skill_dir.name}",
-                "scope": "plugin",
-                "source": plugin_name,
-                "description": _parse_frontmatter_description(skill_md),
-                "path": str(skill_md),
-            })
+            for md in sorted(kind_dir.glob("*.md")):
+                # Skip readme/changelog/etc. only the names that look like commands.
+                if md.stem.lower() in {"readme", "changelog", "license"}:
+                    continue
+                entries.append({
+                    "name": md.stem,
+                    "qualified": f"{plugin_name}:{md.stem}",
+                    "scope": "plugin",
+                    "source": plugin_name,
+                    "kind": kind,
+                    "description": _parse_frontmatter_description(md),
+                    "path": str(md),
+                })
     return entries
 
 
@@ -110,6 +140,7 @@ def _scan_user_skills(user_dir: Path = USER_SKILLS) -> list[dict]:
             "qualified": skill_dir.name,
             "scope": "user",
             "source": "user",
+            "kind": "skill",
             "description": _parse_frontmatter_description(skill_md),
             "path": str(skill_md),
         })
