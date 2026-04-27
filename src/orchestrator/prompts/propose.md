@@ -5,6 +5,15 @@ observations from real usage sessions, propose concrete changes.
 
 {registry_summary}
 
+## Existing Skills (do NOT propose duplicates)
+
+These skills already exist on the user's system. Do not propose a `new_skill`
+that duplicates the function of any of these. If an observation could be
+addressed by an existing skill, propose a `tool_improvement` to the existing
+skill instead, or skip the proposal.
+
+{skill_catalog}
+
 ## Observations to Address
 
 {observations_yaml}

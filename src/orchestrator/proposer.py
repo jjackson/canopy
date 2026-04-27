@@ -9,13 +9,20 @@ from orchestrator.prompts import load_prompt
 def build_proposal_prompt(
     observations: list[dict],
     registry_summary: str,
+    skill_catalog: str = "",
 ) -> str:
-    """Build the full prompt for proposal generation."""
+    """Build the full prompt for proposal generation.
+
+    `skill_catalog` is a pre-formatted string listing existing skills (see
+    `orchestrator.skill_catalog.format_for_prompt`) — passed in so the LLM
+    can avoid proposing duplicates of skills that already exist.
+    """
     observations_yaml = yaml.dump(observations, default_flow_style=False)
     return load_prompt(
         "propose",
         registry_summary=registry_summary,
         observations_yaml=observations_yaml,
+        skill_catalog=skill_catalog or "(catalog unavailable)",
     )
 
 
@@ -43,9 +50,10 @@ def generate_proposals(
     registry_summary: str,
     model: str = "sonnet",
     max_budget_usd: float = 0.50,
+    skill_catalog: str = "",
 ) -> list[dict]:
     """Generate proposals by invoking claude -p. Returns list of proposals."""
-    prompt = build_proposal_prompt(observations, registry_summary)
+    prompt = build_proposal_prompt(observations, registry_summary, skill_catalog)
 
     try:
         result = subprocess.run(
