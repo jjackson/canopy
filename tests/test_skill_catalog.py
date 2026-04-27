@@ -57,6 +57,28 @@ class TestBuildCatalog:
         assert "new-skill" in names
         assert "old-skill" not in names
 
+    def test_picks_up_plugin_commands_and_agents(self, tmp_path):
+        cache = tmp_path / "plugins"
+        # Skills directory
+        skills_dir = cache / "ace" / "ace" / "1.0.0" / "skills"
+        _make_skill(skills_dir, "myskill", "Skill description")
+        # commands/ — single .md files (no SKILL.md)
+        cmd_dir = cache / "ace" / "ace" / "1.0.0" / "commands"
+        cmd_dir.mkdir(parents=True)
+        (cmd_dir / "doctor.md").write_text("---\ndescription: Diagnose ACE\n---\n# doctor\n")
+        (cmd_dir / "README.md").write_text("# README\n")  # should be skipped
+        # agents/
+        ag_dir = cache / "ace" / "ace" / "1.0.0" / "agents"
+        ag_dir.mkdir(parents=True)
+        (ag_dir / "orchestrator.md").write_text("---\ndescription: Top-level orchestrator\n---\n")
+
+        cat = build_catalog(plugin_cache=cache, user_skills=tmp_path / "user")
+        kinds = {e["qualified"]: e["kind"] for e in cat}
+        assert kinds.get("ace:myskill") == "skill"
+        assert kinds.get("ace:doctor") == "command"
+        assert kinds.get("ace:orchestrator") == "agent"
+        assert "ace:README" not in kinds  # README skipped
+
 
 class TestExtractCandidateNames:
     def test_simple_word(self):
@@ -87,6 +109,20 @@ class TestFindOverlap:
         match = find_overlap("Add canopy:doctor diagnostic", cat)
         assert match is not None
         assert match["qualified"] == "canopy:doctor"
+
+    def test_command_overlap_match(self, tmp_path):
+        """A new_skill proposal that names an existing plugin command must
+        be flagged — the user's existing `ace:doctor` command means a
+        proposal to 'create an ace:doctor skill' is a duplicate."""
+        cache = tmp_path / "plugins"
+        cmd_dir = cache / "ace" / "ace" / "1.0" / "commands"
+        cmd_dir.mkdir(parents=True)
+        (cmd_dir / "doctor.md").write_text("---\ndescription: Diagnose ACE\n---\n")
+        cat = build_catalog(plugin_cache=cache, user_skills=tmp_path / "user")
+        match = find_overlap("Create an ace:doctor skill for prereq checks", cat)
+        assert match is not None
+        assert match["qualified"] == "ace:doctor"
+        assert match["kind"] == "command"
 
     def test_hyphenated_bare_name_match(self, tmp_path):
         user = tmp_path / "user"
