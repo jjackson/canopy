@@ -5,12 +5,13 @@ allowed-tools: [Bash, Read]
 
 # Auth Preflight
 
-Probe `gh`, `op`, and (when labs work is likely) `aws --profile labs` and
-report pass/fail with recovery commands. Run this before any long-running
-deploy or workflow.
+Read the auth-preflight SKILL.md from disk and follow it exactly:
 
-## Process
+```bash
+python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugins.json')); print(d['plugins']['canopy@canopy'][0]['installPath'] + '/skills/auth-preflight/SKILL.md')"
+```
 
-1. Invoke the `auth-preflight` skill
-2. The skill runs `bash scripts/canopy-auth-preflight.sh` and reports
-   one line per dependency plus a final summary
+Read that file with the Read tool and follow it. The SKILL.md defines the
+exact probe sequence for `gh`, `op`, and AWS labs SSO and what to do when a
+check fails. **Do NOT improvise from memory.** The SKILL.md is the
+authoritative source.
