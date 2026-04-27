@@ -117,6 +117,25 @@ these before the shell sees them, causing silent failures (empty strings).
 `scripts/` and invoke them from the skill. Simple inline commands (no functions)
 are fine.
 
+## Skill Authoring: Command/Skill Name Collisions
+
+If `commands/<name>.md` AND `skills/<name>/SKILL.md` both exist, the Skill tool
+silently resolves `canopy:<name>` to the slash-command file — the actual
+SKILL.md never lands in context, and the agent improvises from memory.
+
+**Rule:** colliding commands MUST follow Pattern B — read SKILL.md from disk
+explicitly before following it:
+
+```bash
+python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugins.json')); print(d['plugins']['canopy@canopy'][0]['installPath'] + '/skills/<name>/SKILL.md')"
+```
+
+Then `Read` that path and follow the SKILL.md exactly.
+
+`tests/test_command_skill_collisions.py` enforces this — every colliding
+command must reference `skills/<name>/SKILL.md` in its body. Adding a new
+colliding command without Pattern B will fail CI.
+
 ## Plugin Updates — NEVER locally patch
 
 **CRITICAL: Never directly copy, rsync, or write files into `~/.claude/plugins/cache/`
