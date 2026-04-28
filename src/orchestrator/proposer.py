@@ -1,5 +1,6 @@
 """Construct prompts and invoke claude -p to generate proposals from observations."""
 import subprocess
+import sys
 
 import yaml
 
@@ -51,8 +52,14 @@ def generate_proposals(
     model: str = "sonnet",
     max_budget_usd: float = 0.50,
     skill_catalog: str = "",
+    timeout: int = 240,
 ) -> list[dict]:
-    """Generate proposals by invoking claude -p. Returns list of proposals."""
+    """Generate proposals by invoking claude -p. Returns list of proposals.
+
+    On failure (timeout, nonzero exit, unparseable output) prints a one-line
+    diagnostic to stderr so the caller can tell *why* nothing came back —
+    silent empty results were impossible to debug in production.
+    """
     prompt = build_proposal_prompt(observations, registry_summary, skill_catalog)
 
     try:
@@ -65,12 +72,33 @@ def generate_proposals(
             ],
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=timeout,
         )
     except subprocess.TimeoutExpired:
+        print(f"proposer: claude -p timed out after {timeout}s", file=sys.stderr)
         return []
 
     if result.returncode != 0:
+        stderr_tail = (result.stderr or "")[-500:].strip()
+        print(
+            f"proposer: claude -p exited {result.returncode}; stderr tail: {stderr_tail!r}",
+            file=sys.stderr,
+        )
         return []
 
-    return parse_proposal_output(result.stdout)
+    if not result.stdout.strip():
+        stderr_tail = (result.stderr or "")[-500:].strip()
+        print(
+            f"proposer: claude -p returned empty stdout (rc=0); stderr tail: {stderr_tail!r}",
+            file=sys.stderr,
+        )
+        return []
+
+    parsed = parse_proposal_output(result.stdout)
+    if not parsed:
+        snippet = result.stdout.strip()[:300]
+        print(
+            f"proposer: claude -p returned unparseable output; first 300 chars: {snippet!r}",
+            file=sys.stderr,
+        )
+    return parsed
