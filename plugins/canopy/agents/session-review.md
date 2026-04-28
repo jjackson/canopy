@@ -48,6 +48,20 @@ Parse arguments from the command invocation:
    to understand what's already been observed
 3. Read existing proposals: `ls ~/.claude/canopy/proposals/` — scan YAML files
    to know what's been attempted and their status (pending/implemented/failed)
+4. **Capture recent canopy commits.** Before any analysis, run:
+
+   ```bash
+   cd ~/emdash-projects/canopy && git log --since="14 days ago" --pretty=format:'%h %s' main
+   ```
+
+   Hold this list in your context. You will use it in Step 5 to filter out any
+   finding whose proposed fix has already shipped. Without this step the agent
+   has been observed to recommend tests/fixes that landed earlier the same day.
+
+5. **Capture current plugin version.** Read
+   `~/.claude/plugins/installed_plugins.json` and pull
+   `plugins["canopy@canopy"][0]["version"]`. This is the *infrastructure
+   version* — the version of the analyzer/proposer/catalog that will run.
 
 ### Step 2: Fetch Sessions
 
@@ -69,8 +83,29 @@ Where `<H>` is calculated from the arguments:
 - If count given: use `--hours 168` (1 week) and take the first N from the result
 - If `hours <N>` given: use that directly
 
-Parse the JSON output. Filter out any session IDs found in `reviewed-sessions.md`.
-If no unreviewed sessions remain, tell the user and stop.
+**Re-analysis policy** (the default — do not require a flag):
+
+`reviewed-sessions.md` records sessions you've previously analyzed AND the
+canopy version at which you analyzed them. The format is:
+
+```
+- <session_id>  <project>  reviewed=<YYYY-MM-DD>  canopy=<version>
+```
+
+A session should be **re-analyzed** if:
+- It does not appear in `reviewed-sessions.md`, OR
+- Its recorded `canopy=<version>` is lower than the current plugin version
+  captured in Step 1 (the infrastructure has improved since last review —
+  the new analyzer/proposer/catalog will produce better proposals), OR
+- The session's last activity (`last_ts` in the JSON) is more recent than
+  its recorded `reviewed=` date (the user added new turns after the review).
+
+Only sessions that meet NONE of these criteria are skipped. If every session
+in the window is skippable, tell the user "all N sessions are up-to-date
+under canopy v<version>" and stop.
+
+When you write back to `reviewed-sessions.md` in Step 7, always include the
+current canopy version so the next run can apply this rule.
 
 ### Step 3: Analyze Individually
 
@@ -115,20 +150,42 @@ python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugi
 
 ### Step 5: Cross-Reference Prior Work
 
-For each observation from Step 3, check:
+For each observation from Step 3, perform ALL of the following checks before
+including it as a finding. Skip or annotate as appropriate:
 
-1. **Existing observations:** Does a matching observation already exist in
+1. **Recent commits (REQUIRED).** Compare each finding's proposed fix against
+   the commit list captured in Step 1.4. For every finding, ask:
+   "Does the subject line of any commit in the last 14 days describe the fix
+   I'm about to recommend?" If yes:
+   - Drop the finding entirely if the commit lands the exact fix
+   - Annotate as `Already shipped at <sha>` if it's a partial overlap
+   This is the most common confabulation mode the agent has been observed
+   doing — recommending tests, docs, or fixes that landed earlier the same day.
+
+2. **Verify code-level claims (REQUIRED).** For any finding that cites a
+   specific file path, function name, line number, regex pattern, or other
+   code-level artifact, run a `grep` to confirm it exists and behaves as
+   claimed. Examples of claims that demand verification:
+   - "Scanner uses 8-char prefix dedup" → `grep -rn '\[:8\]\|\[0:8\]' src/`
+   - "Skill markdown still uses bare python3" → `grep -rn 'python3 -c' plugins/`
+   - "ace plugin missing doctor command" → `ls ~/.claude/plugins/cache/ace/...`
+   If the grep returns nothing, the claim is confabulated — drop the finding,
+   do not include it. The agent has been observed including grep-falsifiable
+   findings ("8-char dedup", "bare python3 calls") that were not actually
+   present in the code.
+
+3. **Existing observations:** Does a matching observation already exist in
    `~/.claude/canopy/observations/`? Match by type + related_servers.
    If matched, note the frequency and when it was first seen.
 
-2. **Existing proposals:** For matched observations, check proposals in
+4. **Existing proposals:** For matched observations, check proposals in
    `~/.claude/canopy/proposals/`:
    - `status: implemented` → Was the session before or after implementation?
      If before: friction expected (stale session). If after: fix didn't work.
    - `status: failed` → Note the failure reason. Lower confidence for retry.
    - `status: pending` → Already queued, don't duplicate.
 
-3. **Agent memory:** Check `proposal-history.md` — was this previously surfaced
+5. **Agent memory:** Check `proposal-history.md` — was this previously surfaced
    and rejected by the user? Don't re-propose unless severity escalated.
 
 ### Step 6: Synthesize Table
@@ -172,7 +229,14 @@ If user priorities exist in memory, weight the ranking accordingly.
 
 ### Step 7: Record and Present
 
-1. Save all reviewed session IDs to `reviewed-sessions.md` with date and project
+1. Save all reviewed session IDs to `reviewed-sessions.md` in this format,
+   one entry per session — INCLUDE the canopy version so the next run's
+   re-analysis policy (Step 2) can decide whether to re-analyze:
+
+   ```
+   - <session_id>  <project>  reviewed=<YYYY-MM-DD>  canopy=<version>
+   ```
+
 2. **Review mode (default):**
    - Present the table using AskUserQuestion
    - Ask: "Which findings should I act on? (Enter numbers, 'all', or 'none')"
@@ -199,7 +263,12 @@ If user priorities exist in memory, weight the ranking accordingly.
 
 - Always read your agent memory before starting
 - The canopy CLI does the actual analysis — you orchestrate and synthesize
-- Never fabricate observations — only report what `canopy analyze` finds
+- **Never publish a finding without grep-verifying its code-level claims** —
+  every "the code does X" or "the file Y says Z" must be confirmed by an
+  actual search. The agent has been observed confabulating up to 30% of
+  findings when this step is skipped.
+- **Always cross-reference recent commits** — if a fix you're about to
+  recommend already shipped, drop or annotate the finding accordingly.
 - Treat all version metadata fields as optional — gracefully degrade
 - Don't re-propose items the user previously rejected (check proposal-history.md)
 - Save learnings to memory after every completed review cycle
