@@ -416,6 +416,56 @@ def patterns_cmd(as_json):
 
 
 @main.group()
+def version():
+    """VERSION coordination across worktrees."""
+
+
+@version.command("verify")
+@click.option("--repo", default=None, type=click.Path(exists=True, file_okay=False),
+              help="Repo root (defaults to current working directory)")
+def version_verify(repo):
+    """Verify VERSION and plugin.json agree on the current version."""
+    from orchestrator.version_bump import verify
+    repo_root = Path(repo) if repo else Path.cwd()
+    try:
+        matches, v, p = verify(repo_root)
+    except FileNotFoundError as e:
+        raise click.ClickException(str(e))
+    if matches:
+        click.echo(f"OK: VERSION and plugin.json both at v{v}")
+    else:
+        click.echo(f"MISMATCH: VERSION={v}  plugin.json={p}", err=True)
+        raise click.exceptions.Exit(1)
+
+
+@version.command("bump")
+@click.option("--repo", default=None, type=click.Path(exists=True, file_okay=False),
+              help="Repo root (defaults to current working directory)")
+def version_bump(repo):
+    """Bump VERSION + plugin.json by max(local, origin/main) + patch+1.
+
+    Fetches origin/main first so a parallel worktree's bump is visible before
+    deciding the next number. Solves the recurring "two worktrees both bumped
+    to the same number" friction.
+    """
+    from orchestrator.version_bump import bump
+    repo_root = Path(repo) if repo else Path.cwd()
+    try:
+        result = bump(repo_root)
+    except (FileNotFoundError, ValueError) as e:
+        raise click.ClickException(str(e))
+
+    prev = result["previous_local"]
+    origin = result["origin_main"]
+    new = result["new_version"]
+    origin_str = origin or "(unreachable)"
+    click.echo(f"Bumped to v{new}")
+    click.echo(f"  was: local=v{prev}  origin/main=v{origin_str}")
+    click.echo(f"  wrote: {result['version_path']}")
+    click.echo(f"  wrote: {result['plugin_json_path']}")
+
+
+@main.group()
 def skills():
     """Inspect installed skills (plugin + user)."""
 
