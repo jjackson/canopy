@@ -9,4 +9,5 @@ uv.lock
 .superpowers/
 .gstack/
 .claude/settings.local.json
+.canopy/
 .claude/worktrees/
