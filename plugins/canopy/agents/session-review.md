@@ -153,14 +153,29 @@ python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugi
 For each observation from Step 3, perform ALL of the following checks before
 including it as a finding. Skip or annotate as appropriate:
 
-1. **Recent commits (REQUIRED).** Compare each finding's proposed fix against
-   the commit list captured in Step 1.4. For every finding, ask:
-   "Does the subject line of any commit in the last 14 days describe the fix
-   I'm about to recommend?" If yes:
+1. **Recent commits (REQUIRED).** Most proposals target a non-canopy repo
+   (ace, scout, connect-labs, etc.). For each finding, check **both** canopy
+   AND the proposal's `target_repo`:
+
+   ```bash
+   # canopy commits (captured in Step 1.4)
+   # already in your context — scan it
+
+   # target repo
+   cd <target_repo> && git log --since="14 days ago" --pretty=format:'%h %s' main
+   # CHANGELOG is often the cleanest source of truth — check it if present
+   [ -f <target_repo>/CHANGELOG.md ] && tail -80 <target_repo>/CHANGELOG.md
+   ```
+
+   For every finding, ask: "Does any of these recent commits or CHANGELOG
+   entries describe the fix I'm about to recommend?" If yes:
    - Drop the finding entirely if the commit lands the exact fix
    - Annotate as `Already shipped at <sha>` if it's a partial overlap
+
    This is the most common confabulation mode the agent has been observed
    doing — recommending tests, docs, or fixes that landed earlier the same day.
+   The previous spec only checked canopy's commits and missed 3 drops in
+   `ace/CHANGELOG.md` — always extend the check to the target repo.
 
 2. **Verify code-level claims (REQUIRED).** For any finding that cites a
    specific file path, function name, line number, regex pattern, or other
