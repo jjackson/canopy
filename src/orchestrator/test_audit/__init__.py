@@ -1,26 +1,29 @@
-"""Test audit: score each pytest test on 'is it pulling its weight'.
+"""Test audit: build a per-test corpus, let the calling agent judge it, then apply.
 
-Public entry: `run_audit(repo, ...)` — full pipeline.
-See `cli.py` `test_audit` command for the user-facing wrapper.
+Public entry: `collect_corpus(repo, ...)` → writes `corpus.yaml`.
+                `apply_audit(stamp_dir, ...)` → reads the agent's `verdicts.yaml`.
+See `plugins/canopy/skills/test-audit/SKILL.md` for the agent flow.
 """
-from orchestrator.test_audit.audit import run_audit, AuditConfig, AuditResult
+from orchestrator.test_audit.audit import (
+    CollectResult, collect_corpus, apply_audit,
+)
 from orchestrator.test_audit.collector import TestItem, collect
 from orchestrator.test_audit.runner import TestResult, run_pytest
 from orchestrator.test_audit.parser import StaticAnalysis, analyze
-from orchestrator.test_audit.judge import Verdict, judge_one, judge_all
-from orchestrator.test_audit.aggregator import (
-    AuditSummary, RedundancyCluster, aggregate,
+from orchestrator.test_audit.corpus import build_corpus, write_corpus
+from orchestrator.test_audit.applier import (
+    Verdict, PlannedChange, ApplyResult,
+    plan, apply_verdicts, apply_from_dir,
 )
-from orchestrator.test_audit.report import write_reports, render_terminal_summary
-from orchestrator.test_audit.applier import apply_verdicts, ApplyResult
+from orchestrator.test_audit.report import render_apply_summary
 
 __all__ = [
-    "run_audit", "AuditConfig", "AuditResult",
+    "CollectResult", "collect_corpus", "apply_audit",
     "TestItem", "collect",
     "TestResult", "run_pytest",
     "StaticAnalysis", "analyze",
-    "Verdict", "judge_one", "judge_all",
-    "AuditSummary", "RedundancyCluster", "aggregate",
-    "write_reports", "render_terminal_summary",
-    "apply_verdicts", "ApplyResult",
+    "build_corpus", "write_corpus",
+    "Verdict", "PlannedChange", "ApplyResult",
+    "plan", "apply_verdicts", "apply_from_dir",
+    "render_apply_summary",
 ]

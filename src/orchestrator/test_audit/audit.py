@@ -1,69 +1,43 @@
-"""End-to-end pipeline glue: collect -> run -> parse -> judge -> aggregate -> report -> apply."""
+"""Thin orchestrator: collect (build corpus) + apply (consume verdicts).
+
+The judging happens in the calling agent's context — see
+`plugins/canopy/skills/test-audit/SKILL.md`. This module is plumbing only.
+"""
 from __future__ import annotations
 
-import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
 
-from orchestrator.test_audit.collector import collect
-from orchestrator.test_audit.runner import run_pytest
-from orchestrator.test_audit.parser import analyze
-from orchestrator.test_audit.judge import judge_all
-from orchestrator.test_audit.aggregator import aggregate, AuditSummary
-from orchestrator.test_audit.report import write_reports, render_terminal_summary
-from orchestrator.test_audit.applier import apply_verdicts, ApplyResult
-
-logger = logging.getLogger(__name__)
+from orchestrator.test_audit.applier import (
+    apply_from_dir, ApplyResult,
+)
+from orchestrator.test_audit.corpus import write_corpus
 
 
 @dataclass
-class AuditConfig:
-    repo: Path
-    run_tests: bool = True
-    reruns: int = 0
-    scope: str = "all"  # all | changed
-    apply: bool = True  # default mode-C per design
-    aggressive: bool = False
-    parallelism: int = 4
-    judge_model: str = "haiku"
-    invoke_override: Callable[[str], str] | None = None  # for tests
+class CollectResult:
+    stamp_dir: Path
+    corpus_path: Path
+    test_count: int
+    ran_pytest: bool
 
 
-@dataclass
-class AuditResult:
-    summary: AuditSummary
-    out_dir: Path
-    files: dict[str, Path] = field(default_factory=dict)
-    apply_result: ApplyResult | None = None
-
-
-def run_audit(config: AuditConfig) -> AuditResult:
-    repo = config.repo.resolve()
-    items = collect(repo, scope=config.scope)
-    statics = {it.nodeid: analyze(it) for it in items}
-
-    runtimes = {}
-    if config.run_tests:
-        runtimes = run_pytest(repo, reruns=config.reruns)
-
-    verdicts = judge_all(
-        items, statics, runtimes,
-        invoke=config.invoke_override,
-        parallelism=config.parallelism,
-        model=config.judge_model,
-    )
-
-    summary = aggregate(items, statics, runtimes, verdicts)
-
+def collect_corpus(repo: Path, run_tests: bool = True, reruns: int = 0) -> CollectResult:
+    """Build the audit corpus and write it to `<repo>/.canopy/test-audits/<stamp>/corpus.yaml`."""
+    repo = repo.resolve()
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     out_dir = repo / ".canopy" / "test-audits" / stamp
-    files = write_reports(summary, out_dir)
+    path, corpus = write_corpus(repo, out_dir, run_tests=run_tests, reruns=reruns)
+    return CollectResult(
+        stamp_dir=out_dir,
+        corpus_path=path,
+        test_count=corpus["test_count"],
+        ran_pytest=run_tests,
+    )
 
-    apply_result: ApplyResult | None = None
-    if config.apply:
-        apply_result = apply_verdicts(summary, repo, aggressive=config.aggressive)
 
-    return AuditResult(summary=summary, out_dir=out_dir, files=files,
-                       apply_result=apply_result)
+def apply_audit(stamp_dir: Path, repo: Path | None = None,
+                aggressive: bool = False, dry_run: bool = False) -> ApplyResult:
+    """Apply a verdicts.yaml that the agent wrote into `stamp_dir`."""
+    return apply_from_dir(stamp_dir, repo=repo, aggressive=aggressive, dry_run=dry_run)

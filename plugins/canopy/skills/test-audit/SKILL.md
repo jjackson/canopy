@@ -1,6 +1,6 @@
 ---
 name: test-audit
-description: Audit a Python/pytest project's test suite, score each test on 'is it pulling its weight,' and (by default) open a PR pruning the dumb ones. Use when asked to "audit tests", "prune dumb tests", "clean up the test suite", or "test-audit".
+description: Audit a Python/pytest test suite. Build a corpus, judge each test in-context against superpowers TDD principles, then (by default) open a PR pruning the dumb ones. Use when asked to "audit tests", "prune dumb tests", "clean up the test suite", or "test-audit".
 ---
 
 ## Preamble (run first)
@@ -14,36 +14,165 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: tell the user "canopy **v{new}*
 
 # Test Audit
 
-Audits a Python pytest suite and produces a per-test verdict (`keep`,
-`refactor`, `prune`, `investigate`) grounded in superpowers TDD principles.
-Default mode opens a PR with prunes/skip-marks; `--report-only` skips the PR.
+You are auditing a Python pytest suite. The judging happens in YOUR context
+— one pass over the whole corpus — not via per-test fan-out. That's
+deliberate: cheaper, and you can spot redundancy by reasoning across tests
+instead of guessing from name overlap.
 
-## Default flow
+## Flow
 
-1. Confirm the user is in a Python project with pytest tests. If not,
-   stop and report.
-2. Run from the project root:
+### 1. Confirm scope
 
-   ```bash
-   uv run --project ~/emdash-projects/canopy canopy test-audit .
-   ```
+Verify the project uses pytest. If it's jest/vitest/go test/rspec, stop and
+report — v1 is pytest-only.
 
-3. Print the terminal summary. Mention the PR URL (or patch path) if one
-   was produced.
-4. Don't paraphrase the report. The PR body IS the report.
+### 2. Build the corpus
 
-## Modes
+```bash
+uv run --project ~/emdash-projects/canopy canopy test-audit collect .
+```
 
-- **Default (mode C):** runs full audit + opens a PR with prunes and
-  env-fragile skip-marks. This is what the user runs day-to-day.
-- **`--report-only` (mode A):** produces the audit but doesn't touch
-  files. Use when the user wants to inspect first.
-- **`--no-run`:** skips pytest; static analysis only. Faster, but misses
-  flakiness and env-fragile tests.
-- **`--reruns N`:** flake detection — re-runs the suite N extra times.
-  Use when the user mentions flaky tests.
-- **`--aggressive`:** applies prunes with score 4-6 in addition to 0-3.
-  Only use when the user explicitly asks.
+Add `--reruns 2` if the user mentions flaky tests. Add `--no-run` to skip
+pytest (faster, but misses flakiness and env-fragile tests — only use if
+the suite takes >10 min to run or the user asks).
+
+The CLI prints `stamp_dir:` and `corpus:` paths. Note the stamp dir.
+
+### 3. Read the corpus
+
+`Read` the `corpus.yaml` from the stamp dir. It contains every test with:
+- `nodeid`, `file`, `name`, `line`, `classname`
+- `source`: full source of the test function
+- `static`: assertion_count, has_real_assertion, mock_targets,
+  fixtures_used, source_funcs_referenced, line_count
+- `runtime`: status (passed/failed/error/skipped), duration_ms,
+  flake_count, error message (if failing/erroring)
+
+For very large suites (>500 tests) the file may be huge. In that case use
+the `offset`/`limit` parameters of `Read` to scan in batches and reason
+batch-by-batch.
+
+### 4. Judge each test
+
+For every test in the corpus, decide a **verdict** and a **score 0-10**.
+
+**Rubric (grounded in superpowers TDD principles):**
+
+Score these 5 dimensions in your head, then assign an overall score:
+
+1. **meaningful_assertion** — does it actually verify something? `assert
+   True` / no assertion = 0.
+2. **behavior_vs_implementation** — does it test what (the contract) or
+   how (the internals)?
+3. **mock_discipline** — mocking dependencies is fine; mocking the code
+   under test is not.
+4. **name_match** — does the test name describe what it actually verifies?
+5. **clarity** — could a new reader understand it in <30s?
+
+**Verdicts:**
+
+| Verdict | Use when |
+|---------|----------|
+| `keep` | score ≥ 7, OR the test is fine as-is |
+| `refactor` | score 4–6 with a clear improvement path (mention in `reason`) |
+| `prune` | score ≤ 3, OR redundant with a sibling that already covers this, OR no real value |
+| `investigate` | runtime status=failed/error AND the assertion itself is meaningful (not env-fragile) |
+
+**Special case — environment-fragile tests:**
+If `runtime.status` is `error` AND the error mentions things like `no
+module named …`, `fixture not found`, `Docker`, `connection refused`, or
+similar: set `verdict=prune` AND `reason_code=env-fragile`. The applier
+will skip-mark these (not delete them).
+
+**Cross-test redundancy:**
+This is the part where you reason across the suite. Look for groups of
+tests that exercise the same source function with the same shape (e.g.,
+three tests that all just assert different inputs of `add()` produce
+expected outputs). Pick the most expressive one as the keeper, mark the
+others `verdict=prune`, `reason_code=redundant-with-sibling`, and cite
+the keeper in `reason`.
+
+**reason_code suggestions** (use these slugs for consistency):
+`ok`, `tautology`, `no-meaningful-assertion`, `mock-of-cut`,
+`name-mismatch`, `redundant-with-sibling`, `env-fragile`,
+`unclear-purpose`, `weak-assertion`, `over-mocked`, `slow-and-low-value`.
+
+### 5. Write `verdicts.yaml`
+
+Write to `<stamp_dir>/verdicts.yaml`. Format:
+
+```yaml
+verdicts:
+  - nodeid: tests/test_foo.py::test_bar
+    score: 8
+    verdict: keep
+    reason_code: ok
+    reason: Clear assertion of the documented contract.
+  - nodeid: tests/test_foo.py::test_always_true
+    score: 1
+    verdict: prune
+    reason_code: tautology
+    reason: assert True with no behavior under test.
+  - nodeid: tests/test_foo.py::test_with_missing_dep
+    score: 6
+    verdict: prune
+    reason_code: env-fragile
+    reason: Imports `nonexistent_module` — fails outside Docker. Will be skip-marked.
+```
+
+Every test in the corpus must have an entry.
+
+### 6. Write `audit-report.md`
+
+Write to `<stamp_dir>/audit-report.md`. This becomes the PR body, so it
+should be human-readable. Suggested structure:
+
+```markdown
+# Test Audit — <repo name>
+
+**N tests** — keep K, refactor R, prune P, investigate I.
+
+## Top prune candidates
+- `nodeid` — score X, reason_code: reason
+
+## Refactor candidates
+- ...
+
+## Investigate (failing or unclear)
+- ...
+
+## Redundancy clusters
+- **Cluster: function `add()`** (3 tests)
+  - keeper: `test_add_returns_sum`
+  - prune: `test_add_basic`, `test_add_simple` (cite reason)
+
+## Notes
+Anything the user should know (suite hygiene observations,
+environment-fragility patterns, etc.)
+```
+
+Keep this terse. The user has indicated they won't read carefully.
+
+### 7. Apply
+
+By default, open a PR:
+
+```bash
+uv run --project ~/emdash-projects/canopy canopy test-audit apply <stamp_dir>
+```
+
+Add `--aggressive` only if the user explicitly asks (this also applies
+prunes with score 4–6, not just 0–3).
+
+Use `--dry-run` if the user asked for a report-only audit — this plans the
+changes without touching files or opening a PR.
+
+### 8. Print the summary
+
+The `apply` CLI prints a one-screen summary (counts, branch, PR URL). Just
+relay that to the user. Don't paraphrase the audit-report.md — the PR body
+IS the report. If `gh` wasn't authenticated, the apply step writes a
+`.patch` file instead and prints its path.
 
 ## Conservative apply rules
 
@@ -57,20 +186,15 @@ The applier only touches a test if:
 | `refactor` / `investigate` | reported only, never applied |
 | `keep` | no action |
 
-## Output
-
-- One-screen terminal summary (printed by the CLI).
-- `.canopy/test-audits/<timestamp>/audit-report.md` — full human report.
-- `.canopy/test-audits/<timestamp>/verdicts.yaml` — machine-readable.
-- PR opened if `gh` is authenticated; otherwise a `.patch` file is written.
-
 ## Rules
 
-- Python/pytest only in v1. If the project uses jest/vitest/go test, stop
-  and report — don't try to adapt.
+- Python/pytest only in v1.
 - Never push to main, never force-push. The applier always opens a PR on
   a fresh branch.
-- If `gh` isn't authenticated, the applier writes a patch file and reports
-  "would have opened PR with N changes" — don't crash.
-- Don't dump the full report to the chat. The user has indicated they
-  want terse, actionable output and the PR body is the audit.
+- If `gh` isn't authenticated, the applier writes a patch file — don't
+  crash, don't ask the user to install gh.
+- Don't dump the full report to chat. The user wants terse output and the
+  PR body is the audit.
+- If the suite is huge (>1000 tests), batch your reading of corpus.yaml
+  by `offset`/`limit` and judge in passes by directory. Still write one
+  combined `verdicts.yaml` at the end.

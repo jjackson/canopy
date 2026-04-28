@@ -1,40 +1,37 @@
-"""Tests for orchestrator.test_audit.applier — planning and source surgery only.
-
-We do not exercise the git/gh path here (covered manually). These tests verify:
-- plan() honors conservative thresholds
-- _delete_test removes the right function
-- _skip_mark_test inserts the decorator and pytest import
+"""Tests for orchestrator.test_audit.applier — planning, source surgery, and
+verdicts.yaml round-trip via apply_from_dir (without git/gh).
 """
+import shutil
 from pathlib import Path
 
-from orchestrator.test_audit.collector import TestItem
-from orchestrator.test_audit.parser import StaticAnalysis
-from orchestrator.test_audit.runner import TestResult
-from orchestrator.test_audit.judge import Verdict
-from orchestrator.test_audit.aggregator import aggregate
+import yaml
+
+from orchestrator.test_audit.collector import TestItem, collect
 from orchestrator.test_audit.applier import (
-    plan, _delete_test, _skip_mark_test,
+    Verdict, plan, _delete_test, _skip_mark_test,
+    _parse_verdicts_yaml, apply_from_dir,
 )
 
 
-def _bundle(verdicts_in: dict[str, dict], file: Path):
-    items = [TestItem(nodeid=nid, file=file, name=nid.split("::")[-1], line=1)
-             for nid in verdicts_in]
-    statics = {nid: StaticAnalysis(nodeid=nid, name=nid.split("::")[-1],
-                                   body_source="", assertion_count=1)
-               for nid in verdicts_in}
-    verdicts = {nid: Verdict(nodeid=nid, **payload) for nid, payload in verdicts_in.items()}
-    return aggregate(items, statics, {}, verdicts)
+FIXTURE = Path(__file__).parent / "fixtures" / "synthetic_suite"
+
+
+def _items_by_id(*nodeids, file: Path):
+    return {
+        nid: TestItem(nodeid=nid, file=file, name=nid.split("::")[-1], line=1)
+        for nid in nodeids
+    }
 
 
 def test_plan_skip_marks_env_fragile_regardless_of_score(tmp_path):
     f = tmp_path / "test_x.py"
     f.write_text("def test_a(): pass\n")
-    summary = _bundle({
-        "test_x.py::test_a": dict(score=8, verdict="prune", reason_code="env-fragile",
-                                  reason="missing module"),
-    }, f)
-    changes = plan(summary, tmp_path)
+    items = _items_by_id("test_x.py::test_a", file=f)
+    verdicts = {
+        "test_x.py::test_a": Verdict("test_x.py::test_a", 8, "prune",
+                                     "env-fragile", "missing module"),
+    }
+    changes = plan(items, verdicts)
     assert len(changes) == 1
     assert changes[0].action == "skip"
 
@@ -42,11 +39,12 @@ def test_plan_skip_marks_env_fragile_regardless_of_score(tmp_path):
 def test_plan_deletes_only_low_score_prunes_by_default(tmp_path):
     f = tmp_path / "test_x.py"
     f.write_text("def test_a(): pass\ndef test_b(): pass\n")
-    summary = _bundle({
-        "test_x.py::test_a": dict(score=2, verdict="prune", reason_code="tautology", reason=""),
-        "test_x.py::test_b": dict(score=5, verdict="prune", reason_code="weak", reason=""),
-    }, f)
-    changes = plan(summary, tmp_path)
+    items = _items_by_id("test_x.py::test_a", "test_x.py::test_b", file=f)
+    verdicts = {
+        "test_x.py::test_a": Verdict("test_x.py::test_a", 2, "prune", "tautology"),
+        "test_x.py::test_b": Verdict("test_x.py::test_b", 5, "prune", "weak"),
+    }
+    changes = plan(items, verdicts)
     assert [c.action for c in changes] == ["delete"]
     assert changes[0].nodeid.endswith("test_a")
 
@@ -54,22 +52,24 @@ def test_plan_deletes_only_low_score_prunes_by_default(tmp_path):
 def test_plan_aggressive_includes_mid_score_prunes(tmp_path):
     f = tmp_path / "test_x.py"
     f.write_text("def test_a(): pass\ndef test_b(): pass\n")
-    summary = _bundle({
-        "test_x.py::test_a": dict(score=2, verdict="prune", reason_code="tautology", reason=""),
-        "test_x.py::test_b": dict(score=5, verdict="prune", reason_code="weak", reason=""),
-    }, f)
-    changes = plan(summary, tmp_path, aggressive=True)
+    items = _items_by_id("test_x.py::test_a", "test_x.py::test_b", file=f)
+    verdicts = {
+        "test_x.py::test_a": Verdict("test_x.py::test_a", 2, "prune", "tautology"),
+        "test_x.py::test_b": Verdict("test_x.py::test_b", 5, "prune", "weak"),
+    }
+    changes = plan(items, verdicts, aggressive=True)
     assert sorted(c.nodeid.split("::")[-1] for c in changes) == ["test_a", "test_b"]
 
 
 def test_plan_never_applies_refactor_or_investigate(tmp_path):
     f = tmp_path / "test_x.py"
     f.write_text("def test_a(): pass\ndef test_b(): pass\n")
-    summary = _bundle({
-        "test_x.py::test_a": dict(score=3, verdict="refactor", reason_code="unclear", reason=""),
-        "test_x.py::test_b": dict(score=2, verdict="investigate", reason_code="failing", reason=""),
-    }, f)
-    assert plan(summary, tmp_path, aggressive=True) == []
+    items = _items_by_id("test_x.py::test_a", "test_x.py::test_b", file=f)
+    verdicts = {
+        "test_x.py::test_a": Verdict("test_x.py::test_a", 3, "refactor", "unclear"),
+        "test_x.py::test_b": Verdict("test_x.py::test_b", 2, "investigate", "failing"),
+    }
+    assert plan(items, verdicts, aggressive=True) == []
 
 
 def test_delete_test_removes_function(tmp_path):
@@ -81,9 +81,7 @@ def test_delete_test_removes_function(tmp_path):
     )
     assert _delete_test(f, "test_drop")
     src = f.read_text()
-    assert "test_keep" in src
-    assert "test_other" in src
-    assert "test_drop" not in src
+    assert "test_keep" in src and "test_other" in src and "test_drop" not in src
 
 
 def test_skip_mark_inserts_decorator_and_import(tmp_path):
@@ -106,3 +104,65 @@ def test_skip_mark_idempotent_when_already_skipped(tmp_path):
     before = f.read_text()
     assert _skip_mark_test(f, "test_a", "new reason") is False
     assert f.read_text() == before
+
+
+def test_parse_verdicts_yaml_accepts_top_level_list():
+    raw = [
+        {"nodeid": "a::t1", "score": 1, "verdict": "prune", "reason_code": "tautology"},
+        {"nodeid": "a::t2", "score": 8, "verdict": "keep", "reason_code": "ok"},
+    ]
+    verdicts = _parse_verdicts_yaml(raw)
+    assert set(verdicts.keys()) == {"a::t1", "a::t2"}
+    assert verdicts["a::t1"].verdict == "prune"
+
+
+def test_parse_verdicts_yaml_accepts_dict_wrapper():
+    raw = {"verdicts": [
+        {"nodeid": "a::t1", "score": 4, "verdict": "refactor", "reason_code": "unclear"},
+    ]}
+    verdicts = _parse_verdicts_yaml(raw)
+    assert verdicts["a::t1"].score == 4
+
+
+def test_parse_verdicts_yaml_skips_invalid_entries():
+    raw = [
+        {"nodeid": "ok::t", "score": 1, "verdict": "prune", "reason_code": "x"},
+        "not-a-dict",
+        {"score": 5},  # missing nodeid
+    ]
+    verdicts = _parse_verdicts_yaml(raw)
+    assert list(verdicts.keys()) == ["ok::t"]
+
+
+def test_apply_from_dir_dry_run_against_synthetic_suite(tmp_path):
+    """End-to-end: write verdicts.yaml, apply with dry_run=True, assert plan."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    shutil.copytree(FIXTURE, repo / "tests")
+
+    # Find real nodeids from the synthetic fixture.
+    items = collect(repo)
+    by_name = {it.name: it for it in items}
+
+    stamp = repo / ".canopy" / "test-audits" / "20260428-000000"
+    stamp.mkdir(parents=True)
+    verdicts_payload = {
+        "verdicts": [
+            {"nodeid": by_name["test_always_passes"].nodeid, "score": 1,
+             "verdict": "prune", "reason_code": "tautology", "reason": "no-op"},
+            {"nodeid": by_name["test_env_fragile"].nodeid, "score": 6,
+             "verdict": "prune", "reason_code": "env-fragile",
+             "reason": "missing module"},
+            {"nodeid": by_name["test_subtraction_works"].nodeid, "score": 4,
+             "verdict": "refactor", "reason_code": "name-mismatch",
+             "reason": "rename"},
+            {"nodeid": by_name["test_add_returns_sum"].nodeid, "score": 8,
+             "verdict": "keep", "reason_code": "ok", "reason": ""},
+        ]
+    }
+    (stamp / "verdicts.yaml").write_text(yaml.safe_dump(verdicts_payload))
+
+    result = apply_from_dir(stamp, repo=repo, dry_run=True)
+    actions = sorted((c.nodeid.split("::")[-1], c.action) for c in result.changes)
+    assert actions == [("test_always_passes", "delete"),
+                       ("test_env_fragile", "skip")]

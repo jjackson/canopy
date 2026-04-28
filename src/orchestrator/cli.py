@@ -374,46 +374,45 @@ def brief(model, budget):
     ))
 
 
-@main.command("test-audit")
+@main.group("test-audit")
+def test_audit():
+    """Test-audit tools: build a corpus for the agent to judge, then apply verdicts."""
+
+
+@test_audit.command("collect")
 @click.argument("repo", type=click.Path(exists=True, file_okay=False, path_type=Path),
                 default=".")
-@click.option("--report-only", is_flag=True,
-              help="Read-only: produce the audit but don't open a PR.")
 @click.option("--no-run", is_flag=True,
               help="Skip pytest; static analysis only.")
 @click.option("--reruns", type=int, default=0,
               help="Run the suite N extra times for flake detection (default: 0).")
-@click.option("--scope", type=click.Choice(["all", "changed"]), default="all",
-              help="Audit all tests or only those touching changed files (v1: all only).")
+def test_audit_collect(repo, no_run, reruns):
+    """Build the audit corpus (test inventory + source + runtime) for an agent to read."""
+    from orchestrator.test_audit import collect_corpus
+
+    result = collect_corpus(Path(repo), run_tests=not no_run, reruns=reruns)
+    click.echo(f"corpus: {result.corpus_path}")
+    click.echo(f"stamp_dir: {result.stamp_dir}")
+    click.echo(f"test_count: {result.test_count}")
+    click.echo(f"ran_pytest: {result.ran_pytest}")
+
+
+@test_audit.command("apply")
+@click.argument("stamp_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option("--repo", type=click.Path(exists=True, file_okay=False, path_type=Path),
+              default=None,
+              help="Repo root (default: infer from stamp_dir).")
 @click.option("--aggressive", is_flag=True,
               help="Apply prunes with score 4-6 too. Default: only score 0-3.")
-@click.option("--parallelism", type=int, default=4,
-              help="Concurrent LLM judge calls (default: 4).")
-@click.option("--model", default="haiku",
-              help="Model for the per-test judge (default: haiku).")
-def test_audit_cmd(repo, report_only, no_run, reruns, scope, aggressive,
-                   parallelism, model):
-    """Audit a project's pytest suite and (by default) open a prune-PR."""
-    from orchestrator.test_audit import run_audit, AuditConfig
-    from orchestrator.test_audit.report import render_terminal_summary
+@click.option("--dry-run", is_flag=True,
+              help="Plan changes but don't write or open a PR.")
+def test_audit_apply(stamp_dir, repo, aggressive, dry_run):
+    """Read <stamp_dir>/verdicts.yaml and apply (delete/skip) + open a PR."""
+    from orchestrator.test_audit import apply_audit, render_apply_summary
 
-    cfg = AuditConfig(
-        repo=Path(repo),
-        run_tests=not no_run,
-        reruns=reruns,
-        scope=scope,
-        apply=not report_only,
-        aggressive=aggressive,
-        parallelism=parallelism,
-        judge_model=model,
-    )
-    result = run_audit(cfg)
-    pr = result.apply_result.pr_url if result.apply_result else None
-    click.echo(render_terminal_summary(result.summary, applied_pr=pr))
-    click.echo()
-    click.echo(f"Full report: {result.files['report']}")
-    if result.apply_result and result.apply_result.patch_path:
-        click.echo(f"Patch (gh not available): {result.apply_result.patch_path}")
+    result = apply_audit(Path(stamp_dir), repo=Path(repo) if repo else None,
+                         aggressive=aggressive, dry_run=dry_run)
+    click.echo(render_apply_summary(result))
 
 
 @main.command("patterns")

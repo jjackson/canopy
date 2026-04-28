@@ -1,5 +1,9 @@
 """Apply verdicts: prune (delete) or skip-mark (env-fragile) tests, then open a PR.
 
+`Verdict` lives here since this module is the consumer. The skill writes
+`verdicts.yaml` with whatever shape it likes; `apply_from_dir` parses it
+into Verdict objects and runs `plan` + `_execute`.
+
 Conservative rules (match spec):
   verdict=prune, reason_code=env-fragile  -> add @pytest.mark.skip(...)
   verdict=prune, score <= 3                -> git rm the test
@@ -12,14 +16,25 @@ from __future__ import annotations
 import ast
 import logging
 import re
-import shlex
 import subprocess
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
-from orchestrator.test_audit.aggregator import AuditSummary
+import yaml
+
+from orchestrator.test_audit.collector import TestItem, collect
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class Verdict:
+    nodeid: str
+    score: int
+    verdict: str  # keep | refactor | prune | investigate
+    reason_code: str
+    reason: str = ""
 
 
 @dataclass
@@ -40,14 +55,14 @@ class ApplyResult:
     error: str | None = None
 
 
-def plan(summary: AuditSummary, repo: Path, aggressive: bool = False) -> list[PlannedChange]:
+def plan(items_by_id: dict[str, TestItem], verdicts: dict[str, Verdict],
+         aggressive: bool = False) -> list[PlannedChange]:
     """Return the list of changes the applier would make."""
     out: list[PlannedChange] = []
-    items_by_nodeid = {it.nodeid: it for it in summary.items}
-    for nid, v in summary.verdicts.items():
+    for nid, v in verdicts.items():
         if v.verdict != "prune":
             continue
-        item = items_by_nodeid.get(nid)
+        item = items_by_id.get(nid)
         if item is None:
             continue
         if v.reason_code == "env-fragile":
@@ -72,24 +87,17 @@ def _gh_available() -> bool:
 
 
 def _delete_test(file: Path, name: str) -> bool:
-    """Remove a test function from `file`. Returns True if changed.
-
-    For class-method tests, only the method is removed.
-    If removing leaves an empty class or empty file, we leave the empty stub —
-    it's the user's problem to clean up after the audit lands.
-    """
+    """Remove a test function from `file`. Returns True if changed."""
     src = file.read_text(encoding="utf-8")
     try:
         tree = ast.parse(src)
     except SyntaxError:
         return False
-    # Walk top-level + class bodies; find a FunctionDef matching name.
     target_lines: tuple[int, int] | None = None
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == name:
             start = node.lineno - 1
             end = (getattr(node, "end_lineno", None) or node.lineno) - 1
-            # Walk back over decorators.
             for dec in node.decorator_list:
                 start = min(start, dec.lineno - 1)
             target_lines = (start, end)
@@ -103,10 +111,7 @@ def _delete_test(file: Path, name: str) -> bool:
 
 
 def _skip_mark_test(file: Path, name: str, reason: str) -> bool:
-    """Add `@pytest.mark.skip(reason="...")` decorator to the test function.
-
-    Inserts the import for pytest if missing.
-    """
+    """Add `@pytest.mark.skip(reason=...)` to the test function."""
     src = file.read_text(encoding="utf-8")
     try:
         tree = ast.parse(src)
@@ -121,26 +126,20 @@ def _skip_mark_test(file: Path, name: str, reason: str) -> bool:
     if target is None:
         return False
 
-    # Check for already-skip decorated.
     for dec in target.decorator_list:
         text = ast.unparse(dec) if hasattr(ast, "unparse") else ""
         if "pytest.mark.skip" in text:
-            return False  # already skipped, no change
+            return False
 
-    insert_line = target.lineno - 1  # 0-indexed line of `def ...`
-    # Get indentation of def line.
+    insert_line = target.lineno - 1
     lines = src.splitlines(keepends=True)
-    def_line = lines[insert_line]
-    indent = re.match(r"\s*", def_line).group(0)
-
-    # Sanitize the reason — keep it short and safe in a string literal.
+    indent = re.match(r"\s*", lines[insert_line]).group(0)
     safe_reason = (reason or "audit: env-fragile").replace('"', "'")[:140]
     decorator = f'{indent}@pytest.mark.skip(reason="audit: {safe_reason}")\n'
     lines.insert(insert_line, decorator)
 
     new_src = "".join(lines)
     if "import pytest" not in new_src:
-        # Add it at the top after any module docstring.
         try:
             tree2 = ast.parse(new_src)
             insert_at = 0
@@ -158,24 +157,23 @@ def _skip_mark_test(file: Path, name: str, reason: str) -> bool:
     return True
 
 
-def apply_verdicts(summary: AuditSummary, repo: Path,
-                   aggressive: bool = False, dry_run: bool = False,
+def apply_verdicts(items_by_id: dict[str, TestItem], verdicts: dict[str, Verdict],
+                   repo: Path, aggressive: bool = False, dry_run: bool = False,
+                   pr_body_path: Path | None = None,
                    branch_prefix: str = "test-audit") -> ApplyResult:
     """Plan + execute changes. Open a PR (or write a patch file if gh is missing)."""
-    changes = plan(summary, repo, aggressive=aggressive)
+    changes = plan(items_by_id, verdicts, aggressive=aggressive)
     res = ApplyResult(changes=changes)
     if not changes:
         return res
     if dry_run:
         return res
 
-    # Group by file for fewer reads/writes.
     by_file: dict[Path, list[PlannedChange]] = {}
     for c in changes:
         by_file.setdefault(c.file, []).append(c)
 
     for file, file_changes in by_file.items():
-        # Apply deletions before skips (deletions remove fewer lines later).
         for c in [x for x in file_changes if x.action == "delete"]:
             name = c.nodeid.split("::")[-1]
             if not _delete_test(file, name):
@@ -185,15 +183,13 @@ def apply_verdicts(summary: AuditSummary, repo: Path,
             if not _skip_mark_test(file, name, c.reason):
                 res.skipped.append(c.nodeid)
 
-    # Stage and commit on a branch.
-    from datetime import datetime
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
     branch = f"{branch_prefix}/{stamp}"
     res.branch = branch
 
     git_status = _git("status", "--porcelain", cwd=repo)
     if not git_status.stdout.strip():
-        return res  # nothing changed (all deletes failed silently)
+        return res
 
     cur = _git("rev-parse", "--abbrev-ref", "HEAD", cwd=repo).stdout.strip()
     _git("checkout", "-b", branch, cwd=repo)
@@ -210,30 +206,19 @@ def apply_verdicts(summary: AuditSummary, repo: Path,
         if push.returncode != 0:
             res.error = f"git push failed: {push.stderr[:200]}"
             return res
-        # Use the audit-report.md from .canopy/test-audits/ as the PR body, if present.
-        latest_report = None
-        audits_dir = repo / ".canopy" / "test-audits"
-        if audits_dir.exists():
-            stamps = sorted(audits_dir.iterdir(), reverse=True)
-            if stamps:
-                cand = stamps[0] / "audit-report.md"
-                if cand.exists():
-                    latest_report = cand
         body_arg = ["--body", body]
-        if latest_report:
-            body_arg = ["--body-file", str(latest_report)]
+        if pr_body_path and pr_body_path.exists():
+            body_arg = ["--body-file", str(pr_body_path)]
         pr = subprocess.run(
             ["gh", "pr", "create", "--title", f"test-audit: {stamp}", *body_arg],
             cwd=repo, capture_output=True, text=True,
         )
         if pr.returncode == 0:
-            # gh prints the URL on the last line of stdout.
             url = pr.stdout.strip().splitlines()[-1] if pr.stdout.strip() else ""
             res.pr_url = url
         else:
             res.error = f"gh pr create failed: {pr.stderr[:200]}"
     else:
-        # No gh: emit a patch file the user can apply manually.
         patch = subprocess.run(["git", "format-patch", "-1", "--stdout"],
                                cwd=repo, capture_output=True, text=True)
         patch_path = repo / ".canopy" / "test-audits" / f"{stamp}.patch"
@@ -241,6 +226,55 @@ def apply_verdicts(summary: AuditSummary, repo: Path,
         patch_path.write_text(patch.stdout, encoding="utf-8")
         res.patch_path = patch_path
 
-    # Restore the user's prior branch so they're not stuck on the audit branch.
     _git("checkout", cur, cwd=repo)
     return res
+
+
+# --- High-level: read verdicts.yaml from a stamp dir and act on it ---
+
+def _parse_verdicts_yaml(data: dict | list) -> dict[str, Verdict]:
+    """Accept either {'verdicts': [...]} or a top-level list of verdict dicts."""
+    out: dict[str, Verdict] = {}
+    entries: list[dict] = []
+    if isinstance(data, dict):
+        entries = list(data.get("verdicts", []))
+    elif isinstance(data, list):
+        entries = data
+    for e in entries:
+        if not isinstance(e, dict) or "nodeid" not in e:
+            continue
+        nid = str(e["nodeid"])
+        out[nid] = Verdict(
+            nodeid=nid,
+            score=int(e.get("score", 0)),
+            verdict=str(e.get("verdict", "investigate")).lower(),
+            reason_code=str(e.get("reason_code", "unknown")),
+            reason=str(e.get("reason", "") or ""),
+        )
+    return out
+
+
+def apply_from_dir(stamp_dir: Path, repo: Path | None = None,
+                   aggressive: bool = False, dry_run: bool = False) -> ApplyResult:
+    """Read `<stamp_dir>/verdicts.yaml`, re-collect tests in `repo`, apply.
+
+    If `repo` is omitted, infer from `stamp_dir` assuming it lives at
+    `<repo>/.canopy/test-audits/<stamp>/`.
+    """
+    verdicts_path = stamp_dir / "verdicts.yaml"
+    if not verdicts_path.exists():
+        raise FileNotFoundError(f"verdicts.yaml not found in {stamp_dir}")
+    if repo is None:
+        repo = stamp_dir.parent.parent.parent
+    repo = repo.resolve()
+
+    data = yaml.safe_load(verdicts_path.read_text(encoding="utf-8")) or {}
+    verdicts = _parse_verdicts_yaml(data)
+    items_by_id = {it.nodeid: it for it in collect(repo)}
+
+    pr_body = stamp_dir / "audit-report.md"
+    return apply_verdicts(
+        items_by_id, verdicts, repo,
+        aggressive=aggressive, dry_run=dry_run,
+        pr_body_path=pr_body if pr_body.exists() else None,
+    )
