@@ -10,3 +10,4 @@ uv.lock
 .gstack/
 .claude/settings.local.json
 .canopy/
+.claude/worktrees/

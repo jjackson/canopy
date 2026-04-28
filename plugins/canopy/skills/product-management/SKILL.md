@@ -35,6 +35,15 @@ Logs outcomes & learns
 - **Claude gets focused context** — one project, one task, clear acceptance criteria
 - **Learning accumulates** in files that persist across sessions
 
+## Two modes
+
+This skill has two operating modes. The phases below describe the **human-gated** mode in detail — that is the original and default behavior.
+
+- **Human-gated** (the Phase 0–6 procedure below). Entry point: `/canopy:pm-scout`. Phase 3 stops on `AskUserQuestion` for per-proposal disposition. Single sprint, exits when dispositions are recorded. **Unchanged.**
+- **Autonomous.** Entry points: `/canopy:pm-autonomous` (one sprint) and `/canopy:pm-autonomous-loop` (sprint → wait → repeat). Auto-approves its own proposals. Runs a multi-layer convince-self-it's-clean gate, auto-merges on green CI, auto-deploys, and ends each sprint by sending a working-backwards release-notes email. Requires `.claude/pm/autonomous.yaml`. See **Autonomous mode** below.
+
+When in doubt, the human-gated mode is the right default. Autonomous mode is opt-in per project via the config file.
+
 ## Project State Convention
 
 All project-level data lives in `.claude/pm/` within the current project:
@@ -298,6 +307,32 @@ Write run log to `.claude/pm/runs/YYYY-MM-DD-<lens>.md`:
 Update `.claude/pm/learnings.md` with any new closed items or preferences.
 
 **2. Evaluate for universal improvements** (see Self-Improvement Protocol below).
+
+## Autonomous mode
+
+The procedure for autonomous sprints lives in template files. Read them in order at the start of every autonomous run:
+
+1. `templates/autonomous/config-schema.md` — `.claude/pm/autonomous.yaml` schema and example
+2. `templates/autonomous/cycle.md` — Phases A–E (the working-backwards sprint)
+3. `templates/autonomous/convince-self-gate.md` — the multi-layer gate that runs before every PR
+4. `templates/autonomous/email-format.md` — body template for the working-backwards release-notes email
+
+These templates are read using the Read tool from the cached plugin path:
+
+```bash
+PLUGIN_PATH=$(python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugins.json')); print(d['plugins']['canopy@canopy'][0]['installPath'])")
+ls "$PLUGIN_PATH/skills/product-management/templates/autonomous/"
+```
+
+The autonomous mode does NOT modify the human-gated Phase 0–6 procedure above. `/canopy:pm-scout` still runs the human-gated path verbatim.
+
+### Hard rules for autonomous mode
+
+1. **No proposal advances without passing the convince-self gate.** Mechanical checks, five self-review questions, dogfood (when applicable), post-deploy health.
+2. **No weak emails.** Phase A loops until the email draft passes Clear/Testable/Impressive. Phase D refuses to send if reality diverged into something not worth sending — it sends a stuck-state note instead.
+3. **One autonomous PR in flight at a time.** Resume an open one before opening a new one.
+4. **No auto-revert on broken prod.** Fix forward, up to `guardrails.max_fix_forward_attempts` cycles, then stop with a stuck-state email.
+5. **The skill stays project-agnostic.** Every project-specific value (deploy command, health URLs, sender skill, branch prefix, test commands) lives in `.claude/pm/autonomous.yaml`. Never hardcode them in SKILL.md or templates.
 
 ## Self-Improvement Protocol
 
