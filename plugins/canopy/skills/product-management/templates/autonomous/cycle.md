@@ -14,7 +14,9 @@ Run sequentially, NOT in parallel (`$CANOPY_PM_DIR` may not exist yet on a fresh
 
    ```bash
    PLUGIN_PATH=$(python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugins.json')); print(d['plugins']['canopy@canopy'][0]['installPath'])")
-   CANOPY_PM_DIR="$HOME/.canopy/pm/$(basename "$(git rev-parse --show-toplevel)")"
+   CANOPY_PM_PROJECT=$(git config --get remote.origin.url 2>/dev/null | sed 's|.*[/:]||;s|\.git$||')
+   [ -z "$CANOPY_PM_PROJECT" ] && CANOPY_PM_PROJECT=$(basename "$(dirname "$(git rev-parse --git-common-dir 2>/dev/null)")")
+   CANOPY_PM_DIR="$HOME/.canopy/pm/$CANOPY_PM_PROJECT"
    mkdir -p "$CANOPY_PM_DIR"
    ```
 
@@ -22,9 +24,9 @@ Run sequentially, NOT in parallel (`$CANOPY_PM_DIR` may not exist yet on a fresh
 
    - `email.to` = `git config user.email`
    - `email.from` = same as `email.to` for v1 (the user can swap to a service mailbox later)
-   - `email.subject_prefix` = `[<basename of repo>]` (from `git rev-parse --show-toplevel`)
+   - `email.subject_prefix` = `[$CANOPY_PM_PROJECT]` (the project name resolved in step 1 — origin URL → git-common-dir parent fallback; NOT `basename` of `git rev-parse --show-toplevel`, which breaks in worktrees)
    - `email.sender_skill` = if `~/.claude/plugins/installed_plugins.json` lists `ace@ace`, use `ace:email-communicator`; otherwise leave the literal string `ace:email-communicator` and proceed (the user can swap it in `$CANOPY_PM_DIR/autonomous.yaml` if a different sender ships first)
-   - `shipping.branch_prefix` = `<basename of repo>/auto/`
+   - `shipping.branch_prefix` = `$CANOPY_PM_PROJECT/auto/`
    - `shipping.pr_label` = `autonomous`
    - `shipping.merge` = `squash`
    - `shipping.deploy_command` and `shipping.deploy_workflow` — look in `.github/workflows/` for the most recently-modified `deploy*.yml` and use it. If none exists, write `echo "no deploy configured"` / `none.yml` and continue (the gate will catch deploy failures later if they matter)
@@ -120,9 +122,21 @@ Reality always diverges from plan. Before sending the email:
 
 ## Phase E — Send + stop
 
-1. Render the email body to `$CANOPY_PM_DIR/sent-emails/<YYYY-MM-DD-theme-slug>/email.md`. Copy the dogfood screenshots into the same directory's `screenshots/` subfolder.
-2. Invoke `email.sender_skill` with `subject`, `body_markdown`, `attachments`.
-3. Mirror the merged work into local `main` and return the worktree to its starting state:
+The email MUST be HTML, with hero screenshots captured from prod, hosted via persistent https URLs, and laid out per `email-format.md`'s reference template. Read that file first — its **Hard rules** section is non-negotiable. Phase E has 8 substeps; do not skip E.4 or E.5.
+
+1. **Capture prod screenshots.** Drive the deployed app via the configured `headless_browser_skill`, authenticate via the project's automation login (e.g. `/auth/e2e-login/` for ace-web), and snap each surface named in a "Try it" line of the target email. Save under `$CANOPY_PM_DIR/sent-emails/<sprint-slug>/screenshots/`. If a surface isn't reachable in prod (e.g. a "disconnected" branch masked by a global fallback), describe it textually in the body — don't substitute a localhost shot.
+
+2. **Publish screenshots to a persistent branch on the PROJECT'S repo** (the project being PM'd, not canopy). Create `pm-assets/<sprint-slug>` from `origin/main`, commit the screenshots under a path mirroring the canopy state path (e.g. `.claude/pm/sent-emails/<sprint-slug>/screenshots/`), and push to origin (no PR — this branch is asset hosting, not code). Verify each `https://raw.githubusercontent.com/<owner>/<repo>/pm-assets/<sprint-slug>/.../<file>.png` URL returns HTTP 200. The branch lives on the project's origin forever; the email's `<img>` URLs resolve forever.
+
+3. **Render the email body to HTML.** Use the canonical layout in `email-format.md` (brand bar, hero, per-highlight blocks with `<img>` referencing the raw.githubusercontent.com URLs from step 2, footer with internal notes). Save to `$CANOPY_PM_DIR/sent-emails/<sprint-slug>/email.html`. Also save the markdown working draft to `.../email.md` for the cycle archive. Per Hard rule #5: every highlight's `<h2>` AND `<img>` must wrap in `<a href="<TRY-IT-URL>">`.
+
+4. **E.4 pre-send rendering check (gate).** Before invoking the sender skill, render `email.html` via `headless_browser_skill` at 1280×800 (desktop) and 375×812 (mobile). Save shots as `screenshots/email-rendered-{desktop,mobile}.png` under the sprint dir. Look at them — do all hero images load? Do titles look like links? Is the headline sharp? Is mobile not wrapped/broken? If anything is off, fix the HTML and re-render. See `email-format.md` "Self-review" section for the full checklist.
+
+5. **Invoke `email.sender_skill`** with `subject`, `body_html` (the rendered file from step 3), and `body_text` (a generic "please view as HTML" fallback). Generally do NOT pass `attachments` — `cid:` refs do not resolve when sender skills produce `multipart/mixed`, and Gmail-rendering of attached images is unreliable. Hosted https URLs are the contract. Capture the returned `messageId` and `threadId` for the run log.
+
+6. **E.5 post-send self-critique.** Re-render `email.html` if step 4 was passed without changes; otherwise the gate's render is current. Write a short critique into the run log under a `### Phase E.5 — post-send self-review` heading. List 2-4 concrete improvement ideas ranked by impact. The email is already sent — these feed the *next* cycle and, if structural, become a follow-up canopy PR. Surface the critique to the user as the cycle's closing message: include sender skill ID, message ID, screenshot file paths, and the ranked improvement ideas so the user can see exactly what shipped and what you'd change.
+
+7. **Return the worktree to its starting branch.**
 
    ```bash
    git fetch origin main:main 2>/dev/null || true   # update local main if not currently checked out elsewhere
@@ -131,8 +145,7 @@ Reality always diverges from plan. Before sending the email:
 
    If `git fetch origin main:main` fails (because local main is checked out in another worktree, common in emdash setups), that's fine — origin/main is the source of truth and the next sprint will pick it up via `git fetch origin main`. Don't error on it.
 
-4. Stop the loop. Exit cleanly.
-5. The `/canopy:pm-autonomous-loop` wrapper, if it invoked us, will sleep until "keep going" or 24h timeout — see `pm-autonomous-loop.md`.
+8. Stop the loop. Exit cleanly. The `/canopy:pm-autonomous-loop` wrapper, if it invoked us, will sleep until "keep going" or 24h timeout — see `pm-autonomous-loop.md`.
 
 ## State that persists across sprints
 
