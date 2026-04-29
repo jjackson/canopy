@@ -214,6 +214,66 @@ def find_overlap(
     return None
 
 
+def _score_entry(query_tokens: list[str], entry: dict) -> float:
+    """Score a catalog entry against query tokens.
+
+    Combines:
+    - Token overlap with the skill `name` (weighted heavily — 3x per hit)
+    - Substring hits in the qualified name (2x per hit)
+    - Token overlap in the description (1x per hit)
+    - Bonus for exact substring of the full query string in name/qualified
+
+    Higher is better. Zero means no match at all.
+    """
+    if not query_tokens:
+        return 0.0
+    name = entry.get("name", "").lower()
+    qualified = entry.get("qualified", "").lower()
+    description = (entry.get("description") or "").lower()
+    score = 0.0
+    for tok in query_tokens:
+        if not tok:
+            continue
+        if tok in name:
+            score += 3.0
+        if tok in qualified and tok not in name:
+            score += 2.0
+        if tok in description:
+            score += 1.0
+    # Whole-query exact-substring bonus
+    full = " ".join(query_tokens)
+    if full and full in name:
+        score += 5.0
+    elif full and full in qualified:
+        score += 3.0
+    elif full and full in description:
+        score += 2.0
+    return score
+
+
+def find_skills(
+    query: str,
+    catalog: Iterable[dict],
+    limit: int = 5,
+) -> list[dict]:
+    """Fuzzy-match a free-text query against catalog entries.
+
+    Matches against `name` and `description`, returning the top `limit` entries
+    sorted by score (descending). Entries with zero score are omitted.
+    """
+    if not query or not query.strip():
+        return []
+    tokens = [t for t in re.split(r"[\s,;:/]+", query.lower()) if t]
+    scored: list[tuple[float, dict]] = []
+    for entry in catalog:
+        s = _score_entry(tokens, entry)
+        if s > 0:
+            scored.append((s, entry))
+    # Stable sort: highest score first, ties broken by qualified name
+    scored.sort(key=lambda pair: (-pair[0], pair[1].get("qualified", "")))
+    return [entry for _, entry in scored[:limit]]
+
+
 def format_for_prompt(catalog: list[dict], max_entries: int = 200) -> str:
     """Render the catalog as a compact list suitable for an LLM prompt."""
     if not catalog:
