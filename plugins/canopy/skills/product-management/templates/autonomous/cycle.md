@@ -16,19 +16,37 @@ Run sequentially, NOT in parallel (`.claude/pm/` may not exist yet on a fresh pr
    PLUGIN_PATH=$(python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugins.json')); print(d['plugins']['canopy@canopy'][0]['installPath'])")
    ```
 
-2. Validate `.claude/pm/autonomous.yaml`. The validator declares its YAML dep via PEP 723 inline metadata, so invoke it with `uv run --script` (NOT plain `python3`) — that way uv resolves PyYAML on the fly without requiring it on the user's system python:
+2. **If `.claude/pm/autonomous.yaml` is MISSING, bootstrap it before validating — do NOT ask the user.** This skill defaults to autonomous; the user has already opted in by running this command. Derive defaults from project signals and write the file directly:
+
+   - `email.to` = `git config user.email`
+   - `email.from` = same as `email.to` for v1 (the user can swap to a service mailbox later)
+   - `email.subject_prefix` = `[<basename of repo>]` (from `git rev-parse --show-toplevel`)
+   - `email.sender_skill` = if `~/.claude/plugins/installed_plugins.json` lists `ace@ace`, use `ace:email-communicator`; otherwise leave the literal string `ace:email-communicator` and proceed (the user can swap it in `.claude/pm/autonomous.yaml` if a different sender ships first)
+   - `shipping.branch_prefix` = `<basename of repo>/auto/`
+   - `shipping.pr_label` = `autonomous`
+   - `shipping.merge` = `squash`
+   - `shipping.deploy_command` and `shipping.deploy_workflow` — look in `.github/workflows/` for the most recently-modified `deploy*.yml` and use it. If none exists, write `echo "no deploy configured"` / `none.yml` and continue (the gate will catch deploy failures later if they matter)
+   - `shipping.post_deploy_health` — look for any URL in README.md / CLAUDE.md matching `https?://[^ ]+/(health|api/health|healthz)`. If none, fall back to `["https://example.invalid/health"]` and continue (a 5xx is fine, the cycle will fix-forward)
+   - `testing.unit` / `lint` / `types` — guess by detecting `pyproject.toml` (→ `uv run pytest -q` / `uv run ruff check .` / `uv run mypy .`), `package.json` (→ `npm test` / `npm run lint` / `npm run typecheck`), or fall back to `true` (no-op) for any not detectable
+   - `testing.dogfood.start_command` — if `docker-compose.yml` or `compose.yaml` exists, use `docker compose up -d`; otherwise `true`. `wait_for` and `base_url` default to `http://localhost:8000/health` and `http://localhost:8000`. `headless_browser_skill` = `gstack`
+   - `guardrails`: `one_pr_in_flight: true`, `diff_size_limit_lines: 1500`, `max_fix_forward_attempts: 3`
+   - `theme_detection.lens_rotation`: `[user-value, adoption-blockers, integration-depth, trust-reliability, tech-debt]`
+
+   Write the YAML to `.claude/pm/autonomous.yaml`, print a single line: `Bootstrapped .claude/pm/autonomous.yaml from project defaults (deploy=<workflow-or-none>, sender=<sender>, lens_rotation=5).` Then continue. Do NOT ask the user to confirm — they can edit the file later if anything's wrong.
+
+3. Validate `.claude/pm/autonomous.yaml`. The validator declares its YAML dep via PEP 723 inline metadata, so invoke it with `uv run --script` (NOT plain `python3`) — that way uv resolves PyYAML on the fly without requiring it on the user's system python:
 
    ```bash
    uv run --script "$PLUGIN_PATH/skills/product-management/scripts/validate_autonomous_config.py" .claude/pm/autonomous.yaml
    ```
 
-   Refuse to run on non-zero exit. Print the validator stderr and stop. If `uv` is missing on the user's system, ask them to install it (`brew install uv` or `pip install uv`) and stop.
+   Refuse to run on non-zero exit. Print the validator stderr and stop. If `uv` is missing on the user's system, ask them to install it (`brew install uv` or `pip install uv`) and stop. Note: if the file existed already (i.e. the user supplied it), still validate — never silently overwrite a user-supplied config.
 
-3. Read `.claude/pm/context.md` and `.claude/pm/learnings.md`. If `context.md` is missing, run the existing skill's bootstrap flow first (see SKILL.md "Bootstrapping: Building context.md"), THEN re-enter Phase 0.
+4. Read `.claude/pm/context.md` and `.claude/pm/learnings.md`. If `context.md` is missing, run the existing skill's bootstrap flow first (see SKILL.md "Bootstrapping: Building context.md"), THEN re-enter Phase 0.
 
-4. Confirm git state: clean working tree, on `main`, fully up-to-date (`git fetch && git status`).
+5. Confirm git state: clean working tree, on `main`, fully up-to-date (`git fetch && git status`).
 
-5. Confirm only ONE autonomous PR is in flight (per `guardrails.one_pr_in_flight`). Query:
+6. Confirm only ONE autonomous PR is in flight (per `guardrails.one_pr_in_flight`). Query:
 
    ```bash
    gh pr list --label "$PR_LABEL" --state open --json number,headRefName

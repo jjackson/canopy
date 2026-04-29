@@ -50,6 +50,21 @@ def test_cycle_template_mentions_all_phases() -> None:
         assert phase in content, f"cycle.md missing {phase}"
 
 
+def test_cycle_template_auto_bootstraps_config() -> None:
+    """Phase 0 must auto-create autonomous.yaml when missing, never prompt the user.
+
+    The skill's design rule: once invoked, it doesn't ask permission for setup
+    decisions the user has already implicitly authorized by running the command.
+    """
+    content = (TEMPLATES / "cycle.md").read_text()
+    assert "MISSING" in content and "bootstrap" in content.lower(), (
+        "cycle.md Phase 0 must explicitly handle missing autonomous.yaml by bootstrapping"
+    )
+    assert "do NOT ask the user" in content or "do NOT prompt" in content.lower(), (
+        "cycle.md Phase 0 must explicitly forbid prompting on autonomous.yaml bootstrap"
+    )
+
+
 def test_gate_template_lists_five_self_review_questions() -> None:
     content = (TEMPLATES / "convince-self-gate.md").read_text()
     # Each of the five questions is numbered 1.–5. in spec §3b.

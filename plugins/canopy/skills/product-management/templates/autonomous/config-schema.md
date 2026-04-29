@@ -1,6 +1,6 @@
 # autonomous.yaml — Schema and Example
 
-This file is required at `.claude/pm/autonomous.yaml` for any project that adopts the autonomous mode of `canopy:product-management`. Without it, `/canopy:pm-autonomous` and `/canopy:pm-autonomous-loop` refuse to run.
+This file lives at `.claude/pm/autonomous.yaml` for any project that adopts the autonomous mode of `canopy:product-management`. If it's missing on first run, Phase 0 of `cycle.md` **auto-bootstraps it from project signals** (git config, repo basename, deploy workflows in `.github/workflows/`, `pyproject.toml`/`package.json`, README health URLs, docker-compose presence) and continues without prompting. The user can edit the file later if any defaults are wrong; the skill never silently overwrites an already-existing config.
 
 The skill is deliberately project-agnostic — every project-specific knob lives here.
 
