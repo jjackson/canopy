@@ -84,13 +84,35 @@ module named …`, `fixture not found`, `Docker`, `connection refused`, or
 similar: set `verdict=prune` AND `reason_code=env-fragile`. The applier
 will skip-mark these (not delete them).
 
-**Cross-test redundancy:**
-This is the part where you reason across the suite. Look for groups of
-tests that exercise the same source function with the same shape (e.g.,
-three tests that all just assert different inputs of `add()` produce
-expected outputs). Pick the most expressive one as the keeper, mark the
-others `verdict=prune`, `reason_code=redundant-with-sibling`, and cite
-the keeper in `reason`.
+**Cross-test redundancy — read sibling tests, don't pattern-match.**
+This is the part where you reason across the suite. The default trap is
+to default everything to `keep` because no test is *obviously* broken.
+That's a rubber stamp, not an audit. Counter it like this:
+
+For every TestCase class or every cluster of tests in the same file that
+target the same source function, **read the sibling tests** and ask:
+
+> Does this test exercise a code path that is not already exercised by
+> another test in this cluster?
+
+If the answer is no, mark it `verdict=prune`,
+`reason_code=redundant-with-sibling`, score 2–3, cite the keeper in
+`reason`. Common shapes:
+
+- `test_three_servers_returns_X` next to `test_two_servers_returns_X` —
+  both hit the same `len(distinct) >= 2` branch. Prune the larger one.
+- `test_one_entry_returns_X` next to `test_single_session_returns_X` —
+  both hit the single-server path. Prune the degenerate.
+- `test_returns_path_object` checking `isinstance(result, Path)` when
+  the function signature is `-> Path` — tautology, prune.
+- `test_result_has_both_keys` that only asserts dict shape, never
+  behavior — weak-assertion, score 4 refactor (or prune if a sibling
+  proves the same shape implicitly).
+- Two tests that build the same input via different surface syntax (kwargs
+  vs positional) and assert the same output — refactor/prune the second.
+
+Pick the most expressive test as the keeper. The keeper should be the one
+whose name and body together communicate the most about the contract.
 
 **reason_code suggestions** (use these slugs for consistency):
 `ok`, `tautology`, `no-meaningful-assertion`, `mock-of-cut`,
