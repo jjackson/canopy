@@ -9,16 +9,22 @@ Show a quick overview of PM skill state for the current project.
 
 ## Process
 
-1. Check if `.claude/pm/context.md` exists. If not, say "PM not bootstrapped for this project. Run `/pm-scout` to get started."
+0. Resolve the PM state directory:
 
-2. Read `.claude/pm/context.md` and show the project name and "What Matters Most" section.
+   ```bash
+   CANOPY_PM_DIR="$HOME/.canopy/pm/$(basename "$(git rev-parse --show-toplevel)")"
+   ```
 
-3. List files in `.claude/pm/runs/` sorted by date. Show:
+1. Check if `$CANOPY_PM_DIR/context.md` exists. If not, say "PM not bootstrapped for this project. Run `/pm-scout` to get started."
+
+2. Read `$CANOPY_PM_DIR/context.md` and show the project name and "What Matters Most" section.
+
+3. List files in `$CANOPY_PM_DIR/runs/` sorted by date. Show:
    - **Last run**: date and lens (from filename)
    - **Next lens**: the next in rotation (user-value → adoption-blockers → integration-depth → trust-reliability → tech-debt → user-value)
    - **Total runs**: count of run files
 
-4. Read `.claude/pm/learnings.md` and show:
+4. Read `$CANOPY_PM_DIR/learnings.md` and show:
    - **Closed items**: count and last 3 titles
    - **Preferences**: count
 

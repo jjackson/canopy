@@ -1,6 +1,6 @@
 # autonomous.yaml — Schema and Example
 
-This file lives at `.claude/pm/autonomous.yaml` for any project that adopts the autonomous mode of `canopy:product-management`. If it's missing on first run, Phase 0 of `cycle.md` **auto-bootstraps it from project signals** (git config, repo basename, deploy workflows in `.github/workflows/`, `pyproject.toml`/`package.json`, README health URLs, docker-compose presence) and continues without prompting. The user can edit the file later if any defaults are wrong; the skill never silently overwrites an already-existing config.
+This file lives at `~/.canopy/pm/<project>/autonomous.yaml` for any project that adopts the autonomous mode of `canopy:product-management`. The `<project>` part is `basename` of the repo root (resolved as `$CANOPY_PM_DIR` in Phase 0). If it's missing on first run, Phase 0 of `cycle.md` **auto-bootstraps it from project signals** (git config, repo basename, deploy workflows in `.github/workflows/`, `pyproject.toml`/`package.json`, README health URLs, docker-compose presence) and continues without prompting. The user can edit the file later if any defaults are wrong; the skill never silently overwrites an already-existing config.
 
 The skill is deliberately project-agnostic — every project-specific knob lives here.
 
@@ -34,7 +34,8 @@ Run the validator manually with:
 
 ```bash
 PLUGIN_PATH=$(python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugins.json')); print(d['plugins']['canopy@canopy'][0]['installPath'])")
-uv run --script "$PLUGIN_PATH/skills/product-management/scripts/validate_autonomous_config.py" .claude/pm/autonomous.yaml
+CANOPY_PM_DIR="$HOME/.canopy/pm/$(basename "$(git rev-parse --show-toplevel)")"
+uv run --script "$PLUGIN_PATH/skills/product-management/scripts/validate_autonomous_config.py" "$CANOPY_PM_DIR/autonomous.yaml"
 ```
 
 The validator's YAML dependency is declared inline (PEP 723) so `uv run --script` resolves it on the fly. Plain `python3` will fail unless your system python already has PyYAML.
