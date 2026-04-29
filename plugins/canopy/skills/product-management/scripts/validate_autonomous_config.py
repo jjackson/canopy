@@ -113,6 +113,10 @@ def validate(cfg: Any) -> list[str]:
     if lenses is _MISSING or not isinstance(lenses, list) or not lenses:
         errors.append("theme_detection.lens_rotation: must be a non-empty list")
 
+    prepare = _get(cfg, "testing.prepare")
+    if prepare is not _MISSING and not (isinstance(prepare, str) and prepare):
+        errors.append("testing.prepare: if present, must be a non-empty string")
+
     return errors
 
 

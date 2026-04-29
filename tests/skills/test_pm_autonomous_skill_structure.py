@@ -74,9 +74,9 @@ def test_gate_template_lists_five_self_review_questions() -> None:
 
 def test_email_template_has_three_sections() -> None:
     content = (TEMPLATES / "email-format.md").read_text()
-    assert "## Highlights" in content
-    assert "## * Internal notes" in content
-    assert "## ** Canopy self-improvement notes" in content
+    assert "## Hard rules" in content
+    assert "## Layout" in content
+    assert "## Self-review" in content
 
 
 def test_pm_autonomous_command_frontmatter() -> None:

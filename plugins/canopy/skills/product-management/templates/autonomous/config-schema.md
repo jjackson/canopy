@@ -19,6 +19,7 @@ The skill is deliberately project-agnostic — every project-specific knob lives
 | `shipping.deploy_workflow` | str | Workflow filename, used to poll deploy status |
 | `shipping.post_deploy_health` | list[str] | Non-empty list of URLs polled after deploy |
 | `testing.unit` / `testing.lint` / `testing.types` | str | Mechanical-check commands run by the gate |
+| `testing.prepare` | str (optional) | Bootstrap command run once per sprint at the top of Phase 0, BEFORE any mechanical check. Use this when fresh worktrees lack `.venv` / `node_modules` / similar. Two confirming cycles on ace-web showed mechanical checks fail in fresh emdash worktrees because deps aren't built — prepare closes that gap |
 | `testing.dogfood.start_command` | str | Brings the local stack up |
 | `testing.dogfood.wait_for` | str | URL polled until the stack is ready |
 | `testing.dogfood.base_url` | str | Root URL the headless browser drives |
@@ -63,6 +64,9 @@ shipping:
     - https://labs.connect.dimagi.com/ace/api/health
 
 testing:
+  # Optional: runs once at the top of Phase 0. Skip if your worktrees always
+  # have deps built. ace-web needs this because emdash worktrees start empty.
+  prepare: bash -c "uv sync && uv pip install pytest pytest-django pytest-asyncio fakeredis ruff && (cd frontend && npm install)"
   unit:    .venv/bin/python -m pytest -q
   lint:    .venv/bin/python -m ruff check .
   types:   bash -c "cd frontend && node_modules/.bin/tsc -b"

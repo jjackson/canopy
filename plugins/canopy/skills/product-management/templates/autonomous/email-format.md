@@ -127,13 +127,21 @@ The email is the only customer-facing output of the cycle. The user's delight de
 
 1. Render `email.html` via `headless_browser_skill` at 1280×800 (desktop) and 375×812 (mobile).
 2. Screenshot both, save as `$EMAIL_WORKDIR/screenshots/email-rendered-{desktop,mobile}.png`. They'll be pushed to the `pm-assets/<sprint-slug>` branch alongside the prod feature shots.
-3. Look at the screenshots and answer:
+3. Look at the screenshots and answer the **structural checklist** (Hard-rule violations — must all PASS):
    - Do all hero images load? (Hosted https URLs return 200 — verify with curl too.)
    - Does every highlight title look like a link? (Hard rule #5: title + image must wrap in `<a>`.)
    - Is the headline a sharp single sentence, not a paragraph?
    - Does the visual hierarchy match Linear/Stripe/Vercel — typographic, not boxed?
    - Mobile: does the brand-bar text wrap awkwardly? Are images full-bleed?
-4. If any answer is "no" or "ehh": fix the HTML and re-render. Do NOT send a "good enough" version. Send is the closing of the cycle, not a thing to rush.
+
+   Then answer the **common-issues checklist** (visual-quality risks surfaced from real post-send critiques — flag and fix when they apply):
+   - **Hero pitch length** — is the value pitch ≤ 2 punchy sentences? Three sentences reads like a lede paragraph and buries the headline. (Source: 2026-04-28-first-chat-path E.5.)
+   - **Screenshot framing** — do the screenshots feel embedded, or pasted-in? Full dark-themed app shots against a light email background jar visually. Two fixes: (a) crop tighter to the new feature surface, OR (b) wrap each `<img>` in a soft frame/shadow so it reads as a figure, not a foreign object.
+   - **One highlight = one image (or an honest composite)** — if the body text describes three branches/states/variants, a single screenshot showing one of them misleads. Either show a 3-up composite or rewrite the body to focus on the surface actually shown.
+   - **Heavy `<code>` runs** — long literal strings rendered as inline `<code>` at body font size are too dense. Pull-quote a long literal onto its own line. In the footer, multiple inline `<code>` chunks in one sentence is noise; plain text reads better at footer scale.
+   - **Sign-off line** — there should be a one-line human-feeling sign-off (e.g. `— ACE autonomous PM, on behalf of the Dimagi ACE team`) before the boilerplate "Sent automatically..." footer, otherwise the footer feels impersonal.
+   - **Mobile brand-bar wrap** — at 375px, long product names (`ACE WEB · RELEASE NOTES`) wrap onto two lines. Either shorten (`ACE · RELEASE NOTES`) or stack the date below explicitly with deliberate spacing.
+4. If any **structural** check fails, fix the HTML and re-render — these are gate-blocking. If any **common-issue** check flags, fix when cheap (most are 1-2 line tweaks); if a fix would derail the send and the email is otherwise strong, log the issue under E.5 and carry it to the next cycle. Do NOT send a "good enough" version on structural issues — Send is the closing of the cycle, not a thing to rush.
 
 **E.5 — post-send self-critique (learning):**
 

@@ -23,7 +23,7 @@ Run sequentially, NOT in parallel (`$CANOPY_PM_DIR` may not exist yet on a fresh
 2. **If `$CANOPY_PM_DIR/autonomous.yaml` is MISSING, bootstrap it before validating — do NOT ask the user.** This skill defaults to autonomous; the user has already opted in by running this command. Derive defaults from project signals and write the file directly:
 
    - `email.to` = `git config user.email`
-   - `email.from` = same as `email.to` for v1 (the user can swap to a service mailbox later)
+   - `email.from` = same as `email.to` for v1, EXCEPT: if the detected `email.sender_skill` is a known service-mailbox skill, use that mailbox. Known mapping today: `ace:email-communicator` → `ace@dimagi-ai.com`. When applying a service mapping, also print a single extra line: `email.from defaulted to <service-address> based on sender skill <skill>; edit autonomous.yaml if wrong.` This avoids the post-bootstrap manual fixup that was needed on ace-web.
    - `email.subject_prefix` = `[$CANOPY_PM_PROJECT]` (the project name resolved in step 1 — origin URL → git-common-dir parent fallback; NOT `basename` of `git rev-parse --show-toplevel`, which breaks in worktrees)
    - `email.sender_skill` = if `~/.claude/plugins/installed_plugins.json` lists `ace@ace`, use `ace:email-communicator`; otherwise leave the literal string `ace:email-communicator` and proceed (the user can swap it in `$CANOPY_PM_DIR/autonomous.yaml` if a different sender ships first)
    - `shipping.branch_prefix` = `$CANOPY_PM_PROJECT/auto/`
@@ -32,7 +32,7 @@ Run sequentially, NOT in parallel (`$CANOPY_PM_DIR` may not exist yet on a fresh
    - `shipping.deploy_command` and `shipping.deploy_workflow` — look in `.github/workflows/` for the most recently-modified `deploy*.yml` and use it. If none exists, write `echo "no deploy configured"` / `none.yml` and continue (the gate will catch deploy failures later if they matter)
    - `shipping.post_deploy_health` — look for any URL in README.md / CLAUDE.md matching `https?://[^ ]+/(health|api/health|healthz)`. If none, fall back to `["https://example.invalid/health"]` and continue (a 5xx is fine, the cycle will fix-forward)
    - `testing.unit` / `lint` / `types` — guess by detecting `pyproject.toml` (→ `uv run pytest -q` / `uv run ruff check .` / `uv run mypy .`), `package.json` (→ `npm test` / `npm run lint` / `npm run typecheck`), or fall back to `true` (no-op) for any not detectable
-   - `testing.dogfood.start_command` — if `docker-compose.yml` or `compose.yaml` exists, use `docker compose up -d`; otherwise `true`. `wait_for` and `base_url` default to `http://localhost:8000/health` and `http://localhost:8000`. `headless_browser_skill` = `gstack`
+   - `testing.prepare` — OMIT by default (the field is optional). Only emit it for split-stack projects (BOTH `pyproject.toml` AND `frontend/package.json` or `web/package.json`) that regularly start sprints in fresh worktrees with empty deps. If emitted, default to `bash -c "uv sync && (cd frontend && npm install)"` (adjust the frontend path to match what the repo uses). The user can broaden it later by editing the file (e.g. add `uv pip install` for dev deps not in the lock).
    - `guardrails`: `one_pr_in_flight: true`, `diff_size_limit_lines: 1500`, `max_fix_forward_attempts: 3`
    - `theme_detection.lens_rotation`: `[user-value, adoption-blockers, integration-depth, trust-reliability, tech-debt]`
 
@@ -64,6 +64,25 @@ Run sequentially, NOT in parallel (`$CANOPY_PM_DIR` may not exist yet on a fresh
    ```
 
    If a previous autonomous PR is still open, RESUME that PR instead of starting fresh — pick up at Phase C and drive it to merge before opening anything new.
+
+7. **Run `testing.prepare` if configured.** Optional bootstrap for split-stack projects (`pyproject.toml` + `frontend/package.json`) where fresh worktrees start with empty `.venv` / `node_modules`. Two confirming cycles on ace-web (2026-04-28 adoption-blockers + first-chat-path) had mechanical-checks fail until deps were built — `testing.prepare` closes that gap.
+
+   ```bash
+   PREPARE_CMD=$(yq '.testing.prepare // ""' "$CANOPY_PM_DIR/autonomous.yaml")
+   if [ -n "$PREPARE_CMD" ]; then
+     timeout 300 bash -lc "$PREPARE_CMD" || { echo "testing.prepare failed; abort sprint"; exit 1; }
+   fi
+   ```
+
+   If the prepare command exits non-zero or hits the 5-minute timeout, log "prepare-failed" in the run log and stop the sprint — do NOT continue into Phase A with a half-built environment. The user will see the failure and either fix the command or fix the worktree.
+
+8. **Legacy `sent-emails/` cleanup hint.** Earlier versions of this skill stored email artifacts under `$CANOPY_PM_DIR/sent-emails/`; that storage was removed in v0.2.62 (the asset branch + run log carry everything now). If the directory still exists, print one line and continue — do NOT auto-delete:
+
+   ```bash
+   if [ -d "$CANOPY_PM_DIR/sent-emails" ]; then
+     echo "Legacy $CANOPY_PM_DIR/sent-emails/ found — safe to remove with: rm -rf $CANOPY_PM_DIR/sent-emails"
+   fi
+   ```
 
 ## Phase A — Working-backwards draft (5–10 min)
 

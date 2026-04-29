@@ -138,6 +138,32 @@ def test_post_deploy_health_must_be_nonempty_list(tmp_path: Path) -> None:
     assert "post_deploy_health" in result.stderr
 
 
+def test_optional_prepare_string_passes(tmp_path: Path) -> None:
+    cfg = {
+        **VALID,
+        "testing": {**VALID["testing"], "prepare": "uv sync && (cd frontend && npm install)"},
+    }
+    p = _write(tmp_path, cfg)
+    result = _run(p)
+    assert result.returncode == 0, result.stderr
+
+
+def test_prepare_empty_string_fails(tmp_path: Path) -> None:
+    cfg = {**VALID, "testing": {**VALID["testing"], "prepare": ""}}
+    p = _write(tmp_path, cfg)
+    result = _run(p)
+    assert result.returncode == 1
+    assert "prepare" in result.stderr
+
+
+def test_prepare_non_string_fails(tmp_path: Path) -> None:
+    cfg = {**VALID, "testing": {**VALID["testing"], "prepare": ["uv", "sync"]}}
+    p = _write(tmp_path, cfg)
+    result = _run(p)
+    assert result.returncode == 1
+    assert "prepare" in result.stderr
+
+
 def test_malformed_yaml_fails(tmp_path: Path) -> None:
     p = tmp_path / "autonomous.yaml"
     p.write_text("email: : :\n")
