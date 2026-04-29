@@ -46,7 +46,7 @@ When in doubt, the human-gated mode is the right default. Autonomous mode is opt
 
 ## Project State Convention
 
-All project-level PM state lives in `~/.canopy/pm/<project>/` on the user's machine, **not** inside the project tree. The `<project>` part is the `basename` of the repo root (e.g. `ace-web`, `canopy`).
+All project-level PM state lives in `~/.canopy/pm/<project>/` on the user's machine, **not** inside the project tree. The `<project>` part is derived from the project's `origin` remote URL (e.g. `ace-web` from `https://github.com/jjackson/ace-web.git`), falling back to the parent dir of `git-common-dir` when there's no origin. Crucially, this is NOT `basename "$(git rev-parse --show-toplevel)"` — that resolves to the *worktree's* directory name (e.g. `pm-8u5y3` in an emdash worktree), not the project name. Resolve via the snippet under "Resolving the path" below; never hand-roll basename of the toplevel.
 
 ```
 ~/.canopy/pm/<project>/
@@ -62,14 +62,18 @@ All project-level PM state lives in `~/.canopy/pm/<project>/` on the user's mach
 **Resolving the path** — resolve once at the start of each run and export it:
 
 ```bash
-CANOPY_PM_DIR="$HOME/.canopy/pm/$(basename "$(git rev-parse --show-toplevel)")"
+CANOPY_PM_PROJECT=$(git config --get remote.origin.url 2>/dev/null | sed 's|.*[/:]||;s|\.git$||')
+[ -z "$CANOPY_PM_PROJECT" ] && CANOPY_PM_PROJECT=$(basename "$(dirname "$(git rev-parse --git-common-dir 2>/dev/null)")")
+CANOPY_PM_DIR="$HOME/.canopy/pm/$CANOPY_PM_PROJECT"
 mkdir -p "$CANOPY_PM_DIR"
 ```
 
 **Legacy migration:** if a project still has a `.claude/pm/` directory from a previous canopy version, the user should migrate it once:
 
 ```bash
-CANOPY_PM_DIR="$HOME/.canopy/pm/$(basename "$(git rev-parse --show-toplevel)")"
+CANOPY_PM_PROJECT=$(git config --get remote.origin.url 2>/dev/null | sed 's|.*[/:]||;s|\.git$||')
+[ -z "$CANOPY_PM_PROJECT" ] && CANOPY_PM_PROJECT=$(basename "$(dirname "$(git rev-parse --git-common-dir 2>/dev/null)")")
+CANOPY_PM_DIR="$HOME/.canopy/pm/$CANOPY_PM_PROJECT"
 mkdir -p "$CANOPY_PM_DIR" && mv .claude/pm/* "$CANOPY_PM_DIR/"
 ```
 
@@ -157,7 +161,9 @@ Items closed or rejected during PM cycles. Read this before every scout run to a
 **Run this ONE bash command synchronously before any other tool calls.** Do not parallelize anything until this completes — issuing parallel reads when the directory doesn't exist cancels every sibling call and forces sequential retries.
 
 ```bash
-CANOPY_PM_DIR="$HOME/.canopy/pm/$(basename "$(git rev-parse --show-toplevel)")"
+CANOPY_PM_PROJECT=$(git config --get remote.origin.url 2>/dev/null | sed 's|.*[/:]||;s|\.git$||')
+[ -z "$CANOPY_PM_PROJECT" ] && CANOPY_PM_PROJECT=$(basename "$(dirname "$(git rev-parse --git-common-dir 2>/dev/null)")")
+CANOPY_PM_DIR="$HOME/.canopy/pm/$CANOPY_PM_PROJECT"
 mkdir -p "$CANOPY_PM_DIR"
 [ -f "$CANOPY_PM_DIR/context.md" ] && echo "PM_STATE: ready" || echo "PM_STATE: missing"
 ```
@@ -349,9 +355,10 @@ The autonomous mode does NOT modify the human-gated Phase 0–6 procedure above.
 
 1. **No proposal advances without passing the convince-self gate.** Mechanical checks, five self-review questions, dogfood (when applicable), post-deploy health.
 2. **No weak emails.** Phase A loops until the email draft passes Clear/Testable/Impressive. Phase D refuses to send if reality diverged into something not worth sending — it sends a stuck-state note instead.
-3. **One autonomous PR in flight at a time.** Resume an open one before opening a new one.
-4. **No auto-revert on broken prod.** Fix forward, up to `guardrails.max_fix_forward_attempts` cycles, then stop with a stuck-state email.
-5. **The skill stays project-agnostic.** Every project-specific value (deploy command, health URLs, sender skill, branch prefix, test commands) lives in `~/.canopy/pm/<project>/autonomous.yaml`. Never hardcode them in SKILL.md or templates.
+3. **Emails ship as HTML with prod screenshots, clickable feature elements, and a render-and-look pass before AND after send.** The release-notes email is the only customer-facing output of the cycle — visual quality matters and is part of user delight. The hard contract: body must be HTML (sender skill's `--body-html` or equivalent), screenshots must come from prod (not localhost), inline images must use persistent https URLs (e.g. `raw.githubusercontent.com` against a `pm-assets/<sprint-slug>` branch on the project's repo — `cid:` and data URIs don't render reliably in Gmail), every highlight's title AND hero image must wrap in `<a href="<TRY-IT-URL>">` so recipients can click anywhere intuitive, AND the cycle MUST render the final `email.html` in a real browser at desktop + mobile widths before sending (E.4 gate) and again after sending to write a self-critique with concrete improvement ideas (E.5). See `templates/autonomous/email-format.md` "Hard rules" + reference layout + "Self-review" section.
+4. **One autonomous PR in flight at a time.** Resume an open one before opening a new one.
+5. **No auto-revert on broken prod.** Fix forward, up to `guardrails.max_fix_forward_attempts` cycles, then stop with a stuck-state email.
+6. **The skill stays project-agnostic.** Every project-specific value (deploy command, health URLs, sender skill, branch prefix, test commands) lives in `~/.canopy/pm/<project>/autonomous.yaml`. Never hardcode them in SKILL.md or templates.
 
 ## Self-Improvement Protocol
 
@@ -397,6 +404,14 @@ The PR will be reviewed before merging. This is intentional — unchecked self-m
     - **Check itself is wrong (false positives).** A grep filter that over-excludes, a regex that's too narrow, a comparison against the wrong field. Ships a green check that misses the real problem, or (worse) a noisy check that users learn to ignore.
     - **Remediation hint is unreachable (false fixes).** The `fix:` command the check tells the user to run might not actually work — a command-line flag that doesn't parse, a reference that errors out. Test the hint end-to-end at least once before landing.
     Common pitfall: the check author has a mental model that's out of sync with what the check is actually doing (regex, filter, or path). The mental model says "this will catch X"; the code says "this will catch X minus some edge case Y." Running against a known-good input with a known-good result surfaces the gap before users do. Applies to any diagnostic — doctor scripts, lint rules, CI assertions, test preconditions.
+11. **The release-notes email is the only customer-facing output of the autonomous cycle — its visual quality matters.** Five rules surfaced in real use, captured in detail in `templates/autonomous/email-format.md`:
+    - **HTML body, never raw markdown.** Mail clients render HTML; markdown handed in renders as literal `##`/`**`/`-` characters and looks amateur. The sender skill must be invoked with `--body-html` (or equivalent) and a brief plain-text fallback for `--body`.
+    - **Screenshots from prod, never localhost.** Drive the deployed app via the configured `headless_browser_skill` and authenticate via the project's automation login (e.g. `/auth/e2e-login/`). Localhost shots show port numbers and seeded fake data — recipients spot it and lose trust.
+    - **Inline images via persistent https URLs, never `cid:` and never data URIs.** Most CLI mailers (e.g. `gog gmail send`) emit `multipart/mixed` when given attachments, so `cid:` refs in the HTML resolve to broken-image icons. Data URIs are stripped by many clients. Reliable pattern: commit the screenshots to a `pm-assets/<sprint-slug>` branch on the **project's** origin (not canopy's) and reference via `https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<path>` in the `<img src>`.
+    - **Every feature highlight is clickable in three places — title, hero image, AND the explicit "Try it" CTA.** A small CTA buried at the bottom of each card is not enough; recipients scan and shouldn't have to hunt for the click target. Wrap each highlight's `<h2>` and `<img>` in `<a href="<TRY-IT-URL>">` (with `text-decoration:none`).
+    - **Render-and-look passes BEFORE and AFTER sending.** Phase E.4 (pre-send gate) renders `email.html` via the configured `headless_browser_skill` at desktop + mobile widths and refuses to send if anything looks off. Phase E.5 (post-send critique) writes a self-review into the run log with 2-4 concrete improvement ideas surfaced as the cycle's closing message to the user. Without these passes, visual-quality drift goes unnoticed across cycles.
+
+    Visual design: typographic hierarchy over bordered boxes, restrained palette, hero image per highlight, footer for internal notes — see the canonical layout in `email-format.md`. Reference standard is "Linear / Stripe / Vercel changelog", not "GitHub issue body". Surfaced 2026-04-29 from real PM feedback after the first autonomous run on ace-web.
 
 ## Token Efficiency
 
