@@ -69,13 +69,14 @@ Run sequentially, NOT in parallel (`$CANOPY_PM_DIR` may not exist yet on a fresh
 
 Goal: produce a target email DRAFT that can pass three critiques before any engineering happens.
 
-1. Quick scout pass across the lenses in `theme_detection.lens_rotation`. Just enough breadth to see what's ripe — no deep dives.
-2. Draft the target email using `email-format.md`'s template, AS IF IT WERE ALREADY TRUE. Specific feature names. Specific value statements. No placeholders.
-3. Self-critique against three tests; write the verdict for each into the cycle log:
+1. **Read recent run logs to avoid re-claiming shipped work.** Glance at the last 3-5 files in `$CANOPY_PM_DIR/runs/` — each has a Phase D rewrite section listing what shipped. If a candidate highlight overlaps something already announced in a prior run log, drop it or reframe. The run logs ARE the memory of what's been claimed; do not introduce a separate "shipped emails" archive to scan.
+2. Quick scout pass across the lenses in `theme_detection.lens_rotation`. Just enough breadth to see what's ripe — no deep dives.
+3. Draft the target email using `email-format.md`'s template, AS IF IT WERE ALREADY TRUE. Specific feature names. Specific value statements. No placeholders.
+4. Self-critique against three tests; write the verdict for each into the cycle log:
    - **Clear:** Could a non-technical user read this and know what's better today than yesterday? Does each highlight name a concrete thing they can click on?
    - **Testable:** For each highlight, can I write a one-line "Try it" instruction that proves it works? If a highlight doesn't survive a "go click this URL and see X happen" test, it's vapor — drop it.
    - **Impressive:** Does this move the product forward in a way the user would *care about*? Not "code is cleaner" — "you can now do thing-Y you couldn't before, or thing-Z is meaningfully nicer." If the most exciting highlight is "polished some copy," the answer is no.
-4. If any critique fails, LOOP on Phase A. Scout deeper. Swap a weak highlight. Change the theme. Expand scope. Do NOT proceed to Phase B with a draft that is not yet impressive — that is the single most important rule of this skill.
+5. If any critique fails, LOOP on Phase A. Scout deeper. Swap a weak highlight. Change the theme. Expand scope. Do NOT proceed to Phase B with a draft that is not yet impressive — that is the single most important rule of this skill.
 
 The approved draft, with every critique annotated PASS, is the input to Phase B.
 
@@ -124,19 +125,26 @@ Reality always diverges from plan. Before sending the email:
 
 The email MUST be HTML, with hero screenshots captured from prod, hosted via persistent https URLs, and laid out per `email-format.md`'s reference template. Read that file first — its **Hard rules** section is non-negotiable. Phase E has 8 substeps; do not skip E.4 or E.5.
 
-1. **Capture prod screenshots.** Drive the deployed app via the configured `headless_browser_skill`, authenticate via the project's automation login (e.g. `/auth/e2e-login/` for ace-web), and snap each surface named in a "Try it" line of the target email. Save under `$CANOPY_PM_DIR/sent-emails/<sprint-slug>/screenshots/`. If a surface isn't reachable in prod (e.g. a "disconnected" branch masked by a global fallback), describe it textually in the body — don't substitute a localhost shot.
+**Working directory note.** Phase E uses a temporary working dir for the email artifacts; nothing email-specific persists in `$CANOPY_PM_DIR`. The persistent homes are: (a) `$CANOPY_PM_DIR/runs/<sprint-slug>.md` for the cycle log (already established), and (b) the `pm-assets/<sprint-slug>` branch on the **project's** repo for the rendered HTML and screenshots that the email's `<img src>` URLs resolve to. After the email lands, the temp working dir is discarded.
 
-2. **Publish screenshots to a persistent branch on the PROJECT'S repo** (the project being PM'd, not canopy). Create `pm-assets/<sprint-slug>` from `origin/main`, commit the screenshots under a path mirroring the canopy state path (e.g. `.claude/pm/sent-emails/<sprint-slug>/screenshots/`), and push to origin (no PR — this branch is asset hosting, not code). Verify each `https://raw.githubusercontent.com/<owner>/<repo>/pm-assets/<sprint-slug>/.../<file>.png` URL returns HTTP 200. The branch lives on the project's origin forever; the email's `<img>` URLs resolve forever.
+```bash
+EMAIL_WORKDIR=$(mktemp -d -t canopy-email-XXXXXX)
+trap 'rm -rf "$EMAIL_WORKDIR"' EXIT
+```
 
-3. **Render the email body to HTML.** Use the canonical layout in `email-format.md` (brand bar, hero, per-highlight blocks with `<img>` referencing the raw.githubusercontent.com URLs from step 2, footer with internal notes). Save to `$CANOPY_PM_DIR/sent-emails/<sprint-slug>/email.html`. Also save the markdown working draft to `.../email.md` for the cycle archive. Per Hard rule #5: every highlight's `<h2>` AND `<img>` must wrap in `<a href="<TRY-IT-URL>">`.
+1. **Capture prod screenshots into the temp working dir.** Drive the deployed app via the configured `headless_browser_skill`, authenticate via the project's automation login (e.g. `/auth/e2e-login/` for ace-web), and snap each surface named in a "Try it" line of the target email into `$EMAIL_WORKDIR/screenshots/`. If a surface isn't reachable in prod (e.g. a "disconnected" branch masked by a global fallback), describe it textually in the body — don't substitute a localhost shot.
 
-4. **E.4 pre-send rendering check (gate).** Before invoking the sender skill, render `email.html` via `headless_browser_skill` at 1280×800 (desktop) and 375×812 (mobile). Save shots as `screenshots/email-rendered-{desktop,mobile}.png` under the sprint dir. Look at them — do all hero images load? Do titles look like links? Is the headline sharp? Is mobile not wrapped/broken? If anything is off, fix the HTML and re-render. See `email-format.md` "Self-review" section for the full checklist.
+2. **Publish screenshots to a persistent branch on the PROJECT'S repo** (the project being PM'd, not canopy). Create `pm-assets/<sprint-slug>` from `origin/main`, copy `$EMAIL_WORKDIR/screenshots/` into the branch checkout, commit, and push to origin (no PR — this branch is asset hosting, not code). Verify each `https://raw.githubusercontent.com/<owner>/<repo>/pm-assets/<sprint-slug>/.../<file>.png` URL returns HTTP 200. The branch lives on the project's origin forever; the email's `<img>` URLs resolve forever — that's the only persistent home for the rendered email and its screenshots.
 
-5. **Invoke `email.sender_skill`** with `subject`, `body_html` (the rendered file from step 3), and `body_text` (a generic "please view as HTML" fallback). Generally do NOT pass `attachments` — `cid:` refs do not resolve when sender skills produce `multipart/mixed`, and Gmail-rendering of attached images is unreliable. Hosted https URLs are the contract. Capture the returned `messageId` and `threadId` for the run log.
+3. **Render the email body to HTML in the temp working dir.** Use the canonical layout in `email-format.md` (brand bar, hero, per-highlight blocks with `<img>` referencing the raw.githubusercontent.com URLs from step 2, footer with internal notes). Save to `$EMAIL_WORKDIR/email.html`. Also commit a copy to the `pm-assets/<sprint-slug>` branch alongside the screenshots so the rendered email itself is archived (`screenshots/email.html` or `email.html` at branch root — your call). Per Hard rule #5: every highlight's `<h2>` AND `<img>` must wrap in `<a href="<TRY-IT-URL>">`.
 
-6. **E.5 post-send self-critique.** Re-render `email.html` if step 4 was passed without changes; otherwise the gate's render is current. Write a short critique into the run log under a `### Phase E.5 — post-send self-review` heading. List 2-4 concrete improvement ideas ranked by impact. The email is already sent — these feed the *next* cycle and, if structural, become a follow-up canopy PR. Surface the critique to the user as the cycle's closing message: include sender skill ID, message ID, screenshot file paths, and the ranked improvement ideas so the user can see exactly what shipped and what you'd change.
+4. **E.4 pre-send rendering check (gate).** Before invoking the sender skill, render `$EMAIL_WORKDIR/email.html` via `headless_browser_skill` at 1280×800 (desktop) and 375×812 (mobile). Save shots into `$EMAIL_WORKDIR/screenshots/email-rendered-{desktop,mobile}.png`. Look at them — do all hero images load? Do titles look like links? Is the headline sharp? Is mobile not wrapped/broken? If anything is off, fix the HTML and re-render. See `email-format.md` "Self-review" section for the full checklist. Optionally push the rendered shots to the asset branch too.
 
-7. **Return the worktree to its starting branch.**
+5. **Invoke `email.sender_skill`** with `subject`, `body_html` (read from `$EMAIL_WORKDIR/email.html`), and `body_text` (a generic "please view as HTML" fallback). Generally do NOT pass `attachments` — `cid:` refs do not resolve when sender skills produce `multipart/mixed`, and Gmail-rendering of attached images is unreliable. Hosted https URLs are the contract. Capture the returned `messageId` and `threadId` for the run log.
+
+6. **E.5 post-send self-critique.** Use the rendered shots from step 4 (already captured). Write a short critique into `$CANOPY_PM_DIR/runs/<sprint-slug>.md` under a `### Phase E.5 — post-send self-review` heading. List 2-4 concrete improvement ideas ranked by impact, plus: sender skill ID, message ID, link to the asset branch (`https://github.com/<owner>/<repo>/tree/pm-assets/<sprint-slug>`). The email is already sent — these feed the *next* cycle and, if structural, become a follow-up canopy PR. Surface the critique to the user as the cycle's closing message.
+
+7. **Return the worktree to its starting branch.** The temp working dir is discarded automatically by the `trap` set at the top of Phase E.
 
    ```bash
    git fetch origin main:main 2>/dev/null || true   # update local main if not currently checked out elsewhere
@@ -149,18 +157,29 @@ The email MUST be HTML, with hero screenshots captured from prod, hosted via per
 
 ## State that persists across sprints
 
+The PM cycle has two memory channels:
+
 ```
-~/.canopy/pm/<project>/
-├── context.md
-├── learnings.md
-├── autonomous.yaml
-├── runs/
-│   └── YYYY-MM-DD-<theme-slug>.md   ← cycle log + self-review verdicts
-└── sent-emails/
-    └── YYYY-MM-DD-<theme-slug>/
-        ├── email.md
-        └── screenshots/
-            └── *.png
+~/.canopy/pm/<project>/                 ← per-machine, outlives any worktree
+├── context.md                           ← project identity, who uses it, what matters
+├── learnings.md                         ← accumulated learnings across cycles
+├── autonomous.yaml                      ← autonomous-mode config
+└── runs/
+    └── YYYY-MM-DD-<theme-slug>.md       ← cycle log + Phase D shipped highlights
+                                            + Phase E.5 post-send self-review
+                                            (THIS is what Phase A reads to
+                                            avoid re-claiming shipped work)
 ```
 
-`<project>` is `basename` of the repo root (e.g. `ace-web`, `canopy`). Resolve via `$CANOPY_PM_DIR` (set in Phase 0 step 1). `sent-emails/` exists so future sprints can avoid repeating "we shipped X" claims and so the user has a browseable archive of what's been said in their voice.
+```
+pm-assets/<sprint-slug>                  ← branch on the PROJECT'S repo origin
+├── screenshots/
+│   ├── *.png                            ← prod feature shots referenced by
+│   │                                      the sent email's <img src>
+│   └── email-rendered-{desktop,mobile}.png
+└── email.html                           ← the rendered HTML body that was sent
+```
+
+**No sent-emails archive in `$CANOPY_PM_DIR`.** Earlier versions of this skill stored `email.md` + `email.html` + `screenshots/` under `$CANOPY_PM_DIR/sent-emails/<slug>/`, but no instruction ever read that storage and the rendered HTML was already canonical on the asset branch. The run log captures shipped highlights (Phase D), the asset branch hosts the polished email and screenshots, and `learnings.md` accumulates universal lessons. Anything else is dead storage.
+
+If a project has a legacy `~/.canopy/pm/<project>/sent-emails/` directory from before this redesign, the user can delete it whenever — `rm -rf ~/.canopy/pm/<project>/sent-emails/`. The skill does not auto-prune.

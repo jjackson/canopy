@@ -48,8 +48,8 @@ For any change that's named in a `Try it:` line of the target email:
 1. Start the local stack: `bash -lc "$(yq '.testing.dogfood.start_command' "$CANOPY_PM_DIR/autonomous.yaml")"`
 2. Wait until `testing.dogfood.wait_for` returns 200, polling every 5s with a 5-min ceiling
 3. Drive the change in the configured `headless_browser_skill` — actually click through, verify the expected behavior visibly happens
-4. Capture a sequence of screenshots: a "before" (revert briefly OR feature-flag OR describe-from-memory if no clean before-state exists) and an "after". Save under `$CANOPY_PM_DIR/sent-emails/<sprint-slug>/screenshots/`
-5. Reference them in the email body per `email-format.md`
+4. Capture a sequence of screenshots as evidence the dogfood actually happened — a "before" (revert briefly OR feature-flag OR describe-from-memory) and an "after". Save into a temp dir (`mktemp -d`) — these are local-stack screenshots used only to convince yourself, NOT for the release-notes email (the email's screenshots come from prod after deploy, per `email-format.md` Hard rule #3). Discard the temp dir after recording the gate verdict in the run log.
+5. Record the gate verdict in the run log; the screenshots themselves are throwaway evidence.
 
 A purely backend change (no user-visible surface) can SKIP dogfood, but then it CANNOT appear as a "Try it" highlight — only in the internal `*` section.
 
