@@ -43,3 +43,54 @@ def test_source_funcs_referenced_picks_up_cut():
     items = collect(FIXTURE)
     static = analyze(_by_name(items, "test_add_returns_sum"))
     assert "add" in static.source_funcs_referenced
+
+
+def test_pytest_raises_counts_as_real_assertion(tmp_path):
+    """`with pytest.raises(...)` is a meaningful assertion — must set
+    has_real_assertion=True even with no `assert` statement."""
+    f = tmp_path / "test_x.py"
+    f.write_text(
+        "import pytest\n"
+        "def divide(a, b): return a // b\n\n"
+        "def test_divide_by_zero_raises():\n"
+        "    with pytest.raises(ZeroDivisionError):\n"
+        "        divide(1, 0)\n"
+    )
+    from orchestrator.test_audit.collector import TestItem
+    item = TestItem(nodeid="test_x.py::test_divide_by_zero_raises",
+                    file=f, name="test_divide_by_zero_raises", line=4)
+    static = analyze(item)
+    assert static.has_real_assertion is True
+    assert static.assertion_count >= 1
+
+
+def test_pytest_raises_with_match_counts_as_real_assertion(tmp_path):
+    """`pytest.raises(..., match='...')` is the strongest exception assertion."""
+    f = tmp_path / "test_x.py"
+    f.write_text(
+        "import pytest\n"
+        "def parse(s): raise ValueError('bad')\n\n"
+        "def test_parse_rejects_garbage():\n"
+        "    with pytest.raises(ValueError, match='bad'):\n"
+        "        parse('garbage')\n"
+    )
+    from orchestrator.test_audit.collector import TestItem
+    item = TestItem(nodeid="test_x.py::test_parse_rejects_garbage",
+                    file=f, name="test_parse_rejects_garbage", line=4)
+    static = analyze(item)
+    assert static.has_real_assertion is True
+
+
+def test_bare_pytest_raises_call_counts_too(tmp_path):
+    """Some codebases use pytest.raises() outside a `with` block (less common)."""
+    f = tmp_path / "test_x.py"
+    f.write_text(
+        "import pytest\n"
+        "def explode(): raise RuntimeError\n\n"
+        "def test_explode():\n"
+        "    pytest.raises(RuntimeError, explode)\n"
+    )
+    from orchestrator.test_audit.collector import TestItem
+    item = TestItem(nodeid="test_x.py::test_explode", file=f, name="test_explode", line=4)
+    static = analyze(item)
+    assert static.has_real_assertion is True

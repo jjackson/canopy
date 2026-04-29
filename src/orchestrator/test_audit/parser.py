@@ -95,6 +95,12 @@ def analyze(item: TestItem) -> StaticAnalysis:
         elif isinstance(sub, ast.Call):
             name = _extract_call_name(sub)
             short = name.split(".")[-1]
+            # `pytest.raises(...)` is a meaningful exception assertion whether
+            # used as a context manager or called directly.
+            if name == "pytest.raises" or short == "raises":
+                assertion_count += 1
+                has_real_assertion = True
+                continue
             if short in _MOCK_FUNCS or name in _MOCK_FUNCS:
                 # Capture the patch target. Common shapes:
                 #   patch("pkg.mod.func")        — string constant

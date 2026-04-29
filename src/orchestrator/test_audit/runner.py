@@ -22,7 +22,14 @@ class TestResult:
 def _normalize_nodeid(classname: str, name: str) -> str:
     """Junit puts class as `tests.test_foo` or `tests.test_foo.TestClass`.
     Pytest junit emits classname with dots; convert back to nodeid form.
+
+    Strips the `[param]` suffix that pytest emits for parametrized tests so
+    the result matches the AST collector's nodeid (which has no suffix).
     """
+    # Drop pytest parametrize suffix: 'test_x[a-1-True]' -> 'test_x'.
+    bracket = name.find("[")
+    if bracket != -1:
+        name = name[:bracket]
     # classname like 'tests.test_foo' -> 'tests/test_foo.py'
     # classname like 'tests.test_foo.TestBar' -> 'tests/test_foo.py::TestBar'
     parts = classname.split(".")
@@ -39,6 +46,10 @@ def _normalize_nodeid(classname: str, name: str) -> str:
     file_path = "/".join(file_parts) + ".py"
     suffix = "::".join(class_parts + [name]) if class_parts else name
     return f"{file_path}::{suffix}"
+
+
+# Status priority for parametrize aggregation: any worse status wins.
+_STATUS_RANK = {"passed": 0, "skipped": 1, "failed": 2, "error": 3}
 
 
 def _parse_junit(xml_path: Path) -> dict[str, TestResult]:
@@ -65,12 +76,20 @@ def _parse_junit(xml_path: Path) -> dict[str, TestResult]:
                 err = (case.find("error").get("message") or "")[:500]
             elif case.find("skipped") is not None:
                 status = "skipped"
-            out[nodeid] = TestResult(
-                nodeid=nodeid,
-                status=status,
-                duration_ms=int(time_s * 1000),
-                error=err,
-            )
+            duration_ms = int(time_s * 1000)
+            existing = out.get(nodeid)
+            if existing is None:
+                out[nodeid] = TestResult(
+                    nodeid=nodeid, status=status,
+                    duration_ms=duration_ms, error=err,
+                )
+            else:
+                # Aggregate parametrize results into one nodeid: worst status wins,
+                # durations sum, first error message kept.
+                if _STATUS_RANK[status] > _STATUS_RANK[existing.status]:
+                    existing.status = status
+                    existing.error = err or existing.error
+                existing.duration_ms += duration_ms
     return out
 
 
