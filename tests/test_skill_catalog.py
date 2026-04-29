@@ -7,6 +7,7 @@ from orchestrator.skill_catalog import (
     build_catalog,
     extract_candidate_names,
     find_overlap,
+    find_skills,
     format_for_prompt,
 )
 
@@ -163,6 +164,52 @@ class TestFindOverlap:
 
     def test_empty_catalog(self):
         assert find_overlap("Add canopy:doctor", []) is None
+
+
+class TestFindSkills:
+    def test_empty_query_returns_empty(self, tmp_path):
+        cache = tmp_path / "plugins"
+        _make_plugin_skill(cache, "canopy", "1.0", "test-audit", "Audit pytest test suites")
+        cat = build_catalog(plugin_cache=cache, user_skills=tmp_path / "user")
+        assert find_skills("", cat) == []
+        assert find_skills("   ", cat) == []
+
+    def test_empty_catalog_returns_empty(self):
+        assert find_skills("anything", []) == []
+
+    def test_name_match_ranks_highest(self, tmp_path):
+        cache = tmp_path / "plugins"
+        _make_plugin_skill(cache, "canopy", "1.0", "test-audit", "Audit pytest tests")
+        _make_plugin_skill(cache, "canopy", "1.0", "doctor", "Diagnose plugin health")
+        cat = build_catalog(plugin_cache=cache, user_skills=tmp_path / "user")
+        # query "audit tests" should rank test-audit first (name has both terms)
+        results = find_skills("audit tests", cat, limit=5)
+        assert len(results) >= 1
+        assert results[0]["qualified"] == "canopy:test-audit"
+
+    def test_description_match(self, tmp_path):
+        cache = tmp_path / "plugins"
+        _make_plugin_skill(cache, "canopy", "1.0", "doctor", "Diagnose plugin health")
+        _make_plugin_skill(cache, "canopy", "1.0", "improve", "Improve via session analysis")
+        cat = build_catalog(plugin_cache=cache, user_skills=tmp_path / "user")
+        results = find_skills("session", cat)
+        # Only 'improve' has 'session' in description
+        names = [e["qualified"] for e in results]
+        assert "canopy:improve" in names
+
+    def test_limit_respected(self, tmp_path):
+        cache = tmp_path / "plugins"
+        for i in range(8):
+            _make_plugin_skill(cache, "canopy", "1.0", f"skill-{i}", "audit")
+        cat = build_catalog(plugin_cache=cache, user_skills=tmp_path / "user")
+        results = find_skills("audit", cat, limit=3)
+        assert len(results) == 3
+
+    def test_no_match_returns_empty(self, tmp_path):
+        cache = tmp_path / "plugins"
+        _make_plugin_skill(cache, "canopy", "1.0", "doctor", "Diagnose health")
+        cat = build_catalog(plugin_cache=cache, user_skills=tmp_path / "user")
+        assert find_skills("zzzzzznevermatches", cat) == []
 
 
 class TestFormatForPrompt:

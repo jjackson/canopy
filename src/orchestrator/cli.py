@@ -548,6 +548,42 @@ def skills_list(scope, source, search, as_json):
             click.echo(f"    {desc}")
 
 
+@skills.command("find")
+@click.argument("query", nargs=-1, required=True)
+@click.option("--limit", default=5, type=int, help="Maximum matches to display")
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def skills_find(query, limit, as_json):
+    """Fuzzy-match installed skills by name and description.
+
+    Useful for the "do we already have a skill for X?" check before proposing
+    or building a new one.
+    """
+    import json as json_mod
+    from orchestrator.skill_catalog import build_catalog, find_skills
+
+    text = " ".join(query)
+    catalog = build_catalog()
+    matches = find_skills(text, catalog, limit=limit)
+
+    if as_json:
+        click.echo(json_mod.dumps(matches, indent=2, default=str))
+        return
+
+    if not matches:
+        click.echo(f"No skills match '{text}'.")
+        return
+
+    click.echo(f"{len(matches)} match(es) for '{text}':\n")
+    for e in matches:
+        desc = (e.get("description") or "").replace("\n", " ")
+        if len(desc) > 80:
+            desc = desc[:77] + "..."
+        click.echo(f"  {e['qualified']:<45} [{e['scope']}]")
+        if desc:
+            click.echo(f"    {desc}")
+        click.echo(f"    {e['path']}")
+
+
 @skills.command("overlap")
 @click.argument("action_text", nargs=-1, required=True)
 def skills_overlap(action_text):

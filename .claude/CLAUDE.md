@@ -52,6 +52,7 @@ cd ~/emdash-projects/canopy && git pull --rebase && git push
 - `canopy proposals list [--status S --complexity X --limit N --json-output]` — list proposals
 - `canopy proposals show <id>` — show full YAML for one proposal (id prefix accepted)
 - `canopy skills list [--scope all|plugin|user --source PLUGIN --search TERM --json-output]` — list installed skills
+- `canopy skills find <query> [--limit N --json-output]` — fuzzy-match installed skills by name and description; prints top matches with SKILL.md path. Use this before brainstorming a new skill ("do we already have one for X?").
 - `canopy skills overlap <action text>` — check whether a proposed skill action duplicates an existing skill (exit 1 on overlap)
 - `canopy version verify` — confirm VERSION and plugin.json agree (CI-safe)
 - `canopy version bump` — bump VERSION + plugin.json by `max(local, origin/main) + patch+1`. Fetches origin first so a parallel worktree's bump is visible before deciding the next number. Use this instead of editing the two files by hand.
