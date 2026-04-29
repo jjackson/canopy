@@ -46,7 +46,16 @@ Based on the content inventory, propose a sitemap. Default structure:
 /pay                     How It Works: Pay
 /programs                Programs catalog (all programs)
 /programs/<slug>         Program detail page (only for programs with full content)
+/insights                Insights index — every smart nugget across the site, one-line + link
 ```
+
+**`/insights` is required, not optional.** A funder who lands on the
+homepage and is curious has two paths to depth: drilling through navigation
+(programs → program → learning), or scanning a buffet. The insights page is
+the buffet. It exists to reward the visitor who is *specifically* there to
+evaluate intellectual rigor, by letting them see — in 60 seconds — every
+non-obvious thing the team has learned. See "Insights Index Page Template"
+below for the spec.
 
 For each page, define:
 - **Template type**: homepage, ldvp-step, program-catalog, program-detail
@@ -437,7 +446,140 @@ follow these as the treatment spec.
 committed. Reward the commitment with substance. 250-600 words per learning is
 the right weight.
 
-### Step 4c: Multi-Variant Design Direction
+### Step 4b3: Open Questions Block (required on every depth page)
+
+**Every depth page (LDVP step, program detail, /insights) must include an
+"Open Questions" block.** This is the single highest-leverage credibility
+move on the site. Foundation officers do not trust pages that claim to know
+everything. They reward teams that can name what they don't know yet,
+specifically and precisely.
+
+The block surfaces 1–3 unresolved tensions, in-progress validations, or
+honest limitations. It is **not** a hedge ("we're still learning a lot")
+— it is a specific, named, dated open question.
+
+**Block format (use this exact shape):**
+
+```html
+<section class="open-questions">
+  <h3>What we don't know yet</h3>
+  <ul>
+    <li>
+      <strong>[The question, in plain English]</strong>
+      <p>[1–2 sentences: why this is hard, what the team is doing about
+      it, when they expect to know more. Name the validation underway —
+      RCT partner, evaluation timeline, or "we don't have a path to
+      answering this and that's an honest constraint."]</p>
+    </li>
+  </ul>
+</section>
+```
+
+**Sourcing.** Open Questions for a page come from two places:
+1. The `**What didn't work / honest caveats:**` field of any insight routed
+   to the page (Step 4a).
+2. The `**Caveats / what's still unproven:**` field of any nugget routed
+   to the page (from `./context/nuggets.md`).
+
+If neither source produced a caveat for any insight on the page, the page
+is missing its honesty. Go back to the source material and find one — or
+flag in the IA document that this page has insufficient material to ship
+honestly. **Do not invent open questions.** A fabricated limitation is
+worse than no Open Questions block: a sharp reader can usually tell.
+
+### Step 4b4: Funder Trail Teasers (homepage outbound links)
+
+A homepage section's outbound link is the visitor's preview of what's
+behind it. Two patterns are forbidden:
+
+- **Generic CTAs**: "Learn more →", "Explore →", "Discover →", "Read more →",
+  "See details →"
+- **Category labels as links**: "Programs →", "Insights →", "How it works →"
+
+Both patterns are wasted real estate. A funder scanning the homepage in 30
+seconds gets nothing actionable from "Learn more about Programs."
+
+**Replace with nugget teasers.** Every homepage outbound link to a depth
+page must be the *specific, scoped claim* the visitor will encounter on
+that page. Pulled directly from the insight or nugget routed to that
+page's hero.
+
+**Lint check (enforced):**
+- ❌ Link text under 8 words → fail
+- ❌ Link text contains: "learn more", "explore", "discover", "read more",
+  "see details", "click here", "find out", "view all", "get started" →
+  fail
+- ❌ Link text is a category label (single noun, no claim) → fail
+- ✅ Link text is a specific scoped claim with a number, mechanism, or
+  named decision → pass
+
+**Examples:**
+
+| ❌ Forbidden | ✅ Required |
+|------------|-----------|
+| "Learn more about CHC →" | "In CHC, we paid FLWs to defeat fraud detection — they couldn't. 97.5% still flagged. →" |
+| "Explore Verify →" | "Why pre-vetting LLOs doesn't work, and the Trial Run model that does →" |
+| "Programs →" | "Across 12 countries, the same platform; 22% cost reduction in CHC year-over-year →" |
+| "See our impact →" | "880,000 verified visits — four years of traditional NGO output, in 14 months →" |
+
+Every homepage section that links to a depth page MUST have a nugget teaser
+defined in the IA document. The website-builder will surface a build error
+if it encounters a forbidden phrase or a missing teaser.
+
+**Where the teasers come from.** The teaser for `/programs/chc` is the
+top-scored Kept insight or nugget routed to CHC, condensed to one
+sentence. The teaser for `/insights` is the top-scored nugget overall.
+Pulling teasers from the underlying content guarantees that the homepage
+preview matches the depth page reward — funders click through and find
+exactly what was promised, expanded.
+
+### Step 4c: Insights Index Page Template
+
+The `/insights` page is a buffet. One scrollable page listing every nugget
+and insight on the site, each as a one-line teaser linking to its home
+page.
+
+**Required structure:**
+
+```markdown
+## Hero
+- Page title: "What we've learned" (or brand-voice equivalent)
+- One-sentence framing: e.g., "Specific, scoped claims from running Connect
+  across N programs in M countries. Each links to where it lives in
+  context."
+
+## Index (the buffet)
+For every Kept insight (Step 4z) and every above-threshold nugget
+(`./context/nuggets.md`), one entry:
+
+  [Verbatim one-sentence claim]
+  Scope: [Program name | Platform]   Source: [Page link]   →
+  [Optional: the open question this raises]
+
+Group by Scope (programs first, platform second). Within each group,
+order by judge-anticipated score descending — sharpest claim at top.
+
+## Methodology footer
+A short paragraph explaining how the team decides what makes the cut:
+- "Each claim is scoped to its evidence — program-specific findings stay
+  scoped to the program."
+- "Numbers without benchmarks are not on this page."
+- "Findings still under validation are noted as such, with the named
+  evaluation underway."
+
+This footer is the team's most credible move. It tells a funder: *we have
+a methodology for what we put on the website*. That alone is rarer than it
+should be.
+```
+
+**Why this page wins.** A funder evaluating a $10M grant can spend 15
+minutes on a marketing site and leave knowing exactly what the team
+believes is true and how confident they are about each claim. Without
+`/insights`, the same funder needs to drill into 6+ pages and reverse-
+engineer the team's epistemic posture. With it, the team's intellectual
+rigor is the page itself.
+
+### Step 4d: Multi-Variant Design Direction
 
 The generator should NOT lock in on a single approach. For each page template,
 define 2-3 **design directions** that the generator can explore:
@@ -471,6 +613,30 @@ Save to `./context/information-architecture.md`:
 | ... | ... | ... | ... | ... |
 | KMC | /programs/kmc | program-detail | programs/kmc/ | Ready |
 | Readers | /programs/readers | program-detail | programs/readers/ | Ready |
+| Insights | /insights | insights-index | nuggets.md + insights.md | Ready (required) |
+
+## Homepage Trail Teasers
+
+For every homepage section linking to a depth page, the verbatim teaser
+text. The website-builder enforces these against the lint check in Step
+4b4 and will fail the build on a generic CTA.
+
+| Section → target | Teaser (verbatim, used as link text) |
+|------------------|--------------------------------------|
+| Hero → /verify | "Why pre-vetting LLOs doesn't work, and the Trial Run model that does →" |
+| Programs → /programs/chc | "In CHC, we paid FLWs to defeat fraud detection — they couldn't. 97.5% still flagged. →" |
+| Impact → /insights | "Every claim, scoped to its evidence — the buffet view →" |
+
+## Open Questions Roster
+
+For every depth page, list the 1–3 specific open questions sourced from
+insight caveats and nugget caveats. The website-builder requires this
+roster — pages without it fail the build.
+
+| Page | Open Question 1 | Open Question 2 | Open Question 3 |
+|------|----------------|----------------|----------------|
+| /programs/chc | "Does the cost-per-visit advantage hold outside Nigeria's commodity bundle? — IPA RCT 2026 will test." | ... | ... |
+| /verify | "97.5% flag rate is on adversarial paid-bonus testing; production false-positive rate is not yet published." | ... | ... |
 
 ## Navigation
 
