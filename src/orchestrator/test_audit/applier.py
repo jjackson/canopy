@@ -272,9 +272,30 @@ def apply_from_dir(stamp_dir: Path, repo: Path | None = None,
     verdicts = _parse_verdicts_yaml(data)
     items_by_id = {it.nodeid: it for it in collect(repo)}
 
-    pr_body = stamp_dir / "audit-report.md"
+    pr_body_path = _materialize_pr_body(stamp_dir)
     return apply_verdicts(
         items_by_id, verdicts, repo,
         aggressive=aggressive, dry_run=dry_run,
-        pr_body_path=pr_body if pr_body.exists() else None,
+        pr_body_path=pr_body_path,
     )
+
+
+def _materialize_pr_body(stamp_dir: Path) -> Path | None:
+    """Combine audit-report.md + architecture-review.md (if both exist) into
+    a single pr-body.md the applier hands to gh. If only one exists, use it.
+    """
+    audit = stamp_dir / "audit-report.md"
+    arch = stamp_dir / "architecture-review.md"
+    if not audit.exists() and not arch.exists():
+        return None
+    if audit.exists() and not arch.exists():
+        return audit
+    if arch.exists() and not audit.exists():
+        return arch
+    combined = stamp_dir / "pr-body.md"
+    combined.write_text(
+        audit.read_text(encoding="utf-8").rstrip() + "\n\n---\n\n"
+        + arch.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    return combined

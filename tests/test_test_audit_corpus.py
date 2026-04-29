@@ -69,3 +69,17 @@ def test_collect_corpus_creates_stamped_dir(tmp_path):
     assert result.corpus_path.exists()
     assert result.test_count == 7
     assert result.ran_pytest is False
+
+
+def test_corpus_includes_architecture_key(tmp_path):
+    repo = _make_repo(tmp_path)
+    corpus = build_corpus(repo, run_tests=False)
+    assert "architecture" in corpus
+    arch = corpus["architecture"]
+    assert "modules" in arch
+    assert "untested_modules" in arch
+    assert "mock_density" in arch
+    assert "overmocked_files" in arch
+    assert "slow_tests" in arch
+    # Synthetic suite has no src/ directory, so module inventory is empty.
+    assert arch["modules"] == []
