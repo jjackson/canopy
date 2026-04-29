@@ -68,6 +68,55 @@ def test_module_inventory_handles_missing_src_root(tmp_path):
     assert inv == []
 
 
+def test_module_inventory_recognizes_module_imported_by_test(tmp_path):
+    """A module without a name-matched test_<name>.py file but imported by
+    SOME test should be marked has_test_file=True. Pure name-matching
+    misses nested layouts like test_test_audit_collector.py covering
+    test_audit/collector.py."""
+    _write(tmp_path / "src" / "orchestrator" / "test_audit" / "collector.py",
+           "def collect(): pass\n")
+    # The test file's name doesn't match `test_collector.py` — but it imports
+    # the module. Old heuristic missed this; new one must catch it.
+    _write(tmp_path / "tests" / "test_test_audit_collector.py",
+           "from orchestrator.test_audit.collector import collect\n"
+           "def test_a(): assert callable(collect)\n")
+
+    inv = module_inventory(tmp_path,
+                           src_root="src/orchestrator/test_audit",
+                           tests_root="tests")
+    [info] = [m for m in inv if m.module_name == "collector"]
+    assert info.has_test_file is True
+
+
+def test_module_inventory_marks_truly_uncovered_module(tmp_path):
+    """No test_<name>.py and no test importing the module => has_test_file=False."""
+    _write(tmp_path / "src" / "orchestrator" / "skill_runner.py",
+           "def run_skill(): pass\n")
+    _write(tmp_path / "tests" / "test_unrelated.py",
+           "def test_a(): assert True\n")
+
+    inv = module_inventory(tmp_path, src_root="src/orchestrator",
+                           tests_root="tests")
+    [info] = [m for m in inv if m.module_name == "skill_runner"]
+    assert info.has_test_file is False
+
+
+def test_module_inventory_recognizes_from_package_import(tmp_path):
+    """`from orchestrator.test_audit import collector` (importing the
+    submodule via parent package) should also count."""
+    _write(tmp_path / "src" / "orchestrator" / "test_audit" / "collector.py",
+           "def collect(): pass\n")
+    _write(tmp_path / "tests" / "test_x.py",
+           "from orchestrator.test_audit import collector\n"
+           "def test_a(): assert callable(collector.collect)\n")
+
+    inv = module_inventory(tmp_path,
+                           src_root="src/orchestrator/test_audit",
+                           tests_root="tests")
+    [info] = [m for m in inv if m.module_name == "collector"]
+    assert info.has_test_file is True
+
+
 # ---------- mock_density_by_file ----------
 
 def test_mock_density_aggregates_per_test_file():

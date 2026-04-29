@@ -68,6 +68,49 @@ def _count_public_funcs(src: str) -> int:
     return n
 
 
+def _scan_test_imports(tests_dir: Path) -> set[str]:
+    """Collect every dotted module path imported anywhere in `tests_dir`.
+
+    Two forms are tracked:
+      * `from a.b.c import x`     -> 'a.b.c' AND 'a.b.c.x'
+      * `import a.b.c`            -> 'a.b.c'
+    The 'a.b.c.x' form lets us detect submodule imports — `from a.b import c`
+    means a test exercises `a.b.c`.
+    """
+    out: set[str] = set()
+    if not tests_dir.exists():
+        return out
+    for tp in tests_dir.rglob("*.py"):
+        try:
+            tree = ast.parse(tp.read_text(encoding="utf-8"))
+        except (SyntaxError, OSError, UnicodeDecodeError):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                out.add(node.module)
+                for alias in node.names:
+                    out.add(f"{node.module}.{alias.name}")
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    out.add(alias.name)
+    return out
+
+
+def _import_matches_module(imported: str, module_name: str) -> bool:
+    """True if a dotted import path appears to reference `module_name`.
+
+    Matches when the import's leaf segment equals `module_name`:
+      * `orchestrator.foo` matches module 'foo'
+      * `orchestrator.test_audit.collector` matches module 'collector'
+      * `orchestrator.test_audit` matches NEITHER 'collector' nor 'parser'
+    Cheap and effective for typical Python projects; false positives only
+    arise when two source modules share a leaf name.
+    """
+    if imported == module_name:
+        return True
+    return imported.endswith(f".{module_name}")
+
+
 def module_inventory(repo: Path, src_root: str = "src",
                      tests_root: str = "tests") -> list[ModuleInfo]:
     """Walk `<repo>/<src_root>` and pair each module with its test file (if any).
@@ -84,6 +127,7 @@ def module_inventory(repo: Path, src_root: str = "src",
     if tests_dir.exists():
         for tp in tests_dir.rglob("*.py"):
             test_paths_by_name[tp.stem] = tp
+    test_imports = _scan_test_imports(tests_dir)
 
     inv: list[ModuleInfo] = []
     for src in sorted(src_dir.rglob("*.py")):
@@ -94,13 +138,16 @@ def module_inventory(repo: Path, src_root: str = "src",
             text = src.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
+        # Primary: explicit name-matched test file (test_<name>.py / <name>_test.py).
         tp = test_paths_by_name.get(f"test_{name}") or test_paths_by_name.get(f"{name}_test")
+        # Fallback: any test file imports a path whose leaf is this module.
+        imported = any(_import_matches_module(i, name) for i in test_imports)
         inv.append(ModuleInfo(
             module_name=name,
             src_path=str(src.relative_to(repo)),
             src_lines=text.count("\n") + 1,
             public_func_count=_count_public_funcs(text),
-            has_test_file=tp is not None,
+            has_test_file=tp is not None or imported,
             test_file_path=str(tp.relative_to(repo)) if tp else None,
         ))
     return inv
