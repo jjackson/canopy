@@ -9,7 +9,7 @@ import yaml
 from orchestrator.test_audit.collector import TestItem, collect
 from orchestrator.test_audit.applier import (
     Verdict, plan, _delete_test, _skip_mark_test,
-    _parse_verdicts_yaml, apply_from_dir,
+    _parse_verdicts_yaml, apply_from_dir, _materialize_pr_body,
 )
 
 
@@ -132,6 +132,28 @@ def test_parse_verdicts_yaml_skips_invalid_entries():
     ]
     verdicts = _parse_verdicts_yaml(raw)
     assert list(verdicts.keys()) == ["ok::t"]
+
+
+def test_materialize_pr_body_combines_audit_and_architecture(tmp_path):
+    (tmp_path / "audit-report.md").write_text("# Audit\n\nbody.\n")
+    (tmp_path / "architecture-review.md").write_text("# Arch\n\narch body.\n")
+    out = _materialize_pr_body(tmp_path)
+    assert out == tmp_path / "pr-body.md"
+    text = out.read_text()
+    assert "# Audit" in text
+    assert "# Arch" in text
+    assert "---" in text  # separator
+
+
+def test_materialize_pr_body_returns_audit_only_when_arch_missing(tmp_path):
+    audit = tmp_path / "audit-report.md"
+    audit.write_text("# Audit\n")
+    out = _materialize_pr_body(tmp_path)
+    assert out == audit  # no combined file written
+
+
+def test_materialize_pr_body_returns_none_when_both_missing(tmp_path):
+    assert _materialize_pr_body(tmp_path) is None
 
 
 def test_apply_from_dir_dry_run_against_synthetic_suite(tmp_path):

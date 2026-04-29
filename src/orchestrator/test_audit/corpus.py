@@ -12,9 +12,14 @@ from typing import Any
 
 import yaml
 
+from dataclasses import asdict
+
 from orchestrator.test_audit.collector import collect
 from orchestrator.test_audit.parser import analyze
 from orchestrator.test_audit.runner import run_pytest
+from orchestrator.test_audit.architecture import (
+    module_inventory, mock_density_by_file, slow_tests,
+)
 
 
 def build_corpus(repo: Path, run_tests: bool = True, reruns: int = 0) -> dict[str, Any]:
@@ -58,11 +63,24 @@ def build_corpus(repo: Path, run_tests: bool = True, reruns: int = 0) -> dict[st
             ),
         })
 
+    # Architectural grist for the agent's suite-level review pass.
+    inv = module_inventory(repo)
+    densities = mock_density_by_file(items, statics)
+    slow = slow_tests(runtimes) if run_tests else []
+    architecture = {
+        "modules": [asdict(m) for m in inv],
+        "untested_modules": [m.module_name for m in inv if not m.has_test_file],
+        "mock_density": [asdict(d) | {"is_overmocked": d.is_overmocked} for d in densities],
+        "overmocked_files": [d.file for d in densities if d.is_overmocked],
+        "slow_tests": [asdict(s) for s in slow],
+    }
+
     return {
         "repo": str(repo),
         "test_count": len(tests),
         "ran_pytest": run_tests,
         "reruns": reruns,
+        "architecture": architecture,
         "tests": tests,
     }
 

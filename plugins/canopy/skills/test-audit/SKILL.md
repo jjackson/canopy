@@ -144,6 +144,78 @@ verdicts:
 
 Every test in the corpus must have an entry.
 
+### 5b. Architecture review pass
+
+The per-test audit catches dumb tests. It does NOT catch suite-architecture
+problems: untested modules, over-mocked test files (often a CUT-design
+smell), slow-test hot lists, fixture sprawl, framework hygiene, missing
+test-pyramid balance. **You must do this pass too.** Skipping it produces
+the rubber-stamp failure mode: "every test is OK, suite is fine."
+
+Read the `architecture` key in `corpus.yaml`:
+
+```yaml
+architecture:
+  modules: [...]              # one entry per src/*.py: name, line count,
+                              # public_func_count, has_test_file
+  untested_modules: [...]     # bare names with no test_<name>.py
+  mock_density: [...]         # per-file: total_mocks, total_assertions, ratio
+  overmocked_files: [...]     # files where mocks > assertions, n>=2
+  slow_tests: [...]           # tests above 1s, sorted descending
+```
+
+Then **read the actual conftest.py and pytest config** in the repo (Glob
+`**/conftest.py`, Read `pyproject.toml`/`pytest.ini`). The grist gives you
+counts; the conftest tells you the *shape* of the testing approach.
+
+Score the suite on these architectural dimensions:
+
+1. **Coverage architecture** — are there load-bearing modules with no
+   tests? (List them with their src_lines and public_func_count so the
+   user can see which gaps are most painful.)
+2. **Mock discipline** — are specific test files over-mocked? Heavy mocks
+   in a unit test usually means the CUT has too many dependencies — flag
+   it as a *design* smell, not just a test smell.
+3. **Test pyramid balance** — guess unit vs integration vs e2e from the
+   fixtures used (`tmp_path` / pure → unit; real DB / network / playwright
+   → integration/e2e). Is the ratio sensible for the project?
+4. **Framework hygiene** — is conftest.py organized by domain or one
+   blob? Are pytest markers used? Are fixtures layered (session/module/
+   function) or all `function`? Are slow tests gated behind markers?
+5. **Approach consistency** — does the codebase test behavior or
+   implementation? (Heavy mocking + assertions about call counts is a
+   tell.)
+
+Write `architecture-review.md` to `<stamp_dir>/`. Suggested structure:
+
+```markdown
+# Architecture Review
+
+## Coverage gaps
+- `<module>` (<lines>L, <N> public funcs) — no test file. Recommend ...
+
+## Over-mocked test files
+- `tests/test_X.py` — N mocks vs M assertions. Likely CUT-design smell;
+  consider extracting <thing> from <module>.
+
+## Slow tests (top hot list)
+- `nodeid` — <duration>ms. Recommend <move to integration marker | parametrize | …>
+
+## Framework hygiene
+<conftest organization, marker usage, fixture layering observations>
+
+## Approach
+<are tests testing behavior or implementation? specific examples>
+
+## Recommendations (top 3)
+1. ...
+2. ...
+3. ...
+```
+
+Keep it terse but specific — "module X is undertested" is not actionable;
+"module X has 12 public functions, 0 tests, last touched in commit Y" is.
+
 ### 6. Write `audit-report.md`
 
 Write to `<stamp_dir>/audit-report.md`. This becomes the PR body, so it
