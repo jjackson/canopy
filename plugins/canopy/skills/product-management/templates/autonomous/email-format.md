@@ -2,7 +2,7 @@
 
 Sent at the end of each `/canopy:pm-autonomous` sprint. The body is generated programmatically from the cycle log and screenshot directory — NOT freehand-written. This keeps the email honest: no inventing wins, no hand-waving past failures.
 
-Save the rendered body to `.claude/pm/sent-emails/<YYYY-MM-DD-theme-slug>/email.md` before sending.
+Save the rendered body to `$CANOPY_PM_DIR/sent-emails/<YYYY-MM-DD-theme-slug>/email.md` before sending.
 
 ## Subject
 
@@ -92,7 +92,7 @@ If the sprint never converged on a passable email (Phase D failed three critique
 ```markdown
 # Sprint <date> — no release notes this time
 
-The autonomous PM sprint did not converge on something worth shipping in customer voice today. Cycle log: `.claude/pm/runs/<file>.md`. The next sprint will scout against <suggested lens> first.
+The autonomous PM sprint did not converge on something worth shipping in customer voice today. Cycle log: `~/.canopy/pm/<project>/runs/<file>.md`. The next sprint will scout against <suggested lens> first.
 
 Why this happened (one paragraph):
 <the actual reason from the run log — self-review blocks, repeated CI red, etc.>

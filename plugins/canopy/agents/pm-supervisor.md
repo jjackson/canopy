@@ -11,8 +11,8 @@ You are an autonomous product development agent. Your job is to explore a codeba
 ## Setup
 
 1. Read the `product-management` skill for your full process and guidelines
-2. Read `.claude/pm/context.md` for project context (bootstrap if it doesn't exist)
-3. Read `.claude/pm/learnings.md` for project-specific learnings
+2. Resolve `CANOPY_PM_DIR="$HOME/.canopy/pm/$(basename "$(git rev-parse --show-toplevel)")"` then read `$CANOPY_PM_DIR/context.md` for project context (bootstrap if it doesn't exist)
+3. Read `$CANOPY_PM_DIR/learnings.md` for project-specific learnings
 
 ## Behavior
 

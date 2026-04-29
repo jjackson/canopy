@@ -40,31 +40,48 @@ Logs outcomes & learns
 This skill has two operating modes. The phases below describe the **human-gated** mode in detail — that is the original and default behavior.
 
 - **Human-gated** (the Phase 0–6 procedure below). Entry point: `/canopy:pm-scout`. Phase 3 stops on `AskUserQuestion` for per-proposal disposition. Single sprint, exits when dispositions are recorded. **Unchanged.**
-- **Autonomous.** Entry points: `/canopy:pm-autonomous` (one sprint) and `/canopy:pm-autonomous-loop` (sprint → wait → repeat). Auto-approves its own proposals. Runs a multi-layer convince-self-it's-clean gate, auto-merges on green CI, auto-deploys, and ends each sprint by sending a working-backwards release-notes email. Requires `.claude/pm/autonomous.yaml`. See **Autonomous mode** below.
+- **Autonomous.** Entry points: `/canopy:pm-autonomous` (one sprint) and `/canopy:pm-autonomous-loop` (sprint → wait → repeat). Auto-approves its own proposals. Runs a multi-layer convince-self-it's-clean gate, auto-merges on green CI, auto-deploys, and ends each sprint by sending a working-backwards release-notes email. Requires `$CANOPY_PM_DIR/autonomous.yaml`. See **Autonomous mode** below.
 
 When in doubt, the human-gated mode is the right default. Autonomous mode is opt-in per project via the config file.
 
 ## Project State Convention
 
-All project-level data lives in `.claude/pm/` within the current project:
+All project-level PM state lives in `~/.canopy/pm/<project>/` on the user's machine, **not** inside the project tree. The `<project>` part is the `basename` of the repo root (e.g. `ace-web`, `canopy`).
 
 ```
-<project-root>/
-└── .claude/
-    └── pm/
-        ├── context.md          ← what this project is, who uses it, what matters
-        ├── learnings.md        ← project-specific learnings ("don't propose X again")
-        └── runs/               ← cycle logs (one per run)
-            └── YYYY-MM-DD-<lens>.md
+~/.canopy/pm/<project>/
+├── context.md          ← what this project is, who uses it, what matters
+├── learnings.md        ← project-specific learnings ("don't propose X again")
+├── autonomous.yaml     ← autonomous-mode config (auto-bootstrapped on first run)
+└── runs/               ← cycle logs (one per run)
+    └── YYYY-MM-DD-<lens>.md
 ```
+
+**Why this location (not `.claude/pm/` in the project tree):** `.claude/pm/` dies whenever the user works in an emdash or conductor worktree — those worktrees are ephemeral and don't carry the PM state forward. `~/.canopy/pm/<project>/` is per-machine and outlives any worktree.
+
+**Resolving the path** — resolve once at the start of each run and export it:
+
+```bash
+CANOPY_PM_DIR="$HOME/.canopy/pm/$(basename "$(git rev-parse --show-toplevel)")"
+mkdir -p "$CANOPY_PM_DIR"
+```
+
+**Legacy migration:** if a project still has a `.claude/pm/` directory from a previous canopy version, the user should migrate it once:
+
+```bash
+CANOPY_PM_DIR="$HOME/.canopy/pm/$(basename "$(git rev-parse --show-toplevel)")"
+mkdir -p "$CANOPY_PM_DIR" && mv .claude/pm/* "$CANOPY_PM_DIR/"
+```
+
+The skill does NOT auto-migrate — that is user-judgment territory.
 
 **Every run:** Read `context.md` and `learnings.md` before doing anything else. These are your memory.
 
 ## Bootstrapping: Building context.md
 
-If `.claude/pm/context.md` doesn't exist, build it interactively before doing anything else.
+If `$CANOPY_PM_DIR/context.md` doesn't exist, build it interactively before doing anything else.
 
-**Run all bootstrap steps sequentially.** Do not issue parallel tool calls during bootstrap — `.claude/pm/` doesn't exist yet, so any parallel call that touches it will fail and cancel its siblings.
+**Run all bootstrap steps sequentially.** Do not issue parallel tool calls during bootstrap — `$CANOPY_PM_DIR` may not exist yet, so any parallel call that touches it will fail and cancel its siblings.
 
 ### Step 1: Gather what you can automatically
 
@@ -119,7 +136,7 @@ Bullet list of non-obvious things: gotchas, constraints, political context, inte
 
 Show the user the generated `context.md` and ask: "Does this capture your project accurately? Anything to add or fix?" Edit based on their feedback, then save.
 
-Also create `learnings.md`. If `.claude/pm/runs/` already exists with previous run logs, parse them for any closed/rejected items and pre-populate the "Closed Items" section. Otherwise start empty:
+Also create `learnings.md`. If `$CANOPY_PM_DIR/runs/` already exists with previous run logs, parse them for any closed/rejected items and pre-populate the "Closed Items" section. Otherwise start empty:
 
 ```markdown
 # Product Management Learnings
@@ -137,10 +154,12 @@ Items closed or rejected during PM cycles. Read this before every scout run to a
 
 ### Phase 0: Pre-flight (single sequential check, NEVER parallel)
 
-**Run this ONE bash command synchronously before any other tool calls.** Do not parallelize anything until this completes — issuing parallel reads against `.claude/pm/` when the directory doesn't exist cancels every sibling call and forces sequential retries.
+**Run this ONE bash command synchronously before any other tool calls.** Do not parallelize anything until this completes — issuing parallel reads when the directory doesn't exist cancels every sibling call and forces sequential retries.
 
 ```bash
-[ -d ".claude/pm" ] && echo "PM_STATE: ready" || echo "PM_STATE: missing"
+CANOPY_PM_DIR="$HOME/.canopy/pm/$(basename "$(git rev-parse --show-toplevel)")"
+mkdir -p "$CANOPY_PM_DIR"
+[ -f "$CANOPY_PM_DIR/context.md" ] && echo "PM_STATE: ready" || echo "PM_STATE: missing"
 ```
 
 Branch on the output:
@@ -151,8 +170,8 @@ Branch on the output:
 ### Phase 1: Scout (explore, read-only)
 
 **What to do:**
-1. Read `.claude/pm/context.md` for orientation
-2. Read `.claude/pm/learnings.md` for things to avoid
+1. Read `$CANOPY_PM_DIR/context.md` for orientation
+2. Read `$CANOPY_PM_DIR/learnings.md` for things to avoid
 3. Check `git log --oneline -20` for recent momentum
 4. Run the test suite — what passes, fails, is missing?
 5. Look through open issues / TODO files
@@ -178,7 +197,7 @@ For each finding, provide:
 - Check what already exists before proposing additions. Verify current state.
 - Don't suggest vague refactors or "add more tests everywhere." Be specific.
 - For bugs or broken behavior: try to write a failing test. If you can't, explain why.
-- Check `.claude/pm/learnings.md` — do NOT re-propose closed or rejected items.
+- Check `$CANOPY_PM_DIR/learnings.md` — do NOT re-propose closed or rejected items.
 
 ### Phase 2: Propose (supervisor filters & ranks)
 
@@ -244,7 +263,7 @@ AskUserQuestion({
 ```
 
 - **Add my own ideas**: Capture the user's ideas and apply the same disposition flow (Do it / Backlog / Close). Log user-originated ideas in the run log with a `[user idea]` tag.
-- **Review backlog**: Parse all previous run logs in `.claude/pm/runs/` and collect items marked as "Backlog". Present each backlogged item via `AskUserQuestion` with options: **Promote** (move to "Do it" this cycle), **Keep** (leave in backlog), **Close** (won't do, log reason). This prevents the backlog from becoming a graveyard of forgotten ideas.
+- **Review backlog**: Parse all previous run logs in `$CANOPY_PM_DIR/runs/` and collect items marked as "Backlog". Present each backlogged item via `AskUserQuestion` with options: **Promote** (move to "Do it" this cycle), **Keep** (leave in backlog), **Close** (won't do, log reason). This prevents the backlog from becoming a graveyard of forgotten ideas.
 
 This keeps the scout session self-contained — the user doesn't need to break out of the cycle to contribute thoughts or revisit past decisions.
 
@@ -281,7 +300,7 @@ After each cycle, do two things:
 
 **1. Update project state:**
 
-Write run log to `.claude/pm/runs/YYYY-MM-DD-<lens>.md`:
+Write run log to `$CANOPY_PM_DIR/runs/YYYY-MM-DD-<lens>.md`:
 
 ```markdown
 ## YYYY-MM-DD — <lens>
@@ -304,7 +323,7 @@ Write run log to `.claude/pm/runs/YYYY-MM-DD-<lens>.md`:
 - Prompt adjustments for next time
 ```
 
-Update `.claude/pm/learnings.md` with any new closed items or preferences.
+Update `$CANOPY_PM_DIR/learnings.md` with any new closed items or preferences.
 
 **2. Evaluate for universal improvements** (see Self-Improvement Protocol below).
 
@@ -312,7 +331,7 @@ Update `.claude/pm/learnings.md` with any new closed items or preferences.
 
 The procedure for autonomous sprints lives in template files. Read them in order at the start of every autonomous run:
 
-1. `templates/autonomous/config-schema.md` — `.claude/pm/autonomous.yaml` schema and example
+1. `templates/autonomous/config-schema.md` — `$CANOPY_PM_DIR/autonomous.yaml` schema and example
 2. `templates/autonomous/cycle.md` — Phases A–E (the working-backwards sprint)
 3. `templates/autonomous/convince-self-gate.md` — the multi-layer gate that runs before every PR
 4. `templates/autonomous/email-format.md` — body template for the working-backwards release-notes email
@@ -332,7 +351,7 @@ The autonomous mode does NOT modify the human-gated Phase 0–6 procedure above.
 2. **No weak emails.** Phase A loops until the email draft passes Clear/Testable/Impressive. Phase D refuses to send if reality diverged into something not worth sending — it sends a stuck-state note instead.
 3. **One autonomous PR in flight at a time.** Resume an open one before opening a new one.
 4. **No auto-revert on broken prod.** Fix forward, up to `guardrails.max_fix_forward_attempts` cycles, then stop with a stuck-state email.
-5. **The skill stays project-agnostic.** Every project-specific value (deploy command, health URLs, sender skill, branch prefix, test commands) lives in `.claude/pm/autonomous.yaml`. Never hardcode them in SKILL.md or templates.
+5. **The skill stays project-agnostic.** Every project-specific value (deploy command, health URLs, sender skill, branch prefix, test commands) lives in `~/.canopy/pm/<project>/autonomous.yaml`. Never hardcode them in SKILL.md or templates.
 
 ## Self-Improvement Protocol
 
@@ -341,7 +360,7 @@ After completing a cycle, evaluate your meta-observations:
 ### Is this learning project-specific?
 Examples: "don't propose keyboard shortcuts for this project", "this repo uses pytest not jest"
 
-→ Write to `.claude/pm/learnings.md`. Done.
+→ Write to `$CANOPY_PM_DIR/learnings.md`. Done.
 
 ### Is this learning universal?
 Examples: "Claude over-engineers when not told to check existing functionality", "always verify current state before proposing additions"

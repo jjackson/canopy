@@ -45,10 +45,10 @@ A failure on any question DROPS the proposal — write the question number and a
 
 For any change that's named in a `Try it:` line of the target email:
 
-1. Start the local stack: `bash -lc "$(yq '.testing.dogfood.start_command' .claude/pm/autonomous.yaml)"`
+1. Start the local stack: `bash -lc "$(yq '.testing.dogfood.start_command' "$CANOPY_PM_DIR/autonomous.yaml")"`
 2. Wait until `testing.dogfood.wait_for` returns 200, polling every 5s with a 5-min ceiling
 3. Drive the change in the configured `headless_browser_skill` — actually click through, verify the expected behavior visibly happens
-4. Capture a sequence of screenshots: a "before" (revert briefly OR feature-flag OR describe-from-memory if no clean before-state exists) and an "after". Save under `.claude/pm/sent-emails/<sprint-slug>/screenshots/`
+4. Capture a sequence of screenshots: a "before" (revert briefly OR feature-flag OR describe-from-memory if no clean before-state exists) and an "after". Save under `$CANOPY_PM_DIR/sent-emails/<sprint-slug>/screenshots/`
 5. Reference them in the email body per `email-format.md`
 
 A purely backend change (no user-visible surface) can SKIP dogfood, but then it CANNOT appear as a "Try it" highlight — only in the internal `*` section.
