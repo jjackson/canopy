@@ -16,13 +16,13 @@ Run sequentially, NOT in parallel (`.claude/pm/` may not exist yet on a fresh pr
    PLUGIN_PATH=$(python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugins.json')); print(d['plugins']['canopy@canopy'][0]['installPath'])")
    ```
 
-2. Validate `.claude/pm/autonomous.yaml`:
+2. Validate `.claude/pm/autonomous.yaml`. The validator declares its YAML dep via PEP 723 inline metadata, so invoke it with `uv run --script` (NOT plain `python3`) — that way uv resolves PyYAML on the fly without requiring it on the user's system python:
 
    ```bash
-   python3 "$PLUGIN_PATH/skills/product-management/scripts/validate_autonomous_config.py" .claude/pm/autonomous.yaml
+   uv run --script "$PLUGIN_PATH/skills/product-management/scripts/validate_autonomous_config.py" .claude/pm/autonomous.yaml
    ```
 
-   Refuse to run on non-zero exit. Print the validator stderr and stop.
+   Refuse to run on non-zero exit. Print the validator stderr and stop. If `uv` is missing on the user's system, ask them to install it (`brew install uv` or `pip install uv`) and stop.
 
 3. Read `.claude/pm/context.md` and `.claude/pm/learnings.md`. If `context.md` is missing, run the existing skill's bootstrap flow first (see SKILL.md "Bootstrapping: Building context.md"), THEN re-enter Phase 0.
 

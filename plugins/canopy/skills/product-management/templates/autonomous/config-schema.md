@@ -34,8 +34,10 @@ Run the validator manually with:
 
 ```bash
 PLUGIN_PATH=$(python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugins.json')); print(d['plugins']['canopy@canopy'][0]['installPath'])")
-python3 "$PLUGIN_PATH/skills/product-management/scripts/validate_autonomous_config.py" .claude/pm/autonomous.yaml
+uv run --script "$PLUGIN_PATH/skills/product-management/scripts/validate_autonomous_config.py" .claude/pm/autonomous.yaml
 ```
+
+The validator's YAML dependency is declared inline (PEP 723) so `uv run --script` resolves it on the fly. Plain `python3` will fail unless your system python already has PyYAML.
 
 Phase 0 of `cycle.md` calls this script automatically.
 
