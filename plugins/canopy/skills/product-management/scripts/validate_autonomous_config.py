@@ -1,9 +1,17 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["pyyaml"]
+# ///
 """Validate `.claude/pm/autonomous.yaml` (spec §2, Phase 0).
 
-Usage: python validate_autonomous_config.py <path/to/autonomous.yaml>
+Usage: uv run --script validate_autonomous_config.py <path/to/autonomous.yaml>
 
 Exit 0 + 'ready: <project>' on success.
 Exit 1 + per-error stderr on failure.
+
+The PEP 723 inline-metadata block above lets `uv run --script` resolve PyYAML
+on the fly, so the autonomous skill can invoke this from any project without
+assuming the user's system Python has yaml installed.
 """
 from __future__ import annotations
 
@@ -12,7 +20,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import yaml
+try:
+    import yaml
+except ModuleNotFoundError:
+    print(
+        "validate-config: PyYAML not available. Run via `uv run --script` "
+        "(uv reads the inline metadata at the top of this file), or install "
+        "pyyaml into the python on PATH.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 REQUIRED: list[tuple[str, type | tuple[type, ...]]] = [
     ("email.to", str),
