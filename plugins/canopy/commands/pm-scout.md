@@ -10,7 +10,7 @@ Run a product management scout cycle on the current project.
 
 ## Arguments
 
-- `lens` (optional): The exploration lens to use. One of: user-value, adoption-blockers, integration-depth, trust-reliability, tech-debt. If not specified, rotate from the last lens used — determine this by parsing the filename of the most recent file in `.claude/pm/runs/` (format: `YYYY-MM-DD-<lens>.md`). Pick the next lens in the list above. If no runs exist yet, start with `user-value`.
+- `lens` (optional): The exploration lens to use. One of: user-value, adoption-blockers, integration-depth, trust-reliability, tech-debt. If not specified, rotate from the last lens used — resolve `CANOPY_PM_DIR="$HOME/.canopy/pm/$(basename "$(git rev-parse --show-toplevel)")"` and parse the filename of the most recent file in `$CANOPY_PM_DIR/runs/` (format: `YYYY-MM-DD-<lens>.md`). Pick the next lens in the list above. If no runs exist yet, start with `user-value`.
 
 ## Process
 

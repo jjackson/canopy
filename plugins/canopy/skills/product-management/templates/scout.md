@@ -5,9 +5,9 @@ Use this template when prompting Claude Code for the scout phase.
 ```
 Explore this project.
 
-Before starting: Read `.claude/pm/context.md` for project context — especially "What Matters Most".
+Before starting: Resolve `CANOPY_PM_DIR="$HOME/.canopy/pm/$(basename "$(git rev-parse --show-toplevel)")"` and read `$CANOPY_PM_DIR/context.md` for project context — especially "What Matters Most".
 
-Before starting: Read `.claude/pm/learnings.md` — do NOT re-propose any closed or rejected items listed there.
+Before starting: Read `$CANOPY_PM_DIR/learnings.md` — do NOT re-propose any closed or rejected items listed there.
 
 Read CLAUDE.md first. Then:
 1. git log --oneline -20 (understand recent momentum)
