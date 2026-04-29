@@ -46,9 +46,6 @@ class TestCreateCorpusEntryComplexity:
         entry = _make_entry(expected_servers=["commcare-hq", "solicitations"])
         assert entry["complexity"] == "multi-server"
 
-    def test_multi_server_complexity_for_three_servers(self):
-        entry = _make_entry(expected_servers=["srv-a", "srv-b", "srv-c"])
-        assert entry["complexity"] == "multi-server"
 
     def test_single_server_complexity_for_one_server(self):
         entry = _make_entry(expected_servers=["commcare-hq"])

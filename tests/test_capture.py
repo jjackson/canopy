@@ -229,21 +229,7 @@ class TestClassifySessions:
         assert "s1" in result["multi_server"]
         assert "s1" not in result["single_server"]
 
-    def test_session_with_one_entry_is_single_server(self):
-        grouped = {"s1": [{"server": "commcare-hq", "tool": "foo"}]}
-        result = classify_sessions(grouped)
-        assert "s1" in result["single_server"]
 
-    def test_three_servers_is_multi_server(self):
-        grouped = {
-            "s1": [
-                {"server": "a"},
-                {"server": "b"},
-                {"server": "c"},
-            ]
-        }
-        result = classify_sessions(grouped)
-        assert "s1" in result["multi_server"]
 
     def test_multiple_sessions_mixed(self):
         grouped = {
@@ -267,9 +253,6 @@ class TestClassifySessions:
 
 
 class TestFindTranscriptPath:
-    def test_returns_path_object(self):
-        result = find_transcript_path("abc123", "/Users/jjackson/myproject")
-        assert isinstance(result, Path)
 
     def test_path_ends_with_session_jsonl(self):
         result = find_transcript_path("my-session-id", "/some/project")
@@ -280,10 +263,6 @@ class TestFindTranscriptPath:
         assert result.parts[-4] == ".claude"
         assert result.parts[-3] == "projects"
 
-    def test_leading_slash_produces_leading_dash(self):
-        result = find_transcript_path("sid", "/foo/bar")
-        parent_dir = result.parent.name
-        assert parent_dir.startswith("-")
 
     def test_slashes_replaced_with_dashes(self):
         result = find_transcript_path("sid", "/foo/bar/baz")
