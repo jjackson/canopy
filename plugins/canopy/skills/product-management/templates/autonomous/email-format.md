@@ -14,7 +14,7 @@ These are non-negotiable. Violating any of them ships an email that looks amateu
 6. **Internal notes belong in a small footer**, separated by a divider — not a top-level section heading. The recipient is a stakeholder, not a maintainer; engineering metadata is a footnote, not a chapter.
 7. **Pre-send rendering pass (Phase E.4 gate).** Before invoking the sender skill, render the final `email.html` via the configured `headless_browser_skill` and screenshot at desktop (1280px) and mobile (375px) widths. This is a sanity check — does it actually look like a release-notes email when a real browser draws it? Save the rendered shots under the sprint screenshots dir as `email-rendered-{desktop,mobile}.png`. If anything looks off (broken image, wrap regression, palette wreck), fix the HTML and re-render before sending.
 
-Save the rendered body to `$CANOPY_PM_DIR/sent-emails/<YYYY-MM-DD-theme-slug>/email.html` before sending. (`email.md` is for the markdown working draft — the archive — and is not what gets sent.)
+Save the rendered body to `$EMAIL_WORKDIR/email.html` (the temp working dir created at the start of Phase E) before sending. The rendered HTML and screenshots also get committed to the `pm-assets/<sprint-slug>` branch on the project's repo — that branch is the only persistent home. Nothing email-specific persists in `$CANOPY_PM_DIR`; the run log under `$CANOPY_PM_DIR/runs/<sprint-slug>.md` captures the highlights (Phase D) for future cycles to consult.
 
 ## Subject
 
@@ -102,7 +102,7 @@ Adapt copy and palette per project; do NOT skip the brand bar / hero / per-highl
 The sender skill is invoked with:
 
 - `subject` (string) — see "Subject" above
-- `body_html` (string) — the rendered HTML above, read from `$CANOPY_PM_DIR/sent-emails/<sprint-slug>/email.html`
+- `body_html` (string) — the rendered HTML above, read from `$EMAIL_WORKDIR/email.html`
 - `body_text` (string) — a one-paragraph plain-text fallback. Generic "please view as HTML" is fine; this is just for HTML-stripped clients
 - `attachments` (optional list) — generally **omitted** when images are hosted via raw.githubusercontent.com URLs (the recommended path). Only attach if the sender skill explicitly supports `multipart/related` and you've embedded `cid:` refs (rare).
 
@@ -112,7 +112,7 @@ If the sender skill does not support an HTML body, log that limitation in the ru
 
 Before invoking the sender skill, the cycle MUST have:
 
-1. Captured screenshots from prod (per Hard rule #3) into `$CANOPY_PM_DIR/sent-emails/<sprint-slug>/screenshots/`.
+1. Captured screenshots from prod (per Hard rule #3) into `$EMAIL_WORKDIR/screenshots/` (the Phase E temp working dir).
 2. Committed those screenshots to a persistent branch on the **project's** git remote (the project being PM'd, not canopy itself) — by convention `pm-assets/<sprint-slug>`. Push without opening a PR; the branch is asset hosting, not a code change. Note: this is the *project repo's* origin, not the user-space `$CANOPY_PM_DIR`.
 3. Verified each `https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<path>` URL returns HTTP 200 (curl -I).
 4. Substituted those URLs into the `<img src>` attributes of `email.html` (the rendered file), and re-saved.
@@ -126,7 +126,7 @@ The email is the only customer-facing output of the cycle. The user's delight de
 **E.4 — pre-send rendering (gate):**
 
 1. Render `email.html` via `headless_browser_skill` at 1280×800 (desktop) and 375×812 (mobile).
-2. Screenshot both, save as `$CANOPY_PM_DIR/sent-emails/<sprint-slug>/screenshots/email-rendered-{desktop,mobile}.png`.
+2. Screenshot both, save as `$EMAIL_WORKDIR/screenshots/email-rendered-{desktop,mobile}.png`. They'll be pushed to the `pm-assets/<sprint-slug>` branch alongside the prod feature shots.
 3. Look at the screenshots and answer:
    - Do all hero images load? (Hosted https URLs return 200 — verify with curl too.)
    - Does every highlight title look like a link? (Hard rule #5: title + image must wrap in `<a>`.)
