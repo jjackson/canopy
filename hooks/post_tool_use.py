@@ -15,7 +15,10 @@ from pathlib import Path
 
 LOG_FILE = Path.home() / ".claude" / "canopy" / "session-log.jsonl"
 REPO_MAP_FILE = Path.home() / ".claude" / "canopy" / "repo-map.json"
+HOOK_ERROR_LOG = Path.home() / ".claude" / "canopy" / "hook-errors.log"
 _PLUGINS_FILE = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
+
+POST_TIMEOUT_SECONDS = 15
 
 CANOPY_WEB_API = os.environ.get(
     "CANOPY_WEB_API_URL",
@@ -121,17 +124,44 @@ except ImportError:
             f.write(json.dumps(entry, default=str) + "\n")
 
 
+def _record_hook_error(reason: str, context: dict) -> None:
+    """Append a one-line failure record to ~/.claude/canopy/hook-errors.log.
+
+    The hook must never block Claude Code, so this itself is best-effort. But
+    silent drops in `_post_action_to_workbench` made gaps invisible — this
+    sidecar gives `/canopy:doctor` something to read when actions seem missing.
+    """
+    try:
+        HOOK_ERROR_LOG.parent.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "reason": reason,
+            **context,
+        }
+        with open(HOOK_ERROR_LOG, "a") as f:
+            f.write(json.dumps(entry, default=str) + "\n")
+    except Exception:
+        pass
+
+
 def _post_action_to_workbench(skill_name: str, session_id: str, project_dir: str):
-    """POST a skill action to canopy-web's project actions API. Silent on failure."""
+    """POST a skill action to canopy-web's project actions API.
+
+    Failures are recorded to HOOK_ERROR_LOG with a category tag rather than
+    swallowed silently — see _record_hook_error.
+    """
     import urllib.request
 
     if not WORKBENCH_TOKEN_FILE.exists():
+        _record_hook_error("token_file_missing", {"skill": skill_name})
         return
     try:
         token = WORKBENCH_TOKEN_FILE.read_text().strip()
-    except Exception:
+    except Exception as exc:
+        _record_hook_error("token_read_failed", {"skill": skill_name, "error": str(exc)})
         return
     if not token:
+        _record_hook_error("token_empty", {"skill": skill_name})
         return
 
     repo_map = {}
@@ -139,12 +169,17 @@ def _post_action_to_workbench(skill_name: str, session_id: str, project_dir: str
         try:
             with open(REPO_MAP_FILE) as f:
                 repo_map = json.load(f)
-        except Exception:
+        except Exception as exc:
+            _record_hook_error("repo_map_read_failed", {"skill": skill_name, "error": str(exc)})
             return
 
     project_key = "-" + project_dir.lstrip("/").replace("/", "-")
     github_repo = repo_map.get(project_key, "")
     if not github_repo or "/" not in github_repo:
+        _record_hook_error(
+            "repo_unmapped",
+            {"skill": skill_name, "project_dir": project_dir, "project_key": project_key},
+        )
         return
 
     slug = github_repo.split("/")[-1]
@@ -167,9 +202,22 @@ def _post_action_to_workbench(skill_name: str, session_id: str, project_dir: str
             },
             method="POST",
         )
-        urllib.request.urlopen(req, timeout=3)
-    except Exception:
-        pass
+        urllib.request.urlopen(req, timeout=POST_TIMEOUT_SECONDS)
+    except urllib.error.HTTPError as exc:
+        _record_hook_error(
+            "http_error",
+            {"skill": skill_name, "slug": slug, "status": exc.code, "reason": exc.reason},
+        )
+    except urllib.error.URLError as exc:
+        _record_hook_error(
+            "network_error",
+            {"skill": skill_name, "slug": slug, "error": str(exc.reason)},
+        )
+    except Exception as exc:
+        _record_hook_error(
+            "unexpected_error",
+            {"skill": skill_name, "slug": slug, "error": str(exc)},
+        )
 
 
 def main():
