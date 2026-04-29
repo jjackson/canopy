@@ -1,6 +1,9 @@
 """Integration test — full flow from registry to corpus."""
 
 from pathlib import Path
+
+import pytest
+
 from orchestrator.registry import load_registry, format_for_skill, get_all_servers
 from orchestrator.capture import append_log_entry, read_session_log, group_by_session, classify_sessions
 from orchestrator.corpus import create_corpus_entry, save_corpus_entry, load_corpus_entry
@@ -8,6 +11,7 @@ from orchestrator.corpus import create_corpus_entry, save_corpus_entry, load_cor
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
+@pytest.mark.integration
 def test_full_flow(tmp_path):
     """Test: load registry, log a session, classify it, create corpus entry."""
     # 1. Load registry

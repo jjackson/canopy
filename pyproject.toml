@@ -36,4 +36,8 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 norecursedirs = ["tests/fixtures"]
+markers = [
+    "slow: tests that take >1s; skip with -m 'not slow'",
+    "integration: end-to-end flow tests touching multiple subsystems",
+]
 
