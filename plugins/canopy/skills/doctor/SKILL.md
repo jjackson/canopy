@@ -92,7 +92,7 @@ fi
 Test that the token works against the live API:
 
 ```bash
-API_URL="${CANOPY_WEB_API_URL:-https://canopy-web-hhhi4yut3q-uc.a.run.app}"
+API_URL="${CANOPY_WEB_API_URL:-https://canopy-web-ujpz2cuyxq-uc.a.run.app}"
 
 if [ -z "$TOKEN_FILE" ]; then
   echo "SKIP: no token to test with"

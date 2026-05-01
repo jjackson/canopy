@@ -22,7 +22,7 @@ POST_TIMEOUT_SECONDS = 15
 
 CANOPY_WEB_API = os.environ.get(
     "CANOPY_WEB_API_URL",
-    "https://canopy-web-hhhi4yut3q-uc.a.run.app",
+    "https://canopy-web-ujpz2cuyxq-uc.a.run.app",
 )
 WORKBENCH_TOKEN_FILE = Path.home() / ".claude" / "canopy" / "workbench-token"
 
