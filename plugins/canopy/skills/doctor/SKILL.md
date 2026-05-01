@@ -32,7 +32,7 @@ found = any(
     for entry in hooks
     for h in entry.get('hooks', [])
 )
-print('OK: PostToolUse hook registered' if found else 'FAIL: PostToolUse hook not registered — run canopy setup')
+print('OK: PostToolUse hook registered' if found else 'FAIL: PostToolUse hook not registered — run /canopy:setup')
 "
 ```
 
@@ -74,9 +74,7 @@ fi
 
 if [ -z "$TOKEN_FILE" ]; then
   echo "FAIL: workbench-token not found at ~/.claude/canopy/workbench-token"
-  echo "  Fix: get the token from GCP Secret Manager and save it:"
-  echo "  gcloud secrets versions access latest --secret=workbench-write-token > ~/.claude/canopy/workbench-token"
-  echo "  chmod 600 ~/.claude/canopy/workbench-token"
+  echo "  Fix: run /canopy:setup (handles GCP fetch + permissions automatically)"
 else
   PERMS=$(stat -f "%Lp" "$TOKEN_FILE" 2>/dev/null || stat -c "%a" "$TOKEN_FILE" 2>/dev/null)
   LEN=$(wc -c < "$TOKEN_FILE" | tr -d ' ')
