@@ -115,6 +115,16 @@ Run sequentially, NOT in parallel (`$CANOPY_PM_DIR` may not exist yet on a fresh
    fi
    ```
 
+9. **Create `$EMAIL_WORKDIR`** — the temp working dir that the post-deploy 3c dogfood step will write screenshots into and that Phase E will read from. Created here (not at the start of Phase E) because 3c needs it earlier in the cycle:
+
+   ```bash
+   EMAIL_WORKDIR=$(mktemp -d -t canopy-email-XXXXXX)
+   mkdir -p "$EMAIL_WORKDIR/screenshots"
+   trap 'rm -rf "$EMAIL_WORKDIR"' EXIT
+   ```
+
+   Treat the EXIT trap as the cleanup contract — the dir lives for the rest of the sprint and is discarded automatically when the cycle exits. Do not redefine `$EMAIL_WORKDIR` later.
+
 ## Phase A — Working-backwards draft (5–10 min)
 
 Goal: produce a target email DRAFT that can pass three critiques before any engineering happens.
@@ -147,8 +157,8 @@ For each proposal, in order, ONE PR IN FLIGHT AT A TIME:
    This guarantees the autonomous PR's diff contains ONLY the work this proposal does, regardless of the worktree's pre-existing state.
 2. Implement the change. Use TDD where it fits (`superpowers:test-driven-development`); skip TDD only when the change is purely a behavior-of-no-test-yet thing and a test would be theatre.
 3. Stage the change: `git add -A`
-4. Run the full convince-self-it's-clean gate per `convince-self-gate.md` — sections 3a then 3b then 3c (if this proposal corresponds to a "Try it" highlight).
-5. If the gate drops the proposal, log it under `self-review-blocked` in the run log AND re-derive the corresponding email highlight (try a different angle, or drop it and scout for a replacement). The email must remain impressive or it's not worth sending.
+4. Run the **pre-merge** layers of the gate per `convince-self-gate.md` — sections 3a (mechanical checks) and 3b (five-question self-review). Section 3c is **not** run here; it has moved to step 11 below because it now exercises deployed prod, not localhost.
+5. If 3a or 3b drops the proposal, log it under `self-review-blocked` in the run log AND re-derive the corresponding email highlight (try a different angle, or drop it and scout for a replacement). The email must remain impressive or it's not worth sending.
 6. Open PR: `gh pr create --label "$PR_LABEL" --base main --title "<title>" --body "<body>"`. Body cites the email highlight this proposal makes true.
 7. Wait for CI. On red:
    - Up to 2 fix-forward attempts on the same PR (re-run the gate each time)
@@ -158,8 +168,9 @@ For each proposal, in order, ONE PR IN FLIGHT AT A TIME:
 9. Run `shipping.deploy_command`.
 10. Poll deploy status (use `gh run list --workflow="$DEPLOY_WORKFLOW"` until completion).
 11. Run section 3d post-deploy health check.
-12. Update the cycle log with: branch, PR number, gate verdicts (each Q answered), deploy status, health-check status.
-13. Move to the next proposal.
+12. Run section 3c **prod dogfood + screenshot capture** (now post-deploy — see `convince-self-gate.md` §3c). Drive each `Try it:` line against the deployed app via the configured `headless_browser_skill`; this both proves the user-visible behavior and produces the hero screenshots for the email. Save shots into `$EMAIL_WORKDIR/screenshots/` so Phase E.2 can push them to the asset branch unchanged. If the click-through fails, treat it as a fix-forward (counts against `guardrails.max_fix_forward_attempts`).
+13. Update the cycle log with: branch, PR number, gate verdicts (each Q answered), deploy status, health-check status, dogfood verdict.
+14. Move to the next proposal.
 
 ## Phase D — Reality reconciliation
 
@@ -175,14 +186,9 @@ Reality always diverges from plan. Before sending the email:
 
 The email MUST be HTML, with hero screenshots captured from prod, hosted via persistent https URLs, and laid out per `email-format.md`'s reference template. Read that file first — its **Hard rules** section is non-negotiable. Phase E has 8 substeps; do not skip E.4 or E.5.
 
-**Working directory note.** Phase E uses a temporary working dir for the email artifacts; nothing email-specific persists in `$CANOPY_PM_DIR`. The persistent homes are: (a) `$CANOPY_PM_DIR/runs/<sprint-slug>.md` for the cycle log (already established), and (b) the `pm-assets/<sprint-slug>` branch on the **project's** repo for the rendered HTML and screenshots that the email's `<img src>` URLs resolve to. After the email lands, the temp working dir is discarded.
+**Working directory note.** `$EMAIL_WORKDIR` was created in Phase 0 step 9 with an EXIT trap that discards it when the cycle ends. The post-deploy 3c dogfood step (Phase C step 12) already populated `$EMAIL_WORKDIR/screenshots/` with the prod hero shots. Phase E reads from the same dir; nothing email-specific persists in `$CANOPY_PM_DIR`. The persistent homes are: (a) `$CANOPY_PM_DIR/runs/<sprint-slug>.md` for the cycle log (already established), and (b) the `pm-assets/<sprint-slug>` branch on the **project's** repo for the rendered HTML and screenshots that the email's `<img src>` URLs resolve to.
 
-```bash
-EMAIL_WORKDIR=$(mktemp -d -t canopy-email-XXXXXX)
-trap 'rm -rf "$EMAIL_WORKDIR"' EXIT
-```
-
-1. **Capture prod screenshots into the temp working dir.** Drive the deployed app via the configured `headless_browser_skill`, authenticate via the project's automation login (e.g. `/auth/e2e-login/` for ace-web), and snap each surface named in a "Try it" line of the target email into `$EMAIL_WORKDIR/screenshots/`. If a surface isn't reachable in prod (e.g. a "disconnected" branch masked by a global fallback), describe it textually in the body — don't substitute a localhost shot.
+1. **Verify the prod screenshots from 3c.** Confirm `$EMAIL_WORKDIR/screenshots/` contains one PNG per "Try it" line in the target email — these are the same shots that 3c (Phase C step 12) captured against deployed prod. If a surface didn't get captured (because 3c noted it as unreachable, e.g. a "disconnected" branch masked by a global fallback), describe it textually in the body — never substitute a localhost shot, and never re-capture from a localhost stack. If a re-capture is needed at all (3c crashed mid-run, etc.), drive prod again — same `headless_browser_skill`, same automation auth — localhost is not an option.
 
 2. **Publish screenshots to a persistent branch on the PROJECT'S repo** (the project being PM'd, not canopy). Create `pm-assets/<sprint-slug>` from `origin/main`, copy `$EMAIL_WORKDIR/screenshots/` into the branch checkout, commit, and push to origin (no PR — this branch is asset hosting, not code). Verify each `https://raw.githubusercontent.com/<owner>/<repo>/pm-assets/<sprint-slug>/.../<file>.png` URL returns HTTP 200. The branch lives on the project's origin forever; the email's `<img>` URLs resolve forever — that's the only persistent home for the rendered email and its screenshots.
 
