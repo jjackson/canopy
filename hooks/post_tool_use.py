@@ -7,6 +7,8 @@ and appends to ~/.claude/canopy/session-log.jsonl.
 Exit 0 always — hook failures should never block Claude Code.
 """
 
+from __future__ import annotations  # PEP 604 unions work on Python 3.9 (Xcode CLT default)
+
 import json
 import sys
 import os
