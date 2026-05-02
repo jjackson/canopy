@@ -1,0 +1,43 @@
+name: Hook Python compatibility
+
+# Hooks run under whatever python3 is on the user's PATH — often Xcode CLT
+# python3.9 on macOS, not the project venv. A 3.10+-only annotation in hook
+# code (e.g. `str | None` PEP 604 union) compiles fine in CI under our
+# pyproject-pinned python3.11 but silently no-ops on real user machines.
+# Catch that class of regression here by py_compile-ing every hooks/*.py
+# under each supported user python.
+
+on:
+  push:
+    paths:
+      - 'hooks/**.py'
+      - '.github/workflows/hook-compat.yml'
+  pull_request:
+    paths:
+      - 'hooks/**.py'
+      - '.github/workflows/hook-compat.yml'
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: py_compile every hook
+        run: |
+          set -e
+          shopt -s nullglob
+          fail=0
+          for f in hooks/*.py; do
+            echo "==> $f under python ${{ matrix.python-version }}"
+            python -m py_compile "$f" || fail=1
+          done
+          if [ "$fail" = "1" ]; then
+            echo "::error::One or more hooks fail to compile under python ${{ matrix.python-version }}"
+            exit 1
+          fi

@@ -36,6 +36,46 @@ print('OK: PostToolUse hook registered' if found else 'FAIL: PostToolUse hook no
 "
 ```
 
+### 1b. Hook Python compatibility
+
+The hook runs under whatever `python3` is on the user's PATH — often the
+Xcode CLT default `python3.9` on macOS, not the project venv. A 3.10+-only
+annotation in hook code (`str | None` PEP 604 union syntax, etc.) compiles
+fine in CI under the project venv but silently no-ops on real user
+machines. Catch that locally:
+
+```bash
+SYS_PY=$(command -v python3)
+PY_VER=$(python3 --version 2>&1 | awk '{print $2}')
+HOOK_DIR=""
+for cand in \
+  "$HOME/.claude/plugins/marketplaces/canopy/hooks" \
+  "$HOME/emdash/repositories/canopy/hooks" \
+  "$HOME/emdash-projects/canopy/hooks"; do
+  [ -d "$cand" ] && HOOK_DIR="$cand" && break
+done
+
+if [ -z "$HOOK_DIR" ]; then
+  echo "WARN: could not locate hooks dir — skipping compat check"
+else
+  FAILED=""
+  for f in "$HOOK_DIR"/*.py; do
+    [ -f "$f" ] || continue
+    if ! "$SYS_PY" -m py_compile "$f" 2>/dev/null; then
+      FAILED="$FAILED $(basename "$f")"
+    fi
+  done
+  if [ -z "$FAILED" ]; then
+    echo "OK: hooks compile under $SYS_PY ($PY_VER)"
+  else
+    echo "FAIL: hooks fail to compile under $SYS_PY ($PY_VER):$FAILED"
+    echo "  Fix: rewrite the incompatible syntax to support the system python."
+    echo "  This is the same class of bug as commit 7c13988 (str | None under 3.9)."
+    echo "  CI workflow .github/workflows/hook-compat.yml is the upstream gate."
+  fi
+fi
+```
+
 ### 2. Session log
 
 ```bash
@@ -156,6 +196,7 @@ After running all checks, present a summary table:
 Check                 Status
 ─────────────────     ──────
 Hook registration     OK
+Hook py compat        OK (compiles under python3.9)
 Session log           OK (1234 entries, 5.8M)
 Repo map              OK (42 mappings)
 Workbench token       OK (43 bytes, 600)
