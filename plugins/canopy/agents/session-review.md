@@ -148,60 +148,53 @@ python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugi
 - If no version metadata → note "version unknown", skip staleness check
 - Record which specific skills were invoked on the stale version
 
-### Step 5: Cross-Reference Prior Work
+### Step 5: Verify findings against current state (REQUIRED)
 
-For each observation from Step 3, perform ALL of the following checks before
-including it as a finding. Skip or annotate as appropriate:
+Run the `canopy:verify-findings` skill on every proposal you'd otherwise
+present. This is the load-bearing check that catches fixes that shipped
+between when the source session ran and now — it was historically the
+most common confabulation mode of this agent (recommending tests, docs,
+or fixes that landed earlier the same day) and is now factored out into
+its own skill so the logic is consistent and testable.
 
-1. **Recent commits (REQUIRED).** Most proposals target a non-canopy repo
-   (ace, scout, connect-labs, etc.). For each finding, check **both** canopy
-   AND the proposal's `target_repo`:
+Invoke via the Skill tool with the proposal IDs you've gathered from
+Step 3 (or all of them):
 
-   ```bash
-   # canopy commits (captured in Step 1.4)
-   # already in your context — scan it
+```
+Skill({ skill: "canopy:verify-findings", args: "<id1> <id2> ..." })
+```
 
-   # target repo
-   cd <target_repo> && git log --since="14 days ago" --pretty=format:'%h %s' main
-   # CHANGELOG is often the cleanest source of truth — check it if present
-   [ -f <target_repo>/CHANGELOG.md ] && tail -80 <target_repo>/CHANGELOG.md
-   ```
+Or, equivalently, invoke the `/canopy:verify-findings` slash command
+with the same ids; it routes to the same skill.
 
-   For every finding, ask: "Does any of these recent commits or CHANGELOG
-   entries describe the fix I'm about to recommend?" If yes:
-   - Drop the finding entirely if the commit lands the exact fix
-   - Annotate as `Already shipped at <sha>` if it's a partial overlap
+Use the skill's verdict for each proposal:
 
-   This is the most common confabulation mode the agent has been observed
-   doing — recommending tests, docs, or fixes that landed earlier the same day.
-   The previous spec only checked canopy's commits and missed 3 drops in
-   `ace/CHANGELOG.md` — always extend the check to the target repo.
+- `shipped` → drop the finding from the table you'll present.
+- `partial` → keep the finding but annotate the row with the evidence
+  the skill cited (e.g. `Already shipped at <sha>` or `Different
+  solution chosen — see <sha>`).
+- `open` → pass through unchanged.
+- `unverifiable` → keep the finding but mark it `[unverifiable]` so
+  the user knows the verdict is provisional.
 
-2. **Verify code-level claims (REQUIRED).** For any finding that cites a
-   specific file path, function name, line number, regex pattern, or other
-   code-level artifact, run a `grep` to confirm it exists and behaves as
-   claimed. Examples of claims that demand verification:
-   - "Scanner uses 8-char prefix dedup" → `grep -rn '\[:8\]\|\[0:8\]' src/`
-   - "Skill markdown still uses bare python3" → `grep -rn 'python3 -c' plugins/`
-   - "ace plugin missing doctor command" → `ls ~/.claude/plugins/cache/ace/...`
-   If the grep returns nothing, the claim is confabulated — drop the finding,
-   do not include it. The agent has been observed including grep-falsifiable
-   findings ("8-char dedup", "bare python3 calls") that were not actually
-   present in the code.
+If every proposal returned `shipped`, tell the user "all candidate
+findings were already shipped" and stop — do not present an empty
+table.
 
-3. **Existing observations:** Does a matching observation already exist in
-   `~/.claude/canopy/observations/`? Match by type + related_servers.
-   If matched, note the frequency and when it was first seen.
+The skill also handles steps that used to live inline here:
 
-4. **Existing proposals:** For matched observations, check proposals in
-   `~/.claude/canopy/proposals/`:
-   - `status: implemented` → Was the session before or after implementation?
-     If before: friction expected (stale session). If after: fix didn't work.
-   - `status: failed` → Note the failure reason. Lower confidence for retry.
-   - `status: pending` → Already queued, don't duplicate.
+- Existing observations / proposals state cross-reference (look at
+  `~/.claude/canopy/observations/` and `~/.claude/canopy/proposals/`
+  for prior work — the skill reads proposal YAML directly).
+- Code-level grep verification of every specific symbol/file claim.
 
-5. **Agent memory:** Check `proposal-history.md` — was this previously surfaced
-   and rejected by the user? Don't re-propose unless severity escalated.
+You still need to handle one piece yourself:
+
+**Agent memory cross-reference.** Read your own
+`proposal-history.md` — was a finding previously surfaced and rejected
+by the user? Don't re-propose unless severity has escalated since.
+This stays in the agent because it's about your conversational history
+with the user, which the skill can't see.
 
 ### Step 6: Synthesize Table
 
