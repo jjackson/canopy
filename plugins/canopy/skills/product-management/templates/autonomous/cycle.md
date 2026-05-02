@@ -32,7 +32,7 @@ Run sequentially, NOT in parallel (`$CANOPY_PM_DIR` may not exist yet on a fresh
    - `shipping.deploy_command` and `shipping.deploy_workflow` — look in `.github/workflows/` for the most recently-modified `deploy*.yml` and use it. If none exists, write `echo "no deploy configured"` / `none.yml` and continue (the gate will catch deploy failures later if they matter)
    - `shipping.post_deploy_health` — look for any URL in README.md / CLAUDE.md matching `https?://[^ ]+/(health|api/health|healthz)`. If none, fall back to `["https://example.invalid/health"]` and continue (a 5xx is fine, the cycle will fix-forward)
    - `testing.unit` / `lint` / `types` — guess by detecting `pyproject.toml` (→ `uv run pytest -q` / `uv run ruff check .` / `uv run mypy .`), `package.json` (→ `npm test` / `npm run lint` / `npm run typecheck`), or fall back to `true` (no-op) for any not detectable
-   - `testing.prepare` — OMIT by default (the field is optional). Only emit it for split-stack projects (BOTH `pyproject.toml` AND `frontend/package.json` or `web/package.json`) that regularly start sprints in fresh worktrees with empty deps. If emitted, default to `bash -c "uv sync && (cd frontend && npm install)"` (adjust the frontend path to match what the repo uses). The user can broaden it later by editing the file (e.g. add `uv pip install` for dev deps not in the lock).
+   - `testing.prepare` — OMIT by default (the field is optional). Only emit it for split-stack projects (BOTH `pyproject.toml` AND `frontend/package.json` or `web/package.json`) that regularly start sprints in fresh worktrees with empty deps. If emitted, default to `bash -c "uv sync --frozen && (cd frontend && npm ci)"` (adjust the frontend path to match what the repo uses). **Lockfile-pinned variants only** — `uv sync --frozen` not bare `uv sync`, `npm ci` not `npm install`, `pnpm install --frozen-lockfile` not bare `pnpm install`. Phase 0 enforces that `testing.prepare` does not mutate the worktree, so a mutating prepare command will fail the run before any work happens. The user can broaden the prepare command later by editing the file (e.g. add `uv pip install` for dev deps not in the lock).
    - `guardrails`: `one_pr_in_flight: true`, `diff_size_limit_lines: 1500`, `max_fix_forward_attempts: 3`
    - `theme_detection.lens_rotation`: `[user-value, adoption-blockers, integration-depth, trust-reliability, tech-debt]`
 
@@ -48,14 +48,32 @@ Run sequentially, NOT in parallel (`$CANOPY_PM_DIR` may not exist yet on a fresh
 
 4. Read `$CANOPY_PM_DIR/context.md` and `$CANOPY_PM_DIR/learnings.md`. If `context.md` is missing, run the existing skill's bootstrap flow first (see SKILL.md "Bootstrapping: Building context.md"), THEN re-enter Phase 0.
 
-5. Capture the **starting branch** (so Phase E can return to it) and confirm `origin/main` is reachable:
+5. Capture the **starting branch** (so Phase E can return to it), confirm `origin/main` is reachable, and **enforce a clean worktree precondition**:
 
    ```bash
    STARTING_BRANCH=$(git rev-parse --abbrev-ref HEAD)
    git fetch origin main
+
+   # Refuse to start if the worktree has staged or unstaged modifications.
+   # Untracked files are fine. Reason: the convince-self gate's mechanical
+   # checks (3a) run against the working tree, but `git commit` ships
+   # whatever's in the index. Pre-existing uncommitted modifications
+   # create a divergence where the gate certifies one snapshot and the
+   # PR ships another. Two real fix-forwards on ace-web traced to this
+   # exact class of bug (2026-05-01 cycles 1 + 2). Cleanest fix: refuse
+   # at the door and let the user decide.
+   if ! git diff --quiet HEAD; then
+     echo "autonomous: refuse to start — worktree has uncommitted modifications:"
+     git status --short | grep -vE '^\?\?'
+     echo
+     echo "stash with:   git stash --include-untracked"
+     echo "or commit:    git add -A && git commit -m '...'"
+     echo "then re-run /canopy:pm-autonomous"
+     exit 1
+   fi
    ```
 
-   The skill is **worktree-friendly**: it does NOT require you to be on `main` and does NOT require a clean working tree. Phase C creates its branches from `origin/main` directly (not from your current HEAD), so unrelated WIP in your worktree is preserved and never contaminates the autonomous PR. If `git fetch` fails, stop and report — without `origin/main` we can't branch safely.
+   The skill is still **worktree-friendly** in the sense that it does NOT require you to be on `main` — Phase C branches from `origin/main` directly, so the *branch* you're sitting on is irrelevant. But it does require a clean *worktree* at start: in-progress edits get caught by mechanical checks but not by the commit, leading to gate-green-but-deploy-red surprises. Stash or commit before kicking off. If `git fetch` fails, stop and report — without `origin/main` we can't branch safely.
 
 6. Confirm only ONE autonomous PR is in flight (per `guardrails.one_pr_in_flight`). Query:
 
@@ -67,14 +85,27 @@ Run sequentially, NOT in parallel (`$CANOPY_PM_DIR` may not exist yet on a fresh
 
 7. **Run `testing.prepare` if configured.** Optional bootstrap for split-stack projects (`pyproject.toml` + `frontend/package.json`) where fresh worktrees start with empty `.venv` / `node_modules`. Two confirming cycles on ace-web (2026-04-28 adoption-blockers + first-chat-path) had mechanical-checks fail until deps were built — `testing.prepare` closes that gap.
 
+   **`testing.prepare` MUST be lockfile-non-mutating.** Use `npm ci` (not `npm install`), `uv sync --frozen` (not `uv sync` alone), `bundle install --frozen`, `pnpm install --frozen-lockfile`, etc. Reason: a mutating prepare leaves `package-lock.json` / `uv.lock` / equivalent in a "modified" state, which fails the clean-worktree precondition in step 5 on every re-run AND drags lockfile churn into the autonomous PR's diff. Lockfile-pinned variants are also faster (no resolution pass) and reproducible. If your lockfile *should* update, do that as a deliberate human-driven commit before running the autonomous cycle.
+
    ```bash
    PREPARE_CMD=$(yq '.testing.prepare // ""' "$CANOPY_PM_DIR/autonomous.yaml")
    if [ -n "$PREPARE_CMD" ]; then
      timeout 300 bash -lc "$PREPARE_CMD" || { echo "testing.prepare failed; abort sprint"; exit 1; }
+     # Sanity-check: confirm prepare didn't violate its non-mutating contract.
+     # Catches the easy mistake of using `npm install` instead of `npm ci`.
+     if ! git diff --quiet HEAD; then
+       echo "autonomous: testing.prepare mutated the worktree:"
+       git status --short | grep -vE '^\?\?'
+       echo
+       echo "Switch the prepare command to a lockfile-pinned variant"
+       echo "(npm ci / uv sync --frozen / pnpm install --frozen-lockfile)"
+       echo "and commit any legitimate lockfile updates before re-running."
+       exit 1
+     fi
    fi
    ```
 
-   If the prepare command exits non-zero or hits the 5-minute timeout, log "prepare-failed" in the run log and stop the sprint — do NOT continue into Phase A with a half-built environment. The user will see the failure and either fix the command or fix the worktree.
+   If the prepare command exits non-zero, hits the 5-minute timeout, or violates the non-mutation contract, log the failure in the run log and stop the sprint — do NOT continue into Phase A with a half-built or dirty environment.
 
 8. **Legacy `sent-emails/` cleanup hint.** Earlier versions of this skill stored email artifacts under `$CANOPY_PM_DIR/sent-emails/`; that storage was removed in v0.2.62 (the asset branch + run log carry everything now). If the directory still exists, print one line and continue — do NOT auto-delete:
 
