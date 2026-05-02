@@ -48,6 +48,27 @@ Run sequentially, NOT in parallel (`$CANOPY_PM_DIR` may not exist yet on a fresh
 
 4. Read `$CANOPY_PM_DIR/context.md` and `$CANOPY_PM_DIR/learnings.md`. If `context.md` is missing, run the existing skill's bootstrap flow first (see SKILL.md "Bootstrapping: Building context.md"), THEN re-enter Phase 0.
 
+   **Also pre-summarize the last 3 run logs into your context** so Phase A
+   step 1's "avoid re-claiming shipped work" check becomes a scan-what-you-
+   already-have instead of N file reads. For each of the 3 most recent
+   `$CANOPY_PM_DIR/runs/*.md` files, extract the sprint slug, the **lens** that
+   drove it (look in the file for `Lens:` or `theme:` near the top), and the
+   **highlights that shipped** (look for the Phase D "Reality reconciliation"
+   section's bullet list, or fall back to the first H2 heading). Surface a
+   compact block like:
+
+   ```
+   Prior runs (last 3):
+     2026-05-01-first-chat-path  lens=adoption-blockers  shipped: chat link from /opp page; preserved-chat on refresh
+     2026-05-01-opp-chat-link    lens=integration-depth  shipped: opp↔chat round-trip; back-button parity
+     2026-04-28-adoption         lens=adoption-blockers  shipped: anonymous chat onboarding banner
+   ```
+
+   This costs one bash + one short awk/python pass at Phase 0 entry; without
+   it the agent re-reads each run log individually during Phase A scouting
+   (~10 tool calls per sprint) to perform the same overlap check. The
+   summary lives in agent context only — do not write a derived cache file.
+
 5. Capture the **starting branch** (so Phase E can return to it), confirm `origin/main` is reachable, and **enforce a clean worktree precondition**:
 
    ```bash
@@ -129,7 +150,7 @@ Run sequentially, NOT in parallel (`$CANOPY_PM_DIR` may not exist yet on a fresh
 
 Goal: produce a target email DRAFT that can pass three critiques before any engineering happens.
 
-1. **Read recent run logs to avoid re-claiming shipped work.** Glance at the last 3-5 files in `$CANOPY_PM_DIR/runs/` — each has a Phase D rewrite section listing what shipped. If a candidate highlight overlaps something already announced in a prior run log, drop it or reframe. The run logs ARE the memory of what's been claimed; do not introduce a separate "shipped emails" archive to scan.
+1. **Avoid re-claiming shipped work — use the Phase 0 step 4 prior-runs summary.** You already have the last 3 run logs' lens + shipped-highlights summarized in context from Phase 0 step 4. Scan that block; if a candidate highlight overlaps something already announced, drop it or reframe. Only `Read` the full run-log file when you need a detail the summary omits. The run logs ARE the memory of what's been claimed; do not introduce a separate "shipped emails" archive to scan.
 2. Quick scout pass across the lenses in `theme_detection.lens_rotation`. Just enough breadth to see what's ripe — no deep dives.
 3. Draft the target email using `email-format.md`'s template, AS IF IT WERE ALREADY TRUE. Specific feature names. Specific value statements. No placeholders.
 4. Self-critique against three tests; write the verdict for each into the cycle log:
