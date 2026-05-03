@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 
+from orchestrator.repo_map import resolve_repo
 from orchestrator.transcripts import read_transcript, get_session_id
 
 
@@ -86,7 +87,13 @@ def scan_all_transcripts(
         for jsonl in sorted(project_dir.glob("*.jsonl")):
             try:
                 meta = scan_transcript(jsonl)
-                meta["repo"] = repo_map.get(project_dir.name)
+                # Direct lookup first; fall back to emdash-path inference so
+                # worktree sessions whose hook never captured them still
+                # resolve to the right `owner/repo`. Surfaced when a strict
+                # `repo == "jjackson/ace"` filter found only 2 of 8 known
+                # ace worktree sessions because the others' worktrees were
+                # deleted before the hook fired.
+                meta["repo"] = resolve_repo(repo_map, project_dir.name)
                 meta["label"] = labels.get(meta["session_id"], {
                     "quality": "unlabeled",
                     "use_case_tags": [],
