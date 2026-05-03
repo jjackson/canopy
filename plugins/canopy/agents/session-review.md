@@ -114,16 +114,42 @@ Skip this step if a direct `path` was provided (already analyzed in Step 2).
 For each unreviewed session, run:
 
 ```bash
-cd ~/emdash-projects/canopy && uv run canopy analyze <transcript_path> --propose
+cd ~/emdash/repositories/canopy && uv run canopy analyze <transcript_path> --propose
 ```
 
+(`~/emdash-projects/canopy` is a legacy path that may not exist on every
+machine; the canonical canopy checkout is `~/emdash/repositories/canopy`.
+Resolve via `git config --get remote.origin.url` if both fail.)
+
 Collect the output. Each analysis produces observations (friction, gaps, issues)
-with type, severity, description, and related servers, plus proposals.
+with type, severity, description, and related servers, plus proposals. As of
+canopy v0.2.74 each invocation emits explicit `STATUS: STARTED ...` /
+`STATUS: DONE ...` / `STATUS: FAILED ...` lines so you can detect silent
+failures — if you see neither a STARTED nor a DONE line for a transcript,
+the analysis didn't run, do NOT silently skip it.
 
 Display progress: "Analyzing session N of M: <first message excerpt>..."
 
-If analyzing many sessions, consider running up to 3 in parallel using the Agent
-tool to dispatch analysis subagents.
+**Sequential is the default; parallelism via background bash is forbidden.**
+Run one analysis at a time. Do **NOT** use `Bash` with `run_in_background:
+true` (or `&` / `nohup` / launchd) to fan out `canopy analyze` calls. Two
+failure modes have been observed in real runs:
+
+1. **uv venv contention:** N parallel `uv run canopy analyze ...` invocations
+   from N concurrent shells race on the same `.venv` lockfile. Most exit
+   silently with empty stdout while one wins.
+2. **claude-p concurrency limits:** each `canopy analyze` runs `claude -p`
+   internally; spawning >1 in parallel can hit a per-machine rate / token
+   budget cap that returns empty results rather than erroring loudly.
+
+A 2026-05-02 session-review run dispatched 10 parallel background tasks; 9
+produced 0-byte output files and the run never reached Phase 4. Sequential
+is correct: 10 sessions × ~30s = ~5 min total, well within the cycle budget.
+
+If you genuinely need parallelism for a very large batch (>10 sessions),
+use the **Agent tool** to dispatch analysis subagents (max 3 concurrent),
+NOT background bash. Agent tool isolates each subagent's environment and
+avoids the venv-contention failure mode. Most cycles do not need this.
 
 ### Step 4: Check Version Staleness
 

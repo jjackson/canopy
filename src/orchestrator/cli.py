@@ -223,15 +223,30 @@ def improve(observe_only, dry_run, model):
 @click.option("--budget", default=1.0, type=float, help="Max USD per claude -p call")
 def analyze_cmd(transcript, propose, model, budget):
     """Analyze a specific transcript file for observations and proposals."""
+    import sys
     import yaml
     from orchestrator.analyzer import analyze_transcript
     from orchestrator.proposer import generate_proposals
     from orchestrator.observations import create_observation, save_observation
     from orchestrator.proposals import create_proposal, save_proposal
 
+    # STATUS sentinel: emitted unconditionally before any heavy work, flushed
+    # immediately. Lets background-bash callers distinguish "process never
+    # produced output" (0-byte file = something killed the command before it
+    # started, e.g. uv venv contention under parallel launches) from
+    # "process started, ran the LLM call, produced no observations". Surfaced
+    # by a session-review run that fanned out 10 parallel `canopy analyze`
+    # background tasks; 9 produced 0 bytes and the 1 that ran returned
+    # "No observations" on a session that had 9 findings on a sequential
+    # rerun. Without this sentinel the failure was invisible.
+    click.echo(f"STATUS: STARTED analyze {transcript}")
+    sys.stdout.flush()
+
     try:
         registry_path = find_registry()
     except click.ClickException:
+        click.echo(f"STATUS: FAILED registry-not-found", err=False)
+        sys.stdout.flush()
         raise
 
     reg = load_registry(registry_path)
@@ -242,12 +257,19 @@ def analyze_cmd(transcript, propose, model, budget):
     click.echo(f"Analyzing: {transcript}")
     click.echo()
 
-    observations = analyze_transcript(
-        Path(transcript), registry_summary, model=model, max_budget_usd=budget,
-    )
+    try:
+        observations = analyze_transcript(
+            Path(transcript), registry_summary, model=model, max_budget_usd=budget,
+        )
+    except Exception as e:
+        click.echo(f"STATUS: FAILED analyze-raised {type(e).__name__}: {e}")
+        sys.stdout.flush()
+        raise
 
     if not observations:
         click.echo("No observations found.")
+        click.echo("STATUS: DONE 0-observations")
+        sys.stdout.flush()
         return
 
     click.echo(f"Found {len(observations)} observations:")
@@ -270,6 +292,8 @@ def analyze_cmd(transcript, propose, model, budget):
         click.echo(f"  [{obs['severity']}] {obs['description']}")
 
     if not propose:
+        click.echo(f"STATUS: DONE {len(saved)}-observations no-propose")
+        sys.stdout.flush()
         return
 
     click.echo()
@@ -280,13 +304,20 @@ def analyze_cmd(transcript, propose, model, budget):
     catalog = build_catalog()
     catalog_text = format_for_prompt(catalog)
 
-    proposals_raw = generate_proposals(
-        saved, registry_summary, model=model, max_budget_usd=budget,
-        skill_catalog=catalog_text,
-    )
+    try:
+        proposals_raw = generate_proposals(
+            saved, registry_summary, model=model, max_budget_usd=budget,
+            skill_catalog=catalog_text,
+        )
+    except Exception as e:
+        click.echo(f"STATUS: FAILED propose-raised {type(e).__name__}: {e}")
+        sys.stdout.flush()
+        raise
 
     if not proposals_raw:
         click.echo("No proposals generated.")
+        click.echo(f"STATUS: DONE {len(saved)}-observations 0-proposals")
+        sys.stdout.flush()
         return
 
     # Validate and fix proposals against the registry + skill catalog
@@ -329,6 +360,9 @@ def analyze_cmd(transcript, propose, model, budget):
         if v.get("expected_outcome"):
             click.echo(f"     Expected: {v['expected_outcome'][:120]}")
         click.echo()
+
+    click.echo(f"STATUS: DONE {len(saved)}-observations {len(proposals_raw)}-proposals")
+    sys.stdout.flush()
 
 
 @main.command("serve")
