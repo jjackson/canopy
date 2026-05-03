@@ -70,18 +70,35 @@ Step 4 (Check Version Staleness) using the provided transcript path. Run
 `canopy analyze` on just that one file:
 
 ```bash
-cd ~/emdash-projects/canopy && uv run canopy analyze <transcript-path> --propose
+cd ~/emdash/repositories/canopy && uv run canopy analyze <transcript-path> --propose
 ```
 
-Otherwise, run from the canopy repo working directory:
+Otherwise, fetch the session list from the canopy repo working directory:
 
 ```bash
-cd ~/emdash-projects/canopy && uv run canopy sessions list --json-output --hours <H>
+cd ~/emdash/repositories/canopy && uv run canopy sessions list --json-output --hours <H> [--project <name>]
 ```
 
-Where `<H>` is calculated from the arguments:
-- If count given: use `--hours 168` (1 week) and take the first N from the result
-- If `hours <N>` given: use that directly
+Where:
+- `<H>` is calculated from the arguments:
+  - If count given: use `--hours 168` (1 week) and take the first N from the result
+  - If `hours <N>` given: use that directly
+- `--project <name>` (REQUIRED if a `project <name>` argument was passed by the user):
+  use the CLI flag, do NOT do your own substring matching on `project_key` /
+  `first_msg`. The flag filters to sessions whose resolved `repo` field ends
+  with `/<name>`, using the same repo-map inference (incl. emdash worktree
+  path inference, canopy v0.2.75+) that handles deleted worktrees correctly.
+
+  **Why this matters.** A `project ace` argument means *the ace plugin*,
+  NOT "everything containing the substring ace". Substring matching has
+  silently included `ace-web` (a separate project) and even worktree paths
+  containing strings like `place` / `space`. Always use the CLI flag.
+
+  Examples:
+  - User said `project ace` → `--project ace` → matches `jjackson/ace`,
+    excludes `jjackson/ace-web` and `jjackson/expense-helper`
+  - User said `project ace-web` → `--project ace-web` → matches
+    `jjackson/ace-web`, excludes `jjackson/ace`
 
 **Re-analysis policy** (the default — do not require a flag):
 

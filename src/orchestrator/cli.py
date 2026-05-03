@@ -124,7 +124,11 @@ def sessions():
 @sessions.command("list")
 @click.option("--hours", default=24, type=int, help="Only show sessions with activity in the last N hours")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON (for skill consumption)")
-def sessions_list(hours, as_json):
+@click.option("--project", default=None,
+              help="Filter to sessions whose resolved GitHub repo ends with /<name>. "
+                   "Uses repo-map (incl. emdash worktree path inference). "
+                   "Example: --project ace matches jjackson/ace but NOT jjackson/ace-web.")
+def sessions_list(hours, as_json, project):
     """List recent sessions grouped by project."""
     import json as json_mod
     from datetime import datetime, timezone, timedelta
@@ -144,6 +148,14 @@ def sessions_list(hours, as_json):
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     cutoff_iso = cutoff.isoformat()
     recent = [s for s in all_sessions if s.get("last_ts") and s["last_ts"] >= cutoff_iso]
+
+    # Filter by project (precise: repo must end with /<name>; never substring-matches).
+    # Uses scanner's resolved `repo` field which honors emdash worktree inference,
+    # so deleted-worktree sessions still get classified correctly.
+    if project:
+        suffix = f"/{project}"
+        recent = [s for s in recent if (s.get("repo") or "").endswith(suffix)]
+
     recent.sort(key=lambda s: s["last_ts"], reverse=True)
 
     if as_json:
