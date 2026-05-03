@@ -31,9 +31,15 @@ Output a YAML list where each proposal has:
   - `skill` — new or updated Claude Code skill
   - `hook` — new or updated Claude Code hook
 - `action`: what to do (be specific — name the tool, describe the feature)
-- `target_repo`: the repo path to modify (from the registry, e.g.,
-  `~/emdash-projects/connect-labs`). For canopy changes use
-  `~/emdash-projects/canopy`. For skills use `~/.claude/skills/`.
+- `target_repo`: the SHORT repo name (no path), e.g. `ace`, `ace-web`,
+  `canopy`, `connect-labs`, `commcare-connect`. **Do not include any
+  filesystem path** — different machines / different logins have the
+  repo at different roots (`~/emdash/repositories/<name>`,
+  `~/emdash-projects/<name>`, `~/code/<name>`, etc.) and consumers
+  resolve the short name to the local path via
+  `orchestrator.repo_paths.resolve_repo_path("<name>")`. For Claude
+  Code skills (which live outside any repo) use the literal string
+  `claude-skills`; for canopy plugin skills use `canopy`.
 - `ownership`: `self`, `team`, or `external` (from the registry)
 - `motivation`: why this is needed (reference the observation)
 - `observation_id`: the ID of the observation this addresses

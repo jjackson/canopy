@@ -66,8 +66,12 @@ For each YAML, parse:
 - `id` — full proposal hash
 - `action` — what the proposal would change (this is the primary
   search corpus for verdicts)
-- `target_repo` — where the change goes (e.g.
-  `~/emdash/repositories/ace`); may use `~` or be absolute
+- `target_repo` — the proposal's repo target. **Resolve to a local path
+  via** `orchestrator.repo_paths.resolve_repo_path(target_repo)` — that
+  function accepts both a short name (`"ace"`) and an existing-path style
+  (`"~/emdash-projects/ace"`) and searches every known emdash root. Don't
+  hardcode either path convention; different logins on the same machine
+  put repos under different roots
 - `observation_id` — links back to the source observation
 - `created` — when the proposal was generated (use this as the
   earliest commit window)
@@ -75,9 +79,20 @@ For each YAML, parse:
   `implemented`; verify `pending` and `failed` (failed retry might
   have been fixed by a different code path)
 
-If the resolved `target_repo` does not exist on this machine, mark
-the proposal `unverifiable: target repo not on this machine` and
-move on. Do **not** try to clone repos.
+If `resolve_repo_path(target_repo)` returns `None` (no checkout under
+any known emdash root on this machine), mark the proposal
+`unverifiable: target repo not on this machine` and move on. Do **not**
+try to clone repos. Concrete pattern:
+
+```bash
+# Inside the loop over proposals:
+LOCAL=$(uv run python3 -c "from orchestrator.repo_paths import resolve_repo_path; p=resolve_repo_path('$TARGET'); print(p) if p else exit(2)" 2>/dev/null)
+if [ -z "$LOCAL" ]; then
+  echo "unverifiable: $TARGET not on this machine"
+  continue
+fi
+cd "$LOCAL" && git fetch origin main 2>/dev/null
+```
 
 ### Step 2: Pull the latest origin/main of each target repo
 
@@ -217,7 +232,10 @@ The skill caller decides what to do next, but the skill contract is:
   context yet. The verdict will say `shipped` even though the
   proposal was generated correctly at the time. That's the right
   outcome — drop the obsolete finding.
-- **Worktrees are honored.** If `target_repo` resolves to an
-  emdash main checkout (e.g. `~/emdash/repositories/ace`), use it.
-  If it's missing, do not search worktrees — they're per-task and
-  not the source of truth.
+- **Worktrees are honored.** `resolve_repo_path` returns the main
+  checkout (under whichever emdash root convention this machine uses
+  — `~/emdash/repositories/<repo>`, `~/emdash-projects/<repo>`,
+  etc.); it does NOT search worktrees, which are per-task and not the
+  source of truth for verification. If the main checkout is missing
+  on this machine the proposal is unverifiable here, even if a
+  worktree happens to exist.

@@ -6,7 +6,16 @@ description: Run a full canopy improvement cycle — analyze recent sessions, pr
 ## Preamble (run first)
 
 ```bash
-_CANOPY_UPD=$(bash ~/emdash-projects/canopy/scripts/canopy-update-check.sh 2>/dev/null || true)
+# Resolve the canopy checkout location dynamically — this machine may have
+# canopy at ~/emdash/repositories/canopy, ~/emdash-projects/canopy, or
+# elsewhere depending on which login created it. Don't hardcode.
+_CANOPY_DIR="$(python3 -c "from orchestrator.repo_paths import resolve_repo_path as r; p=r('canopy'); print(p) if p else None" 2>/dev/null || true)"
+if [ -z "$_CANOPY_DIR" ]; then
+  for cand in ~/emdash/repositories/canopy ~/emdash-projects/canopy; do
+    [ -d "$cand/.git" ] && _CANOPY_DIR="$cand" && break
+  done
+fi
+_CANOPY_UPD=$(bash "$_CANOPY_DIR/scripts/canopy-update-check.sh" 2>/dev/null || true)
 if [ -n "$_CANOPY_UPD" ]; then echo "$_CANOPY_UPD"; fi
 ```
 
@@ -38,8 +47,12 @@ If fewer than 2 unprocessed sessions exist, tell the user and stop.
 
 ## Phase 2 — Analyze transcripts (direct, in-context)
 
-1. Read `~/emdash-projects/canopy/registry.yaml` — this is the ecosystem context
-   describing all MCP servers, tools, and workflows.
+1. Read `$_CANOPY_DIR/registry.yaml` (the canopy checkout resolved in the
+   preamble) — this is the ecosystem context describing all MCP servers,
+   tools, and workflows. Do NOT hardcode `~/emdash-projects/canopy` or
+   `~/emdash/repositories/canopy` — different logins on the same machine
+   put canopy under different roots, and the preamble already picked the
+   right one.
 
 2. For each transcript, read the JSONL file. Each line is a JSON object with
    `type` (user/assistant/summary) and `message` content. Extract:
@@ -99,7 +112,10 @@ For each observation (or group of related ones), generate a proposal:
 id: <12-char hex>
 type: new_tool|tool_improvement|new_skill|new_workflow|hook_improvement|registry_update
 action: "Specific description of what to build/change"
-target_repo: ~/emdash-projects/<repo>
+target_repo: <short-repo-name>          # e.g. "ace", "canopy", "ace-web"
+                                         # NOT a path — consumers resolve the
+                                         # short name to the local checkout
+                                         # via orchestrator.repo_paths.resolve_repo_path
 ownership: self|team|external
 motivation: "Why — reference the observation"
 observation_id: <observation-id>

@@ -51,7 +51,11 @@ Parse arguments from the command invocation:
 4. **Capture recent canopy commits.** Before any analysis, run:
 
    ```bash
-   cd ~/emdash-projects/canopy && git log --since="14 days ago" --pretty=format:'%h %s' main
+   # Resolve canopy's checkout dynamically — different logins on the same
+   # machine put canopy under different roots; never hardcode either.
+   CANOPY_DIR="$(cd ~/emdash/repositories/canopy 2>/dev/null && pwd \
+                 || cd ~/emdash-projects/canopy 2>/dev/null && pwd)"
+   cd "$CANOPY_DIR" && git log --since="14 days ago" --pretty=format:'%h %s' main
    ```
 
    Hold this list in your context. You will use it in Step 5 to filter out any
@@ -239,6 +243,28 @@ by the user? Don't re-propose unless severity has escalated since.
 This stays in the agent because it's about your conversational history
 with the user, which the skill can't see.
 
+### Step 5b: Salvage observations from proposer-failed sessions
+
+Before synthesis, check whether any session this run had observations but
+**0 proposals** because the proposer hit a JSON-parse error (visible in
+`canopy analyze`'s stderr — "claude -p returned unparseable output"). The
+observations are still saved (Phase 2 step 5 saves them before the
+proposer call); only the proposer output got dropped. Don't let those
+observations vanish from the findings table.
+
+For each such session:
+
+1. Read its observations directly from `~/.claude/canopy/observations/`
+   (filter by `sessions: [<session-id>]`).
+2. Surface each observation as a finding with `proposed_fix: "(proposer
+   parse error — needs hand-crafted proposal)"`. Use the observation's
+   own `description` and `severity` to populate the findings row.
+3. Tag the finding with `[observation-only]` in the table so the user
+   knows the proposal is hand-crafted, not LLM-generated.
+
+A 2026-05-02 ace session-review run dropped 13 valid observations across
+2 sessions because of a proposer parse error; this step closes that gap.
+
 ### Step 6: Synthesize Table
 
 Combine all findings into a ranked table. For each finding, determine a
@@ -278,15 +304,36 @@ Present this table:
 
 If user priorities exist in memory, weight the ranking accordingly.
 
-### Step 7: Record and Present
+### Step 7: Record and Present (REQUIRED — DO NOT SKIP)
 
-1. Save all reviewed session IDs to `reviewed-sessions.md` in this format,
-   one entry per session — INCLUDE the canopy version so the next run's
-   re-analysis policy (Step 2) can decide whether to re-analyze:
+**This step is load-bearing. Skipping it means the next run re-analyzes
+the same sessions from scratch.** A 2026-05-02 ace session-review run
+analyzed 10 sessions but never wrote them back to `reviewed-sessions.md`,
+so the memory still shows only the prior 8 entries at canopy=0.2.69 — the
+re-analysis policy will fire again on 0.2.75-analyzed sessions and burn
+~5 min of LLM time. Do NOT exit the cycle until the file has been
+written.
+
+Track Step 7 with an explicit TaskCreate item at the start of the run
+("Update reviewed-sessions.md with current canopy version") and only
+mark it complete after the file has actually been edited.
+
+1. **Append all reviewed session IDs to `reviewed-sessions.md`** in this
+   format, one entry per session — INCLUDE the current canopy version so
+   the next run's re-analysis policy (Step 2) can decide whether to
+   re-analyze:
 
    ```
    - <session_id>  <project>  reviewed=<YYYY-MM-DD>  canopy=<version>
    ```
+
+   If a session was already in the file at an older canopy version,
+   UPDATE its line to the current version+date rather than adding a
+   duplicate entry. Each session_id must appear at most once.
+
+   Verify the write by re-reading the file and confirming the new
+   entries are present BEFORE moving on. If the entries aren't visible,
+   the write failed silently — re-do it.
 
 2. **Review mode (default):**
    - Present the table using AskUserQuestion

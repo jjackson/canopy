@@ -128,7 +128,11 @@ def sessions():
               help="Filter to sessions whose resolved GitHub repo ends with /<name>. "
                    "Uses repo-map (incl. emdash worktree path inference). "
                    "Example: --project ace matches jjackson/ace but NOT jjackson/ace-web.")
-def sessions_list(hours, as_json, project):
+@click.option("--min-turns", default=0, type=int,
+              help="Drop sessions with fewer than N user messages — useful for "
+                   "filtering trivial/empty sessions out of session-review batches "
+                   "where each analyzed session costs an LLM call.")
+def sessions_list(hours, as_json, project, min_turns):
     """List recent sessions grouped by project."""
     import json as json_mod
     from datetime import datetime, timezone, timedelta
@@ -155,6 +159,13 @@ def sessions_list(hours, as_json, project):
     if project:
         suffix = f"/{project}"
         recent = [s for s in recent if (s.get("repo") or "").endswith(suffix)]
+
+    # Drop trivial sessions before they reach LLM-driven analysis. A 2026-05-02
+    # session-review run wasted ~2 min on 4 sessions that returned 0 observations
+    # because they were too short to contain meaningful friction signal. Use
+    # --min-turns ~5 to skip these in batch contexts.
+    if min_turns > 0:
+        recent = [s for s in recent if s.get("user_msgs", 0) >= min_turns]
 
     recent.sort(key=lambda s: s["last_ts"], reverse=True)
 
@@ -327,8 +338,19 @@ def analyze_cmd(transcript, propose, model, budget):
         raise
 
     if not proposals_raw:
-        click.echo("No proposals generated.")
-        click.echo(f"STATUS: DONE {len(saved)}-observations 0-proposals")
+        # Distinguish "proposer ran cleanly with nothing to suggest" from "the
+        # proposer's claude -p call broke" — the agent's salvage logic
+        # (session-review.md Step 5b) needs to know which case it is so it
+        # can hand-craft proposals from the saved observations rather than
+        # silently dropping them. The actual failure detail was already
+        # printed to stderr by generate_proposals().
+        click.echo(
+            "WARN: proposer returned no proposals — see stderr for whether "
+            "it was a parse error or genuinely no-suggestions. "
+            f"The {len(saved)} observation(s) above are saved and can be "
+            "promoted to findings by hand if proposer parse-errored."
+        )
+        click.echo(f"STATUS: DONE {len(saved)}-observations 0-proposals proposer-empty")
         sys.stdout.flush()
         return
 
