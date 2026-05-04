@@ -524,6 +524,71 @@ def patterns_cmd(as_json):
         click.echo()
 
 
+@main.command("verify-findings")
+@click.argument("id_prefixes", nargs=-1)
+@click.option("--all-pending", is_flag=True,
+              help="Verify every proposal whose status is currently `pending`.")
+@click.option("--json-output", "as_json", is_flag=True,
+              help="Emit JSON for skill consumption (no triage table).")
+@click.option("--model", default="sonnet",
+              help="Model for the verdict LLM call.")
+@click.option("--budget", default=0.50, type=float,
+              help="Max USD per claude -p call.")
+def verify_findings_cmd(id_prefixes, all_pending, as_json, model, budget):
+    """Re-verify session-review proposals against the current state of their target repos.
+
+    Drops proposals whose fix already shipped (flips status to `obsolete`)
+    and surfaces a triage table with one verdict per proposal:
+    shipped / partial / open / unverifiable. Caller passes proposal-id
+    prefixes (8+ chars each) or --all-pending.
+    """
+    import json as json_mod
+    from orchestrator.verify_findings import verify
+
+    if not id_prefixes and not all_pending:
+        raise click.UsageError(
+            "pass at least one proposal-id prefix, or --all-pending."
+        )
+
+    result = verify(
+        id_prefixes=list(id_prefixes) if id_prefixes else None,
+        all_pending=all_pending,
+        model=model,
+        max_budget_usd=budget,
+    )
+
+    if as_json:
+        # Drop internal _path before emitting — callers don't need it.
+        for v in result["verdicts"]:
+            v.pop("_path", None)
+        click.echo(json_mod.dumps(result, indent=2, default=str))
+        return
+
+    summary = result["summary"]
+    if not result["verdicts"]:
+        click.echo("No proposals matched. Pass id-prefixes or --all-pending.")
+        return
+
+    click.echo(
+        f"verify-findings: {summary['shipped']} shipped · "
+        f"{summary['partial']} partial · {summary['open']} open · "
+        f"{summary['unverifiable']} unverifiable "
+        f"(of {summary['total']})"
+    )
+    click.echo()
+
+    # Triage table
+    click.echo(
+        f"{'status':<14} {'id':<14} {'evidence':<60}"
+    )
+    click.echo("-" * 90)
+    for v in result["verdicts"]:
+        verdict = (v.get("verdict") or "")[:13]
+        pid = (v.get("id") or "")[:13]
+        evidence = (v.get("evidence") or "")[:60]
+        click.echo(f"{verdict:<14} {pid:<14} {evidence:<60}")
+
+
 @main.command("portfolio-discover")
 @click.option("--max-age-days", default=30, type=int,
               help="How recent the latest commit must be to count as 'active'")

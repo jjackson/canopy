@@ -197,22 +197,29 @@ python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugi
 
 ### Step 5: Verify findings against current state (REQUIRED)
 
-Run the `canopy:verify-findings` skill on every proposal you'd otherwise
-present. This is the load-bearing check that catches fixes that shipped
-between when the source session ran and now — it was historically the
-most common confabulation mode of this agent (recommending tests, docs,
-or fixes that landed earlier the same day) and is now factored out into
-its own skill so the logic is consistent and testable.
+Verify whether each proposal's fix has already shipped on the target
+repo's `origin/main` since the source session ran. Catching fixes that
+shipped between proposal-time and act-time is load-bearing — it was
+historically the most common confabulation mode of this agent.
 
-Invoke via the Skill tool with the proposal IDs you've gathered from
-Step 3 (or all of them):
+**As of canopy v0.2.78, this is a single CLI call.** Do NOT read
+verify-findings/SKILL.md and re-implement the algorithm yourself; the
+deterministic Python implementation lives in
+`src/orchestrator/verify_findings.py` and is invoked via:
 
+```bash
+CANOPY_DIR="$(cd ~/emdash/repositories/canopy 2>/dev/null && pwd \
+              || cd ~/emdash-projects/canopy 2>/dev/null && pwd)"
+cd "$CANOPY_DIR" && uv run canopy verify-findings \
+  <id-prefix-1> <id-prefix-2> ... --json-output
 ```
-Skill({ skill: "canopy:verify-findings", args: "<id1> <id2> ..." })
-```
 
-Or, equivalently, invoke the `/canopy:verify-findings` slash command
-with the same ids; it routes to the same skill.
+(Or `--all-pending` instead of explicit ids.) Parse the returned JSON's
+`verdicts` array — one entry per proposal with `id`, `verdict`,
+`evidence`, `shipped_at`, `shipped_in_version`. The CLI handles repo
+fetching, evidence corpus building, the LLM verdict call, and writing
+`obsolete` status back to the YAML for `shipped` proposals. You only
+consume the results.
 
 Use the skill's verdict for each proposal:
 
