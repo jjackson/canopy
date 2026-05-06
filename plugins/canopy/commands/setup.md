@@ -19,4 +19,4 @@ user and offer to re-run `/canopy:setup` after the fix.
 
 After a successful run, remind the user to:
 1. Restart Claude Code so the PostToolUse hook starts firing
-2. Run `/canopy:doctor` to verify workbench API connectivity
+2. Run `/canopy:canopy-doctor` to verify workbench API connectivity

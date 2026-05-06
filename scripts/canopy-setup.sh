@@ -207,7 +207,7 @@ fi
 echo
 if [ "$FAILED" -eq 0 ]; then
   echo "All checks passed. Restart Claude Code so the new PostToolUse hook fires,"
-  echo "then run /canopy:doctor to verify the API connection."
+  echo "then run /canopy:canopy-doctor to verify the API connection."
 else
   echo "=== Next steps ==="
   for line in "${NEXT_STEPS[@]}"; do

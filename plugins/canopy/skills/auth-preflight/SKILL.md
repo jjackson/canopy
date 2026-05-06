@@ -25,4 +25,4 @@ bash scripts/canopy-auth-preflight.sh
 ```
 
 If a check fails, run the printed recovery command and re-run the preflight.
-The `canopy:doctor` skill also includes these checks in its standard run.
+The `canopy:canopy-doctor` skill also includes these checks in its standard run.

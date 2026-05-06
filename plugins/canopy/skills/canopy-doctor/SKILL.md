@@ -1,9 +1,9 @@
 ---
-name: doctor
-description: Diagnose canopy plugin health — workbench token, repo-map, session log, hook registration, and skill connectivity.
+name: canopy-doctor
+description: Diagnose canopy plugin health — workbench token, repo-map, session log, hook registration, and skill connectivity. Renamed from `doctor` to avoid colliding with Claude Code's native `/doctor` slash command.
 ---
 
-# Doctor
+# Canopy Doctor
 
 Check that the canopy plugin is correctly configured and can communicate with the workbench.
 
@@ -142,7 +142,7 @@ else
     -X POST "$API_URL/api/projects/canopy-web/actions/" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $TOKEN" \
-    -d '{"skill_name":"canopy:doctor","status":"completed","started_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","session_id":"doctor-check"}')
+    -d '{"skill_name":"canopy:canopy-doctor","status":"completed","started_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","session_id":"doctor-check"}')
 
   if [ "$HTTP_CODE" = "201" ]; then
     echo "OK: workbench API accepts token (HTTP $HTTP_CODE)"
