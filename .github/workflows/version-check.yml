@@ -6,6 +6,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Need full history so we can diff against origin/main and read its VERSION.
+          fetch-depth: 0
       - name: Verify VERSION matches plugin.json
         run: |
           VERSION_FILE=$(cat VERSION | tr -d '[:space:]')
@@ -17,3 +20,16 @@ jobs:
             exit 1
           fi
           echo "Versions match."
+      - name: Set up uv
+        if: github.ref != 'refs/heads/main'
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+      - name: Verify plugin changes are paired with a VERSION bump
+        if: github.ref != 'refs/heads/main'
+        run: |
+          # Make sure origin/main is reachable for the diff check. checkout@v4
+          # with fetch-depth: 0 already pulls all history; this just ensures
+          # the origin ref name resolves on PRs from forks.
+          git fetch origin main:refs/remotes/origin/main || true
+          uv run canopy version verify-bump

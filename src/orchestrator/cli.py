@@ -683,6 +683,40 @@ def version_verify(repo):
         raise click.exceptions.Exit(1)
 
 
+@version.command("verify-bump")
+@click.option("--repo", default=None, type=click.Path(exists=True, file_okay=False),
+              help="Repo root (defaults to current working directory)")
+@click.option("--base-ref", default="origin/main",
+              help="Base ref to compare against (default: origin/main)")
+def version_verify_bump(repo, base_ref):
+    """Fail if plugins/canopy/ changed without a VERSION bump on this branch.
+
+    The check that catches the discipline failure CLAUDE.md flags as the #1
+    canopy mistake — merging plugin asset changes without bumping VERSION,
+    which makes `/canopy:update` silently report UP_TO_DATE and leaves
+    every existing session stuck on the old cache.
+    """
+    from orchestrator.version_bump import verify_bump_when_plugin_changed
+
+    repo_root = Path(repo) if repo else Path.cwd()
+    try:
+        result = verify_bump_when_plugin_changed(repo_root, base_ref=base_ref)
+    except FileNotFoundError as e:
+        raise click.ClickException(str(e))
+
+    click.echo(result["reason"])
+    if result["plugin_files_changed"]:
+        click.echo(f"\nPlugin files changed on this branch ({len(result['plugin_files_changed'])}):")
+        for p in result["plugin_files_changed"]:
+            click.echo(f"  {p}")
+    if result["main_version"] and result["local_version"]:
+        click.echo(f"\nbase {result['base_ref']} VERSION: {result['main_version']}")
+        click.echo(f"branch HEAD VERSION:    {result['local_version']}")
+    if result["ok"]:
+        return
+    raise click.exceptions.Exit(1)
+
+
 @version.command("bump")
 @click.option("--repo", default=None, type=click.Path(exists=True, file_okay=False),
               help="Repo root (defaults to current working directory)")

@@ -115,6 +115,147 @@ def compute_next_version(local: str, origin: str | None) -> str:
     return _format(bumped)
 
 
+def _git(repo_root: Path, *args: str, timeout: int = 15) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", *args],
+        cwd=repo_root, capture_output=True, text=True, timeout=timeout, check=False,
+    )
+
+
+def _changed_files_against_base(repo_root: Path, base_ref: str) -> list[str] | None:
+    """Return paths changed on this branch relative to `base_ref`.
+
+    Uses three-dot semantics so the diff is the work *added on this branch*
+    since the merge base, ignoring changes that landed on main in parallel.
+
+    Returns None if the base ref isn't reachable (e.g. shallow clone with no
+    fetch of main yet) — callers should treat that as "can't decide" rather
+    than implicit pass.
+    """
+    rev = _git(repo_root, "rev-parse", "--verify", base_ref)
+    if rev.returncode != 0:
+        return None
+    diff = _git(repo_root, "diff", "--name-only", f"{base_ref}...HEAD")
+    if diff.returncode != 0:
+        return None
+    return [line for line in diff.stdout.splitlines() if line.strip()]
+
+
+def _read_version_at_rev(repo_root: Path, rev: str, path: str) -> str | None:
+    result = _git(repo_root, "show", f"{rev}:{path}")
+    if result.returncode != 0:
+        return None
+    text = result.stdout.strip()
+    if path.endswith(".json"):
+        m = re.search(r'"version"\s*:\s*"([\d.]+)"', text)
+        return m.group(1) if m else None
+    return text if VERSION_RE.match(text) else None
+
+
+def verify_bump_when_plugin_changed(
+    repo_root: Path,
+    base_ref: str = "origin/main",
+) -> dict:
+    """Fail if any `plugins/canopy/` file changed without a VERSION bump on this branch.
+
+    The check that catches the discipline failure CLAUDE.md flags as the #1
+    mistake (forgetting to bump VERSION when plugin assets change). The
+    existing `version verify` only confirms VERSION and plugin.json agree
+    with each other; it can't see whether the branch advanced beyond main.
+
+    Returns a result dict with:
+        {
+            "ok": bool,                # True => check passed (or N/A)
+            "reason": str,             # human-readable explanation
+            "plugin_files_changed": [...],   # list of plugin paths in the diff
+            "local_version": "x.y.z" | None,
+            "main_version": "x.y.z" | None,
+            "main_plugin_json_version": "x.y.z" | None,
+            "base_ref": base_ref,
+            "skipped": bool,           # True if the check could not run
+        }
+    """
+    info: dict = {
+        "ok": False,
+        "reason": "",
+        "plugin_files_changed": [],
+        "local_version": None,
+        "main_version": None,
+        "main_plugin_json_version": None,
+        "base_ref": base_ref,
+        "skipped": False,
+    }
+
+    # Best-effort fetch — if it fails (offline / no remote in CI), continue
+    # with whatever ref state we have.
+    _git(repo_root, "fetch", "origin", "main", timeout=15)
+
+    changed = _changed_files_against_base(repo_root, base_ref)
+    if changed is None:
+        info["skipped"] = True
+        info["ok"] = True
+        info["reason"] = (
+            f"Base ref `{base_ref}` not reachable — skipping plugin-bump check. "
+            "(In CI, ensure the workflow fetches origin/main before running.)"
+        )
+        return info
+
+    plugin_changed = [p for p in changed if p.startswith("plugins/canopy/")]
+    info["plugin_files_changed"] = plugin_changed
+    if not plugin_changed:
+        info["ok"] = True
+        info["reason"] = "No plugins/canopy/ files changed on this branch — bump not required."
+        return info
+
+    # Plugin assets changed — VERSION + plugin.json MUST advance past main's.
+    v_path, p_path = find_version_files(repo_root)
+    local_v = _read_version_file(v_path)
+    local_pj = _read_plugin_json_version(p_path)
+    info["local_version"] = local_v
+
+    main_v = _read_version_at_rev(repo_root, base_ref, "VERSION")
+    main_pj = _read_version_at_rev(
+        repo_root, base_ref, "plugins/canopy/.claude-plugin/plugin.json"
+    )
+    info["main_version"] = main_v
+    info["main_plugin_json_version"] = main_pj
+
+    if local_v != local_pj:
+        info["reason"] = (
+            f"VERSION ({local_v}) and plugin.json ({local_pj}) disagree on this branch — "
+            f"run `canopy version bump` to resolve."
+        )
+        return info
+
+    if main_v is None:
+        # No VERSION file on main yet — first-ever introduction. Anything
+        # parses as a bump; just confirm local and plugin.json agree.
+        info["ok"] = True
+        info["reason"] = "No VERSION on base ref; treating local version as the first bump."
+        return info
+
+    try:
+        if _parse(local_v) > _parse(main_v):
+            info["ok"] = True
+            info["reason"] = (
+                f"VERSION advanced {main_v} → {local_v} on this branch "
+                f"({len(plugin_changed)} plugin file(s) changed)."
+            )
+            return info
+    except ValueError:
+        info["reason"] = f"Could not parse VERSION ({local_v} vs {main_v})."
+        return info
+
+    info["reason"] = (
+        f"{len(plugin_changed)} plugins/canopy/ file(s) changed but VERSION "
+        f"({local_v}) did not advance beyond `{base_ref}` ({main_v}). "
+        "Run `canopy version bump`, commit the bump, and push again. "
+        "Without a bump, `/canopy:update` reports UP_TO_DATE and existing "
+        "sessions never pick up your changes."
+    )
+    return info
+
+
 def bump(repo_root: Path) -> dict:
     """Compute and write the next version. Returns a summary dict."""
     v_path, p_path = find_version_files(repo_root)
