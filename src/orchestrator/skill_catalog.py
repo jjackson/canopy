@@ -11,16 +11,47 @@ Catalog entry shape:
         "source": "canopy" | "user",       # plugin name, or "user" for ~/.claude/skills/
         "description": "...",              # one-line description from frontmatter
         "path": "/abs/path/to/SKILL.md",
+        "installed_version": "0.2.79",     # plugin version from installed_plugins.json (None for user)
+        "cache_path": "/abs/path/to/<plugin>/<plugin>/<version>/",  # plugin install dir (None for user)
     }
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Iterable
 
 PLUGIN_CACHE = Path.home() / ".claude" / "plugins" / "cache"
 USER_SKILLS = Path.home() / ".claude" / "skills"
+INSTALLED_PLUGINS_JSON = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
+
+
+def _read_installed_plugin_versions(
+    installed_json: Path = INSTALLED_PLUGINS_JSON,
+) -> dict[str, str]:
+    """Map plugin name → installed version from installed_plugins.json.
+
+    Each plugins[name] is a list of installations; we take the first entry.
+    Names in installed_plugins.json are typically `<plugin>@<marketplace>` —
+    we key by the bare plugin name (stem before `@`) so the catalog scan
+    (which reads cache dir names like `canopy`) can join cleanly.
+
+    Returns an empty dict if the file is missing or malformed.
+    """
+    try:
+        data = json.loads(installed_json.read_text())
+    except (OSError, ValueError):
+        return {}
+    out: dict[str, str] = {}
+    for raw_name, infos in (data.get("plugins") or {}).items():
+        if not infos:
+            continue
+        bare = raw_name.split("@", 1)[0]
+        version = infos[0].get("version")
+        if version and version != "unknown":
+            out.setdefault(bare, version)
+    return out
 
 
 def _parse_frontmatter_description(skill_md: Path) -> str:
@@ -72,6 +103,7 @@ def _scan_plugin_caches(cache_root: Path = PLUGIN_CACHE) -> list[dict]:
     entries: list[dict] = []
     if not cache_root.exists():
         return entries
+    versions_by_plugin = _read_installed_plugin_versions()
     for plugin_root in sorted(cache_root.iterdir()):
         if not plugin_root.is_dir():
             continue
@@ -83,6 +115,8 @@ def _scan_plugin_caches(cache_root: Path = PLUGIN_CACHE) -> list[dict]:
         if not version_dirs:
             continue
         current = max(version_dirs, key=lambda d: d.name)
+        installed_version = versions_by_plugin.get(plugin_name) or current.name
+        cache_path = str(current)
 
         # skills/: each is a directory with SKILL.md
         skills_dir = current / "skills"
@@ -101,6 +135,8 @@ def _scan_plugin_caches(cache_root: Path = PLUGIN_CACHE) -> list[dict]:
                     "kind": "skill",
                     "description": _parse_frontmatter_description(skill_md),
                     "path": str(skill_md),
+                    "installed_version": installed_version,
+                    "cache_path": cache_path,
                 })
 
         # commands/ and agents/: each is a single .md file
@@ -120,6 +156,8 @@ def _scan_plugin_caches(cache_root: Path = PLUGIN_CACHE) -> list[dict]:
                     "kind": kind,
                     "description": _parse_frontmatter_description(md),
                     "path": str(md),
+                    "installed_version": installed_version,
+                    "cache_path": cache_path,
                 })
     return entries
 
@@ -143,6 +181,8 @@ def _scan_user_skills(user_dir: Path = USER_SKILLS) -> list[dict]:
             "kind": "skill",
             "description": _parse_frontmatter_description(skill_md),
             "path": str(skill_md),
+            "installed_version": None,
+            "cache_path": None,
         })
     return entries
 

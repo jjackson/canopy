@@ -51,9 +51,11 @@ cd ~/emdash-projects/canopy && git pull --rebase && git push
 - `canopy observations show <id>` — show full YAML for one observation (id prefix accepted)
 - `canopy proposals list [--status S --complexity X --limit N --json-output]` — list proposals
 - `canopy proposals show <id>` — show full YAML for one proposal (id prefix accepted)
-- `canopy skills list [--scope all|plugin|user --source PLUGIN --search TERM --json-output]` — list installed skills
+- `canopy skills list [--scope all|plugin|user --source PLUGIN --search TERM --json-output]` — list installed skills (JSON output includes `installed_version` + `cache_path` per entry)
 - `canopy skills find <query> [--limit N --json-output]` — fuzzy-match installed skills by name and description; prints top matches with SKILL.md path. Use this before brainstorming a new skill ("do we already have one for X?").
 - `canopy skills overlap <action text>` — check whether a proposed skill action duplicates an existing skill (exit 1 on overlap)
+- `canopy skills budget [--scope ... --source ... --per-skill-limit N --aggregate-limit N --top N --json-output]` — show description-size budget (per-skill ranked table + aggregate gauge). Use when Claude Code prints "N skills dropped" and you need to know which skills are pushing the system prompt over the cap.
+- `canopy skills dropped [--scope ... --source ... --per-skill-limit N --aggregate-limit N --json-output]` — simulate Claude Code's drop logic and print which skills get dropped under the aggregate cap.
 - `canopy version verify` — confirm VERSION and plugin.json agree (CI-safe)
 - `canopy version bump` — bump VERSION + plugin.json by `max(local, origin/main) + patch+1`. Fetches origin first so a parallel worktree's bump is visible before deciding the next number. Use this instead of editing the two files by hand.
 
@@ -145,6 +147,92 @@ Then `Read` that path and follow the SKILL.md exactly.
 `tests/test_command_skill_collisions.py` enforces this — every colliding
 command must reference `skills/<name>/SKILL.md` in its body. Adding a new
 colliding command without Pattern B will fail CI.
+
+## Skill Authoring: Built-in Command Namespace
+
+Claude Code reserves a set of built-in slash command names (`/help`, `/clear`,
+`/doctor`, `/config`, `/compact`, `/model`, `/fast`, `/login`, `/logout`,
+`/agents`, `/mcp`, `/permissions`, etc.). Naming a plugin skill / command /
+agent the same as a built-in causes a silent collision:
+
+- `canopy:<name>` invocations route to the built-in handler, NOT your skill
+- Worse, the entire skill description block can be truncated from the system
+  prompt at session start — historically 142 skill descriptions vanished when
+  `canopy:doctor` collided with native `/doctor`
+
+**Rule:** before naming a new skill/command/agent, check whether the bare name
+already works as a slash command in a stock Claude Code session. If yes, pick a
+different name. The canonical fix when a native built-in lands on top of an
+existing plugin entry is to namespace-prefix it (e.g. `doctor` →
+`canopy-doctor`, shipped in v0.2.79).
+
+`tests/test_builtin_command_collisions.py` enforces this — adding a new
+plugin entry with a reserved name will fail CI. The reserved-set list lives
+in that test; update it when Claude Code introduces new built-ins.
+
+## Skill Authoring: Description Limits
+
+Claude Code surfaces every installed skill's frontmatter `description` in the
+system prompt at session start. Two budgets apply:
+
+- **Per-skill cap**: Anthropic's authoring guidance recommends ≤1024 chars
+  per description. Over the cap, Claude Code truncates.
+- **Aggregate cap**: across all installed skills, the system prompt has a
+  hard ceiling. Once it's hit, subsequent skills are dropped wholesale and
+  Claude Code prints something like "N skills dropped" with no detail on
+  which ones.
+
+When a session reports dropped skills, run:
+
+```bash
+canopy skills budget               # ranked size table + aggregate gauge
+canopy skills dropped              # simulated drop list under default caps
+canopy skills dropped --aggregate-limit 30000   # try a different cap
+```
+
+The defaults (`--per-skill-limit 1024 --aggregate-limit 1500`) are
+conservative — `--aggregate-limit` is the one to tune since the real
+Claude Code ceiling is not publicly documented and shifts with releases.
+
+## Cache Path Resolution
+
+Plugin caches live at `~/.claude/plugins/cache/<plugin>/<plugin>/<version>/`
+(double-nested by design — the inner dir name matches the outer plugin name).
+The version segment changes every time the plugin is upgraded, so any path
+constructed by string-concatenating a known version is fragile.
+
+**Always derive the install path from `installed_plugins.json` instead of
+hardcoding a version.** Canonical one-liner:
+
+```bash
+python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude/plugins/installed_plugins.json'))); print(d['plugins']['canopy@canopy'][0]['installPath'])"
+```
+
+For the same shape per skill, use `canopy skills list --json-output` —
+each entry now carries `installed_version` and `cache_path` fields. No more
+string-concatenated versions.
+
+## Tool Hygiene (Read, Bash, parallel calls)
+
+A few repeat foot-guns that have shown up in session reviews:
+
+- **Read before Edit, with absolute paths.** The Edit tool errors with "File
+  has not been read yet" if you try to edit a file you haven't first read in
+  the current session. Worktree-relative paths (`./src/foo.py`) sometimes
+  resolve to a different file than the absolute path that Edit later asks
+  for, so always Read with the absolute path you'll Edit with.
+- **Bash parallel-call sibling cancellation.** When you fire several Bash
+  tool calls in one turn, a sibling failure can silently cancel still-running
+  calls and discard their output. If you need every result, run them
+  sequentially or split across turns. Reserve parallel Bash for genuinely
+  independent reads where partial loss is OK.
+- **Don't extract YAML with awk/sed/grep.** Folded scalars (`>`, `|`),
+  multi-line strings, and quoted block keys break naive line-based parsing
+  and produce silent truncation. Use Python's `yaml.safe_load` instead:
+  `python3 -c "import sys,yaml; d=yaml.safe_load(open(sys.argv[1])); print(d['description'])" path.md` (after stripping the frontmatter delimiters), or invoke a CLI that already does this (e.g. `canopy skills budget` for SKILL.md descriptions).
+- **Don't dump binaries with `strings` / `cat`.** A multi-MB Mach-O dump in
+  Bash output blows up your context. Pipe through `head -c 4000` or
+  `xxd | head` if you really need a peek; otherwise use a real parser.
 
 ## Plugin Updates — NEVER locally patch
 

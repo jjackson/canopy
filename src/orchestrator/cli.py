@@ -747,9 +747,162 @@ def skills_list(scope, source, search, as_json):
         desc = (e.get("description") or "").replace("\n", " ")
         if len(desc) > 80:
             desc = desc[:77] + "..."
-        click.echo(f"  {e['qualified']:<45} [{e['scope']}]")
+        version = e.get("installed_version")
+        version_str = f" v{version}" if version else ""
+        click.echo(f"  {e['qualified']:<45} [{e['scope']}]{version_str}")
         if desc:
             click.echo(f"    {desc}")
+
+
+@skills.command("budget")
+@click.option("--scope", type=click.Choice(["all", "plugin", "user"]), default="all")
+@click.option("--source", default=None, help="Filter by plugin name (e.g. 'canopy', 'ace')")
+@click.option(
+    "--per-skill-limit",
+    type=int,
+    default=None,
+    help="Per-skill description char limit (default: 1024)",
+)
+@click.option(
+    "--aggregate-limit",
+    type=int,
+    default=None,
+    help="Aggregate description char limit across all skills (default: 1500)",
+)
+@click.option(
+    "--top",
+    type=int,
+    default=None,
+    help="Show only the top N largest skills (default: all)",
+)
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def skills_budget(scope, source, per_skill_limit, aggregate_limit, top, as_json):
+    """Show description-size budget for installed skills.
+
+    Reads each skill's frontmatter `description`, ranks by size, and prints
+    an aggregate gauge against the configured cap. Useful for diagnosing the
+    silent "N skills dropped" message Claude Code shows when the system
+    prompt overflows.
+    """
+    import json as json_mod
+    from orchestrator.skill_catalog import build_catalog
+    from orchestrator.skill_budget import (
+        DEFAULT_AGGREGATE_LIMIT,
+        DEFAULT_PER_SKILL_LIMIT,
+        rank,
+    )
+
+    psl = per_skill_limit if per_skill_limit is not None else DEFAULT_PER_SKILL_LIMIT
+    al = aggregate_limit if aggregate_limit is not None else DEFAULT_AGGREGATE_LIMIT
+
+    catalog = build_catalog()
+    if scope != "all":
+        catalog = [e for e in catalog if e["scope"] == scope]
+    if source:
+        catalog = [e for e in catalog if e["source"] == source]
+
+    ranked = rank(catalog)
+    if top is not None and top > 0:
+        ranked = ranked[:top]
+
+    aggregate_used = sum(min(e["description_size"], psl) for e in ranked)
+    over_count = sum(1 for e in ranked if e["description_size"] > psl)
+
+    if as_json:
+        click.echo(json_mod.dumps({
+            "totals": {
+                "skills_total": len(ranked),
+                "aggregate_used": aggregate_used,
+                "aggregate_limit": al,
+                "per_skill_limit": psl,
+                "per_skill_over": over_count,
+            },
+            "skills": ranked,
+        }, indent=2, default=str))
+        return
+
+    if not ranked:
+        click.echo("No skills match the given filters.")
+        return
+
+    click.echo(f"{len(ranked)} skill(s) — per-skill cap {psl} chars, aggregate cap {al} chars\n")
+    click.echo(f"  {'STATUS':<5}  {'SIZE':>5}  {'KIND':<8}  {'NAME':<48}")
+    for e in ranked:
+        click.echo(
+            f"  {e['per_skill_status']:<5}  {e['description_size']:>5}  "
+            f"{(e.get('kind') or 'skill'):<8}  {e['qualified']}"
+        )
+
+    pct = (aggregate_used / al * 100) if al else 0
+    click.echo()
+    click.echo(
+        f"  AGGREGATE: {aggregate_used}/{al} chars ({pct:.0f}%)  •  "
+        f"{over_count} over per-skill cap"
+    )
+    if aggregate_used > al:
+        click.echo("  ⚠ aggregate exceeds cap — run `canopy skills dropped` to see which skills get dropped")
+
+
+@skills.command("dropped")
+@click.option("--scope", type=click.Choice(["all", "plugin", "user"]), default="all")
+@click.option("--source", default=None, help="Filter by plugin name (e.g. 'canopy', 'ace')")
+@click.option(
+    "--per-skill-limit",
+    type=int,
+    default=None,
+    help="Per-skill description char limit (default: 1024)",
+)
+@click.option(
+    "--aggregate-limit",
+    type=int,
+    default=None,
+    help="Aggregate description char limit across all skills (default: 1500)",
+)
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def skills_dropped(scope, source, per_skill_limit, aggregate_limit, as_json):
+    """Simulate which skills Claude Code drops under the aggregate cap.
+
+    Sums per-skill (capped) description sizes in alphabetical-by-qualified
+    order and flags any skill whose inclusion would push the running total
+    over the aggregate cap.
+    """
+    import json as json_mod
+    from orchestrator.skill_catalog import build_catalog
+    from orchestrator.skill_budget import (
+        DEFAULT_AGGREGATE_LIMIT,
+        DEFAULT_PER_SKILL_LIMIT,
+        simulate_drops,
+    )
+
+    psl = per_skill_limit if per_skill_limit is not None else DEFAULT_PER_SKILL_LIMIT
+    al = aggregate_limit if aggregate_limit is not None else DEFAULT_AGGREGATE_LIMIT
+
+    catalog = build_catalog()
+    if scope != "all":
+        catalog = [e for e in catalog if e["scope"] == scope]
+    if source:
+        catalog = [e for e in catalog if e["source"] == source]
+
+    result = simulate_drops(catalog, per_skill_limit=psl, aggregate_limit=al)
+
+    if as_json:
+        click.echo(json_mod.dumps(result, indent=2, default=str))
+        return
+
+    totals = result["totals"]
+    dropped = result["dropped"]
+    click.echo(
+        f"{totals['kept_count']} kept, {totals['dropped_count']} dropped — "
+        f"aggregate {totals['aggregate_used']}/{totals['aggregate_limit']} chars used"
+    )
+    if not dropped:
+        click.echo("\nNo skills dropped under the configured caps.")
+        return
+    click.echo(f"\nDropped ({len(dropped)}):")
+    for e in dropped:
+        click.echo(
+            f"  {e['qualified']:<48} {e['description_size']:>5} chars  ({e.get('drop_reason', 'aggregate_limit_exceeded')})"
+        )
 
 
 @skills.command("find")
