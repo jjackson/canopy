@@ -1,0 +1,81 @@
+# canopy:walkthrough's per-scene rubric, consumed by canopy:visual-judge.
+#
+# Pre-extraction this rubric was inline prose in walkthrough/SKILL.md
+# Phase 2 of the Scene Execution Pattern. Extracted in v0.2.79 so the
+# scoring methodology lives in canopy:visual-judge and walkthrough
+# focuses on scene orchestration + deck generation.
+#
+# Five dimensions: A Content / B App Page / C Screenshot / D Slide /
+# E Demo Readiness. Equal weights — overall is the LOWEST (weakest-link
+# convention; matches canopy's eval-fixture ground truth).
+
+name: walkthrough
+default_score: 3       # Tough Judge: every dimension starts at 3
+overall_rule: lowest   # weakest-link, matches eval-fixture calibration
+
+dimensions:
+  - id: content
+    label: "Content Quality"
+    weight: 0.20
+    anchor:
+      "5": "World-class content. No data artifacts; every claim verified against page text."
+      "4": "Strong, with one specific content issue a skeptical reader would polish."
+      "3": "Functional. Ships. Nothing embarrassing. (DEFAULT)"
+      "2": "Visible content problem: demo data artifacts, identical responses, etc."
+      "1": "Wrong, broken, or actively damages credibility."
+    deduction_rules:
+      - "AI scenes with demo data artifacts (duplicate people/orgs, 'Unknown Organization', identical responses): max 2"
+      - "AI scenes where cited numbers don't match the actual page data: max 3"
+      - "Non-AI scenes with 'Untitled' entries: max 3"
+      - "Non-AI scenes with empty charts where there should be data: max 3"
+      - "Non-AI scenes with test/duplicate data visible (alice@test.com etc.): max 2"
+
+  - id: app_page
+    label: "App Page Quality"
+    weight: 0.20
+    anchor:
+      "5": "I'd be proud to hire the designer who shipped this. Visual hierarchy + spacing + type scale + icon consistency all dialed in."
+      "4": "Strong, with one specific 'nice touch' that earns the step up."
+      "3": "Functional. Looks like a developer tool, not Linear/Superhuman. (DEFAULT)"
+      "2": "Visible polish problem: cramped spacing, inconsistent buttons, low-contrast text."
+      "1": "Unstyled, broken layout, or actively unprofessional."
+    deduction_rules:
+      - "Looks like a developer tool with no visual design, regardless of functionality: max 3"
+
+  - id: screenshot
+    label: "Screenshot Quality"
+    weight: 0.15
+    anchor:
+      "5": "Perfect framing. No wasted whitespace. No cutoff content."
+      "4": "Slightly off — minor crop or scroll offset."
+      "3": "Everything visible is on-topic. (DEFAULT)"
+      "2": "Off-target capture: wrong page, header missing, key UI cut off."
+      "1": "Capture failed or shows nothing useful."
+
+  - id: slide
+    label: "Walkthrough Slide Quality"
+    weight: 0.20
+    anchor:
+      "5": "Reader understands the product benefit without any verbal explanation."
+      "4": "Strong slide; narration pays off in the screenshot."
+      "3": "Functional slide. (DEFAULT)"
+      "2": "Slide is just a raw dump; narration doesn't pay off."
+      "1": "Slide actively misleads or contradicts the narration."
+
+  - id: demo_readiness
+    label: "Demo Readiness"
+    weight: 0.25
+    anchor:
+      "5": "YES to projector test AND adversarial pass found nothing substantive to fix."
+      "4": "YES to projector test with ONE named caveat."
+      "3": "Only if I skip this slide or narrate around the rough spots. (DEFAULT)"
+      "2": "I'd preface with 'still a prototype' or have a backup slide ready."
+      "1": "I wouldn't show this at all."
+    # The projector-test gate is enforced as a sanity floor in
+    # canopy:visual-judge Phase 3; demo_readiness cannot exceed 3 if
+    # projector_test == NO.
+
+# Walkthrough-specific blocking rules: visual-judge halts on either.
+blocking_rules:
+  - demo_readiness_low      # any scene scoring ≤ 2 on Demo Readiness — STOP
+  - narrative_falsified     # scene 1 or 2 contradicts the spec's premise — STOP

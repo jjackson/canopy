@@ -238,186 +238,68 @@ For each scene in the spec:
 
 5. **Show the screenshot to the user** using the Read tool on the PNG file.
 
-6. **Evaluate EVERY scene with the Tough Judge rubric.** You are the harshest reviewer
-   this product will ever face. Your job is to find what's wrong, not to feel good about
-   what's right. If you're scoring generously, you're scoring wrong.
+6. **Evaluate the scene via `canopy:visual-judge`.**
 
-   **Calibration prior:** you are biased upward, especially if you built or modified
-   this product in this session. Don't mechanically deduct — instead, **justify every
-   4 or 5 in one sentence a skeptical stranger would accept.** If the justification
-   reads as "it works" or "it's clean," the score isn't a 4 — that's a 3.
-
-   Read the FULL page text carefully — every word, not just headings:
+   Capture the page text first (anchor for verbatim-quote scoring):
 
    ```bash
-   $B text
+   PAGE_TEXT=$($B text)
    ```
 
-   ### Phase 1: Adversarial listing (MANDATORY before any scoring)
-
-   Before writing a single number, list:
-
-   1. **Three most embarrassing things on this slide** if you had to pause and explain
-      them to a skeptical CEO of a Fortune 500 company who is deciding whether to adopt
-      your product. Be specific. Quote exact text, name exact UI elements.
-
-      If you can't find three, you haven't looked hard enough. Common things to check:
-      - Demo data artifacts ("Untitled", duplicate titles, "test-user", placeholder avatars)
-      - Empty states dominating the frame (empty chat, "No data yet", blank charts)
-      - Error or warning banners visible (even "by design" banners look bad in a demo)
-      - Feature gaps the CEO would immediately ask about ("is that all Settings has?")
-      - Visual issues (low contrast, cramped spacing, inconsistent icon sizes)
-      - Claimed-but-not-shown behavior (narration says "streaming" but nothing streams)
-
-   2. **Three ways a competitor does this better.** Name a real product in the same
-      category (Linear, Notion, Slack, Vercel, Height, Superhuman, etc.) and describe
-      concretely what they do that you don't. If you cannot name three, you are not
-      thinking adversarially enough — look again.
-
-   3. **The binary projector test.** Would you put this EXACT slide on a projector at
-      an all-hands tomorrow morning, to an audience including your most demanding
-      stakeholder, without ANY verbal caveats? Answer YES or NO. This answer is a hard
-      gate on the Demo Readiness score below.
-
-   Output these three lists as a block. Only then proceed to scoring.
-
-   ### Phase 2: Score each dimension, starting from 3/5
-
-   **EVERY dimension starts at 3/5.** A 3 is "functional but unremarkable — you can ship
-   it, but nothing here makes a stakeholder lean forward." That is the DEFAULT. Every
-   step up must be earned and justified with specific evidence. Every step down reflects
-   a specific problem.
-
-   - **5** — World-class. You genuinely cannot find anything to criticize after the
-     adversarial pass above. This should be extraordinarily rare. If more than ~20% of
-     scenes in a walkthrough land at 5, your bar is too low.
-   - **4** — Strong, with one concrete thing a designer would polish if given another day.
-     Name the one thing.
-   - **3** — Functional. Ships. Nothing embarrassing, nothing delightful. **This is the
-     default.**
-   - **2** — Visible problem a careful viewer catches immediately. Demo data artifacts,
-     loading states, empty content where there should be substance, misaligned claims.
-   - **1** — Would actively damage credibility. Broken, wrong, or obviously unfinished.
-
-   Apply this scale to all 5 dimensions below. The overall scene score is the LOWEST of
-   all dimensions (weakest link). ALL scenes get scored, not just AI ones.
-
-   **A. Content Quality** — the data/text/claims visible on this scene.
-
-   For AI scenes: quote the worst sentence verbatim. Check for demo data artifacts
-   (duplicate people/orgs, "Unknown Organization", identical responses) — any = max 2.
-   Verify factual claims: numbers cited by AI must match the actual page data — wrong = max 3.
-
-   For non-AI scenes: check DATA quality. "Untitled" entries = max 3. Empty charts
-   where there should be data = max 3. Test/duplicate data visible = max 2. Real
-   organization/user names instead of "alice@test.com" and friends.
-
-   **B. App Page Quality** — how the actual product page looks (NOT the walkthrough slide).
-
-   This evaluates the product being demoed. Does it look like shadcn/Linear/Superhuman,
-   or does it look like a developer tool? Specifically check: visual hierarchy, spacing,
-   type scale, icon consistency, button variant use, loading/empty state polish.
-
-   Default 3. A 4 requires one specific "nice touch." A 5 requires "I would be proud to
-   hire the designer who shipped this."
-
-   **C. Screenshot Quality** — is the capture clean and complete?
-
-   Default 3 if everything visible is on-topic. A 5 requires perfect framing with no
-   wasted whitespace and no cutoff content. A 4 is slightly off (minor crop, slight
-   scroll offset).
-
-   **D. Walkthrough Slide Quality** — how THIS slide in the deck tells a story.
-
-   Does the narration pay off in the screenshot? Does the slide highlight what's
-   impressive, or is it just a raw dump? A 5 requires the reader to understand the
-   product benefit without any verbal explanation. Default 3.
-
-   **E. Demo Readiness** — the binary projector test, encoded.
-
-   - **5** requires YES to the projector test AND the adversarial listing found nothing
-     substantive to fix.
-   - **4** requires YES to the projector test with ONE named caveat.
-   - **3** — "only if I skip this slide or narrate around the rough spots."
-   - **2** — "I'd preface it with 'still a prototype' or have a backup slide ready."
-   - **1** — "I wouldn't show this at all."
-
-   ### Phase 3: Cross-check (sanity floor)
-
-   After scoring, check these sanity rules:
-
-   - **If ANY of your top-3 embarrassing things is unfixed in the screenshot, Demo
-     Readiness cannot exceed 3.** No exceptions.
-   - **If the projector test answer is NO, Demo Readiness cannot exceed 3.**
-   - **If a competitor does it obviously better in all 3 named ways, App Page cannot
-     exceed 3.**
-   - **If average of all scenes in the walkthrough is above 4.0, you are almost
-     certainly scoring too generously.** Re-read each scene's adversarial pass and
-     revise downward.
-   - **Every 4 or 5 needs a one-sentence justification a stranger would accept.**
-     "It works" / "it's clean" is not a 4 — that's a 3. If you can't name the
-     specific thing that earns the step up, revise down.
-
-   ### Phase 4: Required output format
-
-   Output this exact format for every scene. Do not skip sections. Do not fabricate
-   scores. You MUST have run `$B text` and looked at the screenshot before scoring.
+   Dispatch the visual judge with walkthrough's rubric and the
+   scene's narrative anchors:
 
    ```
-   ### Scene {n}: {title}
-
-   **Top-3 embarrassing things (adversarial):**
-   1. "{verbatim quote or specific UI description}"
-   2. "{verbatim quote or specific UI description}"
-   3. "{verbatim quote or specific UI description}"
-
-   **Three ways a competitor does this better:**
-   1. {Product} — {specific thing they do that we don't}
-   2. {Product} — {specific thing they do that we don't}
-   3. {Product} — {specific thing they do that we don't}
-
-   **Projector test:** YES / NO — {one-sentence reasoning}
-
-   A. Content:      {1-5}/5 — {one sentence justifying any deviation from 3}
-   B. App Page:     {1-5}/5 — {one sentence}
-   C. Screenshot:   {1-5}/5 — {one sentence}
-   D. Slide:        {1-5}/5 — {one sentence}
-   E. Demo Ready:   {1-5}/5 — {must be consistent with projector test}
-
-   Overall: {lowest}/5 (weakest: {dimension name})
-   Fix: [{CODE|SPEC|DATA|INFRA}] {concrete fix description}
+   Skill('canopy:visual-judge', args={
+     screenshot_path: "$SHOT_DIR/scene_{n}.png",
+     page_text:       <PAGE_TEXT>,
+     rubric:          <load skills/walkthrough/rubric.yaml verbatim>,
+     context: {
+       audience: { name: "skeptical CEO of a Fortune 500", decision: "deciding whether to adopt your product" },
+       competitors: ["Linear", "Notion", "Slack", "Vercel", "Height", "Superhuman"],
+       projector_test_phrasing: "Would you put this EXACT slide on a projector at an all-hands tomorrow morning, to an audience including your most demanding stakeholder, without ANY verbal caveats?",
+       narrative_anchors: [<scene.impressive_because>, <scene.ai_quality>],
+       blocking_rules: ["demo_readiness_low", "narrative_falsified"],
+     },
+   })
    ```
 
-   If any of the 5 sections above is missing, the scoring is invalid and you must redo
-   it. Do not shortcut this format even under time pressure — shortcutting is how
-   inflated scores happen.
+   The judge runs the Tough Judge methodology
+   (adversarial listing → score-from-3 default → projector test → cross-check)
+   and returns a verdict object with per-dimension scores + adversarial
+   listing + projector test result + fix recommendation. Walkthrough's
+   5 dimensions live in `rubric.yaml` (Content / App Page / Screenshot
+   / Slide / Demo Readiness). The methodology was extracted from this
+   skill into `canopy:visual-judge` in v0.2.79; per-rubric scoring
+   conventions (start-from-3, weakest-link overall, projector-gate)
+   are preserved verbatim.
 
-   **BLOCKING RULES:**
+   **Blocking-rule handling.** If the verdict comes back with
+   `verdict: "blocked"` (either Demo Readiness ≤ 2, or scene-1/2
+   narrative falsified), STOP the walkthrough IMMEDIATELY and tell
+   the user:
 
-   1. **Demo Readiness ≤ 2.** If ANY scene scores 2 or below on Demo Readiness, STOP.
-   2. **Narrative falsified.** If the live page contradicts the spec's narrative or
-      `ai_quality` assertions on Scene 1 or 2 (wrong domain, missing preconditions,
-      unrun prerequisites), STOP before spending tokens on remaining scenes. This
-      is distinct from a scored embarrassment — the premise itself is wrong, not
-      just polish.
-
-   When either rule fires, STOP the walkthrough IMMEDIATELY and tell the user:
-
-   > "Scene {n} scored {score}/5 on Demo Readiness — this would hurt the demo.
+   > "Scene {n} scored {dim.score}/5 on {dim.label} — this would
+   > hurt the demo.
    > Page: {full URL that was loaded for this scene}
-   > The issue is: {quote the problem}. Recommended fix: {fix}.
+   > The issue is: {verdict.fix_recommendation}.
    > Should I fix this now before continuing, or skip this scene?"
 
-   Always include the **full URL** so the user can open the page directly and
-   confirm the issue before deciding how to proceed.
+   Always include the full URL so the user can open the page directly
+   before deciding. Do NOT silently log a 2/5 and keep going.
 
-   Do NOT silently log a 2/5 and keep going. A 2/5 means the slide would embarrass
-   you in a meeting — that's a blocker, not a warning. Either fix it or drop it.
+   **Cross-walkthrough sanity floor.** After all scenes complete (or
+   the loop blocks): if the average overall_score across scenes is
+   > 4.0, you are almost certainly scoring too generously. Re-run
+   any scene whose adversarial listing was thin and revise downward.
+   This sanity rule applies at the WALKTHROUGH level (across scenes)
+   and is enforced HERE, not in canopy:visual-judge (which is per-
+   screenshot).
 
-   **NEVER fabricate scores.** If you did not run `$B text` and read the page content
-   for a scene, you cannot score it. If you are building a JSON data file and writing
-   scores inline, you are doing it wrong — score each scene interactively after
-   viewing the screenshot and reading the page text.
+   **NEVER fabricate scores.** Don't construct a verdict by hand —
+   always invoke `canopy:visual-judge` so the methodology stays
+   consistent across rubrics + future evals that consume the same
+   judge.
 
 ### Fixing Data Issues
 
