@@ -10,7 +10,8 @@ This is the *type* — the generic implementation. Per-project specialization (w
 - **Run scope**: a `run_id` for `per_run` lenses; `null` for opp-level.
 - **Lens descriptor**: parsed contents of `<project>/.canopy/lenses/judge.yaml` — project-specific signals, thresholds, file patterns, auto-merge conditions.
 - **Run-artifacts descriptor**: parsed contents of `<project>/.canopy/run-artifacts.yaml` — what the project produces, which backend (gdrive / local-fs / other), which read/list tools.
-- **Cross-model evidence**: dict keyed by verdict path with cross-model verdicts collected by the dispatcher (Phase 3a). May be empty if the dispatcher skipped probing.
+- **Cross-model evidence**: dict keyed by verdict path with cross-model verdicts collected by the dispatcher's `cross_model` probe (Phase 3a). May be empty if no signal in the descriptor needs it.
+- **Holistic evidence**: dict keyed by verdict path with adversarial-read output from the dispatcher's `holistic_adversarial` probe (Phase 3a). Contains top concerns, demand_reality, budget_consistency, technical_feasibility, $10K-bet odds, and explicit `rubric_blind_spots` enumeration. May be empty if no signal needs it.
 - **Opp/scope binding**: any project-specific scope identifiers (e.g. `opp_name` for ACE) bound at dispatch time.
 - **Max proposals**: hard cap on proposals to draft.
 
@@ -75,7 +76,46 @@ For each `auto_surfaced` entry with severity WARN or BLOCKER:
 - Identify which dimension it should have penalized (use rubric semantics or the original verdict's per-item notes).
 - If that dimension's score is ≥ 8 in all four verdicts (original + 3 cross-model), flag as **auto_surfaced_unscored** — the rubric is surfacing a concern but not deducting for it.
 
-### Step 6 — Rank findings, cap to max-proposals
+### Step 6 — Rubric blind-spot probe (signal `rubric_blind_spot`)
+
+This is the most important signal — it catches cases where the rubric isn't asking the right questions. Cross-model variance and inflation guards measure rubric *internal consistency*; this signal measures rubric *scope*.
+
+The dispatcher passes you `holistic_evidence` keyed by verdict path:
+
+```yaml
+holistic_evidence:
+  <verdict_path>:
+    top_concerns:
+      - severity: critical|high|medium|low
+        concern: "..."
+        rubric_caught_it: yes|no   # would the existing rubric catch this?
+    overall_viability_score: <0-10 — adversarial read of program viability>
+    rubric_blind_spots: ["named blind spot 1", "named blind spot 2", ...]
+    ten_k_bet:
+      odds_youd_take: "..."
+```
+
+Compute the **gap** between the rubric's score and the holistic viability score:
+
+- `rubric_score` = original verdict's `overall_score`
+- `holistic_score` = `holistic_evidence[verdict].overall_viability_score`
+- `gap = rubric_score - holistic_score`
+
+Flag as **rubric_blind_spot** finding when:
+- `gap ≥ 2.0` (the rubric is grading 2+ points higher than an adversarial read), OR
+- `holistic_evidence.top_concerns` includes ≥1 entry with `severity: critical` AND `rubric_caught_it: no`, OR
+- `holistic_evidence.rubric_blind_spots` enumerates ≥3 named gaps not addressable by tightening any existing dimension.
+
+**Severity inference:**
+- `gap ≥ 4.0` OR ≥2 critical-severity concerns the rubric missed → **high severity finding**
+- `gap ∈ [2.0, 4.0)` OR 1 critical-severity concern missed → **medium severity finding**
+- Otherwise → low
+
+The remediation for this signal is **adding new dimensions to the rubric** (and re-weighting existing ones), not tightening anchors. This is structurally different from the other 4 signals in this lens — it expands the rubric rather than refining it.
+
+If `holistic_evidence` is empty (dispatcher skipped the probe), surface `[INFO]: no holistic probe ran; rubric_blind_spot signal not evaluated this run` and proceed.
+
+### Step 7 — Rank findings, cap to max-proposals
 
 Sort findings by severity (high > medium > low) then by signal strength (variance for ambiguity, gap for inflation, etc.). Take the top N where N = max-proposals.
 
@@ -85,6 +125,7 @@ For each surviving finding, draft a candidate rubric edit:
 - **inflation_guard_binds**: lower the dimension's full-pass anchor (e.g. raise the bar from 9.5 to 9.0 for "all comments addressed"), OR add a deduction rule for a defect class the rubric was missing.
 - **dimension_inert**: either raise the deduction stakes (make the dimension actually capable of failing) or reduce its weight (it isn't pulling its weight).
 - **auto_surfaced_unscored**: add a deduction rule that ties the surfaced concern to a dimension drop. e.g. "if `[WARN] X` is surfaced, the X-related dimension must score ≤ 7."
+- **rubric_blind_spot**: ADD a new dimension to the rubric. For each blind spot named in holistic_evidence, propose a dimension with: name, weight (must rebalance — weights must still sum to 1.0; steal from over-weighted document-quality dimensions), and clear anchor scoring rules. Use the holistic evidence's specific concerns as the anchor examples (e.g. "absent named downstream consumer = score ≤ 4; named consumer with implicit commitment = 6-7; named consumer with explicit pre-committed action = 9-10").
 
 **Proposed-edit format** (for each proposal):
 
