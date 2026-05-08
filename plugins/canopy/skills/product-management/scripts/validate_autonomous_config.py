@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["pyyaml"]
 # ///
-"""Validate `~/.canopy/pm/<project>/autonomous.yaml` (spec §2, Phase 0).
+"""Validate `<repo>/.canopy/pm/autonomous.yaml` (spec §2, Phase 0).
 
 Usage: uv run --script validate_autonomous_config.py <path/to/autonomous.yaml>
 
