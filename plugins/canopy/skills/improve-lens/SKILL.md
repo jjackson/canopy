@@ -70,20 +70,23 @@ Substitute `{run_id}`, `{opp_name}` (if known), and `{project}` placeholders in 
 
 For `scope: cross_run` lenses (deferred): not implemented in v1; error if requested.
 
-## Phase 3a — Dispatcher-side probes (cross-model, etc.)
+## Phase 3a — Dispatcher-side probes
 
-Some lens-internal probes require dispatching multiple parallel Agents (e.g. the judge lens's cross-model variance probe). **Agents cannot dispatch Agents** — that's a hard constraint of the harness. So any multi-agent probe must run here, at the dispatcher level (this skill body), not inside the lens runner.
+Some lens-internal probes require dispatching parallel Agents. **Agents cannot dispatch Agents** — hard harness constraint — so multi-agent probes must run here at the dispatcher level, not inside the lens runner.
 
-For the **judge lens**: for each verdict in the run with score ≥ 6 (and not previously probed in this run), dispatch three parallel Agents in a single message — sonnet, opus, haiku — each grading the verdict's captured artifact with the eval skill's current rubric. Each returns a verdict YAML. Collect all three.
+The lens descriptor's `signals[].probe` field declares which probes a lens needs. Walk all signals, dedupe probes, run each once, stash output keyed by verdict path. Pass to the runner in Phase 3b.
+
+### Probe: `cross_model` (rubric internal-consistency)
+
+For each verdict with score ≥ 6 (and not previously probed in this run), dispatch three parallel Agents in a single message — sonnet, opus, haiku — each grading the verdict's captured artifact with the eval skill's current rubric.
 
 ```
-# All three in a single message — Agent tool supports model override
 Agent(model: "sonnet", subagent_type: "general-purpose", description: "judge probe sonnet", prompt: <grade prompt>)
 Agent(model: "opus", subagent_type: "general-purpose", description: "judge probe opus", prompt: <grade prompt>)
 Agent(model: "haiku", subagent_type: "general-purpose", description: "judge probe haiku", prompt: <grade prompt>)
 ```
 
-Grade prompt template (per Agent):
+Grade prompt template:
 
 > Grade the artifact below using ONLY the rubric provided. Do not improvise dimensions.
 >
@@ -95,11 +98,46 @@ Grade prompt template (per Agent):
 >
 > Return a YAML verdict matching `lib/verdict-schema.ts` shape — at minimum `overall_score`, per-dimension scores, and `auto_surfaced`. No prose outside the YAML.
 
-Collect cross-model verdicts. For each dimension, compute mean + variance (max - min). Stash in a `cross_model_evidence` dict keyed by verdict path.
+Collect three verdicts. Per-dimension mean + variance (max - min). Stash in `cross_model_evidence` keyed by verdict path.
 
-Cap probes at `--max-proposals` × 1 verdict per probe, to bound cost.
+**What this probe answers:** is the rubric's language precise enough that different models read it the same way? High variance = ambiguous anchors.
 
-For lenses without dispatcher-side probes (operational, production v1), skip Phase 3a.
+**What it does NOT answer:** whether the rubric is asking the right questions, or harsh enough. Three models reading the same lenient rubric will all agree on a lenient score.
+
+### Probe: `holistic_adversarial` (rubric scope check)
+
+For each verdict, dispatch one Agent (Opus by default — most thorough) with an adversarial PM-style prompt that does NOT see the rubric. Its job is to find what's actually wrong with the artifact a real-world skeptical reader would catch. Compare what surfaces against what the rubric flagged. The gap = rubric blind spots.
+
+```
+Agent(model: "opus", subagent_type: "general-purpose", description: "holistic adversarial read", prompt: <adversarial prompt>)
+```
+
+Adversarial prompt template (project-specific specialization comes from the lens descriptor's `holistic_prompt:` field if present; otherwise use generic):
+
+> You are a tough, experienced PM doing an adversarial read of <artifact-type>. Assume this will actually be implemented — real org, real budget. Find what goes wrong, what's hand-waved, what's missing, what's likely to fail. Don't grade with a checklist; surface concerns.
+>
+> ## Artifact
+> <full text of capture_path artifact>
+>
+> ## Your task
+> 1. Top 3 highest-likelihood failure modes. For each: PDD mitigation? real or hand-waved?
+> 2. Strongest argument this artifact does NOT deliver useful value.
+> 3. Resource-realism check (budget vs labor implied).
+> 4. Demand reality (is there a named downstream consumer / pre-committed action?).
+> 5. Technical feasibility (claims that need empirical backing — what evidence exists?).
+> 6. The $10K bet — odds you'd take on the headline metrics being met.
+>
+> Return YAML per the lens descriptor's `holistic_output_schema:`. Include `rubric_blind_spots:` — concrete dimensions an experienced reader would flag that the artifact's eval rubric (named in the prompt) has no place to capture. No prose outside the YAML.
+
+Stash output in `holistic_evidence` keyed by verdict path.
+
+**What this probe answers:** does the rubric grade the right things? If the holistic probe surfaces critical concerns the rubric scored 8+ on, the rubric is missing dimensions or compressing its score range too much.
+
+**Cost:** one Opus dispatch per verdict (~30K tokens input). Bound by `--max-proposals`.
+
+### Probe selection
+
+The lens descriptor's `signals` declare which probes are needed. v1 supports `cross_model` and `holistic_adversarial`. Skip Phase 3a entirely if no signal references a dispatcher-side probe.
 
 ## Phase 3b — Dispatch lens runner
 
@@ -111,7 +149,7 @@ Dispatch via Agent tool:
 Agent(
   subagent_type: "general-purpose",
   description: "<lens> lens runner",
-  prompt: <runner prompt content + descriptor + evidence pointers + cross_model_evidence>
+  prompt: <runner prompt content + descriptor + evidence pointers + cross_model_evidence + holistic_evidence>
 )
 ```
 
