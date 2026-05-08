@@ -295,5 +295,17 @@ New sessions auto-detect the version bump on startup — no manual steps needed.
 - `/reload-plugins` only reloads skills from the existing cache — it does NOT detect
   version changes or re-install. That's why `/canopy:update` must run first.
 
+## Per-Project Canopy State
+
+Per-project canopy state lives at `<repo>/.canopy/`, committed to the project's git repo:
+
+- `<repo>/.canopy/pm/` — `canopy:product-management` state (autonomous.yaml, context.md, learnings.md, runs/). Resolved via `plugins/canopy/skills/product-management/scripts/resolve_pm_dir.sh` from any PM markdown file or agent.
+- `<repo>/.canopy/lenses/` — per-project lens descriptors (PR #37).
+- `<repo>/.canopy/run-artifacts.yaml`, `<repo>/.canopy/README.md` — project run-artifact map and onboarding.
+
+Outside a git repo, the PM resolver falls back to `$HOME/.canopy/pm/<basename-of-cwd>/`.
+
+The global "self-improvement brain" (`~/.claude/canopy/observations/`, `proposals/`, `session-log.jsonl`, etc.) stays under `$HOME/.claude/canopy/` — that data is intentionally cross-project on a single machine.
+
 ## Testing
 - `uv run pytest` from project root (420 tests)

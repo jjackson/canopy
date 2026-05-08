@@ -46,10 +46,10 @@ When in doubt, the human-gated mode is the right default. Autonomous mode is opt
 
 ## Project State Convention
 
-All project-level PM state lives in `~/.canopy/pm/<project>/` on the user's machine, **not** inside the project tree. The `<project>` part is derived from the project's `origin` remote URL (e.g. `ace-web` from `https://github.com/jjackson/ace-web.git`), falling back to the parent dir of `git-common-dir` when there's no origin. Crucially, this is NOT `basename "$(git rev-parse --show-toplevel)"` — that resolves to the *worktree's* directory name (e.g. `pm-8u5y3` in an emdash worktree), not the project name. Resolve via the snippet under "Resolving the path" below; never hand-roll basename of the toplevel.
+All project-level PM state lives at `<repo>/.canopy/pm/` — committed to the project's git repo so it's portable across machines and accounts. This shares the `.canopy/` namespace established by PR #37 (`<repo>/.canopy/lenses/`, `<repo>/.canopy/run-artifacts.yaml`, etc.).
 
 ```
-~/.canopy/pm/<project>/
+<repo>/.canopy/pm/
 ├── context.md          ← what this project is, who uses it, what matters
 ├── learnings.md        ← project-specific learnings ("don't propose X again")
 ├── autonomous.yaml     ← autonomous-mode config (auto-bootstrapped on first run)
@@ -57,27 +57,18 @@ All project-level PM state lives in `~/.canopy/pm/<project>/` on the user's mach
     └── YYYY-MM-DD-<lens>.md
 ```
 
-**Why this location (not `.claude/pm/` in the project tree):** `.claude/pm/` dies whenever the user works in an emdash or conductor worktree — those worktrees are ephemeral and don't carry the PM state forward. `~/.canopy/pm/<project>/` is per-machine and outlives any worktree.
-
-**Resolving the path** — resolve once at the start of each run and export it:
+**Resolving the path** — call the resolver script once at the start of each run and capture its stdout:
 
 ```bash
-CANOPY_PM_PROJECT=$(git config --get remote.origin.url 2>/dev/null | sed 's|.*[/:]||;s|\.git$||')
-[ -z "$CANOPY_PM_PROJECT" ] && CANOPY_PM_PROJECT=$(basename "$(dirname "$(git rev-parse --git-common-dir 2>/dev/null)")")
-CANOPY_PM_DIR="$HOME/.canopy/pm/$CANOPY_PM_PROJECT"
-mkdir -p "$CANOPY_PM_DIR"
+PLUGIN_PATH=$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude/plugins/installed_plugins.json'))); print(d['plugins']['canopy@canopy'][0]['installPath'])")
+CANOPY_PM_DIR=$(bash "$PLUGIN_PATH/skills/product-management/scripts/resolve_pm_dir.sh")
 ```
 
-**Legacy migration:** if a project still has a `.claude/pm/` directory from a previous canopy version, the user should migrate it once:
+Inside a git repo, this returns `<repo-root>/.canopy/pm` (created if missing). On the rare case of running outside a git repo, it falls back to `$HOME/.canopy/pm/<basename-of-cwd>/`.
 
-```bash
-CANOPY_PM_PROJECT=$(git config --get remote.origin.url 2>/dev/null | sed 's|.*[/:]||;s|\.git$||')
-[ -z "$CANOPY_PM_PROJECT" ] && CANOPY_PM_PROJECT=$(basename "$(dirname "$(git rev-parse --git-common-dir 2>/dev/null)")")
-CANOPY_PM_DIR="$HOME/.canopy/pm/$CANOPY_PM_PROJECT"
-mkdir -p "$CANOPY_PM_DIR" && mv .claude/pm/* "$CANOPY_PM_DIR/"
-```
+**Auto-migration:** the resolver also performs a one-shot, idempotent migration from the legacy `~/.canopy/pm/<project>/` location. The first time PM runs in a project after this change, if `<repo>/.canopy/pm/` is empty AND a legacy directory exists, the resolver copies the files in, commits them on the current branch (`chore(canopy-pm): migrate state from ~/.canopy/pm/<project>/`), and writes a `.migrated` marker into the old location. Subsequent runs are no-ops. The user can delete `~/.canopy/pm/<project>/` whenever — nothing reads it after migration.
 
-The skill does NOT auto-migrate — that is user-judgment territory.
+**Committing ongoing writes:** in autonomous mode, `.canopy/pm/` updates ride along with the cycle's PR commits, so they land on `main` when the PR merges. In interactive `/canopy:pm-scout` mode, treat `.canopy/pm/` updates like any other working-tree change — review with `git status` and commit alongside (or separately from) your feature work.
 
 **Every run:** Read `context.md` and `learnings.md` before doing anything else. These are your memory.
 
@@ -161,10 +152,8 @@ Items closed or rejected during PM cycles. Read this before every scout run to a
 **Run this ONE bash command synchronously before any other tool calls.** Do not parallelize anything until this completes — issuing parallel reads when the directory doesn't exist cancels every sibling call and forces sequential retries.
 
 ```bash
-CANOPY_PM_PROJECT=$(git config --get remote.origin.url 2>/dev/null | sed 's|.*[/:]||;s|\.git$||')
-[ -z "$CANOPY_PM_PROJECT" ] && CANOPY_PM_PROJECT=$(basename "$(dirname "$(git rev-parse --git-common-dir 2>/dev/null)")")
-CANOPY_PM_DIR="$HOME/.canopy/pm/$CANOPY_PM_PROJECT"
-mkdir -p "$CANOPY_PM_DIR"
+PLUGIN_PATH=$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude/plugins/installed_plugins.json'))); print(d['plugins']['canopy@canopy'][0]['installPath'])")
+CANOPY_PM_DIR=$(bash "$PLUGIN_PATH/skills/product-management/scripts/resolve_pm_dir.sh")
 [ -f "$CANOPY_PM_DIR/context.md" ] && echo "PM_STATE: ready" || echo "PM_STATE: missing"
 ```
 
@@ -358,7 +347,7 @@ The autonomous mode does NOT modify the human-gated Phase 0–6 procedure above.
 3. **Emails ship as HTML with prod screenshots, clickable feature elements, and a render-and-look pass before AND after send.** The release-notes email is the only customer-facing output of the cycle — visual quality matters and is part of user delight. The hard contract: body must be HTML (sender skill's `--body-html` or equivalent), screenshots must come from prod (not localhost), inline images must use persistent https URLs (e.g. `raw.githubusercontent.com` against a `pm-assets/<sprint-slug>` branch on the project's repo — `cid:` and data URIs don't render reliably in Gmail), every highlight's title AND hero image must wrap in `<a href="<TRY-IT-URL>">` so recipients can click anywhere intuitive, AND the cycle MUST render the final `email.html` in a real browser at desktop + mobile widths before sending (E.4 gate) and again after sending to write a self-critique with concrete improvement ideas (E.5). See `templates/autonomous/email-format.md` "Hard rules" + reference layout + "Self-review" section.
 4. **One autonomous PR in flight at a time.** Resume an open one before opening a new one.
 5. **No auto-revert on broken prod.** Fix forward, up to `guardrails.max_fix_forward_attempts` cycles, then stop with a stuck-state email.
-6. **The skill stays project-agnostic.** Every project-specific value (deploy command, health URLs, sender skill, branch prefix, test commands) lives in `~/.canopy/pm/<project>/autonomous.yaml`. Never hardcode them in SKILL.md or templates.
+6. **The skill stays project-agnostic.** Every project-specific value (deploy command, health URLs, sender skill, branch prefix, test commands) lives in `<repo>/.canopy/pm/autonomous.yaml`. Never hardcode them in SKILL.md or templates.
 
 ## Self-Improvement Protocol
 

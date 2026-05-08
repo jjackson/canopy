@@ -12,7 +12,8 @@ Show a quick overview of PM skill state for the current project.
 0. Resolve the PM state directory:
 
    ```bash
-   CANOPY_PM_DIR="$HOME/.canopy/pm/$(basename "$(git rev-parse --show-toplevel)")"
+   PLUGIN_PATH=$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude/plugins/installed_plugins.json'))); print(d['plugins']['canopy@canopy'][0]['installPath'])")
+   CANOPY_PM_DIR=$(bash "$PLUGIN_PATH/skills/product-management/scripts/resolve_pm_dir.sh")
    ```
 
 1. Check if `$CANOPY_PM_DIR/context.md` exists. If not, say "PM not bootstrapped for this project. Run `/pm-scout` to get started."

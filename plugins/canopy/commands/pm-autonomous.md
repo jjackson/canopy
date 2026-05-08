@@ -1,5 +1,5 @@
 ---
-description: Run one autonomous PM sprint — scout, draft email, ship, send-and-stop. Auto-bootstraps ~/.canopy/pm/<project>/autonomous.yaml from project signals on first run.
+description: Run one autonomous PM sprint — scout, draft email, ship, send-and-stop. Auto-bootstraps <repo>/.canopy/pm/autonomous.yaml from project signals on first run.
 allowed-tools: [Read, Glob, Grep, Bash, Agent, Write, Edit]
 ---
 
@@ -7,7 +7,7 @@ allowed-tools: [Read, Glob, Grep, Bash, Agent, Write, Edit]
 
 Run a SINGLE autonomous product-management sprint on the current project.
 
-This command does NOT prompt for per-proposal approval — it auto-approves its own work, runs a multi-layer convince-self-it's-clean gate before each PR, and ends with a working-backwards release-notes email sent to the address configured in `~/.canopy/pm/<project>/autonomous.yaml`.
+This command does NOT prompt for per-proposal approval — it auto-approves its own work, runs a multi-layer convince-self-it's-clean gate before each PR, and ends with a working-backwards release-notes email sent to the address configured in `<repo>/.canopy/pm/autonomous.yaml`.
 
 The existing human-gated `/canopy:pm-scout` is the right command if you want per-proposal control.
 
@@ -33,8 +33,8 @@ The existing human-gated `/canopy:pm-scout` is the right command if you want per
 
 ## Failure modes (none of these are bugs)
 
-- Config exists but invalid → Phase 0 prints the validator errors, refuses to run. (The skill never overwrites a user-supplied config.) Fix `~/.canopy/pm/<project>/autonomous.yaml` and try again.
-- No `~/.canopy/pm/<project>/context.md` → bootstrap interactively first (the human-gated bootstrap flow still applies), then re-run.
+- Config exists but invalid → Phase 0 prints the validator errors, refuses to run. (The skill never overwrites a user-supplied config.) Fix `<repo>/.canopy/pm/autonomous.yaml` and try again.
+- No `<repo>/.canopy/pm/context.md` → bootstrap interactively first (the human-gated bootstrap flow still applies), then re-run.
 - Phase A can't converge on an impressive email after deep scouting → sends a one-paragraph "no release notes this time" email and stops.
 - Convince-self gate drops every candidate proposal → same as above.
 - Post-deploy health stays red after `guardrails.max_fix_forward_attempts` cycles → "stuck" email, stop.
