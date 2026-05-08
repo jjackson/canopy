@@ -4,7 +4,7 @@ This is the procedure executed by `/canopy:pm-autonomous` for one sprint. Read i
 
 The sprint succeeds when a customer-quality release-notes email is sent. It fails (gracefully) when convergence isn't possible — in which case a minimal "stuck" email is sent and the sprint stops.
 
-This skill is project-agnostic. ALL project-specific knobs live in `~/.canopy/pm/<project>/autonomous.yaml` — see `config-schema.md`.
+This skill is project-agnostic. ALL project-specific knobs live in `<repo>/.canopy/pm/autonomous.yaml` — see `config-schema.md`.
 
 ## Phase 0 — Pre-flight
 
@@ -13,20 +13,28 @@ Run sequentially, NOT in parallel (`$CANOPY_PM_DIR` may not exist yet on a fresh
 1. Resolve `$PLUGIN_PATH` and `$CANOPY_PM_DIR` once and reuse:
 
    ```bash
-   PLUGIN_PATH=$(python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugins.json')); print(d['plugins']['canopy@canopy'][0]['installPath'])")
-   CANOPY_PM_PROJECT=$(git config --get remote.origin.url 2>/dev/null | sed 's|.*[/:]||;s|\.git$||')
-   [ -z "$CANOPY_PM_PROJECT" ] && CANOPY_PM_PROJECT=$(basename "$(dirname "$(git rev-parse --git-common-dir 2>/dev/null)")")
-   CANOPY_PM_DIR="$HOME/.canopy/pm/$CANOPY_PM_PROJECT"
-   mkdir -p "$CANOPY_PM_DIR"
+   PLUGIN_PATH=$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude/plugins/installed_plugins.json'))); print(d['plugins']['canopy@canopy'][0]['installPath'])")
+   CANOPY_PM_DIR=$(bash "$PLUGIN_PATH/skills/product-management/scripts/resolve_pm_dir.sh")
    ```
 
 2. **If `$CANOPY_PM_DIR/autonomous.yaml` is MISSING, bootstrap it before validating — do NOT ask the user.** This skill defaults to autonomous; the user has already opted in by running this command. Derive defaults from project signals and write the file directly:
 
+   ```bash
+   # Derive a display name for subject prefix and branch namespace.
+   # This is for cosmetic strings only — NOT used for path resolution.
+   PROJECT_NAME=$(git config --get remote.origin.url 2>/dev/null \
+     | sed 's|.*[/:]||;s|\.git$||' || true)
+   if [ -z "$PROJECT_NAME" ]; then
+     PROJECT_NAME=$(git rev-parse --show-toplevel 2>/dev/null || true)
+     PROJECT_NAME=$(basename "${PROJECT_NAME:-$(pwd)}")
+   fi
+   ```
+
    - `email.to` = `git config user.email`
    - `email.from` = same as `email.to` for v1, EXCEPT: if the detected `email.sender_skill` is a known service-mailbox skill, use that mailbox. Known mapping today: `ace:email-communicator` → `ace@dimagi-ai.com`. When applying a service mapping, also print a single extra line: `email.from defaulted to <service-address> based on sender skill <skill>; edit autonomous.yaml if wrong.` This avoids the post-bootstrap manual fixup that was needed on ace-web.
-   - `email.subject_prefix` = `[$CANOPY_PM_PROJECT]` (the project name resolved in step 1 — origin URL → git-common-dir parent fallback; NOT `basename` of `git rev-parse --show-toplevel`, which breaks in worktrees)
+   - `email.subject_prefix` = `[$PROJECT_NAME]` (origin URL → repo basename fallback; cosmetic only — path resolution is handled by `resolve_pm_dir.sh`)
    - `email.sender_skill` = if `~/.claude/plugins/installed_plugins.json` lists `ace@ace`, use `ace:email-communicator`; otherwise leave the literal string `ace:email-communicator` and proceed (the user can swap it in `$CANOPY_PM_DIR/autonomous.yaml` if a different sender ships first)
-   - `shipping.branch_prefix` = `$CANOPY_PM_PROJECT/auto/`
+   - `shipping.branch_prefix` = `$PROJECT_NAME/auto/`
    - `shipping.pr_label` = `autonomous`
    - `shipping.merge` = `squash`
    - `shipping.deploy_command` and `shipping.deploy_workflow` — look in `.github/workflows/` for the most recently-modified `deploy*.yml` and use it. If none exists, write `echo "no deploy configured"` / `none.yml` and continue (the gate will catch deploy failures later if they matter)
@@ -237,7 +245,7 @@ The email MUST be HTML, with hero screenshots captured from prod, hosted via per
 The PM cycle has two memory channels:
 
 ```
-~/.canopy/pm/<project>/                 ← per-machine, outlives any worktree
+<repo>/.canopy/pm/                  ← committed to the project repo, portable across machines
 ├── context.md                           ← project identity, who uses it, what matters
 ├── learnings.md                         ← accumulated learnings across cycles
 ├── autonomous.yaml                      ← autonomous-mode config

@@ -1,6 +1,6 @@
 # autonomous.yaml — Schema and Example
 
-This file lives at `~/.canopy/pm/<project>/autonomous.yaml` for any project that adopts the autonomous mode of `canopy:product-management`. The `<project>` part is `basename` of the repo root (resolved as `$CANOPY_PM_DIR` in Phase 0). If it's missing on first run, Phase 0 of `cycle.md` **auto-bootstraps it from project signals** (git config, repo basename, deploy workflows in `.github/workflows/`, `pyproject.toml`/`package.json`, README health URLs, docker-compose presence) and continues without prompting. The user can edit the file later if any defaults are wrong; the skill never silently overwrites an already-existing config.
+This file lives at `<repo>/.canopy/pm/autonomous.yaml` for any project that adopts the autonomous mode of `canopy:product-management`. PM resolves the path via `scripts/resolve_pm_dir.sh` (committed source-controlled state, portable across machines). If it's missing on first run, Phase 0 of `cycle.md` **auto-bootstraps it from project signals** (git config, repo basename, deploy workflows in `.github/workflows/`, `pyproject.toml`/`package.json`, README health URLs, docker-compose presence) and continues without prompting. The user can edit the file later if any defaults are wrong; the skill never silently overwrites an already-existing config.
 
 The skill is deliberately project-agnostic — every project-specific knob lives here.
 
@@ -34,10 +34,8 @@ The skill is deliberately project-agnostic — every project-specific knob lives
 Run the validator manually with:
 
 ```bash
-PLUGIN_PATH=$(python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugins.json')); print(d['plugins']['canopy@canopy'][0]['installPath'])")
-CANOPY_PM_PROJECT=$(git config --get remote.origin.url 2>/dev/null | sed 's|.*[/:]||;s|\.git$||')
-[ -z "$CANOPY_PM_PROJECT" ] && CANOPY_PM_PROJECT=$(basename "$(dirname "$(git rev-parse --git-common-dir 2>/dev/null)")")
-CANOPY_PM_DIR="$HOME/.canopy/pm/$CANOPY_PM_PROJECT"
+PLUGIN_PATH=$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude/plugins/installed_plugins.json'))); print(d['plugins']['canopy@canopy'][0]['installPath'])")
+CANOPY_PM_DIR=$(bash "$PLUGIN_PATH/skills/product-management/scripts/resolve_pm_dir.sh")
 uv run --script "$PLUGIN_PATH/skills/product-management/scripts/validate_autonomous_config.py" "$CANOPY_PM_DIR/autonomous.yaml"
 ```
 
