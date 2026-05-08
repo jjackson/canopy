@@ -22,7 +22,7 @@ if REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); then
     LEGACY_PROJECT=$(git config --get remote.origin.url 2>/dev/null \
       | sed 's|.*[/:]||;s|\.git$||' || true)
     if [ -z "${LEGACY_PROJECT:-}" ]; then
-      LEGACY_PROJECT=$(basename "$(dirname "$(git rev-parse --git-common-dir 2>/dev/null)")")
+      LEGACY_PROJECT=$(basename "$REPO_ROOT")
     fi
     LEGACY_DIR="$HOME/.canopy/pm/$LEGACY_PROJECT"
     LEGACY_MARKER="$LEGACY_DIR/.migrated"
