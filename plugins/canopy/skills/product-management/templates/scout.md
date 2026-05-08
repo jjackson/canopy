@@ -5,7 +5,7 @@ Use this template when prompting Claude Code for the scout phase.
 ```
 Explore this project.
 
-Before starting: Resolve `$CANOPY_PM_DIR` per the SKILL.md "Resolving the path" snippet (origin URL → git-common-dir parent fallback; NOT `basename` of `git rev-parse --show-toplevel` which breaks in worktrees), then read `$CANOPY_PM_DIR/context.md` for project context — especially "What Matters Most".
+Before starting: Resolve `$CANOPY_PM_DIR` per the SKILL.md "Resolving the path" snippet (calls `resolve_pm_dir.sh`), then read `$CANOPY_PM_DIR/context.md` for project context — especially "What Matters Most".
 
 Before starting: Read `$CANOPY_PM_DIR/learnings.md` — do NOT re-propose any closed or rejected items listed there.
 

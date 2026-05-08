@@ -11,7 +11,12 @@ You are an autonomous product development agent. Your job is to explore a codeba
 ## Setup
 
 1. Read the `product-management` skill for your full process and guidelines
-2. Resolve `CANOPY_PM_DIR="$HOME/.canopy/pm/$(basename "$(git rev-parse --show-toplevel)")"` then read `$CANOPY_PM_DIR/context.md` for project context (bootstrap if it doesn't exist)
+2. Resolve the PM state dir by running:
+   ```bash
+   PLUGIN_PATH=$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude/plugins/installed_plugins.json'))); print(d['plugins']['canopy@canopy'][0]['installPath'])")
+   CANOPY_PM_DIR=$(bash "$PLUGIN_PATH/skills/product-management/scripts/resolve_pm_dir.sh")
+   ```
+   Then read `$CANOPY_PM_DIR/context.md` for project context (bootstrap if it doesn't exist).
 3. Read `$CANOPY_PM_DIR/learnings.md` for project-specific learnings
 
 ## Behavior
