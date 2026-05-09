@@ -444,9 +444,16 @@ def _walk_files(root: Path, skip_dirs: set[str]):
 
 
 def _fallback_scan(repo: Path) -> list[TestItem]:
-    """Regex scan when vitest isn't runnable. Misses dynamic-name tests."""
+    """Regex scan when vitest isn't runnable. Misses dynamic-name tests.
+
+    Uses `_SKIP_TEST_DIRS` (not `_SKIP_SRC_DIRS`) so conventional `test/`,
+    `tests/`, and `__tests__/` directories are walked — that's where most
+    JS/TS suites actually live. Without this distinction the fallback
+    silently misses every co-located test directory (caught on first
+    real-world run against ACE; canopy 0.2.84 was the broken version).
+    """
     items: list[TestItem] = []
-    test_files = [p for p in _walk_files(repo, _SKIP_DIRS) if _TEST_FILE_RE.match(p.name)]
+    test_files = [p for p in _walk_files(repo, _SKIP_TEST_DIRS) if _TEST_FILE_RE.match(p.name)]
     for file in sorted(test_files):
         try:
             src = file.read_text(encoding="utf-8")
