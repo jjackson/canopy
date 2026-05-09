@@ -141,7 +141,16 @@ The lens descriptor's `signals` declare which probes are needed. v1 supports `cr
 
 ## Phase 3b — Dispatch lens runner
 
-Each lens has a runner prompt at `skills/improve-lens/lens-types/<lens>.md` (relative to canopy plugin). The runner is the lens-specific analyzer — given evidence (including any dispatcher-side probe results), it identifies findings and drafts proposals.
+Each lens has a runner prompt — the lens-specific analyzer that, given evidence (including any dispatcher-side probe results), identifies findings and drafts proposals.
+
+**Runner resolution order** (first hit wins):
+
+1. **Project-local:** `$_PROJECT_DIR/.canopy/lenses/<lens>.runner.md`. Use this for lenses that are domain-specific to a single project (e.g. ACE's `qa-eval-system` lens that audits per-skill QA + Eval registries — meaningful only inside ACE). Project-local runners ship in the project's repo alongside the lens descriptor.
+2. **Canopy-bundled:** `skills/improve-lens/lens-types/<lens>.md` (relative to canopy plugin). Use this for lens types meant for any canopy-onboarded project (`judge`, `production`, `operational`).
+
+If neither exists, error: `lens '<lens>' has no runner. Expected one of: $_PROJECT_DIR/.canopy/lenses/<lens>.runner.md OR canopy plugin's skills/improve-lens/lens-types/<lens>.md.`
+
+The bundled runners are project-agnostic and parameterized by the descriptor's evidence/probes/verify blocks. Project-local runners can hard-code project-specific paths and signal logic, since they only ever run against one project.
 
 Dispatch via Agent tool:
 
