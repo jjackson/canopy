@@ -21,7 +21,9 @@ from orchestrator.test_audit.adapters.vitest_adapter import (
     _extract_source_calls,
     _flatten_list_payload,
     _find_matching_close,
+    _is_in_string_or_comment,
     _locate_test,
+    _scan_tests,
 )
 from orchestrator.test_audit.framework import (
     FrameworkAdapter, _has_pytest, _has_vitest, detect_framework,
@@ -538,6 +540,239 @@ def test_apply_from_dir_reads_framework_from_corpus(tmp_path: Path):
     # Vitest doesn't support delete -> plan downgrades to skip.
     assert any(c.action == "skip" for c in result.changes)
     assert not any(c.action == "delete" for c in result.changes)
+
+
+# ---------------------------------------------------------------------------
+# Issue #42 — sibling describes with the same leaf name must not collapse
+# ---------------------------------------------------------------------------
+
+def test_scan_tests_recovers_describe_path_for_shared_leaf():
+    src = (
+        "import { describe, it } from 'vitest';\n"
+        "describe('outer', () => {\n"
+        "  it('shared', () => {});\n"
+        "});\n"
+        "describe('inner', () => {\n"
+        "  it('shared', () => {});\n"
+        "});\n"
+    )
+    found = _scan_tests(src)
+    triples = {(stack and stack[0], leaf) for _, stack, leaf in found}
+    assert triples == {("outer", "shared"), ("inner", "shared")}
+
+
+def test_scan_tests_handles_three_level_nesting():
+    src = (
+        "describe('a', () => {\n"
+        "  describe('b', () => {\n"
+        "    describe('c', () => {\n"
+        "      it('leaf', () => {});\n"
+        "    });\n"
+        "  });\n"
+        "});\n"
+    )
+    found = _scan_tests(src)
+    assert len(found) == 1
+    _, stack, leaf = found[0]
+    assert stack == ["a", "b", "c"] and leaf == "leaf"
+
+
+def test_scan_tests_skips_test_calls_inside_strings_and_comments():
+    src = (
+        "// it('commented out', () => {});\n"
+        "/* it('block-commented', () => {}); */\n"
+        "const s = \"it('inside string', () => {})\";\n"
+        "it('real', () => {});\n"
+    )
+    found = _scan_tests(src)
+    leaves = [t[2] for t in found]
+    assert leaves == ["real"]
+
+
+def test_collect_does_not_collapse_sibling_describes_with_shared_leaf(tmp_path: Path):
+    """Issue #42 regression: vitest list emits flat leaf names but the
+    collector must still produce one TestItem per source occurrence.
+    """
+    (tmp_path / "vitest.config.ts").write_text("export default {}\n")
+    test_file = tmp_path / "collide.test.ts"
+    test_file.write_text(
+        "describe('outer', () => {\n"
+        "  it('shared', () => {});\n"
+        "});\n"
+        "describe('inner', () => {\n"
+        "  it('shared', () => {});\n"
+        "});\n"
+    )
+
+    # Simulate a vitest list reporter that lost describe nesting and
+    # collapsed the duplicates to a single entry — the worst case.
+    listed = [{"file": str(test_file), "name": "shared"}]
+
+    def fake_run(cmd, **kwargs):
+        for a in cmd:
+            if a.startswith("--outputFile="):
+                Path(a.split("=", 1)[1]).write_text(json.dumps(listed))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    with patch("orchestrator.test_audit.adapters.vitest_adapter.subprocess.run",
+               side_effect=fake_run):
+        items = VitestAdapter().collect(tmp_path)
+
+    nodeids = sorted(it.nodeid for it in items)
+    assert nodeids == [
+        "collide.test.ts::inner::shared",
+        "collide.test.ts::outer::shared",
+    ]
+
+
+def test_collect_backfills_dynamic_test_names_from_list(tmp_path: Path):
+    """Tests whose names aren't static literals (e.g. it.each) won't show
+    up in the source scan; the collector must still emit them using the
+    name vitest reported.
+    """
+    (tmp_path / "vitest.config.ts").write_text("export default {}\n")
+    test_file = tmp_path / "dyn.test.ts"
+    test_file.write_text(
+        "it.each([1, 2])('case %d', (n) => { expect(n).toBeGreaterThan(0); });\n"
+    )
+
+    listed = [
+        {"file": str(test_file), "name": "case 1"},
+        {"file": str(test_file), "name": "case 2"},
+    ]
+
+    def fake_run(cmd, **kwargs):
+        for a in cmd:
+            if a.startswith("--outputFile="):
+                Path(a.split("=", 1)[1]).write_text(json.dumps(listed))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    with patch("orchestrator.test_audit.adapters.vitest_adapter.subprocess.run",
+               side_effect=fake_run):
+        items = VitestAdapter().collect(tmp_path)
+
+    names = sorted(it.name for it in items)
+    assert names == ["case 1", "case 2"]
+
+
+# ---------------------------------------------------------------------------
+# Issue #43 — quote-char truncation in fallback scan
+# ---------------------------------------------------------------------------
+
+def test_fallback_scan_preserves_inner_quotes(tmp_path: Path):
+    """A single-quoted test name containing inner double quotes must not
+    be truncated at the first inner quote.
+    """
+    test_file = tmp_path / "quotes.test.ts"
+    test_file.write_text(
+        "it('does not retain the pre-Nova \"Current Workaround\" section', "
+        "() => {});\n"
+    )
+
+    def fake_run(*args, **kwargs):
+        raise FileNotFoundError("no npx")
+
+    with patch("orchestrator.test_audit.adapters.vitest_adapter.subprocess.run",
+               side_effect=fake_run):
+        items = VitestAdapter().collect(tmp_path)
+
+    assert len(items) == 1
+    assert items[0].name == 'does not retain the pre-Nova "Current Workaround" section'
+
+
+def test_fallback_scan_handles_backslash_escaped_quote(tmp_path: Path):
+    test_file = tmp_path / "escape.test.ts"
+    test_file.write_text(
+        r'it("name with \"escaped\" quote", () => {});' + "\n"
+    )
+
+    def fake_run(*args, **kwargs):
+        raise FileNotFoundError("no npx")
+
+    with patch("orchestrator.test_audit.adapters.vitest_adapter.subprocess.run",
+               side_effect=fake_run):
+        items = VitestAdapter().collect(tmp_path)
+
+    assert len(items) == 1
+    assert items[0].name == 'name with "escaped" quote'
+
+
+def test_scan_tests_preserves_inner_quotes():
+    src = (
+        "it('says \"hi\" loudly', () => {});\n"
+    )
+    found = _scan_tests(src)
+    assert [t[2] for t in found] == ['says "hi" loudly']
+
+
+def test_is_in_string_or_comment_detects_line_comment():
+    src = "abc // hello\nworld"
+    assert _is_in_string_or_comment(src, src.index("hello")) is True
+    assert _is_in_string_or_comment(src, src.index("world")) is False
+
+
+# ---------------------------------------------------------------------------
+# Issue #44 — explicit source-roots for module inventory
+# ---------------------------------------------------------------------------
+
+def test_module_inventory_honors_explicit_source_roots(tmp_path: Path):
+    """Repos with non-conventional layouts (mcp/, cli/, etc.) need an
+    explicit source-roots list; the adapter must scan exactly those.
+    """
+    (tmp_path / "mcp").mkdir()
+    (tmp_path / "mcp" / "alpha.ts").write_text("export function alpha() {}\n")
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib" / "beta.ts").write_text("export function beta() {}\n")
+    # A non-source dir that should be ignored unless asked for.
+    (tmp_path / "scratch").mkdir()
+    (tmp_path / "scratch" / "ignored.ts").write_text("export function nope() {}\n")
+
+    inv = VitestAdapter().module_inventory(tmp_path, source_roots=["lib", "mcp"])
+    by_name = {m.module_name: m for m in inv}
+    assert "alpha" in by_name
+    assert "beta" in by_name
+    assert "ignored" not in by_name  # scratch wasn't requested
+
+
+def test_module_inventory_default_roots_unchanged_without_flag(tmp_path: Path):
+    """Without an explicit list, only the conventional Node/TS roots are scanned."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.ts").write_text("export function a() {}\n")
+    (tmp_path / "mcp").mkdir()
+    (tmp_path / "mcp" / "b.ts").write_text("export function b() {}\n")
+
+    inv = VitestAdapter().module_inventory(tmp_path)
+    names = {m.module_name for m in inv}
+    assert "a" in names
+    assert "b" not in names  # mcp/ isn't a default candidate
+
+
+def test_collect_corpus_threads_source_roots_to_adapter(tmp_path: Path):
+    """End-to-end: --source-roots threads through audit -> corpus -> adapter."""
+    from orchestrator.test_audit import collect_corpus
+
+    (tmp_path / "vitest.config.ts").write_text("export default {}\n")
+    (tmp_path / "mcp").mkdir()
+    (tmp_path / "mcp" / "thing.ts").write_text("export function thing() {}\n")
+    test_file = tmp_path / "demo.test.ts"
+    test_file.write_text("it('x', () => {});\n")
+
+    listed = [{"file": str(test_file), "name": "x"}]
+
+    def fake_run(cmd, **kwargs):
+        for a in cmd:
+            if a.startswith("--outputFile="):
+                Path(a.split("=", 1)[1]).write_text(json.dumps(listed))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    import yaml
+    with patch("orchestrator.test_audit.adapters.vitest_adapter.subprocess.run",
+               side_effect=fake_run):
+        result = collect_corpus(tmp_path, run_tests=False, source_roots=["mcp"])
+
+    corpus = yaml.safe_load(result.corpus_path.read_text())
+    module_names = {m["module_name"] for m in corpus["architecture"]["modules"]}
+    assert "thing" in module_names
 
 
 def test_locate_test_returns_line_of_it_call():

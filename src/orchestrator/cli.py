@@ -457,13 +457,20 @@ def test_audit():
 @click.option("--framework", type=click.Choice(["auto", "pytest", "vitest"]),
               default="auto", show_default=True,
               help="Override framework detection.")
-def test_audit_collect(repo, no_run, reruns, framework):
+@click.option("--source-roots", "source_roots", default=None,
+              help="Comma-separated list of repo-relative source directories "
+                   "to scan for the module inventory (e.g. 'lib,mcp'). "
+                   "Defaults to the framework's conventional layout.")
+def test_audit_collect(repo, no_run, reruns, framework, source_roots):
     """Build the audit corpus (test inventory + source + runtime) for an agent to read."""
     from orchestrator.test_audit import collect_corpus
 
     fw = None if framework == "auto" else framework
+    roots = [r.strip() for r in source_roots.split(",")] if source_roots else None
+    if roots:
+        roots = [r for r in roots if r]
     result = collect_corpus(Path(repo), run_tests=not no_run, reruns=reruns,
-                            framework=fw)
+                            framework=fw, source_roots=roots)
     click.echo(f"corpus: {result.corpus_path}")
     click.echo(f"stamp_dir: {result.stamp_dir}")
     click.echo(f"framework: {result.framework}")

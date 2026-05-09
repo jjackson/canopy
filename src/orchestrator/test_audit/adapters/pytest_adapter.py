@@ -27,8 +27,13 @@ class PytestAdapter:
     def run(self, repo: Path, reruns: int = 0) -> dict[str, TestResult]:
         return _run_pytest(repo, reruns=reruns)
 
-    def module_inventory(self, repo: Path) -> list[ModuleInfo]:
-        return _module_inventory(repo)
+    def module_inventory(self, repo: Path,
+                         source_roots: list[str] | None = None) -> list[ModuleInfo]:
+        # Pytest layout is single-rooted; pick the first explicit root if
+        # given, else default to "src". Multi-root Python projects are rare
+        # enough that this keeps the adapter simple — extend if needed.
+        root = (source_roots[0] if source_roots else "src")
+        return _module_inventory(repo, src_root=root)
 
     def apply_delete(self, file: Path, name: str) -> bool:
         from orchestrator.test_audit.applier import _delete_test

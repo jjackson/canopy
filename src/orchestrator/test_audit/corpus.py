@@ -21,11 +21,15 @@ from orchestrator.test_audit.framework import FrameworkAdapter, detect_framework
 
 def build_corpus(repo: Path, run_tests: bool = True, reruns: int = 0,
                  framework: str | None = None,
-                 adapter: FrameworkAdapter | None = None) -> dict[str, Any]:
+                 adapter: FrameworkAdapter | None = None,
+                 source_roots: list[str] | None = None) -> dict[str, Any]:
     """Return the corpus dict for `repo`. Pure data; no I/O beyond reading source.
 
     `framework` overrides auto-detection ("pytest" | "vitest"). `adapter`
-    bypasses detection entirely (useful in tests).
+    bypasses detection entirely (useful in tests). `source_roots` is an
+    optional list of repo-relative directories to use as source roots when
+    building the module inventory — needed for repos with non-conventional
+    layouts (e.g. ACE's `mcp/`).
     """
     repo = repo.resolve()
     if adapter is None:
@@ -70,7 +74,7 @@ def build_corpus(repo: Path, run_tests: bool = True, reruns: int = 0,
         })
 
     # Architectural grist for the agent's suite-level review pass.
-    inv = adapter.module_inventory(repo)
+    inv = adapter.module_inventory(repo, source_roots=source_roots)
     densities = mock_density_by_file(items, statics)
     slow = slow_tests(runtimes) if run_tests else []
     architecture = {
@@ -95,11 +99,13 @@ def build_corpus(repo: Path, run_tests: bool = True, reruns: int = 0,
 
 def write_corpus(repo: Path, out_dir: Path, run_tests: bool = True,
                  reruns: int = 0, framework: str | None = None,
-                 adapter: FrameworkAdapter | None = None) -> tuple[Path, dict[str, Any]]:
+                 adapter: FrameworkAdapter | None = None,
+                 source_roots: list[str] | None = None) -> tuple[Path, dict[str, Any]]:
     """Build + write `corpus.yaml` to `out_dir`. Returns (path, corpus)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     corpus = build_corpus(repo, run_tests=run_tests, reruns=reruns,
-                          framework=framework, adapter=adapter)
+                          framework=framework, adapter=adapter,
+                          source_roots=source_roots)
     path = out_dir / "corpus.yaml"
     path.write_text(yaml.safe_dump(corpus, sort_keys=False), encoding="utf-8")
     return path, corpus
