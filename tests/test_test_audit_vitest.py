@@ -308,6 +308,39 @@ def test_collect_falls_back_when_vitest_unavailable(tmp_path: Path):
     assert names == {"alpha", "beta"}
 
 
+def test_collect_fallback_finds_tests_in_test_directory(tmp_path: Path):
+    """Regression: fallback scan must walk into `test/`, `tests/`, `__tests__/`.
+
+    Bug in canopy 0.2.84: `_fallback_scan` used `_SKIP_SRC_DIRS` (which
+    skips `test`/`tests`/`__tests__`) instead of `_SKIP_TEST_DIRS` (which
+    doesn't), silently missing co-located test directories — the standard
+    JS/TS layout. Surfaced first time against a real repo (ACE).
+    """
+    (tmp_path / "test").mkdir()
+    (tmp_path / "test" / "lib").mkdir()
+    (tmp_path / "test" / "lib" / "alpha.test.ts").write_text(
+        "it('in-test-lib', () => {});\n"
+    )
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "beta.test.ts").write_text(
+        "it('in-tests', () => {});\n"
+    )
+    (tmp_path / "__tests__").mkdir()
+    (tmp_path / "__tests__" / "gamma.test.ts").write_text(
+        "it('in-double-underscore', () => {});\n"
+    )
+
+    def fake_run(*args, **kwargs):
+        raise FileNotFoundError("no npx")
+
+    with patch("orchestrator.test_audit.adapters.vitest_adapter.subprocess.run",
+               side_effect=fake_run):
+        items = VitestAdapter().collect(tmp_path)
+
+    names = {it.name for it in items}
+    assert names == {"in-test-lib", "in-tests", "in-double-underscore"}
+
+
 # ---------------------------------------------------------------------------
 # run() — JSON reporter parsing
 # ---------------------------------------------------------------------------
