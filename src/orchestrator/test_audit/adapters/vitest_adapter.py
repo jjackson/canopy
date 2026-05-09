@@ -68,45 +68,88 @@ class VitestAdapter:
     # ------------------------------------------------------------------
 
     def collect(self, repo: Path) -> list[TestItem]:
-        """Discover tests via `npx vitest list --reporter=json`.
+        """Discover tests via `npx vitest list --reporter=json`, then walk
+        the source files to recover full describe paths per test.
 
-        Falls back to a filesystem scan if vitest isn't available — keeps
-        the corpus building usable in CI environments without a node_modules.
+        Source-walking is the primary signal: the vitest list reporter has
+        historically emitted only leaf names for some shapes, which would
+        otherwise collapse multiple `it('shared', ...)` calls under sibling
+        describes into a single nodeid (issue #42). We use the list output
+        for file discovery and to backfill dynamic-name tests (e.g.
+        `it.each([...])`) that can't be recovered from a static scan.
+
+        Falls back to a regex-only filesystem scan if vitest can't be
+        invoked — keeps the corpus usable in CI without a node_modules.
         """
         repo = repo.resolve()
         listed = _vitest_list_json(repo)
         if listed is None:
             return _fallback_scan(repo)
 
-        items: list[TestItem] = []
-        # Cache test-file source so we only read each file once.
-        sources: dict[Path, str] = {}
+        # Group listed entries by file. We only need the file set + the names
+        # vitest reported, to detect dynamic-name tests not present in source.
+        listed_by_file: dict[Path, set[str]] = {}
         for entry in listed:
             filepath = entry.get("file") or entry.get("filepath")
             full_name = entry.get("name") or entry.get("fullName") or ""
             if not filepath or not full_name:
                 continue
-            file = Path(filepath)
+            listed_by_file.setdefault(Path(filepath), set()).add(full_name)
+
+        items: list[TestItem] = []
+        for file, listed_names in listed_by_file.items():
             if not file.exists():
                 continue
-            if file not in sources:
-                try:
-                    sources[file] = file.read_text(encoding="utf-8")
-                except (OSError, UnicodeDecodeError):
-                    continue
-            line, leaf = _locate_test(sources[file], full_name)
+            try:
+                src = file.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
             try:
                 rel = str(file.relative_to(repo))
             except ValueError:
                 rel = str(file)
-            nodeid = f"{rel}::{full_name.replace(' > ', '::')}"
-            items.append(TestItem(
-                nodeid=nodeid,
-                file=file,
-                name=leaf,
-                line=line,
-                classname=None,
-            ))
+
+            # Source-based: find every static `it/test/fit('lit', ...)` call
+            # along with its describe nesting. Each occurrence becomes one
+            # TestItem, so sibling describes with the same leaf name produce
+            # distinct nodeids.
+            scanned = _scan_tests(src)
+            scanned_full = set()
+            scanned_leaves = set()
+            for line, stack, leaf in scanned:
+                full = " > ".join(stack + [leaf]) if stack else leaf
+                scanned_full.add(full)
+                scanned_leaves.add(leaf)
+                nodeid = f"{rel}::{'::'.join(stack + [leaf])}"
+                items.append(TestItem(
+                    nodeid=nodeid,
+                    file=file,
+                    name=leaf,
+                    line=line,
+                    classname=None,
+                ))
+
+            # Backfill: anything vitest reported that the source scan didn't
+            # cover (typical case: it.each / templated names that aren't a
+            # static literal). Use the listed name verbatim.
+            for listed_name in listed_names:
+                if listed_name in scanned_full:
+                    continue
+                leaf = listed_name.split(" > ")[-1].strip()
+                if leaf in scanned_leaves and " > " not in listed_name:
+                    # vitest gave us a flat leaf and the source already
+                    # produced a (possibly-nested) test with that leaf —
+                    # don't duplicate.
+                    continue
+                line, leaf_loc = _locate_test(src, listed_name)
+                nodeid = f"{rel}::{listed_name.replace(' > ', '::')}"
+                items.append(TestItem(
+                    nodeid=nodeid,
+                    file=file,
+                    name=leaf_loc,
+                    line=line,
+                    classname=None,
+                ))
         return items
 
     def analyze(self, item: TestItem) -> StaticAnalysis:
@@ -172,18 +215,31 @@ class VitestAdapter:
             out[nid] = rep
         return out
 
-    def module_inventory(self, repo: Path) -> list[ModuleInfo]:
-        """Pair each src/* TS/JS module with its test file, by name and by import."""
+    def module_inventory(self, repo: Path,
+                         source_roots: list[str] | None = None) -> list[ModuleInfo]:
+        """Pair each src/* TS/JS module with its test file, by name and by import.
+
+        `source_roots` (when given) is a list of repo-relative directories
+        to scan for source modules. Caller-supplied roots win — they're
+        the right answer for repos with non-conventional layouts (`mcp/`,
+        `cli/`, etc., or multi-root layouts like ACE's `lib/` + `mcp/`).
+        Without an explicit list, fall back to the conventional Node/TS
+        layout (`src/`, `lib/`, `app/`, `source/`).
+        """
         repo = repo.resolve()
-        # Look in conventional source roots; treat top-level `src/` and
-        # `lib/` as primary, plus any first-level dir that isn't a skip dir.
-        roots = []
-        for candidate in ("src", "lib", "app", "source"):
-            d = repo / candidate
-            if d.exists() and d.is_dir():
-                roots.append(d)
+        roots: list[Path] = []
+        if source_roots:
+            for r in source_roots:
+                d = (repo / r).resolve()
+                if d.exists() and d.is_dir():
+                    roots.append(d)
+        else:
+            for candidate in ("src", "lib", "app", "source"):
+                d = repo / candidate
+                if d.exists() and d.is_dir():
+                    roots.append(d)
         if not roots:
-            # No conventional src dir — scan repo root, but conservatively.
+            # No usable root — scan repo root, but conservatively.
             roots = [repo]
 
         # Collect test files anywhere under repo (vitest scans broadly,
@@ -463,18 +519,176 @@ def _fallback_scan(repo: Path) -> list[TestItem]:
             rel = str(file.relative_to(repo))
         except ValueError:
             rel = str(file)
+        # Quote-aware capture: stop at the SAME quote we opened with, and
+        # honor backslash escapes. Without this, an `it('foo "bar" baz', ...)`
+        # would be truncated at the first inner double quote (issue #43).
         for m in re.finditer(
-            r"\b(?:it|test|fit)(?:\s*\.\s*\w+)?\s*\(\s*['\"`](?P<name>[^'\"`]+)['\"`]",
+            r"\b(?:it|test|fit)(?:\s*\.\s*\w+)*\s*\(\s*"
+            r"(?P<q>['\"`])(?P<name>(?:\\.|(?!(?P=q)).)*)(?P=q)",
             src,
         ):
+            if _is_in_string_or_comment(src, m.start()):
+                continue
+            name = _decode_quoted(m.group("name"))
             line = src.count("\n", 0, m.start()) + 1
             items.append(TestItem(
-                nodeid=f"{rel}::{m.group('name')}",
+                nodeid=f"{rel}::{name}",
                 file=file,
-                name=m.group("name"),
+                name=name,
                 line=line,
             ))
     return items
+
+
+# Quote-aware match for `describe|it|test|fit('name', ...)` calls. Captures
+# the opening quote in group `q` and the literal body (with backslash-escapes
+# preserved) in group `name`. Allows a chained modifier (`.skip`, `.only`,
+# `.concurrent`, `.each`, etc.) on the call. Note: `each` is matched but
+# templated args between the modifier and the parens (`it.each([...])`'s
+# second call) won't show up because there's no string literal after `(`.
+_TEST_CALL_RE = re.compile(
+    r"\b(?P<kind>describe|it|test|fit)(?:\s*\.\s*\w+)*\s*\(\s*"
+    r"(?P<q>['\"`])(?P<name>(?:\\.|(?!(?P=q)).)*)(?P=q)"
+)
+
+
+def _decode_quoted(raw: str) -> str:
+    """Decode JS-style backslash escapes in a captured quoted-literal body.
+
+    We only undo the escapes the regex preserved (\\<anything>) — primarily
+    \\", \\', \\`, \\\\, \\n, \\t. Anything more exotic stays as-is. The aim
+    is to round-trip the test name vitest itself would produce.
+    """
+    def _sub(m: re.Match) -> str:
+        c = m.group(1)
+        return {"n": "\n", "t": "\t", "r": "\r", "0": "\0"}.get(c, c)
+    return re.sub(r"\\(.)", _sub, raw)
+
+
+def _scan_tests(src: str) -> list[tuple[int, list[str], str]]:
+    """Walk a TS/JS source and return (line, describe_stack, leaf) per test.
+
+    Skips `_TEST_CALL_RE` matches that fall inside strings, template
+    literals, or comments — those would otherwise produce phantom tests
+    when source code talks about test names in docstrings.
+
+    Computes the describe stack for each `it/test/fit` call by finding
+    the body brace `{ ... }` of every `describe(...)` and recording which
+    describes lexically enclose each test call.
+    """
+    # First pass: enumerate all candidate calls.
+    calls: list[tuple[str, str, int, int]] = []  # (kind, name, match_start, match_end)
+    for m in _TEST_CALL_RE.finditer(src):
+        if _is_in_string_or_comment(src, m.start()):
+            continue
+        calls.append((
+            m.group("kind"),
+            _decode_quoted(m.group("name")),
+            m.start(),
+            m.end(),
+        ))
+
+    # Second pass: for each describe, find its body { } so we know the
+    # lexical range it owns. The body brace is the first `{` after the
+    # call's open paren that has a matching `}` before the call's close
+    # paren.
+    describes: list[tuple[str, int, int]] = []  # (name, body_open, body_close)
+    for kind, name, start, end in calls:
+        if kind != "describe":
+            continue
+        paren_open = src.find("(", start)
+        if paren_open == -1:
+            continue
+        paren_close = _find_matching_close(src, paren_open)
+        if paren_close is None:
+            continue
+        body_open = _find_first_body_brace(src, end, paren_close)
+        if body_open is None:
+            continue
+        body_close = _find_matching_brace(src, body_open)
+        if body_close is None or body_close > paren_close:
+            continue
+        describes.append((name, body_open, body_close))
+
+    # Third pass: emit each test call with the describe stack that encloses it.
+    out: list[tuple[int, list[str], str]] = []
+    for kind, name, start, _end in calls:
+        if kind == "describe":
+            continue
+        stack = sorted(
+            ((open_, close_, dname) for dname, open_, close_ in describes
+             if open_ < start < close_),
+            key=lambda t: t[0],
+        )
+        line = src.count("\n", 0, start) + 1
+        out.append((line, [t[2] for t in stack], name))
+    return out
+
+
+def _find_first_body_brace(src: str, search_from: int, search_to: int) -> int | None:
+    """Find the first `{` between offsets that's not inside a string/comment.
+
+    Used to locate the body brace of a `describe('name', () => { ... })`
+    or `describe('name', function () { ... })` call.
+    """
+    i = search_from
+    n = min(len(src), search_to)
+    while i < n:
+        c = src[i]
+        if c == "/" and i + 1 < n and src[i + 1] == "/":
+            nl = src.find("\n", i)
+            i = n if nl == -1 else nl + 1
+            continue
+        if c == "/" and i + 1 < n and src[i + 1] == "*":
+            close = src.find("*/", i + 2)
+            i = n if close == -1 else close + 2
+            continue
+        if c in "'\"":
+            i = _skip_string(src, i, c)
+            continue
+        if c == "`":
+            i = _skip_template(src, i)
+            continue
+        if c == "{":
+            return i
+        i += 1
+    return None
+
+
+def _is_in_string_or_comment(src: str, offset: int) -> bool:
+    """True iff `offset` falls inside a string, template literal, or comment."""
+    i = 0
+    n = len(src)
+    while i < offset:
+        c = src[i]
+        if c == "/" and i + 1 < n and src[i + 1] == "/":
+            nl = src.find("\n", i)
+            end = n if nl == -1 else nl + 1
+            if offset < end:
+                return True
+            i = end
+            continue
+        if c == "/" and i + 1 < n and src[i + 1] == "*":
+            close = src.find("*/", i + 2)
+            end = n if close == -1 else close + 2
+            if offset < end:
+                return True
+            i = end
+            continue
+        if c in "'\"":
+            j = _skip_string(src, i, c)
+            if offset < j:
+                return True
+            i = j
+            continue
+        if c == "`":
+            j = _skip_template(src, i)
+            if offset < j:
+                return True
+            i = j
+            continue
+        i += 1
+    return False
 
 
 def _locate_test(src: str, full_name: str) -> tuple[int, str]:

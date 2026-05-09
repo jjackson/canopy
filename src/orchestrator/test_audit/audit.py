@@ -26,14 +26,20 @@ class CollectResult:
 
 
 def collect_corpus(repo: Path, run_tests: bool = True, reruns: int = 0,
-                   framework: str | None = None) -> CollectResult:
-    """Build the audit corpus and write it to `<repo>/.canopy/test-audits/<stamp>/corpus.yaml`."""
+                   framework: str | None = None,
+                   source_roots: list[str] | None = None) -> CollectResult:
+    """Build the audit corpus and write it to `<repo>/.canopy/test-audits/<stamp>/corpus.yaml`.
+
+    `source_roots` overrides the adapter's default source-root discovery
+    when building the module inventory — pass a list of repo-relative
+    directories for non-conventional layouts (issue #44).
+    """
     repo = repo.resolve()
     adapter = detect_framework(repo, override=framework)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     out_dir = repo / ".canopy" / "test-audits" / stamp
     path, corpus = write_corpus(repo, out_dir, run_tests=run_tests, reruns=reruns,
-                                adapter=adapter)
+                                adapter=adapter, source_roots=source_roots)
     return CollectResult(
         stamp_dir=out_dir,
         corpus_path=path,
