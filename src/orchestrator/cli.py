@@ -451,16 +451,22 @@ def test_audit():
 @click.argument("repo", type=click.Path(exists=True, file_okay=False, path_type=Path),
                 default=".")
 @click.option("--no-run", is_flag=True,
-              help="Skip pytest; static analysis only.")
+              help="Skip the test runner; static analysis only.")
 @click.option("--reruns", type=int, default=0,
               help="Run the suite N extra times for flake detection (default: 0).")
-def test_audit_collect(repo, no_run, reruns):
+@click.option("--framework", type=click.Choice(["auto", "pytest", "vitest"]),
+              default="auto", show_default=True,
+              help="Override framework detection.")
+def test_audit_collect(repo, no_run, reruns, framework):
     """Build the audit corpus (test inventory + source + runtime) for an agent to read."""
     from orchestrator.test_audit import collect_corpus
 
-    result = collect_corpus(Path(repo), run_tests=not no_run, reruns=reruns)
+    fw = None if framework == "auto" else framework
+    result = collect_corpus(Path(repo), run_tests=not no_run, reruns=reruns,
+                            framework=fw)
     click.echo(f"corpus: {result.corpus_path}")
     click.echo(f"stamp_dir: {result.stamp_dir}")
+    click.echo(f"framework: {result.framework}")
     click.echo(f"test_count: {result.test_count}")
     click.echo(f"ran_pytest: {result.ran_pytest}")
 
@@ -474,12 +480,16 @@ def test_audit_collect(repo, no_run, reruns):
               help="Apply prunes with score 4-6 too. Default: only score 0-3.")
 @click.option("--dry-run", is_flag=True,
               help="Plan changes but don't write or open a PR.")
-def test_audit_apply(stamp_dir, repo, aggressive, dry_run):
+@click.option("--framework", type=click.Choice(["auto", "pytest", "vitest"]),
+              default="auto", show_default=True,
+              help="Override framework detection (default: read from corpus.yaml).")
+def test_audit_apply(stamp_dir, repo, aggressive, dry_run, framework):
     """Read <stamp_dir>/verdicts.yaml and apply (delete/skip) + open a PR."""
     from orchestrator.test_audit import apply_audit, render_apply_summary
 
+    fw = None if framework == "auto" else framework
     result = apply_audit(Path(stamp_dir), repo=Path(repo) if repo else None,
-                         aggressive=aggressive, dry_run=dry_run)
+                         aggressive=aggressive, dry_run=dry_run, framework=fw)
     click.echo(render_apply_summary(result))
 
 
