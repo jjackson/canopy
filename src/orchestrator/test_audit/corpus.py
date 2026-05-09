@@ -3,6 +3,9 @@
 The corpus is what the calling agent reads. Everything the agent needs to
 reason about the suite lives in `corpus.yaml`. No fan-out, no per-test LLM
 calls — the agent does the judging in its own context.
+
+Framework-agnostic: dispatches through a `FrameworkAdapter` for pytest /
+vitest / future backends.
 """
 from __future__ import annotations
 
@@ -12,22 +15,25 @@ from typing import Any
 
 import yaml
 
-from dataclasses import asdict
-
-from orchestrator.test_audit.collector import collect
-from orchestrator.test_audit.parser import analyze
-from orchestrator.test_audit.runner import run_pytest
-from orchestrator.test_audit.architecture import (
-    module_inventory, mock_density_by_file, slow_tests,
-)
+from orchestrator.test_audit.architecture import mock_density_by_file, slow_tests
+from orchestrator.test_audit.framework import FrameworkAdapter, detect_framework
 
 
-def build_corpus(repo: Path, run_tests: bool = True, reruns: int = 0) -> dict[str, Any]:
-    """Return the corpus dict for `repo`. Pure data; no I/O beyond reading source."""
+def build_corpus(repo: Path, run_tests: bool = True, reruns: int = 0,
+                 framework: str | None = None,
+                 adapter: FrameworkAdapter | None = None) -> dict[str, Any]:
+    """Return the corpus dict for `repo`. Pure data; no I/O beyond reading source.
+
+    `framework` overrides auto-detection ("pytest" | "vitest"). `adapter`
+    bypasses detection entirely (useful in tests).
+    """
     repo = repo.resolve()
-    items = collect(repo)
-    statics = {it.nodeid: analyze(it) for it in items}
-    runtimes = run_pytest(repo, reruns=reruns) if run_tests else {}
+    if adapter is None:
+        adapter = detect_framework(repo, override=framework)
+
+    items = adapter.collect(repo)
+    statics = {it.nodeid: adapter.analyze(it) for it in items}
+    runtimes = adapter.run(repo, reruns=reruns) if run_tests else {}
 
     tests: list[dict[str, Any]] = []
     for it in items:
@@ -64,7 +70,7 @@ def build_corpus(repo: Path, run_tests: bool = True, reruns: int = 0) -> dict[st
         })
 
     # Architectural grist for the agent's suite-level review pass.
-    inv = module_inventory(repo)
+    inv = adapter.module_inventory(repo)
     densities = mock_density_by_file(items, statics)
     slow = slow_tests(runtimes) if run_tests else []
     architecture = {
@@ -77,8 +83,10 @@ def build_corpus(repo: Path, run_tests: bool = True, reruns: int = 0) -> dict[st
 
     return {
         "repo": str(repo),
+        "framework": adapter.name,
         "test_count": len(tests),
-        "ran_pytest": run_tests,
+        "ran_pytest": run_tests,  # legacy field — kept for back-compat
+        "ran_tests": run_tests,
         "reruns": reruns,
         "architecture": architecture,
         "tests": tests,
@@ -86,10 +94,12 @@ def build_corpus(repo: Path, run_tests: bool = True, reruns: int = 0) -> dict[st
 
 
 def write_corpus(repo: Path, out_dir: Path, run_tests: bool = True,
-                 reruns: int = 0) -> tuple[Path, dict[str, Any]]:
+                 reruns: int = 0, framework: str | None = None,
+                 adapter: FrameworkAdapter | None = None) -> tuple[Path, dict[str, Any]]:
     """Build + write `corpus.yaml` to `out_dir`. Returns (path, corpus)."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    corpus = build_corpus(repo, run_tests=run_tests, reruns=reruns)
+    corpus = build_corpus(repo, run_tests=run_tests, reruns=reruns,
+                          framework=framework, adapter=adapter)
     path = out_dir / "corpus.yaml"
     path.write_text(yaml.safe_dump(corpus, sort_keys=False), encoding="utf-8")
     return path, corpus

@@ -23,7 +23,8 @@ from pathlib import Path
 
 import yaml
 
-from orchestrator.test_audit.collector import TestItem, collect
+from orchestrator.test_audit.collector import TestItem
+from orchestrator.test_audit.framework import FrameworkAdapter, detect_framework
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +57,13 @@ class ApplyResult:
 
 
 def plan(items_by_id: dict[str, TestItem], verdicts: dict[str, Verdict],
-         aggressive: bool = False) -> list[PlannedChange]:
-    """Return the list of changes the applier would make."""
+         aggressive: bool = False, supports_delete: bool = True) -> list[PlannedChange]:
+    """Return the list of changes the applier would make.
+
+    `supports_delete=False` (vitest) downgrades delete actions to skip-mark —
+    JS/TS deletion needs a real parser to be safe (see SKILL.md), so v1
+    leaves deletion to humans and the applier just marks `.skip`.
+    """
     out: list[PlannedChange] = []
     for nid, v in verdicts.items():
         if v.verdict != "prune":
@@ -69,7 +75,8 @@ def plan(items_by_id: dict[str, TestItem], verdicts: dict[str, Verdict],
             out.append(PlannedChange(nodeid=nid, file=item.file, action="skip",
                                      reason=v.reason or v.reason_code))
         elif v.score <= 3 or aggressive:
-            out.append(PlannedChange(nodeid=nid, file=item.file, action="delete",
+            action = "delete" if supports_delete else "skip"
+            out.append(PlannedChange(nodeid=nid, file=item.file, action=action,
                                      reason=v.reason or v.reason_code))
     return out
 
@@ -160,9 +167,19 @@ def _skip_mark_test(file: Path, name: str, reason: str) -> bool:
 def apply_verdicts(items_by_id: dict[str, TestItem], verdicts: dict[str, Verdict],
                    repo: Path, aggressive: bool = False, dry_run: bool = False,
                    pr_body_path: Path | None = None,
-                   branch_prefix: str = "test-audit") -> ApplyResult:
-    """Plan + execute changes. Open a PR (or write a patch file if gh is missing)."""
-    changes = plan(items_by_id, verdicts, aggressive=aggressive)
+                   branch_prefix: str = "test-audit",
+                   adapter: FrameworkAdapter | None = None) -> ApplyResult:
+    """Plan + execute changes. Open a PR (or write a patch file if gh is missing).
+
+    `adapter` is the framework backend that does the actual file edits.
+    Defaults to auto-detection on `repo` so callers that pre-built
+    `items_by_id` (which was already framework-specific) don't need to wire
+    it through.
+    """
+    if adapter is None:
+        adapter = detect_framework(repo)
+    changes = plan(items_by_id, verdicts, aggressive=aggressive,
+                   supports_delete=adapter.supports_delete())
     res = ApplyResult(changes=changes)
     if not changes:
         return res
@@ -176,11 +193,11 @@ def apply_verdicts(items_by_id: dict[str, TestItem], verdicts: dict[str, Verdict
     for file, file_changes in by_file.items():
         for c in [x for x in file_changes if x.action == "delete"]:
             name = c.nodeid.split("::")[-1]
-            if not _delete_test(file, name):
+            if not adapter.apply_delete(file, name):
                 res.skipped.append(c.nodeid)
         for c in [x for x in file_changes if x.action == "skip"]:
             name = c.nodeid.split("::")[-1]
-            if not _skip_mark_test(file, name, c.reason):
+            if not adapter.apply_skip(file, name, c.reason):
                 res.skipped.append(c.nodeid)
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
@@ -255,11 +272,15 @@ def _parse_verdicts_yaml(data: dict | list) -> dict[str, Verdict]:
 
 
 def apply_from_dir(stamp_dir: Path, repo: Path | None = None,
-                   aggressive: bool = False, dry_run: bool = False) -> ApplyResult:
+                   aggressive: bool = False, dry_run: bool = False,
+                   framework: str | None = None) -> ApplyResult:
     """Read `<stamp_dir>/verdicts.yaml`, re-collect tests in `repo`, apply.
 
     If `repo` is omitted, infer from `stamp_dir` assuming it lives at
-    `<repo>/.canopy/test-audits/<stamp>/`.
+    `<repo>/.canopy/test-audits/<stamp>/`. If `framework` is omitted, the
+    framework is auto-detected from `repo` (or read from corpus.yaml's
+    `framework:` field if present, for cases where the repo signal moved
+    since `collect` was run).
     """
     verdicts_path = stamp_dir / "verdicts.yaml"
     if not verdicts_path.exists():
@@ -268,15 +289,26 @@ def apply_from_dir(stamp_dir: Path, repo: Path | None = None,
         repo = stamp_dir.parent.parent.parent
     repo = repo.resolve()
 
+    if framework is None:
+        corpus_path = stamp_dir / "corpus.yaml"
+        if corpus_path.exists():
+            try:
+                corpus = yaml.safe_load(corpus_path.read_text(encoding="utf-8")) or {}
+                framework = corpus.get("framework")
+            except yaml.YAMLError:
+                framework = None
+    adapter = detect_framework(repo, override=framework)
+
     data = yaml.safe_load(verdicts_path.read_text(encoding="utf-8")) or {}
     verdicts = _parse_verdicts_yaml(data)
-    items_by_id = {it.nodeid: it for it in collect(repo)}
+    items_by_id = {it.nodeid: it for it in adapter.collect(repo)}
 
     pr_body_path = _materialize_pr_body(stamp_dir)
     return apply_verdicts(
         items_by_id, verdicts, repo,
         aggressive=aggressive, dry_run=dry_run,
         pr_body_path=pr_body_path,
+        adapter=adapter,
     )
 
 
