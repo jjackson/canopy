@@ -927,6 +927,80 @@ def test_vitest_run_json_parses_files_task_tree(tmp_path: Path):
     assert by_nodeid["foo.test.ts::outer::is skipped"].status == "skipped"
 
 
+def test_vitest_run_json_uses_ancestor_titles_for_nodeid(tmp_path: Path):
+    """Vitest 4.x emits `fullName` as space-joined ("DESC does X") not `>`-joined.
+    Runtime nodeids must come from ancestorTitles+title so they match the static
+    collector's `<rel>::<describe>::<name>` shape.
+    """
+    from orchestrator.test_audit.adapters.vitest_adapter import _vitest_run_json
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    file_abs = str(repo / "foo.test.ts")
+    payload = {
+        "testResults": [
+            {
+                "name": file_abs,
+                "assertionResults": [
+                    {
+                        "ancestorTitles": ["PHASE_FOLDERS"],
+                        "title": "does X",
+                        "fullName": "PHASE_FOLDERS does X",
+                        "status": "passed",
+                        "duration": 3,
+                    },
+                    {
+                        "ancestorTitles": ["outer", "inner"],
+                        "title": "nested test",
+                        "fullName": "outer inner nested test",
+                        "status": "passed",
+                        "duration": 1,
+                    },
+                ],
+            }
+        ]
+    }
+
+    def fake_run(cmd, *args, **kwargs):
+        out_path = Path([a for a in cmd if a.startswith("--outputFile=")][0]
+                        .split("=", 1)[1])
+        out_path.write_text(json.dumps(payload))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    with patch("orchestrator.test_audit.adapters.vitest_adapter.subprocess.run",
+               side_effect=fake_run):
+        out = _vitest_run_json(repo)
+
+    assert "foo.test.ts::PHASE_FOLDERS::does X" in out
+    assert "foo.test.ts::outer::inner::nested test" in out
+
+
+def test_fallback_scan_includes_describe_paths(tmp_path: Path):
+    """Pre-0.2.89 _fallback_scan stripped describes, producing `<file>::<leaf>`
+    nodeids that never matched runtime data's `<file>::<describe>::<leaf>`."""
+    from orchestrator.test_audit.adapters.vitest_adapter import _fallback_scan
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "x.test.ts").write_text(
+        "import { describe, it, expect } from 'vitest';\n"
+        "describe('PHASE_FOLDERS', () => {\n"
+        "  it('does X', () => { expect(1).toBe(1); });\n"
+        "  it('does Y', () => { expect(2).toBe(2); });\n"
+        "});\n"
+        "describe('other', () => {\n"
+        "  it('does X', () => { expect(3).toBe(3); });\n"  # same leaf, different describe
+        "});\n"
+    )
+    items = _fallback_scan(repo)
+    nodeids = sorted(it.nodeid for it in items)
+    assert nodeids == [
+        "x.test.ts::PHASE_FOLDERS::does X",
+        "x.test.ts::PHASE_FOLDERS::does Y",
+        "x.test.ts::other::does X",
+    ]
+
+
 def test_vitest_run_json_legacy_test_results_still_works(tmp_path: Path):
     from orchestrator.test_audit.adapters.vitest_adapter import _vitest_run_json
 

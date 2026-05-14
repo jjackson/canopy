@@ -457,7 +457,13 @@ def _vitest_run_json(repo: Path) -> dict[str, TestResult] | None:
             pass
 
     out: dict[str, TestResult] = {}
-    # Legacy jest-compatible shape (vitest <=3.x with verbose reporter).
+    # Jest-compatible shape — emitted by both vitest 3.x AND vitest 4.x.
+    # Nodeid construction must match what the static collector produces in
+    # `collect()` (via `_scan_tests`): `<rel>::<describe1>::<describe2>::<name>`.
+    # Prefer `ancestorTitles` + `title` over `fullName` — vitest 4.x's fullName
+    # is space-joined ("PHASE_FOLDERS does X"), not `>`-joined, so the old
+    # `replace(' > ', '::')` produced one collapsed segment and never matched
+    # the static side.
     for tr in data.get("testResults") or []:
         file_abs = tr.get("name") or ""
         try:
@@ -465,10 +471,18 @@ def _vitest_run_json(repo: Path) -> dict[str, TestResult] | None:
         except (ValueError, OSError):
             rel = file_abs
         for ar in tr.get("assertionResults") or []:
-            full_name = ar.get("fullName") or ar.get("title") or ""
-            if not full_name:
-                continue
-            nodeid = f"{rel}::{full_name.replace(' > ', '::')}"
+            ancestors = ar.get("ancestorTitles") or []
+            title = ar.get("title") or ""
+            if title:
+                segments = [*ancestors, title]
+            else:
+                # Fall back to fullName for shapes that don't split. Vitest 3.x
+                # used " > "; vitest 4.x uses plain space; we try both.
+                full_name = ar.get("fullName") or ""
+                if not full_name:
+                    continue
+                segments = full_name.split(" > ") if " > " in full_name else [full_name]
+            nodeid = f"{rel}::{'::'.join(segments)}"
             status = ar.get("status", "unknown")
             if status == "pending":
                 status = "skipped"
@@ -571,22 +585,14 @@ def _fallback_scan(repo: Path) -> list[TestItem]:
             rel = str(file.relative_to(repo))
         except ValueError:
             rel = str(file)
-        # Quote-aware capture: stop at the SAME quote we opened with, and
-        # honor backslash escapes. Without this, an `it('foo "bar" baz', ...)`
-        # would be truncated at the first inner double quote (issue #43).
-        for m in re.finditer(
-            r"\b(?:it|test|fit)(?:\s*\.\s*\w+)*\s*\(\s*"
-            r"(?P<q>['\"`])(?P<name>(?:\\.|(?!(?P=q)).)*)(?P=q)",
-            src,
-        ):
-            if _is_in_string_or_comment(src, m.start()):
-                continue
-            name = _decode_quoted(m.group("name"))
-            line = src.count("\n", 0, m.start()) + 1
+        # Use the same describe-aware scanner as the primary `collect()` path
+        # so fallback nodeids match the format runtime data uses (and so
+        # sibling describes with the same leaf name don't collide).
+        for line, stack, leaf in _scan_tests(src):
             items.append(TestItem(
-                nodeid=f"{rel}::{name}",
+                nodeid=f"{rel}::{'::'.join(stack + [leaf])}",
                 file=file,
-                name=name,
+                name=leaf,
                 line=line,
             ))
     return items
