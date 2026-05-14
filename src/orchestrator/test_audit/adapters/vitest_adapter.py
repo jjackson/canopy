@@ -166,12 +166,20 @@ class VitestAdapter:
                                   assertion_count=0, line_count=0)
 
         assertion_count = len(re.findall(r"\bexpect\s*\(", body))
-        # `expect(value).toBe(...)` and friends always include a non-trivial arg
-        # in expect(...) and a matcher. Count assert as "real" if any expect()
-        # has a matcher chained.
-        has_real_assertion = bool(
-            re.search(r"\bexpect\s*\([^)]*\)\s*(?:\.\s*\w+\s*\()", body)
-        ) or bool(re.search(r"\bassert(?:Equal|Strict)?\s*\(", body))
+        # A "real" assertion = an `expect(` somewhere AND a matcher chained
+        # somewhere. The old single-regex form used `[^)]*` for the expect
+        # argument, which silently fails on nested calls like
+        # `expect(obj.has('x')).toBe(true)` (~40% of typical vitest suites).
+        # We accept the looser two-part check: in practice the LLM judge reads
+        # the body and catches the rare false positive.
+        has_expect = bool(re.search(r"\bexpect\s*\(", body))
+        has_matcher = bool(
+            re.search(r"\)\s*(?:\.\s*(?:not|resolves|rejects)\s*)*\.\s*\w+\s*\(", body)
+        )
+        has_real_assertion = (
+            (has_expect and has_matcher)
+            or bool(re.search(r"\bassert(?:Equal|Strict)?\s*\(", body))
+        )
 
         mock_targets = sorted(set(_extract_mock_targets(body)))
         source_funcs = sorted(set(_extract_source_calls(body)))
@@ -449,6 +457,7 @@ def _vitest_run_json(repo: Path) -> dict[str, TestResult] | None:
             pass
 
     out: dict[str, TestResult] = {}
+    # Legacy jest-compatible shape (vitest <=3.x with verbose reporter).
     for tr in data.get("testResults") or []:
         file_abs = tr.get("name") or ""
         try:
@@ -472,7 +481,50 @@ def _vitest_run_json(repo: Path) -> dict[str, TestResult] | None:
                 nodeid=nodeid, status=status,
                 duration_ms=duration_ms, error=err,
             )
+    if out:
+        return out
+    # Modern vitest 4.x shape — `files: [{filepath, tasks: [...]}]` task tree.
+    for f in data.get("files") or []:
+        filepath = f.get("filepath") or f.get("name", "")
+        try:
+            rel = str(Path(filepath).resolve().relative_to(repo.resolve()))
+        except (ValueError, OSError):
+            rel = filepath
+        # Recurse into the file's children directly — the file node itself
+        # is not a describe block (its `name` is the absolute filepath and
+        # would otherwise leak into nodeids).
+        for child in f.get("tasks") or []:
+            _collect_task_results(child, [], rel, out)
     return out
+
+
+def _collect_task_results(node: dict, path: list[str], rel: str,
+                          out: dict[str, TestResult]) -> None:
+    """Walk a vitest 4.x task tree node and emit TestResults for `type=test` leaves."""
+    name = node.get("name", "")
+    type_ = node.get("type")
+    if type_ == "test":
+        full = "::".join(path + [name]) if path else name
+        nodeid = f"{rel}::{full}"
+        result = node.get("result") or {}
+        state = result.get("state") or node.get("mode") or "unknown"
+        # vitest task states: "pass", "fail", "skip", "todo", "run".
+        status_map = {"pass": "passed", "fail": "failed", "skip": "skipped",
+                      "todo": "skipped", "run": "unknown"}
+        status = status_map.get(state, state)
+        duration_ms = int(round(float(result.get("duration") or 0)))
+        err = None
+        errors = result.get("errors") or []
+        if errors:
+            err = "; ".join(str(e.get("message") or e)[:200] for e in errors)[:500]
+        out[nodeid] = TestResult(
+            nodeid=nodeid, status=status,
+            duration_ms=duration_ms, error=err,
+        )
+        return
+    next_path = path + [name] if name and type_ == "suite" else path
+    for child in node.get("tasks") or []:
+        _collect_task_results(child, next_path, rel, out)
 
 
 # ---------------------------------------------------------------------------

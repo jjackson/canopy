@@ -26,7 +26,8 @@ def test_build_corpus_includes_every_test(tmp_path):
         "test_subtraction_works", "test_add_with_mock_of_cut",
     ])
     assert corpus["test_count"] == len(corpus["tests"])
-    assert corpus["ran_pytest"] is False
+    assert corpus["ran_tests"] is False
+    assert "ran_pytest" not in corpus  # legacy field removed in 0.2.88
 
 
 def test_build_corpus_attaches_source_and_static(tmp_path):
@@ -68,7 +69,7 @@ def test_collect_corpus_creates_stamped_dir(tmp_path):
     assert result.stamp_dir.parent.parent.name == ".canopy"
     assert result.corpus_path.exists()
     assert result.test_count == 7
-    assert result.ran_pytest is False
+    assert result.ran_tests is False
 
 
 def test_corpus_includes_architecture_key(tmp_path):

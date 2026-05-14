@@ -89,7 +89,6 @@ def build_corpus(repo: Path, run_tests: bool = True, reruns: int = 0,
         "repo": str(repo),
         "framework": adapter.name,
         "test_count": len(tests),
-        "ran_pytest": run_tests,  # legacy field — kept for back-compat
         "ran_tests": run_tests,
         "reruns": reruns,
         "architecture": architecture,

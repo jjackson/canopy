@@ -21,7 +21,7 @@ class CollectResult:
     stamp_dir: Path
     corpus_path: Path
     test_count: int
-    ran_pytest: bool  # legacy field — true if any test runner ran
+    ran_tests: bool  # true if any test runner ran (was misnamed ran_pytest pre-0.2.88)
     framework: str = "pytest"
 
 
@@ -44,7 +44,7 @@ def collect_corpus(repo: Path, run_tests: bool = True, reruns: int = 0,
         stamp_dir=out_dir,
         corpus_path=path,
         test_count=corpus["test_count"],
-        ran_pytest=run_tests,
+        ran_tests=run_tests,
         framework=adapter.name,
     )
 

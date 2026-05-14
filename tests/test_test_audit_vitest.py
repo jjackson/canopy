@@ -787,3 +787,172 @@ def test_locate_test_returns_line_of_it_call():
     line, leaf = _locate_test(src, "outer > inner > the leaf")
     assert leaf == "the leaf"
     assert line == 4
+
+
+# ---------------------------------------------------------------------------
+# has_real_assertion — nested expect() args (regression: pre-0.2.88 the regex
+# used [^)]* and silently flagged ~40% of real vitest tests as non-assertive
+# because the expect() argument contained inner parens).
+# ---------------------------------------------------------------------------
+
+def _analyze_body(tmp_path: Path, body: str):
+    fp = tmp_path / "x.test.ts"
+    fp.write_text(body)
+
+    class FakeItem:
+        nodeid = "x.test.ts::t"
+        name = "t"
+        line = 2
+        file = fp
+        classname = None
+
+    return VitestAdapter().analyze(FakeItem())
+
+
+def test_has_real_assertion_handles_nested_call_in_expect_arg(tmp_path: Path):
+    body = (
+        "import { it, expect } from 'vitest';\n"
+        "it('t', () => {\n"
+        "  expect(ROLE_VOCAB.has('summary')).toBe(true);\n"
+        "});\n"
+    )
+    result = _analyze_body(tmp_path, body)
+    assert result.assertion_count == 1
+    assert result.has_real_assertion is True
+
+
+def test_has_real_assertion_handles_rejects_to_throw(tmp_path: Path):
+    body = (
+        "import { it, expect } from 'vitest';\n"
+        "it('t', async () => {\n"
+        "  await expect(promise).rejects.toThrow('boom');\n"
+        "});\n"
+    )
+    result = _analyze_body(tmp_path, body)
+    assert result.has_real_assertion is True
+
+
+def test_has_real_assertion_handles_resolves_to_equal(tmp_path: Path):
+    body = (
+        "import { it, expect } from 'vitest';\n"
+        "it('t', async () => {\n"
+        "  await expect(getValue()).resolves.toEqual({ ok: true });\n"
+        "});\n"
+    )
+    result = _analyze_body(tmp_path, body)
+    assert result.has_real_assertion is True
+
+
+def test_has_real_assertion_false_when_no_matcher(tmp_path: Path):
+    body = (
+        "import { it, expect } from 'vitest';\n"
+        "it('t', () => {\n"
+        "  const r = thing();\n"  # no expect at all
+        "});\n"
+    )
+    result = _analyze_body(tmp_path, body)
+    assert result.assertion_count == 0
+    assert result.has_real_assertion is False
+
+
+# ---------------------------------------------------------------------------
+# _vitest_run_json — modern vitest 4.x `files`/`tasks` tree shape. Pre-0.2.88
+# the runner only parsed the legacy testResults shape, so every test on a
+# vitest 4.x suite came back with runtime: null.
+# ---------------------------------------------------------------------------
+
+def test_vitest_run_json_parses_files_task_tree(tmp_path: Path):
+    from orchestrator.test_audit.adapters.vitest_adapter import _vitest_run_json
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    file_abs = str(repo / "foo.test.ts")
+    payload = {
+        "files": [
+            {
+                "filepath": file_abs,
+                "name": file_abs,
+                "type": "suite",
+                "tasks": [
+                    {
+                        "name": "outer",
+                        "type": "suite",
+                        "tasks": [
+                            {
+                                "name": "passes",
+                                "type": "test",
+                                "result": {"state": "pass", "duration": 12.7},
+                            },
+                            {
+                                "name": "fails",
+                                "type": "test",
+                                "result": {"state": "fail", "duration": 7,
+                                           "errors": [{"message": "boom"}]},
+                            },
+                            {
+                                "name": "is skipped",
+                                "type": "test",
+                                "result": {"state": "skip", "duration": 0},
+                            },
+                        ],
+                    },
+                ],
+            }
+        ]
+    }
+
+    def fake_run(cmd, *args, **kwargs):
+        out_path = Path([a for a in cmd if a.startswith("--outputFile=")][0]
+                        .split("=", 1)[1])
+        out_path.write_text(json.dumps(payload))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    with patch("orchestrator.test_audit.adapters.vitest_adapter.subprocess.run",
+               side_effect=fake_run):
+        out = _vitest_run_json(repo)
+
+    assert out is not None
+    by_nodeid = {nid: r for nid, r in out.items()}
+    nodeids = sorted(by_nodeid)
+    assert nodeids == sorted([
+        "foo.test.ts::outer::passes",
+        "foo.test.ts::outer::fails",
+        "foo.test.ts::outer::is skipped",
+    ])
+    assert by_nodeid["foo.test.ts::outer::passes"].status == "passed"
+    assert by_nodeid["foo.test.ts::outer::passes"].duration_ms == 13
+    failed = by_nodeid["foo.test.ts::outer::fails"]
+    assert failed.status == "failed"
+    assert "boom" in (failed.error or "")
+    assert by_nodeid["foo.test.ts::outer::is skipped"].status == "skipped"
+
+
+def test_vitest_run_json_legacy_test_results_still_works(tmp_path: Path):
+    from orchestrator.test_audit.adapters.vitest_adapter import _vitest_run_json
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    file_abs = str(repo / "bar.test.ts")
+    payload = {
+        "testResults": [
+            {
+                "name": file_abs,
+                "assertionResults": [
+                    {"fullName": "outer > does X", "status": "passed", "duration": 4},
+                ],
+            }
+        ]
+    }
+
+    def fake_run(cmd, *args, **kwargs):
+        out_path = Path([a for a in cmd if a.startswith("--outputFile=")][0]
+                        .split("=", 1)[1])
+        out_path.write_text(json.dumps(payload))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    with patch("orchestrator.test_audit.adapters.vitest_adapter.subprocess.run",
+               side_effect=fake_run):
+        out = _vitest_run_json(repo)
+
+    assert "bar.test.ts::outer::does X" in out
+    assert out["bar.test.ts::outer::does X"].status == "passed"

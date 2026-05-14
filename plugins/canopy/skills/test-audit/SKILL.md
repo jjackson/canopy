@@ -48,6 +48,27 @@ use if the suite takes >10 min to run or the user asks). Add
 The CLI prints `stamp_dir:`, `corpus:`, and `framework:` paths. Note them —
 the framework determines how step 7 will behave.
 
+**Non-conventional repo layouts (`--source-roots`).** The architecture pass
+defaults to scanning `src/`, `lib/`, `app/`, `source/` for source modules.
+Many real projects don't fit that shape — ACE has `lib/ mcp/ skills/ agents/
+commands/ hooks/ scripts/ templates/`; CommCare Connect has its app-specific
+layout. If the project has top-level dirs containing source code that aren't
+in the defaults, pass them explicitly:
+
+```bash
+uv run --project ~/emdash-projects/canopy canopy test-audit collect . \
+  --source-roots=lib,mcp,scripts
+```
+
+How to decide: `ls -d */ | grep -v -E '^(node_modules|dist|build|coverage|\.|test|tests|docs|migrations|fixtures)/'`
+and inspect `package.json`'s `workspaces`/`exports`/`main` fields. Pass every
+dir that contains code you'd expect to have tests for. Skip prompt-only dirs
+(`skills/`, `agents/`, `commands/`) at this step — they're handled in 5c.
+
+After collection, sanity-check: if `architecture.modules` in `corpus.yaml`
+is empty or has fewer entries than `ls lib/*.ts | wc -l` suggests, the scan
+missed the layout — re-collect with explicit `--source-roots`.
+
 ### 3. Read the corpus
 
 `Read` the `corpus.yaml` from the stamp dir. It contains every test with:
@@ -58,9 +79,44 @@ the framework determines how step 7 will behave.
 - `runtime`: status (passed/failed/error/skipped), duration_ms,
   flake_count, error message (if failing/erroring)
 
-For very large suites (>500 tests) the file may be huge. In that case use
-the `offset`/`limit` parameters of `Read` to scan in batches and reason
-batch-by-batch.
+For very large suites (>300 tests) reading every body in your own context
+is expensive (~25 lines/test × 300+ tests = 7K+ lines). Pick one of:
+
+  **(a) Judge-by-file** (preferred above 500 tests). Read each test file
+  whole, reason about the file's cluster (what behaviors does it cover,
+  which tests are redundant, is any test mocking the CUT), and emit one
+  verdict per test. The file is the unit of reasoning; the verdict is
+  still per-test. Note in `audit-report.md` that you judged at file
+  granularity.
+
+  **(b) Sample-and-extrapolate.** Read all tests in 20% of files chosen
+  to span every top-level test dir. Judge those carefully. For the
+  remaining 80%, default `keep` and write `reason_code: not-sampled`
+  with `score: null`. Document the sampling rate in `audit-report.md`
+  so the user knows what wasn't audited.
+
+  Do NOT shell out to a Python heuristic classifier — the audit's value
+  is the in-context cross-test reasoning. A heuristic that scans for
+  `expect()` count and assertion shape doesn't catch redundancy clusters
+  or mock-of-CUT smells.
+
+**Known data-quality issues to work around when reading `corpus.yaml`:**
+
+- **`static.has_real_assertion`**: pre-0.2.88 vitest collector mis-flagged
+  ~40% of tests with nested-paren `expect()` args (e.g.
+  `expect(obj.has('x')).toBe(true)`) as having no real assertion. If you're
+  on a stamp_dir collected before 0.2.88 OR the field's `false` count
+  looks implausibly high, ignore the flag and read the body. Fixed in
+  0.2.88 — also affected `expect(...).rejects.toThrow()` style.
+- **`runtime: null` on every test, vitest only**: pre-0.2.88 the vitest
+  runner only parsed the legacy `testResults` JSON shape and missed
+  vitest 4.x's `files`/`tasks` tree. The `investigate` verdict and
+  `env-fragile` special case can't fire when runtime is null suite-wide
+  — either re-collect with 0.2.88+ or skip those verdicts for the run.
+- **Duplicate nodeids**: when two `it(...)` blocks under different
+  `describe` parents share the same leaf name, they collapse to the same
+  nodeid. Disambiguate in `verdicts.yaml` by suffixing `#L<line>` to the
+  nodeid (e.g. `foo.test.ts::handles X#L42`). Don't silently drop one.
 
 ### 4. Judge each test
 
@@ -234,6 +290,59 @@ Write `architecture-review.md` to `<stamp_dir>/`. Suggested structure:
 Keep it terse but specific — "module X is undertested" is not actionable;
 "module X has 12 public functions, 0 tests, last touched in commit Y" is.
 
+### 5c. Subsystem coverage pass (load-bearing for non-traditional projects)
+
+The architecture data in step 5b only inventories source code that lives
+in scanned source roots and has a file extension the adapter recognizes
+(`.ts/.tsx/.js/.jsx/.mjs` for vitest; `.py` for pytest). For projects whose
+load-bearing units are **prompt files, manifests, or agent definitions**
+— skill markdown, agent markdown, MCP server entry points, slash command
+files — `architecture.untested_modules` will be empty or misleading even
+when 80%+ of the project's behavior is uncovered.
+
+This is the failure mode the user is most likely complaining about when
+they say "the audit rubber-stamped my suite." The per-test rubric grades
+the tests that exist; the architecture pass grades source modules that
+exist; neither sees the gap between "subsystems that ship product value"
+and "subsystems with any test/eval coverage at all."
+
+For projects with these subsystem dirs, enumerate them manually:
+
+  - `skills/*/SKILL.md` (canopy/ace skill plugins) — does each have a
+    companion `test/skills/<name>/` dir, a `-qa` eval skill, or a
+    fixture-driven test in `test/`?
+  - `agents/*.md` (autonomous agents) — same question.
+  - `commands/*.md` (slash commands) — usually have no automated
+    coverage; flag the ones that mutate state.
+  - `mcp/*-server.ts` or `mcp/*/server.ts` (MCP server entry points) —
+    each should have at least one integration test in `test/mcp/<server>/`.
+  - `hooks/*.py` or `hooks/*.ts` — runtime-loaded; typically untested
+    because they're side-effecty. Flag the high-blast-radius ones.
+
+```bash
+ls -d skills/*/ 2>/dev/null | wc -l    # total skill count
+ls -d test/skills/*/ 2>/dev/null | wc -l  # tested skill count
+```
+
+For each subsystem with >25% untested, write a section in
+`architecture-review.md`:
+
+```markdown
+## Subsystem coverage gaps (manual enumeration)
+
+- **skills/**: 84 of 93 SKILL.md have no companion test or eval. Tested:
+  decisions-render, decisions-sync, idea-to-pdd-qa, ... Untested includes
+  load-bearing skills: idea-to-pdd, pdd-to-deliver-app, app-deploy,
+  solicitation-management, ... (full list in stamp_dir/untested-skills.txt).
+- **agents/**: 11 of 11 agent definitions have no test or fixture.
+- **mcp/**: 0 of 5 MCP servers have a wholistic integration test
+  exercising the full server boot/handshake/tool-call path.
+```
+
+When the project does coverage via *runtime evals* instead of test-time
+assertions (common for LLM-driven codebases), say so explicitly and name
+the eval mechanism. Don't pretend they're untested if they aren't.
+
 ### 6. Write `audit-report.md`
 
 Write to `<stamp_dir>/audit-report.md`. This becomes the PR body, so it
@@ -258,9 +367,24 @@ should be human-readable. Suggested structure:
   - keeper: `test_add_returns_sum`
   - prune: `test_add_basic`, `test_add_simple` (cite reason)
 
+## Deletion candidates (vitest, manual)
+- `nodeid` — score X, reason. *Vitest applier only `.skip()`s; delete
+  these by hand in the same PR.*
+
 ## Notes
 Anything the user should know (suite hygiene observations,
 environment-fragility patterns, etc.)
+
+## Honest suite verdict
+
+A single 1-10 score for the suite as a whole, with **one** of these as the
+limiting factor cited explicitly:
+  - **per-test quality** (tests that exist are weak/redundant/tautological)
+  - **subsystem coverage** (load-bearing units have no test/eval)
+  - **architecture fit** (mock density, pyramid balance, fixture sprawl)
+
+Resist defaulting to 8+. If &gt;50% of named subsystems from 5c have no
+coverage, the ceiling is 6 regardless of how good the existing tests are.
 ```
 
 Keep this terse. The user has indicated they won't read carefully.

@@ -475,7 +475,7 @@ def test_audit_collect(repo, no_run, reruns, framework, source_roots):
     click.echo(f"stamp_dir: {result.stamp_dir}")
     click.echo(f"framework: {result.framework}")
     click.echo(f"test_count: {result.test_count}")
-    click.echo(f"ran_pytest: {result.ran_pytest}")
+    click.echo(f"ran_tests: {result.ran_tests}")
 
 
 @test_audit.command("apply")
