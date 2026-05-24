@@ -72,6 +72,45 @@ def find_version_files(repo_root: Path) -> tuple[Path, Path]:
     return version_path, plugin_json_path
 
 
+def find_marketplace_json(repo_root: Path) -> Path | None:
+    """Locate `.claude-plugin/marketplace.json` if it exists; else None.
+
+    The marketplace file is optional (some downstream tooling and tests build
+    a repo skeleton without it). When present it carries two version fields
+    that should track plugin.json: `metadata.version` and `plugins[0].version`.
+    """
+    mp_path = repo_root / ".claude-plugin" / "marketplace.json"
+    return mp_path if mp_path.is_file() else None
+
+
+def _read_marketplace_json_versions(path: Path) -> list[str]:
+    """Return all version strings found in marketplace.json (preserves order).
+
+    Used for verify-style checks where we want to confirm every version field
+    agrees with the plugin's version. Returns an empty list if no version
+    fields are found.
+    """
+    text = path.read_text()
+    return re.findall(r'"version"\s*:\s*"([\d.]+)"', text)
+
+
+def _write_marketplace_json_version(path: Path, new_version: str) -> int:
+    """Surgically replace every `"version": "x.y.z"` in marketplace.json.
+
+    Mirrors the pattern in `_write_plugin_json_version` (regex-based replace
+    to preserve formatting). Returns the number of substitutions made.
+    """
+    text = path.read_text()
+    new_text, n = re.subn(
+        r'("version"\s*:\s*")[\d.]+(")',
+        rf'\g<1>{new_version}\g<2>',
+        text,
+    )
+    if n > 0:
+        path.write_text(new_text)
+    return n
+
+
 def verify(repo_root: Path) -> tuple[bool, str, str]:
     """Return (matches, version_text, plugin_json_text). Use for CI checks."""
     v_path, p_path = find_version_files(repo_root)
@@ -257,7 +296,13 @@ def verify_bump_when_plugin_changed(
 
 
 def bump(repo_root: Path) -> dict:
-    """Compute and write the next version. Returns a summary dict."""
+    """Compute and write the next version. Returns a summary dict.
+
+    Updates VERSION, plugins/canopy/.claude-plugin/plugin.json, and (if
+    present) .claude-plugin/marketplace.json. The marketplace file is
+    optional — pre-existing canopy clones may not have one, and the test
+    skeleton in tests/test_version_bump.py doesn't create it.
+    """
     v_path, p_path = find_version_files(repo_root)
     matches, local_v, plugin_v = verify(repo_root)
     if not matches:
@@ -269,10 +314,18 @@ def bump(repo_root: Path) -> dict:
     next_v = compute_next_version(local_v, origin_v)
     v_path.write_text(next_v + "\n")
     _write_plugin_json_version(p_path, next_v)
+
+    mp_path = find_marketplace_json(repo_root)
+    mp_replacements = 0
+    if mp_path is not None:
+        mp_replacements = _write_marketplace_json_version(mp_path, next_v)
+
     return {
         "previous_local": local_v,
         "origin_main": origin_v,
         "new_version": next_v,
         "version_path": str(v_path),
         "plugin_json_path": str(p_path),
+        "marketplace_json_path": str(mp_path) if mp_path else None,
+        "marketplace_json_replacements": mp_replacements,
     }

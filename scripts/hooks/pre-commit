@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# pre-commit hook: when VERSION or plugin.json is being committed, verify the
+# two stay in sync.
+#
+# Why not auto-sync (the way ACE does)? canopy's bump CLI fetches origin/main
+# before deciding the next number — that's network-bound and slow for a commit
+# hook. A naive auto-sync that just copies VERSION → plugin.json could also
+# mask a real bug (user hand-edited one file but not the other; we don't know
+# which one is the intended source of truth). Cheap consistency check + clear
+# error is the right shape.
+set -euo pipefail
+
+# Only run if either version-bearing file is staged.
+staged_changed=0
+if git diff --cached --name-only | grep -qE '^(VERSION|plugins/canopy/\.claude-plugin/plugin\.json)$'; then
+  staged_changed=1
+fi
+[ "$staged_changed" -eq 1 ] || exit 0
+
+repo_root="$(git rev-parse --show-toplevel)"
+
+if ! command -v uv >/dev/null 2>&1; then
+  echo "pre-commit: uv not found on PATH — skipping canopy version verify." >&2
+  echo "  Install uv (https://docs.astral.sh/uv/) or run 'canopy version verify' manually." >&2
+  exit 0
+fi
+
+cd "$repo_root"
+if ! uv run --quiet canopy version verify >/dev/null 2>&1; then
+  echo "pre-commit: VERSION and plugins/canopy/.claude-plugin/plugin.json disagree." >&2
+  echo "  Run: uv run canopy version bump" >&2
+  echo "  (Or 'uv run canopy version verify' to see the mismatch.)" >&2
+  exit 1
+fi

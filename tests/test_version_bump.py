@@ -110,6 +110,35 @@ class TestBump:
         assert result["new_version"] == "0.2.46"
         assert result["origin_main"] is None
 
+    def test_bump_updates_marketplace_json_when_present(self, tmp_path):
+        """Regression: PR shipping a bump skipped marketplace.json — the file
+        carries two `"version"` fields that drift if not updated. The bump
+        CLI should now sync both to match plugin.json."""
+        _setup_repo(tmp_path, "0.2.45")
+        mp_dir = tmp_path / ".claude-plugin"
+        mp_dir.mkdir(parents=True, exist_ok=True)
+        (mp_dir / "marketplace.json").write_text(json.dumps({
+            "name": "canopy",
+            "metadata": {"version": "0.1.0"},
+            "plugins": [{"name": "canopy", "version": "0.1.0"}],
+        }) + "\n")
+        with patch("orchestrator.version_bump.fetch_origin_main_version", return_value=None):
+            result = bump(tmp_path)
+        assert result["new_version"] == "0.2.46"
+        assert result["marketplace_json_replacements"] == 2
+        mp = json.loads((mp_dir / "marketplace.json").read_text())
+        assert mp["metadata"]["version"] == "0.2.46"
+        assert mp["plugins"][0]["version"] == "0.2.46"
+
+    def test_bump_tolerates_missing_marketplace_json(self, tmp_path):
+        """Test fixtures and minimal clones don't ship marketplace.json — the
+        bump CLI must not require it."""
+        _setup_repo(tmp_path, "0.2.45")
+        with patch("orchestrator.version_bump.fetch_origin_main_version", return_value=None):
+            result = bump(tmp_path)
+        assert result["marketplace_json_path"] is None
+        assert result["marketplace_json_replacements"] == 0
+
 
 class TestFindVersionFiles:
     def test_finds_both(self, tmp_path):
