@@ -27,9 +27,28 @@ jobs:
           version: "latest"
       - name: Verify plugin changes are paired with a VERSION bump
         if: github.ref != 'refs/heads/main'
+        env:
+          # On pull_request events, use the captured base SHA — frozen at
+          # PR-open/synchronize time, never floats. Without this, auto-merge
+          # landing the PR while CI is still queued lets `origin/main` advance
+          # past the PR's base; the post-merge fetch then compares branch
+          # HEAD against the squashed merge commit and verify-bump reports
+          # "did not advance" against the PR's own merged value. Spurious
+          # red CI on every auto-merged PR that touched plugins/canopy/.
+          # (Same race ACE solved in its version-check workflow.)
+          # On push events to a feature branch there's no PR context yet,
+          # so BASE_REF is empty and we fall back to origin/main — fine
+          # because the race only matters once a PR + auto-merge exist.
+          BASE_REF: ${{ github.event.pull_request.base.sha }}
         run: |
           # Make sure origin/main is reachable for the diff check. checkout@v4
           # with fetch-depth: 0 already pulls all history; this just ensures
           # the origin ref name resolves on PRs from forks.
           git fetch origin main:refs/remotes/origin/main || true
-          uv run canopy version verify-bump
+          if [ -n "$BASE_REF" ]; then
+            echo "Using captured pull_request.base.sha: $BASE_REF"
+            uv run canopy version verify-bump --base-ref "$BASE_REF"
+          else
+            echo "No pull_request context — using origin/main"
+            uv run canopy version verify-bump
+          fi
