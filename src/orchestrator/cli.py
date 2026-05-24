@@ -759,6 +759,10 @@ def version_bump(repo):
     click.echo(f"  was: local=v{prev}  origin/main=v{origin_str}")
     click.echo(f"  wrote: {result['version_path']}")
     click.echo(f"  wrote: {result['plugin_json_path']}")
+    mp_path = result.get("marketplace_json_path")
+    mp_n = result.get("marketplace_json_replacements", 0)
+    if mp_path and mp_n:
+        click.echo(f"  wrote: {mp_path} ({mp_n} version field{'s' if mp_n != 1 else ''})")
 
 
 @main.group()

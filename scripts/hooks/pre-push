@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# pre-push hook: enforce canopy's two version-bump rules locally.
+#
+#   1. Refuse direct push to main.
+#   2. Refuse push of a feature branch that changed plugins/canopy/ without
+#      bumping VERSION beyond origin/main.
+#
+# Rule 2 is the catcher that PR #49 needed and didn't have. canopy is a
+# private repo without GitHub Pro, so the CI version-check workflow can fail
+# but the merge button doesn't block. Catching it on push — before a PR
+# is even opened — is the only fully local prevention available.
+#
+# Bypass when truly needed: `git push --no-verify`.
+set -euo pipefail
+
+remote_name="${1:-}"
+remote_url="${2:-}"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # Rule 1: refuse direct push to main.
+  if [[ "$remote_ref" == "refs/heads/main" ]]; then
+    echo "pre-push: refusing direct push to main ($remote_name $remote_url)." >&2
+    echo "  Ship via PR + auto-merge:" >&2
+    echo "    git push -u origin <branch> && gh pr create && gh pr merge <pr> --auto --merge" >&2
+    echo "  To override (you almost certainly should not): git push --no-verify" >&2
+    exit 1
+  fi
+done
+
+# Rule 2: verify plugin changes are paired with a VERSION bump.
+# We only get here for non-main pushes (rule 1 exited otherwise).
+repo_root="$(git rev-parse --show-toplevel)"
+
+if ! command -v uv >/dev/null 2>&1; then
+  echo "pre-push: uv not found on PATH — cannot run 'canopy version verify-bump'." >&2
+  echo "  Install uv (https://docs.astral.sh/uv/) or override with 'git push --no-verify'." >&2
+  exit 1
+fi
+
+cd "$repo_root"
+if ! uv run --quiet canopy version verify-bump; then
+  echo "" >&2
+  echo "pre-push: refusing push — plugins/canopy/ changed without a VERSION bump." >&2
+  echo "  Fix: uv run canopy version bump && git add VERSION plugins/canopy/.claude-plugin/plugin.json && git commit --amend --no-edit" >&2
+  echo "  Bypass (rarely correct): git push --no-verify" >&2
+  exit 1
+fi

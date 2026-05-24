@@ -252,22 +252,48 @@ pick up." Without it:
 - `/canopy:update` reports `UP_TO_DATE` and refuses to sync the cache
 - Every existing Claude session keeps running the OLD cached copy of your skill
 - Your PR effectively didn't ship — you changed `main` but nobody will ever see it
-- The version-sync CI check passes (it only checks VERSION and plugin.json match each
-  other, NOT that you bumped). It will not save you.
 
-**This is a ridiculous, silent failure mode.** If you merge a canopy PR without bumping,
-you have essentially opened a PR and then quietly thrown the commit into a drawer. Worse,
-you'll report to the user that the change is shipped and point them at `/canopy:update`
-— which will then tell them there's nothing to update. Cue confusion.
+**This is a ridiculous, silent failure mode.** PR #49 (silent video recording) merged
+exactly this way: plugin files changed, VERSION was not bumped, the CI `check-version`
+job failed and was visible in the PR UI — but the merge button isn't gated on it
+(canopy is private, no GitHub Pro), so the PR went in anyway and `/canopy:update`
+reported `UP_TO_DATE` forever after.
+
+**The fix is layered prevention:**
+
+1. **`canopy version bump`** — the only correct way to advance the version. Fetches
+   origin/main, picks `max(local, origin/main) + patch+1`, writes both files atomically.
+2. **Local pre-push hook** — refuses to push a branch where `plugins/canopy/` changed
+   but VERSION didn't advance beyond origin/main. Catches the mistake before the PR
+   is even opened. See § Git Hooks below — you must opt in with `git config core.hooksPath`.
+3. **CI version-check workflow** — runs `canopy version verify-bump` on every PR.
+   Visible in the PR UI but advisory only on private repos without GitHub Pro.
 
 **Mental checklist before EVERY canopy commit touching `plugins/canopy/`:**
 
-1. Did I bump `VERSION`?
-2. Did I bump `plugins/canopy/.claude-plugin/plugin.json`'s `version` to match?
-3. Are the two numbers identical?
+1. Did I run `uv run canopy version bump`?
+2. Are `VERSION` and `plugins/canopy/.claude-plugin/plugin.json` identical?
+3. Did the pre-push hook pass?
 
-If any answer is no, amend the commit before pushing. Do not rely on the CI check — it
-only verifies the two files match, it does NOT verify you actually incremented.
+## Git Hooks
+
+Two hooks ship in `scripts/hooks/`. Opt in (once per checkout) with:
+
+```bash
+git config core.hooksPath scripts/hooks
+```
+
+- `pre-commit` — when `VERSION` or `plugins/canopy/.claude-plugin/plugin.json` is staged,
+  runs `canopy version verify` to refuse a half-bump (one file edited, the other not).
+- `pre-push` — refuses direct pushes to `main` AND runs `canopy version verify-bump`
+  on the branch. Refuses the push if `plugins/canopy/` changed without VERSION
+  advancing past origin/main. This is the only fully local prevention for the missing-
+  bump failure mode — the CI check fails after the fact and the merge button doesn't
+  honor it on a private repo.
+
+Bypass either hook with `git push --no-verify` / `git commit --no-verify` — almost
+always the wrong call. The hooks are advisory by design (no server-side enforcement
+available without GitHub Pro), so discipline is the failure mode they protect against.
 
 ### Update workflow (the ONLY way to update)
 1. Make changes to skills, commands, or agents in `plugins/canopy/`
