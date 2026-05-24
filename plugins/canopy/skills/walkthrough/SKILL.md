@@ -41,6 +41,12 @@ name: "Demo Name"
 narrative: "One-line thesis for the demo"
 base_url: "http://localhost:8000"
 
+# Silent video recording (optional — see "Record Video" section)
+record_video: true              # default: false
+video_pace: fast                # fast | medium | slow (default: fast)
+video_viewport_width: 1280      # default: 1280
+video_viewport_height: 720      # default: 720
+
 # Auth (optional — omit for public pages)
 auth:
   type: url                    # "url" or "command"
@@ -66,6 +72,7 @@ scenes:
     show: "Main dashboard with KPIs loaded"
     impressive_because: "Data loads in real-time, charts are interactive"
     ai_quality: "KPI descriptions should be specific to the program, not generic"  # optional
+    video_hold_seconds: 8         # optional — dwell this long instead of scroll-paced timing
 ```
 
 ## Setup
@@ -435,6 +442,66 @@ Then open the result:
 ```bash
 open screenshots/walkthroughs/<name>.html
 ```
+
+## Record Video (optional)
+
+If the spec sets `record_video: true`, produce a silent mp4 walkthrough
+alongside the HTML deck. The recorder runs AFTER scoring and deck
+generation — it replays each scene's captured URL through a fresh
+Playwright Chromium context with `record_video` enabled, then converts
+the resulting webm to mp4 via ffmpeg. Screenshots, scores, and the deck
+are untouched.
+
+**Skip this section entirely if `record_video` is not set or is false.**
+
+### Pacing
+
+The default `fast` preset uses a short hold, a smooth eased scroll over
+tall pages, then a short final hold. The scroll motion is what keeps
+"fast" from feeling fast-forwarded — viewers register movement as natural
+pace rather than a freeze-frame jump-cut.
+
+| Pace   | Initial hold | Scroll speed | Final hold | Min per scene |
+| ------ | ------------ | ------------ | ---------- | ------------- |
+| fast   | 0.8s         | 1200 px/s    | 0.5s       | 2.5s          |
+| medium | 1.5s         | 600 px/s     | 1.0s       | 4.0s          |
+| slow   | 2.5s         | 300 px/s     | 1.5s       | 6.0s          |
+
+Per-scene override: set `video_hold_seconds: N` on a scene to skip the
+scroll for that scene and dwell a fixed N seconds instead. Use for key
+moments where the viewer should sit with one screen.
+
+### Run
+
+Export the live browse cookies so the recorder inherits the auth you
+already established during capture, then invoke the script:
+
+```bash
+$B cookies > /tmp/walkthrough-cookies-<name>.json
+
+REC=""
+for P in \
+  ~/emdash-projects/canopy/scripts/walkthrough/record_video.py \
+  ~/.claude/plugins/marketplaces/canopy/scripts/walkthrough/record_video.py; do
+  [ -f "$P" ] && REC="$P" && break
+done
+[ -z "$REC" ] && echo "NOT_FOUND" && exit 1
+
+python3 "$REC" \
+  --input /tmp/walkthrough-run-data.json \
+  --spec docs/walkthroughs/<name>.yaml \
+  --output screenshots/walkthroughs/<name>.mp4 \
+  --cookies /tmp/walkthrough-cookies-<name>.json
+```
+
+Requires `playwright>=1.40` with Chromium installed (`pip install
+'playwright>=1.40' && python -m playwright install chromium`, or
+`pip install -e '<canopy>[browser]'`) and `ffmpeg` on PATH. The script
+exits with a clear error if either is missing.
+
+Report the mp4 path to the user alongside the HTML deck path. The video
+is silent by design — narration / captions are expected to be added by
+post-processing tooling outside this skill.
 
 ## Verify Deck (MANDATORY — do not skip)
 
