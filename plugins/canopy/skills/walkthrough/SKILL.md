@@ -46,6 +46,10 @@ record_video: true              # default: false
 video_pace: fast                # fast | medium | slow (default: fast)
 video_viewport_width: 1280      # default: 1280
 video_viewport_height: 720      # default: 720
+inject_cursor: true             # default: false — overlay a visible cursor
+                                # + click-ripple so motion is legible in the
+                                # recorded video (playwright headless has no
+                                # OS cursor; clicks otherwise look like teleports)
 
 # Auth (optional — omit for public pages)
 auth:
@@ -502,6 +506,48 @@ exits with a clear error if either is missing.
 Report the mp4 path to the user alongside the HTML deck path. The video
 is silent by design — narration / captions are expected to be added by
 post-processing tooling outside this skill.
+
+### Auth alternatives
+
+When the `$B cookies` export isn't sticking (e.g. cookies were imported into
+the browse profile but the recording context isn't picking them up), the
+recorder accepts a Playwright `storage_state` JSON instead:
+
+```bash
+python3 "$REC" \
+  --input /tmp/walkthrough-run-data.json \
+  --spec docs/walkthroughs/<name>.yaml \
+  --output screenshots/walkthroughs/<name>.mp4 \
+  --storage-state ~/.my-app-session.json
+```
+
+Use whichever artifact your auth flow produces — `--cookies` for browse's
+export, `--storage-state` for a saved OAuth session.
+
+### Pre-encode QA: scene-snapshot manifest
+
+Pair `--snapshot-manifest` with `verify_video.py` to assert each scene
+captured the right content before the MP4 is encoded. The recorder writes
+`page.inner_text("body")` for each scene to the manifest; the verifier
+checks that every scene contains its required text and lacks forbidden
+text (e.g. "Loading…"). Catches "stuck on wrong page" and "loading screen
+left in the recording" bugs without OCR or visual diffing.
+
+```bash
+python3 "$REC" \
+  --input /tmp/walkthrough-run-data.json \
+  --spec docs/walkthroughs/<name>.yaml \
+  --output screenshots/walkthroughs/<name>.mp4 \
+  --storage-state ~/.my-app-session.json \
+  --snapshot-manifest /tmp/walkthrough-<name>-snapshots.json
+
+python3 ~/emdash-projects/canopy/scripts/walkthrough/verify_video.py \
+  /tmp/walkthrough-<name>-snapshots.json \
+  --spec-file docs/walkthroughs/<name>.qa.json
+```
+
+The QA spec is a sibling JSON file with per-scene `required_text` /
+`forbidden_text`; pair scene `snapshot_key` values with the YAML's `scenes[].snapshot_key` so the verifier knows which capture maps to which expectation.
 
 ## Verify Deck (MANDATORY — do not skip)
 

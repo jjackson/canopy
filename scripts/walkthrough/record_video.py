@@ -31,6 +31,12 @@ import sys
 import tempfile
 from pathlib import Path
 
+# Path to the cursor-overlay JS injected when `inject_cursor: true` is set
+# on the walkthrough spec. Resolved relative to this script so the script
+# stays portable when canopy is vendored or installed in different layouts.
+_HERE = Path(__file__).resolve().parent
+CURSOR_OVERLAY_JS = _HERE / "cursor_overlay.js"
+
 try:
     import yaml
 except ImportError:
@@ -95,12 +101,24 @@ def smooth_scroll(page, pace_config) -> float:
     return duration_ms / 1000.0
 
 
-def record_scene(page, scene, pace_config) -> float:
+def record_scene(page, scene, pace_config, snapshot_capture=None) -> float:
+    """Drive one scene of the recording. When ``snapshot_capture`` is a dict,
+    ``page.inner_text("body")`` after networkidle + initial hold is recorded
+    under the scene's ``key``, so a sibling QA pass can assert what was
+    visible at that moment without OCR'ing the rendered MP4 later.
+    """
     url = scene["url"]
     title = scene.get("title", "(scene)")
     print(f"  → {title}: {url}")
     page.goto(url, wait_until="networkidle", timeout=60000)
     page.wait_for_timeout(int(pace_config["initial_hold"] * 1000))
+
+    if snapshot_capture is not None:
+        key = scene.get("snapshot_key") or scene.get("title") or url
+        try:
+            snapshot_capture[key] = page.inner_text("body")
+        except Exception as e:  # noqa: BLE001
+            snapshot_capture[key] = f"<<snapshot failed: {e}>>"
 
     hold_override = scene.get("video_hold_seconds")
     if hold_override is not None:
@@ -124,6 +142,23 @@ def main():
     ap.add_argument("--spec", required=True, help="walkthrough YAML spec")
     ap.add_argument("--output", required=True, help="output mp4 path")
     ap.add_argument("--cookies", help="optional cookies JSON exported by `browse cookies`")
+    ap.add_argument(
+        "--storage-state",
+        help=(
+            "alternative to --cookies: a Playwright storage_state JSON. Used when "
+            "the gstack `browse cookies` export isn't available or isn't sticking "
+            "across browser contexts. Mutually exclusive with --cookies; if both "
+            "are provided, --storage-state wins."
+        ),
+    )
+    ap.add_argument(
+        "--snapshot-manifest",
+        help=(
+            "if set, write `page.inner_text(body)` snapshots taken at each scene "
+            "boundary to this JSON path. Pair with verify_video.py to assert each "
+            "scene captured what it was supposed to before encoding."
+        ),
+    )
     args = ap.parse_args()
 
     ffmpeg = check_ffmpeg()
@@ -138,6 +173,17 @@ def main():
     viewport_w = int(spec.get("video_viewport_width", 1280))
     viewport_h = int(spec.get("video_viewport_height", 720))
 
+    inject_cursor = bool(spec.get("inject_cursor", False))
+    cursor_script: str | None = None
+    if inject_cursor:
+        if CURSOR_OVERLAY_JS.exists():
+            cursor_script = CURSOR_OVERLAY_JS.read_text()
+        else:
+            print(
+                f"  ! inject_cursor: true but {CURSOR_OVERLAY_JS} not found — skipping",
+                file=sys.stderr,
+            )
+
     # Pull scene metadata from run JSON; per-scene overrides from spec.scenes
     # (by index — scene_index is 1-based in the run JSON).
     spec_scenes = spec.get("scenes") or []
@@ -147,12 +193,18 @@ def main():
             continue
         idx = slide.get("scene_index", len(scenes) + 1)
         override = None
+        spec_key = None
         if 1 <= idx <= len(spec_scenes):
             override = spec_scenes[idx - 1].get("video_hold_seconds")
+            spec_key = spec_scenes[idx - 1].get("snapshot_key")
         scenes.append({
             "url": slide["url"],
             "title": slide.get("title", ""),
             "video_hold_seconds": override,
+            # Stable key for the snapshot manifest. Prefer an explicit spec
+            # field; fall back to scene title (which the matching QA spec
+            # can target).
+            "snapshot_key": spec_key or slide.get("title", f"scene_{idx}"),
         })
 
     if not scenes:
@@ -171,10 +223,23 @@ def main():
                 record_video_size={"width": viewport_w, "height": viewport_h},
             )
 
-            if args.cookies:
+            if args.storage_state:
+                # Re-create the context with storage_state (Playwright requires
+                # this at context-construction time, not via a separate call).
+                context.close()
+                context = browser.new_context(
+                    viewport={"width": viewport_w, "height": viewport_h},
+                    record_video_dir=str(video_dir),
+                    record_video_size={"width": viewport_w, "height": viewport_h},
+                    storage_state=args.storage_state,
+                )
+            elif args.cookies:
                 cookies = json.loads(Path(args.cookies).read_text())
                 if cookies:
                     context.add_cookies(cookies)
+
+            if cursor_script:
+                context.add_init_script(cursor_script)
 
             page = context.new_page()
 
@@ -191,8 +256,17 @@ def main():
                     except Exception as e:
                         print(f"  ! auth nav warning: {e}", file=sys.stderr)
 
+            snapshot_capture: dict | None = (
+                {} if args.snapshot_manifest else None
+            )
             for s in scenes:
-                total_seconds += record_scene(page, s, pace_config)
+                total_seconds += record_scene(page, s, pace_config, snapshot_capture)
+                # Write the manifest incrementally so a mid-recording crash
+                # still leaves us with verifiable partial data.
+                if snapshot_capture is not None and args.snapshot_manifest:
+                    Path(args.snapshot_manifest).write_text(
+                        json.dumps(snapshot_capture, indent=2)
+                    )
 
             context.close()  # flush video
             browser.close()
