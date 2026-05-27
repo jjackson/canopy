@@ -43,7 +43,7 @@ canopy-web is the source of truth — never hardcode the list locally.
 ```bash
 TOKEN=$(cat ~/.claude/canopy/workbench-token)
 curl -s -H "Authorization: Bearer $TOKEN" "$CANOPY_WEB/api/projects/slugs/" --max-time 10 \
-  | python3 -c "import json,sys; d=json.load(sys.stdin); print('\n'.join(p['slug'] for p in d['data']))"
+  | python3 -c "import json,sys; d=json.load(sys.stdin); print('\n'.join(p['slug'] for p in d))"
 ```
 
 That prints the slugs of every active project. If the user passed a specific slug as an argument, use only that one (verify it's in the list).

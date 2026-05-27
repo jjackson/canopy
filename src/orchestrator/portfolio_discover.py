@@ -75,7 +75,11 @@ def discover_active_repos(
 def fetch_curated_slugs(api_url: str, token: str, timeout: float = 10.0) -> set[str]:
     """Ask canopy-web for the curated project slugs. Returns an empty set on
     any error — the caller should treat that as "couldn't reach canopy-web,
-    show all active repos as candidates"."""
+    show all active repos as candidates".
+
+    canopy-web's Ninja-based API returns a bare JSON array of
+    {slug, name, status, visibility} objects — no {success, data} envelope.
+    """
     req = urllib.request.Request(
         f"{api_url.rstrip('/')}/api/projects/slugs/",
         headers={"Authorization": f"Bearer {token}"},
@@ -85,7 +89,8 @@ def fetch_curated_slugs(api_url: str, token: str, timeout: float = 10.0) -> set[
             data = json.loads(resp.read())
     except (urllib.error.URLError, json.JSONDecodeError, TimeoutError):
         return set()
-    items = data.get("data") if isinstance(data, dict) else None
+    # Bare list response (Ninja API — no {success, data} envelope).
+    items = data if isinstance(data, list) else None
     if not isinstance(items, list):
         return set()
     return {p["slug"] for p in items if isinstance(p, dict) and "slug" in p}
