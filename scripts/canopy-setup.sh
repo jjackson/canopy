@@ -9,7 +9,7 @@
 #   2. ~/emdash-projects/canopy/ main checkout (stable path used by emdash worktrees + CLI)
 #   3. PostToolUse hook registered in ~/.claude/settings.json
 #      (registered to point at the main-checkout path so it survives plugin updates)
-#   4. workbench-token from GCP Secret Manager (or via /canopy:canopy-web-pat-mint)
+#   4. workbench-token (per-human PAT; mint via /canopy:canopy-web-pat-mint)
 #   5. canopy CLI installed from main checkout
 #
 # Exit code: 0 if all required steps pass, 1 otherwise.
@@ -97,43 +97,12 @@ if [ -s "$TOKEN_FILE" ]; then
     chmod 600 "$TOKEN_FILE"
   fi
   echo "[4/5] workbench token : OK ($TOKEN_FILE)"
-elif ! command -v gcloud >/dev/null 2>&1; then
-  echo "[4/5] workbench token : FAIL — gcloud SDK not installed"
-  NEXT_STEPS+=(
-    "Install Google Cloud SDK and re-run /canopy:setup:"
-    "  brew install --cask google-cloud-sdk"
-    "  gcloud auth login"
-    "  gcloud config set project <your-canopy-project>"
-  )
-  FAILED=1
-elif ! gcloud auth list --filter=status:ACTIVE --format="value(account)" 2>/dev/null | grep -q .; then
-  echo "[4/5] workbench token : FAIL — no active gcloud credentials"
-  NEXT_STEPS+=(
-    "Authenticate gcloud and re-run /canopy:setup:"
-    "  gcloud auth login"
-    "  gcloud config set project <your-canopy-project>  # if not already set"
-  )
-  FAILED=1
-elif [ -z "$(gcloud config get-value project 2>/dev/null)" ]; then
-  echo "[4/5] workbench token : FAIL — gcloud project not configured"
-  NEXT_STEPS+=(
-    "Set the gcloud project (the one that owns the workbench-write-token secret) and re-run /canopy:setup:"
-    "  gcloud config set project <your-canopy-project>"
-  )
-  FAILED=1
-elif gcloud secrets versions access latest --secret=workbench-write-token > "$TOKEN_FILE" 2>/dev/null && [ -s "$TOKEN_FILE" ]; then
-  chmod 600 "$TOKEN_FILE"
-  echo "[4/5] workbench token : FETCHED from GCP Secret Manager"
 else
-  rm -f "$TOKEN_FILE"
-  PROJECT=$(gcloud config get-value project 2>/dev/null)
-  echo "[4/5] workbench token : FAIL — secret access denied (project: $PROJECT)"
+  echo "[4/5] workbench token : MISSING — mint a PAT to enable workbench writes + walkthrough sharing"
   NEXT_STEPS+=(
-    "gcloud is authed and project is set ($PROJECT), but \`workbench-write-token\` access failed."
-    "Either the secret lives in a different project, or your account lacks Secret Manager Accessor."
-    "Fix one of:"
-    "  gcloud config set project <correct-project>   # then re-run /canopy:setup"
-    "  # or grant your account roles/secretmanager.secretAccessor on the secret"
+    "Mint a per-human canopy-web Personal Access Token:"
+    "  /canopy:canopy-web-pat-mint"
+    "(opens your browser, one click, writes to $TOKEN_FILE chmod 600.)"
   )
   FAILED=1
 fi
