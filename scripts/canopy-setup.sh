@@ -11,8 +11,10 @@
 #      (registered to point at the main-checkout path so it survives plugin updates)
 #   4. workbench-token from GCP Secret Manager
 #   5. canopy CLI installed from main checkout
+#   6. walkthrough-upload-token (optional — gates /canopy:walkthrough-share)
 #
 # Exit code: 0 if all required steps pass, 1 otherwise.
+# Step 6 is optional and never fails the run.
 # Stdlib bash + python3 only; no plugin dependencies.
 
 set -u
@@ -31,27 +33,27 @@ echo
 
 # ---------- 1. State dir ----------
 if [ -d "$CANOPY_STATE_DIR" ]; then
-  echo "[1/5] state dir       : OK ($CANOPY_STATE_DIR)"
+  echo "[1/6] state dir       : OK ($CANOPY_STATE_DIR)"
 elif mkdir -p "$CANOPY_STATE_DIR"; then
-  echo "[1/5] state dir       : CREATED ($CANOPY_STATE_DIR)"
+  echo "[1/6] state dir       : CREATED ($CANOPY_STATE_DIR)"
 else
-  echo "[1/5] state dir       : FAIL — could not create $CANOPY_STATE_DIR"
+  echo "[1/6] state dir       : FAIL — could not create $CANOPY_STATE_DIR"
   FAILED=1
 fi
 
 # ---------- 2. Main checkout ----------
 if [ -d "$MAIN_CHECKOUT/.git" ]; then
-  echo "[2/5] main checkout   : OK ($MAIN_CHECKOUT)"
+  echo "[2/6] main checkout   : OK ($MAIN_CHECKOUT)"
 else
   if ! command -v git >/dev/null 2>&1; then
-    echo "[2/5] main checkout   : FAIL — git not installed"
+    echo "[2/6] main checkout   : FAIL — git not installed"
     FAILED=1
   else
     mkdir -p "$(dirname "$MAIN_CHECKOUT")"
     if git clone --quiet "$REPO_URL" "$MAIN_CHECKOUT" 2>/dev/null; then
-      echo "[2/5] main checkout   : CLONED ($MAIN_CHECKOUT)"
+      echo "[2/6] main checkout   : CLONED ($MAIN_CHECKOUT)"
     else
-      echo "[2/5] main checkout   : FAIL — \`git clone $REPO_URL $MAIN_CHECKOUT\` failed"
+      echo "[2/6] main checkout   : FAIL — \`git clone $REPO_URL $MAIN_CHECKOUT\` failed"
       FAILED=1
     fi
   fi
@@ -77,16 +79,16 @@ PY
 }
 
 if hook_already_registered; then
-  echo "[3/5] post-tool hook  : OK (already registered)"
+  echo "[3/6] post-tool hook  : OK (already registered)"
 elif [ -f "$MAIN_CHECKOUT/hooks/install.py" ]; then
   if python3 "$MAIN_CHECKOUT/hooks/install.py" >/dev/null 2>&1; then
-    echo "[3/5] post-tool hook  : REGISTERED → $MAIN_CHECKOUT/hooks/post_tool_use.py"
+    echo "[3/6] post-tool hook  : REGISTERED → $MAIN_CHECKOUT/hooks/post_tool_use.py"
   else
-    echo "[3/5] post-tool hook  : FAIL — $MAIN_CHECKOUT/hooks/install.py errored"
+    echo "[3/6] post-tool hook  : FAIL — $MAIN_CHECKOUT/hooks/install.py errored"
     FAILED=1
   fi
 else
-  echo "[3/5] post-tool hook  : SKIP — $MAIN_CHECKOUT/hooks/install.py missing (step 2 must succeed first)"
+  echo "[3/6] post-tool hook  : SKIP — $MAIN_CHECKOUT/hooks/install.py missing (step 2 must succeed first)"
   FAILED=1
 fi
 
@@ -96,9 +98,9 @@ if [ -s "$TOKEN_FILE" ]; then
   if [ "$PERMS" != "600" ]; then
     chmod 600 "$TOKEN_FILE"
   fi
-  echo "[4/5] workbench token : OK ($TOKEN_FILE)"
+  echo "[4/6] workbench token : OK ($TOKEN_FILE)"
 elif ! command -v gcloud >/dev/null 2>&1; then
-  echo "[4/5] workbench token : FAIL — gcloud SDK not installed"
+  echo "[4/6] workbench token : FAIL — gcloud SDK not installed"
   NEXT_STEPS+=(
     "Install Google Cloud SDK and re-run /canopy:setup:"
     "  brew install --cask google-cloud-sdk"
@@ -107,7 +109,7 @@ elif ! command -v gcloud >/dev/null 2>&1; then
   )
   FAILED=1
 elif ! gcloud auth list --filter=status:ACTIVE --format="value(account)" 2>/dev/null | grep -q .; then
-  echo "[4/5] workbench token : FAIL — no active gcloud credentials"
+  echo "[4/6] workbench token : FAIL — no active gcloud credentials"
   NEXT_STEPS+=(
     "Authenticate gcloud and re-run /canopy:setup:"
     "  gcloud auth login"
@@ -115,7 +117,7 @@ elif ! gcloud auth list --filter=status:ACTIVE --format="value(account)" 2>/dev/
   )
   FAILED=1
 elif [ -z "$(gcloud config get-value project 2>/dev/null)" ]; then
-  echo "[4/5] workbench token : FAIL — gcloud project not configured"
+  echo "[4/6] workbench token : FAIL — gcloud project not configured"
   NEXT_STEPS+=(
     "Set the gcloud project (the one that owns the workbench-write-token secret) and re-run /canopy:setup:"
     "  gcloud config set project <your-canopy-project>"
@@ -123,11 +125,11 @@ elif [ -z "$(gcloud config get-value project 2>/dev/null)" ]; then
   FAILED=1
 elif gcloud secrets versions access latest --secret=workbench-write-token > "$TOKEN_FILE" 2>/dev/null && [ -s "$TOKEN_FILE" ]; then
   chmod 600 "$TOKEN_FILE"
-  echo "[4/5] workbench token : FETCHED from GCP Secret Manager"
+  echo "[4/6] workbench token : FETCHED from GCP Secret Manager"
 else
   rm -f "$TOKEN_FILE"
   PROJECT=$(gcloud config get-value project 2>/dev/null)
-  echo "[4/5] workbench token : FAIL — secret access denied (project: $PROJECT)"
+  echo "[4/6] workbench token : FAIL — secret access denied (project: $PROJECT)"
   NEXT_STEPS+=(
     "gcloud is authed and project is set ($PROJECT), but \`workbench-write-token\` access failed."
     "Either the secret lives in a different project, or your account lacks Secret Manager Accessor."
@@ -177,13 +179,13 @@ install_cli() {
 }
 
 if command -v canopy >/dev/null 2>&1; then
-  echo "[5/5] canopy CLI      : OK ($(command -v canopy))"
+  echo "[5/6] canopy CLI      : OK ($(command -v canopy))"
 elif [ -f "$MAIN_CHECKOUT/pyproject.toml" ]; then
   METHOD=$(install_cli "$MAIN_CHECKOUT") || true
   if [ -n "${METHOD:-}" ] && command -v canopy >/dev/null 2>&1; then
-    echo "[5/5] canopy CLI      : INSTALLED via $METHOD ($(command -v canopy))"
+    echo "[5/6] canopy CLI      : INSTALLED via $METHOD ($(command -v canopy))"
   elif [ -n "${METHOD:-}" ]; then
-    echo "[5/5] canopy CLI      : INSTALLED via $METHOD — but \`canopy\` not on current PATH"
+    echo "[5/6] canopy CLI      : INSTALLED via $METHOD — but \`canopy\` not on current PATH"
     NEXT_STEPS+=(
       "Add ~/.local/bin to your shell PATH so the \`canopy\` CLI is reachable:"
       "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc"
@@ -191,7 +193,7 @@ elif [ -f "$MAIN_CHECKOUT/pyproject.toml" ]; then
     )
     FAILED=1
   else
-    echo "[5/5] canopy CLI      : FAIL — uv install failed and no pipx fallback"
+    echo "[5/6] canopy CLI      : FAIL — uv install failed and no pipx fallback"
     NEXT_STEPS+=(
       "Install uv (or pipx) manually and re-run /canopy:setup:"
       "  brew install uv     # recommended"
@@ -200,8 +202,28 @@ elif [ -f "$MAIN_CHECKOUT/pyproject.toml" ]; then
     FAILED=1
   fi
 else
-  echo "[5/5] canopy CLI      : SKIP — main checkout missing (step 2 must succeed first)"
+  echo "[5/6] canopy CLI      : SKIP — main checkout missing (step 2 must succeed first)"
   FAILED=1
+fi
+
+# ---------- 6. Walkthrough upload token (optional) ----------
+# Used by /canopy:walkthrough-share to push HTML/MP4 walkthroughs to canopy-web.
+# Optional: never fails the run, just notes the gap. Same secret as canopy-web's
+# CANOPY_E2E_AUTH_TOKEN server setting.
+WALKTHROUGH_TOKEN_FILE="$CANOPY_STATE_DIR/walkthrough-upload-token"
+if [ -s "$WALKTHROUGH_TOKEN_FILE" ]; then
+  PERMS=$(stat -f "%Lp" "$WALKTHROUGH_TOKEN_FILE" 2>/dev/null || stat -c "%a" "$WALKTHROUGH_TOKEN_FILE" 2>/dev/null)
+  if [ "$PERMS" != "600" ]; then
+    chmod 600 "$WALKTHROUGH_TOKEN_FILE"
+  fi
+  echo "[6/6] share token     : OK ($WALKTHROUGH_TOKEN_FILE)"
+else
+  echo "[6/6] share token     : MISSING (optional — /canopy:walkthrough-share will be unavailable)"
+  NEXT_STEPS+=(
+    "[optional] To enable /canopy:walkthrough-share, drop canopy-web's CANOPY_E2E_AUTH_TOKEN into:"
+    "  read -rs -p 'Token: ' T && echo \"\$T\" > $WALKTHROUGH_TOKEN_FILE && chmod 600 $WALKTHROUGH_TOKEN_FILE"
+    "(skip this if you don't need to publish walkthroughs from this machine)"
+  )
 fi
 
 echo
