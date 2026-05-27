@@ -4,11 +4,13 @@
 Used by /canopy:walkthrough-share. Stdlib only — no external deps.
 
 Flow:
-  1. Resolve config (api URL, email, upload token).
-  2. For HTML: inline relative image refs as base64 data URIs.
-  3. POST /api/auth/e2e-login/ → session cookie.
-  4. POST /api/walkthroughs/ multipart (with session cookie).
-  5. Print the view URL and (optionally) the share URL.
+  1. Resolve config (api URL, PAT).
+  2. For HTML: inline relative image/CSS refs as base64 data URIs.
+  3. POST /api/walkthroughs/ multipart with Authorization: Bearer <PAT>.
+  4. Print the view URL and (optionally) the share URL.
+
+Auth: canopy-web's PersonalToken (PAT) at ~/.claude/canopy/workbench-token.
+Mint with /canopy:canopy-web-pat-mint. Replaces the dead e2e-login flow.
 
 Exits non-zero on any failure. Designed to be friendly to a SKILL.md
 caller that just shells out and reads stdout.
@@ -17,21 +19,17 @@ from __future__ import annotations
 
 import argparse
 import base64
-import http.cookiejar
 import json
 import mimetypes
 import os
 import re
-import subprocess
 import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
-from urllib.parse import urlparse
 
 DEFAULT_API = "https://canopy-web-ujpz2cuyxq-uc.a.run.app"
-TOKEN_FILE = Path.home() / ".claude" / "canopy" / "walkthrough-upload-token"
-ALLOWED_DOMAIN = "dimagi.com"
+TOKEN_FILE = Path.home() / ".claude" / "canopy" / "workbench-token"
 
 # Recognized file kinds and their server-side content types.
 KIND_BY_EXT = {".html": "html", ".htm": "html", ".mp4": "video"}
@@ -44,11 +42,9 @@ def fail(msg: str, code: int = 1) -> None:
 
 
 def _describe_error(body: dict) -> str:
-    """Best-effort one-line render of a Ninja problem+json error body.
+    """Render a Ninja problem+json error body into a readable one-liner.
 
-    Ninja errors look like {"type": "...", "title": "...", "status": N,
-    "detail": "..."}; older DRF errors used {"error": "..."}. Fall through
-    to the raw dict so callers always get something.
+    Falls back to {"error": ...} (legacy DRF) and raw-dict for defense.
     """
     if not isinstance(body, dict):
         return str(body)
@@ -59,33 +55,9 @@ def _describe_error(body: dict) -> str:
     return detail or title or body.get("error") or str(body)
 
 
-def resolve_email(override: str | None) -> str:
-    """Pick an email: --as flag → env → git config user.email."""
-    if override:
-        email = override.strip()
-    else:
-        email = os.environ.get("CANOPY_WALKTHROUGH_EMAIL", "").strip()
-    if not email:
-        try:
-            out = subprocess.check_output(
-                ["git", "config", "user.email"], text=True, stderr=subprocess.DEVNULL,
-            )
-            email = out.strip()
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            pass
-    if not email:
-        fail(
-            "could not resolve email — pass --as <email>, set "
-            "CANOPY_WALKTHROUGH_EMAIL, or configure git user.email",
-        )
-    if not email.endswith(f"@{ALLOWED_DOMAIN}"):
-        fail(f"email {email!r} is not in the @{ALLOWED_DOMAIN} domain")
-    return email
-
-
-def resolve_token() -> str:
-    """Read the upload token from env or the token file."""
-    token = os.environ.get("CANOPY_E2E_AUTH_TOKEN", "").strip()
+def resolve_pat() -> str:
+    """Read the PAT from env or the canopy workbench-token file."""
+    token = os.environ.get("CANOPY_WEB_PAT", "").strip()
     if token:
         return token
     if TOKEN_FILE.exists():
@@ -93,9 +65,8 @@ def resolve_token() -> str:
         if token:
             return token
     fail(
-        f"no upload token — set CANOPY_E2E_AUTH_TOKEN or write the token to "
-        f"{TOKEN_FILE} (chmod 600). The token must match canopy-web's "
-        f"CANOPY_E2E_AUTH_TOKEN.",
+        f"no canopy-web PAT — run /canopy:canopy-web-pat-mint to mint one, "
+        f"or set CANOPY_WEB_PAT env var. Expected token at {TOKEN_FILE}.",
     )
     raise SystemExit  # unreachable, helps the type checker
 
@@ -110,6 +81,10 @@ def detect_kind(path: Path) -> str:
     return kind  # type: ignore[return-value]
 
 
+# ---------------------------------------------------------------------------
+# HTML asset inlining
+# ---------------------------------------------------------------------------
+
 _ATTR_RE = re.compile(
     r"""(\b(?:src|href|poster)\s*=\s*)(['"])([^'"]+?)(\2)""",
     re.IGNORECASE,
@@ -118,7 +93,6 @@ _CSS_URL_RE = re.compile(r"""url\(\s*(['"]?)([^)'"]+?)\1\s*\)""", re.IGNORECASE)
 
 
 def _looks_remote(ref: str) -> bool:
-    # data:, http:, https:, //cdn, mailto:, #anchor, etc.
     if not ref:
         return True
     if ref.startswith(("#", "data:", "mailto:", "javascript:")):
@@ -134,7 +108,6 @@ def _inline_one(base_dir: Path, ref: str) -> str | None:
     """Resolve a relative ref to a data URI, or return None to leave it alone."""
     if _looks_remote(ref):
         return None
-    # Strip query/fragment for filesystem lookup.
     clean = ref.split("?", 1)[0].split("#", 1)[0]
     target = (base_dir / clean).resolve()
     try:
@@ -175,32 +148,9 @@ def inline_html(path: Path) -> bytes:
     return out.encode("utf-8")
 
 
-def http_json(
-    url: str,
-    method: str = "GET",
-    body: dict | None = None,
-    cookiejar: http.cookiejar.CookieJar | None = None,
-    timeout: int = 30,
-) -> tuple[int, dict, http.cookiejar.CookieJar]:
-    data = json.dumps(body).encode("utf-8") if body is not None else None
-    req = urllib.request.Request(
-        url, data=data, method=method,
-        headers={"Content-Type": "application/json"} if data else {},
-    )
-    if cookiejar is None:
-        cookiejar = http.cookiejar.CookieJar()
-    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookiejar))
-    try:
-        resp = opener.open(req, timeout=timeout)
-    except urllib.error.HTTPError as e:
-        try:
-            payload = json.loads(e.read().decode("utf-8") or "{}")
-        except json.JSONDecodeError:
-            payload = {"error": e.reason}
-        return e.code, payload, cookiejar
-    raw = resp.read()
-    payload = json.loads(raw.decode("utf-8")) if raw else {}
-    return resp.status, payload, cookiejar
+# ---------------------------------------------------------------------------
+# Multipart POST with Bearer auth
+# ---------------------------------------------------------------------------
 
 
 def _build_multipart(
@@ -228,28 +178,24 @@ def _build_multipart(
     return body, f"multipart/form-data; boundary={boundary}"
 
 
-def http_multipart(
+def upload_multipart(
     url: str,
+    pat: str,
     fields: dict[str, str],
     file_field: str,
     filename: str,
     content_type: str,
     file_bytes: bytes,
-    cookiejar: http.cookiejar.CookieJar,
-    csrf_token: str | None = None,
     timeout: int = 120,
 ) -> tuple[int, dict]:
     body, ct = _build_multipart(fields, file_field, filename, content_type, file_bytes)
-    headers = {"Content-Type": ct}
-    if csrf_token:
-        headers["X-CSRFToken"] = csrf_token
-        # Django expects Referer to match the host on CSRF-protected POSTs.
-        parsed = urlparse(url)
-        headers["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
+    headers = {
+        "Content-Type": ct,
+        "Authorization": f"Bearer {pat}",
+    }
     req = urllib.request.Request(url, data=body, method="POST", headers=headers)
-    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookiejar))
     try:
-        resp = opener.open(req, timeout=timeout)
+        resp = urllib.request.urlopen(req, timeout=timeout)
     except urllib.error.HTTPError as e:
         try:
             payload = json.loads(e.read().decode("utf-8") or "{}")
@@ -261,17 +207,15 @@ def http_multipart(
     return resp.status, payload
 
 
-def _csrf_from_jar(jar: http.cookiejar.CookieJar) -> str | None:
-    for c in jar:
-        if c.name == "csrftoken":
-            return c.value
-    return None
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="canopy:walkthrough-share",
-        description="Upload a walkthrough to canopy-web.",
+        description="Upload a walkthrough to canopy-web (auth via PAT).",
     )
     p.add_argument("path", help="Path to a .html, .htm, or .mp4 file")
     p.add_argument("--title", help="Walkthrough title (defaults to filename stem)")
@@ -281,10 +225,6 @@ def main(argv: list[str] | None = None) -> int:
         "--public",
         action="store_true",
         help="Set visibility=link and print the share URL",
-    )
-    p.add_argument(
-        "--as", dest="email_override", metavar="EMAIL",
-        help=f"Override the upload-as email (must end in @{ALLOWED_DOMAIN})",
     )
     p.add_argument(
         "--api-url", default=os.environ.get("CANOPY_WEB_API_URL", DEFAULT_API),
@@ -298,8 +238,7 @@ def main(argv: list[str] | None = None) -> int:
     kind = detect_kind(src)
     content_type = CONTENT_TYPE_BY_KIND[kind]
 
-    email = resolve_email(args.email_override)
-    token = resolve_token()
+    pat = resolve_pat()
     api = args.api_url.rstrip("/")
     title = (args.title or src.stem).strip()
     visibility = "link" if args.public else "private"
@@ -307,30 +246,12 @@ def main(argv: list[str] | None = None) -> int:
     if kind == "html":
         print(f"inlining HTML assets from {src.parent}…", file=sys.stderr)
         payload_bytes = inline_html(src)
-        upload_name = "slideshow.html"
     else:
         payload_bytes = src.read_bytes()
-        upload_name = "video.mp4"
+    upload_name = "slideshow.html" if kind == "html" else "video.mp4"
 
     size_mb = len(payload_bytes) / (1024 * 1024)
-    print(f"uploading {size_mb:.1f} MB to {api} as {email}…", file=sys.stderr)
-
-    jar = http.cookiejar.CookieJar()
-    status, body, jar = http_json(
-        f"{api}/api/auth/e2e-login/",
-        method="POST",
-        body={"email": email, "token": token},
-        cookiejar=jar,
-    )
-    if status != 200:
-        fail(f"e2e-login failed (HTTP {status}): {_describe_error(body)}")
-
-    # Bootstrap a CSRF cookie before the multipart POST — Django requires it
-    # for session-authenticated POSTs.
-    csrf_status, _, jar = http_json(f"{api}/api/csrf/", method="GET", cookiejar=jar)
-    if csrf_status not in (200, 204):
-        fail(f"csrf bootstrap failed (HTTP {csrf_status})")
-    csrf = _csrf_from_jar(jar)
+    print(f"uploading {size_mb:.1f} MB to {api}…", file=sys.stderr)
 
     fields = {
         "title": title,
@@ -341,22 +262,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.project_slug:
         fields["project_slug"] = args.project_slug
 
-    status, body = http_multipart(
+    status, body = upload_multipart(
         f"{api}/api/walkthroughs/",
+        pat=pat,
         fields=fields,
         file_field="file",
         filename=upload_name,
         content_type=content_type,
         file_bytes=payload_bytes,
-        cookiejar=jar,
-        csrf_token=csrf,
     )
     if status != 201:
         fail(f"upload failed (HTTP {status}): {_describe_error(body)}")
 
-    # canopy-web migrated DRF → Django Ninja in May 2026 — responses are now
-    # bare typed payloads (no {success, data, timing_ms} envelope). Read
-    # fields directly off `body`.
+    # canopy-web migrated DRF → Django Ninja in May 2026 — responses are bare
+    # typed payloads (no {success, data, timing_ms} envelope). Read fields
+    # directly off `body`.
     wid = body.get("id")
     if not wid:
         fail(f"unexpected response: {body}")
