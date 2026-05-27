@@ -534,6 +534,23 @@ it to the user. The deck may contain problems invisible during live browsing:
 **Do NOT tell the user the deck is ready without verifying it yourself.**
 The user should never be the first person to catch a bad screenshot.
 
+## Offer to Share
+
+After the deck is verified, **ask once** whether to upload it to canopy-web for
+sharing. Don't auto-upload — the user picks per run, and many runs are dev
+churn that shouldn't get a share URL.
+
+Prompt the user with the deck path and two options. If they want to share,
+invoke `/canopy:walkthrough-share <path>` (the slash command — not bash).
+Pass `--public` if they want a shareable link, otherwise leave it private
+(dimagi-only). If `screenshots/walkthroughs/<name>.mp4` was also produced,
+the user can run `/canopy:walkthrough-share` on that path too — videos are a
+separate upload.
+
+If the upload skill fails because the upload token isn't configured, surface
+the error verbatim and point the user at `/canopy:walkthrough-share`'s
+"First-time setup" section. Don't try to debug auth from inside this skill.
+
 ## Generate Mode
 
 When invoked as `/walkthrough generate`:
