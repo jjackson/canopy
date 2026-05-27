@@ -29,13 +29,13 @@ link, rotate the token, or delete. Non-owners just see the player.
 
 ## Required state
 
-- **Upload token** at `~/.claude/canopy/walkthrough-upload-token` (or
-  `CANOPY_E2E_AUTH_TOKEN` env var). Must match canopy-web's
-  `CANOPY_E2E_AUTH_TOKEN` server setting. See "First-time setup" below.
-- **Email**: `git config user.email`, or `CANOPY_WALKTHROUGH_EMAIL`, or
-  `--as <email>`. Must end in `@dimagi.com`.
-- **Canopy-web reachability**: defaults to the production deploy.
-  Override with `CANOPY_WEB_API_URL` env var (e.g. for local testing against
+- **PAT** at `~/.claude/canopy/workbench-token` (or `CANOPY_WEB_PAT` env
+  var). Mint with `/canopy:canopy-web-pat-mint` — gh-style loopback flow,
+  one click in the browser. The PAT identifies the human caller; uploaded
+  walkthroughs are owned by whoever minted the token, no separate `--as`
+  flag needed.
+- **Canopy-web reachability**: defaults to the production deploy. Override
+  with `CANOPY_WEB_API_URL` env var (e.g. for local dev against
   `http://localhost:8000`).
 
 ## Modes
@@ -64,7 +64,7 @@ The script prints:
 
 ```
 inlining HTML assets from <dir>…
-uploading <N> MB to <api> as <email>…
+uploading <N> MB to <api>…
 View: <api>/w/<uuid>
 Share: <api>/w/<uuid>?t=<token>   # only with --public
 ```
@@ -80,34 +80,31 @@ Pass the `Share:` line back to the user verbatim.
 | `--description <str>` | no | Optional long-form description. |
 | `--project <slug>` | no | Links the walkthrough to a canopy-web project tile. Must match an existing slug (no server-side validation today; bad slug = no link, no error). |
 | `--public` | no | Sets visibility=link and prints a `?t=<token>` URL. Default is private. |
-| `--as <email>` | no | Override the auto-detected email. Must be `@dimagi.com`. |
 | `--api-url <url>` | no | Override canopy-web base URL (also via `CANOPY_WEB_API_URL`). |
 
 ## First-time setup
 
-If `~/.claude/canopy/walkthrough-upload-token` doesn't exist:
+If `~/.claude/canopy/workbench-token` doesn't exist (or the token is expired),
+mint one:
 
-```bash
-mkdir -p ~/.claude/canopy
-# Paste the token (from 1Password or whoever holds canopy-web's
-# CANOPY_E2E_AUTH_TOKEN setting) into a file with no trailing newline.
-read -rs -p "Upload token: " TOK && echo "$TOK" > ~/.claude/canopy/walkthrough-upload-token
-chmod 600 ~/.claude/canopy/walkthrough-upload-token
+```
+/canopy:canopy-web-pat-mint
 ```
 
-The token is **the same secret** as canopy-web's `CANOPY_E2E_AUTH_TOKEN` env
-var. The skill calls `/api/auth/e2e-login/` to swap the token for a session
-cookie, then uses the cookie to POST `/api/walkthroughs/`. One secret, not two.
+That command opens your browser to canopy-web's authorize page (signing you
+in via Google if needed), captures the minted PAT on a one-shot localhost
+listener, and writes it to `~/.claude/canopy/workbench-token` (chmod 600).
+Same token is used by the post-tool-use hook and `/canopy:canopy-doctor`.
 
 ## Error handling
 
 The script exits non-zero with a one-line `error: ...` message on stderr:
 
-- Missing token → tells you which file/env var to set.
-- Non-dimagi email → refuses early (server would reject anyway).
-- HTTP 5xx with `code=drive-not-configured` → canopy-web is missing
-  `CANOPY_DRIVE_SA_KEY_JSON` / `CANOPY_DRIVE_ROOT_FOLDER_ID`. That's a
-  deployment problem, not a client problem.
+- Missing PAT → tells you to run `/canopy:canopy-web-pat-mint`.
+- HTTP 401 → PAT is expired or revoked. Re-mint via the slash command.
+- HTTP 500 with `Drive not configured` → canopy-web is missing
+  `CANOPY_DRIVE_SA_KEY_JSON` / `CANOPY_DRIVE_ROOT_FOLDER_ID`. Deployment
+  problem, not a client problem.
 - HTTP 413 → file exceeds `WALKTHROUGH_MAX_UPLOAD_BYTES` (default 75 MB on
   the server). For HTML, shrink the screenshots before re-running.
 
