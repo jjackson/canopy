@@ -43,6 +43,22 @@ def fail(msg: str, code: int = 1) -> None:
     sys.exit(code)
 
 
+def _describe_error(body: dict) -> str:
+    """Best-effort one-line render of a Ninja problem+json error body.
+
+    Ninja errors look like {"type": "...", "title": "...", "status": N,
+    "detail": "..."}; older DRF errors used {"error": "..."}. Fall through
+    to the raw dict so callers always get something.
+    """
+    if not isinstance(body, dict):
+        return str(body)
+    detail = body.get("detail")
+    title = body.get("title")
+    if detail and title:
+        return f"{title}: {detail}"
+    return detail or title or body.get("error") or str(body)
+
+
 def resolve_email(override: str | None) -> str:
     """Pick an email: --as flag → env → git config user.email."""
     if override:
@@ -307,7 +323,7 @@ def main(argv: list[str] | None = None) -> int:
         cookiejar=jar,
     )
     if status != 200:
-        fail(f"e2e-login failed (HTTP {status}): {body.get('error', body)}")
+        fail(f"e2e-login failed (HTTP {status}): {_describe_error(body)}")
 
     # Bootstrap a CSRF cookie before the multipart POST — Django requires it
     # for session-authenticated POSTs.
@@ -336,16 +352,18 @@ def main(argv: list[str] | None = None) -> int:
         csrf_token=csrf,
     )
     if status != 201:
-        fail(f"upload failed (HTTP {status}): {body.get('error', body)}")
+        fail(f"upload failed (HTTP {status}): {_describe_error(body)}")
 
-    data = body.get("data", {})
-    wid = data.get("id")
+    # canopy-web migrated DRF → Django Ninja in May 2026 — responses are now
+    # bare typed payloads (no {success, data, timing_ms} envelope). Read
+    # fields directly off `body`.
+    wid = body.get("id")
     if not wid:
         fail(f"unexpected response: {body}")
 
     # The /w/ viewer lives at the same host as the API base.
     print(f"View: {api}/w/{wid}")
-    share_token = data.get("share_token")
+    share_token = body.get("share_token")
     if visibility == "link" and share_token:
         print(f"Share: {api}/w/{wid}?t={share_token}")
     return 0
