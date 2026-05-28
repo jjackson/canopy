@@ -44,3 +44,57 @@ def test_gap_invalid_type_raises():
             detail="x",
             proposed_action="y",
         )
+
+
+# ---------------------------------------------------------------------------
+# SP0.2 — Remaining models
+# ---------------------------------------------------------------------------
+
+def test_scene_missing_required_fields_raises():
+    from scripts.ddd.schemas.models import Scene
+
+    with pytest.raises(pydantic.ValidationError):
+        # concept_claim and provenance are both missing
+        Scene(persona="p1", title="My Scene", show="navigate to /home")
+
+
+def test_verdict_invalid_verdict_raises():
+    from scripts.ddd.schemas.models import Verdict, Dimension
+
+    with pytest.raises(pydantic.ValidationError):
+        Verdict(
+            dimensions={"clarity": Dimension(score=7.0, weight=1.0)},
+            overall_score=7.0,
+            verdict="bogus",
+        )
+
+
+def test_verdict_valid_pass():
+    from scripts.ddd.schemas.models import Verdict, Dimension
+
+    v = Verdict(
+        dimensions={"clarity": Dimension(score=8.0, weight=1.0)},
+        overall_score=8.0,
+        verdict="pass",
+    )
+    assert v.verdict == "pass"
+    assert v.schema_version == 1
+    assert v.blocking_reason is None
+    assert v.fix_recommendation is None
+
+
+def test_decision_serializes_class_as_alias():
+    from scripts.ddd.schemas.models import Decision
+
+    d = Decision(
+        id="D1",
+        prompt="Which approach?",
+        options=["A", "B"],
+        recommended="A",
+        class_="SCOPE",
+    )
+    dumped = d.model_dump(by_alias=True)
+    assert "class" in dumped
+    assert dumped["class"] == "SCOPE"
+    # Should not have the Python name "class_" in aliased output
+    assert "class_" not in dumped
