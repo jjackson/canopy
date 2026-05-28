@@ -114,7 +114,7 @@ fix_recommendation: <copy the fix_recommendation from visual-judge, or synthesiz
 
 Route assignment rules:
 - `concept_clarity` findings → CONCEPT
-- `design_soundness` findings → PRODUCT (if fixable in the product) or CONCEPT (if it's an idea problem)
+- `design_soundness` findings → **PRODUCT** if the fix changes how the product is *presented* without changing what it does (e.g. interaction wording, affordance labelling, flow ordering); → **CONCEPT** if fixing it requires changing *what the product does* (e.g. a core interaction is incoherent because the underlying idea is wrong)
 - `why_groundedness` findings → RESEARCH (if provenance is missing) or CONCEPT (if the claim contradicts the why_brief)
 - `claim_reality_coherence` findings → always DEFER (non-blocking; note discrepancy for later triage)
 - `motion_friction` findings → PRODUCT
@@ -124,11 +124,15 @@ Route assignment rules:
 ### Step 4 — Aggregate overall score
 
 Compute `overall_score` across ALL scenes via `overall_rule: lowest` (the minimum
-dimension score across all scenes and all dimensions). This is the weakest-link rule.
+dimension score across all scenes for the **four gating dimensions**:
+`concept_clarity`, `design_soundness`, `why_groundedness`, and `motion_friction`).
 
-Note: `claim_reality_coherence` scores feed into the weakest-link aggregation but
-because they are `blocking: false`, they cannot themselves drive the verdict to
-`blocked`. The verdict is computed from `overall_score` alone via the table below.
+`claim_reality_coherence` is EXCLUDED from the weakest-link overall_score, so it
+can never drive verdict to warn/fail/blocked. It is advisory: it informs the human
+at the pause point, it does not gate convergence. `claim_reality_coherence` scores
+are STILL recorded per scene in the `dimensions{}` map and STILL generate
+DEFER-routed `design_findings`, but they play no role in computing `overall_score`
+or the final verdict.
 
 ### Step 5 — Compute verdict
 

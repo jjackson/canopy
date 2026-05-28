@@ -207,6 +207,38 @@ def test_skill_emits_verdict_shape() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Fix 4 — SP3 review additions
+# ---------------------------------------------------------------------------
+
+
+def test_rubric_each_dim_has_deduction_rules() -> None:
+    """Every dimension must declare a non-empty deduction_rules list."""
+    rubric = yaml.safe_load(RUBRIC_PATH.read_text())
+    for dim in rubric["dimensions"]:
+        rules = dim.get("deduction_rules")
+        assert rules is not None, f"Dimension '{dim['id']}' missing 'deduction_rules'"
+        assert len(rules) > 0, f"Dimension '{dim['id']}' has empty 'deduction_rules'"
+
+
+def test_rubric_claim_reality_coherence_is_advisory() -> None:
+    """claim_reality_coherence must carry advisory: true to signal exclusion from overall_score."""
+    rubric = yaml.safe_load(RUBRIC_PATH.read_text())
+    crc = next(d for d in rubric["dimensions"] if d["id"] == "claim_reality_coherence")
+    assert crc.get("advisory") is True, (
+        "claim_reality_coherence must have advisory: true in the rubric"
+    )
+
+
+def test_skill_claim_reality_excluded_from_overall_score() -> None:
+    """SKILL.md must explicitly state claim_reality_coherence is excluded from overall_score."""
+    content = (SKILL_DIR / "SKILL.md").read_text()
+    # Check for the load-bearing phrase written in Fix 1
+    assert "EXCLUDED from the weakest-link overall_score" in content, (
+        "SKILL.md must state claim_reality_coherence is 'EXCLUDED from the weakest-link overall_score'"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Command file
 # ---------------------------------------------------------------------------
 

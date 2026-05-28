@@ -1,6 +1,9 @@
 # Concept-eval rubric for ddd-concept-eval (SP3.1)
 # Five weighted dimensions; weights sum to 1.0.
 # overall_rule: lowest  (weakest-link scoring — one bad dim fails the eval)
+#   NOTE: overall_rule applies to NON-ADVISORY dimensions only.
+#   claim_reality_coherence has advisory: true and is EXCLUDED from the
+#   weakest-link overall_score computation (see SKILL.md Step 4).
 #
 # ## Calibration status
 # Provisional rubric; calibrate via a defect-creator analog after 3 real runs
@@ -56,14 +59,16 @@ dimensions:
       "1": "The walkthrough's concept_claims are systematically disconnected from the why_brief; the product could be anything."
     deduction_rules:
       - "A scene's provenance field is empty or 'n/a': max 2 per offending scene"
-      - "A concept_claim directly contradicts a why_brief spine item: max 1"
+      - "A concept_claim directly contradicts a why_brief spine item: max 2 per offending scene"
 
   - id: claim_reality_coherence
     label: "Claim–Reality Coherence"
     weight: 0.15
     default_score: 3
     # This dimension is scored and surfaced but NEVER causes verdict=blocked.
+    # advisory: true means it is excluded from the weakest-link overall_score.
     blocking: false
+    advisory: true
     anchor:
       "5": "Every narration claim is fully demonstrated in the captured footage: numbers match, features shown exist in the UI, no 'coming soon' moments."
       "4": "Claims are mostly demonstrated; one claim is narrated but only partially visible in the screenshot."
