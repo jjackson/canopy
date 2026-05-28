@@ -422,3 +422,123 @@ def test_validation_error_format_is_readable(tmp_path):
         assert not p.startswith('{"'), f"Problem looks like raw JSON repr: {p!r}"
         # Should contain a colon separating location from message
         assert ":" in p, f"Problem lacks 'loc: msg' format: {p!r}"
+
+
+# ---------------------------------------------------------------------------
+# Feature semantic checks (DDD v3 — actionable narratives)
+# ---------------------------------------------------------------------------
+
+def _valid_spec_with_features(features: list[dict]) -> dict:
+    """Build a valid UnifiedSpec dict with the given features on its single scene."""
+    return {
+        "name": "Test Spec",
+        "narrative": "A test walkthrough",
+        "base_url": "http://localhost:8000",
+        "personas": {
+            "alice": {"name": "Alice", "role": "PM", "color": "#3B82F6", "intro": "Test persona."}
+        },
+        "scenes": [
+            {
+                "persona": "alice",
+                "title": "Submit Form",
+                "show": "navigate to /form",
+                "concept_claim": "Users can submit the form and see confirmation in under 2 seconds",
+                "provenance": "S1",
+                "features": features,
+            }
+        ],
+    }
+
+
+def test_scene_feature_ids_unique_passes(tmp_path):
+    """Scene with all-unique feature ids validates OK."""
+    from scripts.ddd.validate import validate
+
+    spec = _valid_spec_with_features([
+        {"id": "F1", "description": "Show submit button", "verify": "assert button visible in DOM"},
+        {"id": "F2", "description": "POST /form endpoint", "verify": "pytest: POST /form returns 201"},
+    ])
+    path = _write_yaml(tmp_path, "spec.yaml", spec)
+    ok, problems = validate("unified_spec", path)
+    assert ok is True, f"Expected pass, got: {problems}"
+
+
+def test_scene_duplicate_feature_ids_fails(tmp_path):
+    """Duplicate feature id within a scene fails validation."""
+    from scripts.ddd.validate import validate
+
+    spec = _valid_spec_with_features([
+        {"id": "F1", "description": "First feature", "verify": "assert something works"},
+        {"id": "F1", "description": "Duplicate id", "verify": "assert another thing"},
+    ])
+    path = _write_yaml(tmp_path, "spec.yaml", spec)
+    ok, problems = validate("unified_spec", path)
+    assert ok is False
+    assert any("F1" in p and ("duplicate" in p.lower() or "unique" in p.lower()) for p in problems), \
+        f"Expected duplicate-id problem, got: {problems}"
+
+
+def test_scene_feature_empty_description_fails(tmp_path):
+    """Feature with empty description fails validation."""
+    from scripts.ddd.validate import validate
+
+    spec = _valid_spec_with_features([
+        {"id": "F1", "description": "", "verify": "assert button visible in DOM"},
+    ])
+    path = _write_yaml(tmp_path, "spec.yaml", spec)
+    ok, problems = validate("unified_spec", path)
+    assert ok is False
+    assert any("description" in p.lower() and "F1" in p for p in problems), \
+        f"Expected empty-description problem, got: {problems}"
+
+
+def test_scene_feature_empty_verify_fails(tmp_path):
+    """Feature with empty verify fails validation."""
+    from scripts.ddd.validate import validate
+
+    spec = _valid_spec_with_features([
+        {"id": "F1", "description": "Show submit button on the form", "verify": ""},
+    ])
+    path = _write_yaml(tmp_path, "spec.yaml", spec)
+    ok, problems = validate("unified_spec", path)
+    assert ok is False
+    assert any("verify" in p.lower() and "F1" in p for p in problems), \
+        f"Expected empty-verify problem, got: {problems}"
+
+
+def test_scene_feature_problem_message_includes_scene_title(tmp_path):
+    """Problem messages include the scene title for easy identification."""
+    from scripts.ddd.validate import validate
+
+    spec = _valid_spec_with_features([
+        {"id": "F1", "description": "", "verify": "assert something visible"},
+    ])
+    path = _write_yaml(tmp_path, "spec.yaml", spec)
+    ok, problems = validate("unified_spec", path)
+    assert ok is False
+    assert any("Submit Form" in p for p in problems), \
+        f"Expected scene title 'Submit Form' in problems, got: {problems}"
+
+
+def test_scene_no_features_passes_validate(tmp_path):
+    """Scenes with no features still pass validate() — spec_qa enforces min count."""
+    from scripts.ddd.validate import validate
+
+    spec = _valid_spec_with_features([])
+    path = _write_yaml(tmp_path, "spec.yaml", spec)
+    ok, problems = validate("unified_spec", path)
+    assert ok is True, f"Expected pass (no features is valid for validate), got: {problems}"
+
+
+def test_scene_whitespace_only_verify_fails(tmp_path):
+    """Feature with whitespace-only verify fails validation."""
+    from scripts.ddd.validate import validate
+
+    spec = _valid_spec_with_features([
+        {"id": "F1", "description": "Show submit button on form", "verify": "   "},
+    ])
+    path = _write_yaml(tmp_path, "spec.yaml", spec)
+    ok, problems = validate("unified_spec", path)
+    assert ok is False
+    assert any("verify" in p.lower() and "F1" in p for p in problems), \
+        f"Expected empty-verify problem, got: {problems}"

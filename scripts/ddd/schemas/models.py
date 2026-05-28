@@ -1,4 +1,4 @@
-"""Canonical Pydantic v2 schemas for demo-driven-development v2 (ddd-v2).
+"""Canonical Pydantic v2 schemas for demo-driven-development v3 (ddd-v3).
 
 All models are defined here.  Import them from this module or from
 ``scripts.ddd.schemas`` (re-exported via ``__init__.py``).
@@ -57,6 +57,14 @@ class Persona(BaseModel):
     intro: str
 
 
+class Feature(BaseModel):
+    """A single buildable, verifiable capability within a scene (DDD v3)."""
+
+    id: str
+    description: str  # concrete buildable unit — what to implement
+    verify: str       # how to validate it's done (API assertion, UI state, test command)
+
+
 class Scene(BaseModel):
     persona: str
     title: str
@@ -65,6 +73,7 @@ class Scene(BaseModel):
     provenance: str
     design_intent: str | None = None
     impressive_because: str | None = None
+    features: list[Feature] = []
 
 
 class UnifiedSpec(BaseModel):

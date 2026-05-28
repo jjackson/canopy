@@ -194,6 +194,25 @@ def spec_qa(
                         "write a specific, observable outcome instead"
                     )
 
+            # DDD v3: every scene must have ≥1 feature with a non-vacuous verify
+            if not scene.features:
+                violations.append(
+                    f"scene '{scene.title}': has no features — "
+                    "every scene must declare ≥1 Feature(id, description, verify) "
+                    "so the narrative is buildable and verifiable"
+                )
+            else:
+                for feature in scene.features:
+                    verify_words = feature.verify.strip().split()
+                    if len(verify_words) < 3:
+                        violations.append(
+                            f"scene '{scene.title}' feature '{feature.id}': "
+                            f"verify is non-vacuous (needs ≥3 words) — "
+                            f"'{feature.verify[:80]}' is too vague to be a real validation step; "
+                            "write a concrete check (e.g. 'pytest: POST /form returns 200', "
+                            "'assert confirm_message visible in DOM')"
+                        )
+
     # --------------------------------------------------------------- verdict
     if not violations:
         return Verdict(
@@ -217,6 +236,9 @@ def spec_qa(
             "Each concept_claim must describe a specific, observable, falsifiable "
             "outcome — e.g. 'Users can filter the task list by status and see only "
             "open tasks' not 'a world-class seamless experience'. "
+            "Each scene must declare ≥1 Feature(id, description, verify) where verify "
+            "is a concrete validation step of ≥3 words — e.g. "
+            "'pytest: POST /form returns 200' or 'assert confirm_message visible in DOM'. "
             "Persona must be defined in the personas dict. "
             "Provenance must match a SpineItem.id in the linked why_brief. "
             "All required fields (name, narrative, base_url, personas, scenes) must be present."

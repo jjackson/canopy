@@ -51,8 +51,17 @@ def _spec_data(
     provenance: str = "S1",
     persona_key: str = "alice",
     why_brief_rel: str | None = None,
+    features: list[dict] | None = None,
 ) -> dict:
     """Build a minimal valid UnifiedSpec dict."""
+    if features is None:
+        features = [
+            {
+                "id": "F1",
+                "description": "Submit button on the form page triggers a POST request",
+                "verify": "pytest: POST /form returns 200 and response contains confirmation_id",
+            }
+        ]
     return {
         "name": "My Feature Walkthrough",
         "narrative": "Demonstrates the core user journey",
@@ -74,6 +83,7 @@ def _spec_data(
                 "concept_claim": concept_claim,
                 "provenance": provenance,
                 "design_intent": "Test that confirmation feedback is immediate",
+                "features": features,
             }
         ],
     }
@@ -505,3 +515,119 @@ def test_cli_extra_arg_exits_2(tmp_path):
         check=False,
     )
     assert result.returncode == 2
+
+
+# ---------------------------------------------------------------------------
+# DDD v3: actionable features — spec_qa enforces ≥1 feature per scene
+# ---------------------------------------------------------------------------
+
+def test_scene_with_zero_features_fails():
+    """spec_qa fails when a scene has no features (v3 requires ≥1)."""
+    from scripts.ddd.spec_qa import spec_qa
+
+    spec = _spec_data(features=[])
+    result = spec_qa(spec)
+    assert result.verdict == "fail"
+    assert result.blocking_reason is not None
+    assert "feature" in result.blocking_reason.lower()
+
+
+def test_scene_with_one_valid_feature_passes():
+    """spec_qa passes when a scene has exactly one valid feature."""
+    from scripts.ddd.spec_qa import spec_qa
+
+    spec = _spec_data(features=[
+        {
+            "id": "F1",
+            "description": "POST /form endpoint accepts form data and returns 200",
+            "verify": "pytest: POST /form with valid payload returns 200 and confirmation_id in body",
+        }
+    ])
+    result = spec_qa(spec)
+    assert result.verdict == "pass", f"Expected pass, got: {result.blocking_reason}"
+
+
+def test_scene_feature_verify_too_short_fails():
+    """A feature whose verify is non-empty but fewer than 3 words fails spec_qa."""
+    from scripts.ddd.spec_qa import spec_qa
+
+    spec = _spec_data(features=[
+        {
+            "id": "F1",
+            "description": "Button on the form triggers a POST",
+            "verify": "it works",  # only 2 words — not a real validation step
+        }
+    ])
+    result = spec_qa(spec)
+    assert result.verdict == "fail"
+    assert result.blocking_reason is not None
+    assert "verify" in result.blocking_reason.lower() or "F1" in result.blocking_reason
+
+
+def test_scene_feature_verify_three_words_passes():
+    """A verify string of exactly 3 words passes spec_qa."""
+    from scripts.ddd.spec_qa import spec_qa
+
+    spec = _spec_data(features=[
+        {
+            "id": "F1",
+            "description": "Form submit button calls the backend endpoint",
+            "verify": "assert API responds",  # exactly 3 words — passes
+        }
+    ])
+    result = spec_qa(spec)
+    assert result.verdict == "pass", f"Expected pass, got: {result.blocking_reason}"
+
+
+def test_blocking_reason_lists_scene_and_feature():
+    """The blocking_reason names the scene title and feature id for context."""
+    from scripts.ddd.spec_qa import spec_qa
+
+    spec = _spec_data(features=[])
+    result = spec_qa(spec)
+    assert result.verdict == "fail"
+    assert result.blocking_reason is not None
+    # Should mention the scene title "Submit Form"
+    assert "Submit Form" in result.blocking_reason
+
+
+def test_multiple_scenes_one_missing_features_fails():
+    """All scenes must have ≥1 feature; if any lack features, spec_qa fails."""
+    from scripts.ddd.spec_qa import spec_qa
+
+    spec = _spec_data(features=[
+        {
+            "id": "F1",
+            "description": "Submit button triggers POST to /form endpoint",
+            "verify": "pytest: POST /form returns 200 and confirmation_id in response body",
+        }
+    ])
+    # Add a second scene with no features
+    spec["personas"]["bob"] = {
+        "name": "Bob",
+        "role": "Field Worker",
+        "color": "#10B981",
+        "intro": "Bob delivers services in the field.",
+    }
+    spec["scenes"].append({
+        "persona": "bob",
+        "title": "View Task",
+        "show": "navigate to /tasks",
+        "concept_claim": "Field workers can see their assigned tasks ordered by due date",
+        "provenance": "S1",
+        "features": [],  # no features — should fail
+    })
+    result = spec_qa(spec)
+    assert result.verdict == "fail"
+    assert result.blocking_reason is not None
+    assert "View Task" in result.blocking_reason or "feature" in result.blocking_reason.lower()
+
+
+def test_fix_recommendation_mentions_verify():
+    """fix_recommendation must mention 'verify' to guide the author."""
+    from scripts.ddd.spec_qa import spec_qa
+
+    spec = _spec_data(features=[])
+    result = spec_qa(spec)
+    assert result.fix_recommendation is not None
+    assert "verify" in result.fix_recommendation.lower() or "feature" in result.fix_recommendation.lower()
