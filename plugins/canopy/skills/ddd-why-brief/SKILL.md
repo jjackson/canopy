@@ -43,7 +43,7 @@ Load and parse the evidence inventory.  Note the feature name, total item count,
 
 ### Step 2 — Draft `problem`
 
-Write one clear, specific sentence that states the problem this feature solves.  The problem statement must:
+Write one clear, specific sentence that states the problem this feature solves.  This sentence becomes the top-level `problem:` field in `why_brief.yaml` (not inside any spine item).  The problem statement must:
 - Name who has the problem (user role / actor)
 - Name what is painful or missing
 - Be falsifiable — a reader can imagine evidence that confirms or refutes it
@@ -115,7 +115,7 @@ Run the structural validator:
 python -m scripts.ddd.validate why_brief <run_dir>/why_brief.yaml
 ```
 
-If it exits non-zero, read each problem listed and fix `why_brief.yaml`.  Re-run until the validator exits 0.
+If it exits non-zero, read each problem listed and fix `why_brief.yaml`.  Re-run until the validator exits 0.  After 3 fix attempts, if the validator still exits non-zero, stop and surface the remaining errors to the user rather than looping further.
 
 Common fixes:
 - `grounded but no non-assumed evidence` → change `status` to `gap` or add real evidence.

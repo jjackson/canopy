@@ -1,19 +1,27 @@
 """DDD Why-Brief structural QA (SP1.3).
 
-Pure-python, no LLM.  Reuses scripts/ddd/validate.py plus extra structural rules.
+Pure-python, no LLM.  Delegates structural + semantic rules to validate.py;
+adds QA-specific empty-field checks.
 
 Exposes:
     why_qa(brief_obj_or_path) -> Verdict
 
 Rules checked:
+    (via validate.py → _semantic_why_brief)
+    (d) duplicate SpineItem.id is an error
+    (c) grounded SpineItem must have >=1 evidence with kind != 'assumed'
+    (e) every Gap.claim_ref must resolve to a SpineItem.id
+
+    (QA-specific, not in validate.py)
     (a) problem must be non-empty / non-whitespace
     (b) every SpineItem.rationale must be non-empty / non-whitespace
-    (c) every grounded SpineItem must have >=1 evidence with kind != 'assumed'
-    (d) every Gap.claim_ref must resolve to a SpineItem.id
 
 Returns the ``Verdict`` model from scripts/ddd/schemas/models.py.
 ``verdict="pass"`` when all rules pass; ``verdict="fail"`` with a
 ``blocking_reason`` listing every violation when any rule fires.
+
+On missing path or malformed/unloadable input, returns a ``fail`` Verdict
+instead of raising — consistent with the ``-> Verdict`` contract.
 
 CLI:
     python -m scripts.ddd.why_qa <path>   # exits 0 on pass, 1 on fail, 2 on usage error
@@ -28,10 +36,16 @@ from typing import Union
 import yaml
 
 from scripts.ddd.schemas.models import Verdict, WhyBrief
+from scripts.ddd.validate import validate
 
 
 def why_qa(brief_obj_or_path: Union[WhyBrief, Path, str]) -> Verdict:
     """Run structural QA on a WhyBrief.
+
+    Delegates structural + semantic rules to ``validate("why_brief", ...)``
+    (which covers duplicate-spine-id, grounded-evidence, and claim_ref checks),
+    then adds QA-specific empty-field checks (empty/whitespace ``problem`` and
+    ``rationale`` fields) that validate does not enforce.
 
     Parameters
     ----------
@@ -44,50 +58,55 @@ def why_qa(brief_obj_or_path: Union[WhyBrief, Path, str]) -> Verdict:
     Verdict
         ``verdict="pass"`` if all structural rules pass.
         ``verdict="fail"`` with ``blocking_reason`` listing every violation.
+        Never raises — missing files and parse/validation errors are returned
+        as a ``fail`` Verdict.
     """
     # ------------------------------------------------------------------ load
     if isinstance(brief_obj_or_path, WhyBrief):
         brief = brief_obj_or_path
+        # Run validate on the dict representation so we get its semantic checks
+        _ok, _validate_problems = validate("why_brief", brief.model_dump())
     else:
         path = Path(brief_obj_or_path)
-        text = path.read_text()
-        if path.suffix.casefold() == ".json":
-            raw = json.loads(text)
-        else:
-            raw = yaml.safe_load(text)
-        brief = WhyBrief.model_validate(raw)
+        if not path.exists():
+            return Verdict(
+                schema_version=1,
+                dimensions={},
+                overall_score=0.0,
+                verdict="fail",
+                blocking_reason=f"File not found: {path}",
+                fix_recommendation="Provide a valid path to a why_brief YAML or JSON file.",
+            )
+        try:
+            text = path.read_text()
+            if path.suffix.casefold() == ".json":
+                raw = json.loads(text)
+            else:
+                raw = yaml.safe_load(text)
+            brief = WhyBrief.model_validate(raw)
+        except Exception as exc:
+            return Verdict(
+                schema_version=1,
+                dimensions={},
+                overall_score=0.0,
+                verdict="fail",
+                blocking_reason=f"Could not load or parse why_brief: {exc}",
+                fix_recommendation="Ensure the file is valid YAML/JSON conforming to the WhyBrief schema.",
+            )
+        _ok, _validate_problems = validate("why_brief", path)
 
     # ---------------------------------------------------------------- checks
-    violations: list[str] = []
+    violations: list[str] = list(_validate_problems)  # delegate to validate.py
 
-    # (a) problem must be non-empty
+    # (a) problem must be non-empty (QA-specific)
     if not brief.problem.strip():
         violations.append("problem: must not be empty")
 
-    # (b) every SpineItem.rationale must be non-empty
+    # (b) every SpineItem.rationale must be non-empty (QA-specific)
     for item in brief.spine:
         if not item.rationale.strip():
             violations.append(
                 f"SpineItem '{item.id}': rationale must not be empty"
-            )
-
-    # (c) grounded items must have >=1 non-assumed evidence
-    for item in brief.spine:
-        if item.status == "grounded":
-            real = [e for e in item.evidence if e.kind != "assumed"]
-            if not real:
-                violations.append(
-                    f"SpineItem '{item.id}': marked grounded but has no "
-                    "non-assumed evidence (documented or implemented required)"
-                )
-
-    # (d) Gap.claim_ref must resolve to a SpineItem.id
-    spine_ids = {item.id for item in brief.spine}
-    for gap in brief.gaps:
-        if gap.claim_ref not in spine_ids:
-            violations.append(
-                f"Gap '{gap.id}': claim_ref '{gap.claim_ref}' does not match "
-                "any SpineItem.id"
             )
 
     # --------------------------------------------------------------- verdict
@@ -113,7 +132,7 @@ def why_qa(brief_obj_or_path: Union[WhyBrief, Path, str]) -> Verdict:
             "Each violation is a load-bearing rule: empty rationale leaves the "
             "spine claim unjustified; a grounded claim without real evidence is "
             "aspirational, not grounded; an unresolved claim_ref is a dangling "
-            "pointer."
+            "pointer; duplicate spine ids break provenance tracing."
         ),
     )
 
@@ -131,11 +150,7 @@ if __name__ == "__main__":
         sys.exit(2)
 
     _path = Path(sys.argv[1])
-    try:
-        _result = why_qa(_path)
-    except Exception as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+    _result = why_qa(_path)
 
     if _result.verdict == "pass":
         print("why_qa: pass")

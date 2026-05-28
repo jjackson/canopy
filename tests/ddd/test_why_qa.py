@@ -255,15 +255,17 @@ def test_gap_claim_ref_resolved_passes():
 def test_multiple_failures_mentioned_in_blocking_reason():
     from scripts.ddd.why_qa import why_qa
 
+    # Violates both: empty problem AND empty rationale on spine item
     brief = _brief(
         problem="",
         spine=[SpineItem(id="S1", claim="C", rationale="", status="gap")],
     )
     result = why_qa(brief)
     assert result.verdict == "fail"
-    # Both issues should appear
+    # Both issues should appear in blocking_reason
     assert result.blocking_reason is not None
-    assert len(result.blocking_reason) > 10
+    assert "problem" in result.blocking_reason.lower()
+    assert "rationale" in result.blocking_reason.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +309,8 @@ def test_cli_exit_1_on_invalid(tmp_path):
     assert result.returncode == 1
 
 
-def test_cli_missing_file_exits_2():
+def test_cli_no_args_exits_2_usage():
+    """Zero args → exit 2 (usage error)."""
     import subprocess, sys
 
     result = subprocess.run(
@@ -315,3 +318,60 @@ def test_cli_missing_file_exits_2():
         capture_output=True, text=True, check=False,
     )
     assert result.returncode == 2
+
+
+def test_cli_bad_path_exits_1():
+    """Bad/missing <path> argument → exit 1 (not a usage error)."""
+    import subprocess, sys
+
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.ddd.why_qa", "/nonexistent/why_brief.yaml"],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 1
+
+
+# ---------------------------------------------------------------------------
+# Delegated checks: duplicate SpineItem.id (via validate.py)
+# ---------------------------------------------------------------------------
+
+def test_duplicate_spine_id_fails():
+    """why_qa delegates to validate.py which catches duplicate spine ids."""
+    from scripts.ddd.why_qa import why_qa
+
+    brief = _brief(
+        spine=[
+            SpineItem(
+                id="S1",
+                claim="First claim",
+                rationale="Rationale one",
+                status="grounded",
+                evidence=[Evidence(kind="documented", ref="doc://a")],
+            ),
+            SpineItem(
+                id="S1",  # duplicate id — same as first item
+                claim="Second claim",
+                rationale="Rationale two",
+                status="grounded",
+                evidence=[Evidence(kind="documented", ref="doc://b")],
+            ),
+        ]
+    )
+    result = why_qa(brief)
+    assert result.verdict == "fail"
+    assert result.blocking_reason is not None
+    assert "duplicate" in result.blocking_reason.lower() or "S1" in result.blocking_reason
+
+
+# ---------------------------------------------------------------------------
+# Library contract: missing / malformed input returns Verdict (does not raise)
+# ---------------------------------------------------------------------------
+
+def test_nonexistent_path_returns_fail_verdict():
+    """why_qa(Path('/nonexistent.yaml')) returns a fail Verdict, does not raise."""
+    from scripts.ddd.why_qa import why_qa
+
+    result = why_qa(Path("/nonexistent.yaml"))
+    assert isinstance(result, Verdict)
+    assert result.verdict == "fail"
+    assert result.blocking_reason is not None
