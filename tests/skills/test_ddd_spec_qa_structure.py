@@ -81,15 +81,22 @@ def test_skill_mentions_delegation_to_validate() -> None:
 
 
 def test_skill_is_gate_before_concept_judge() -> None:
-    """Skill must declare itself as the gate before concept judge."""
+    """Skill must declare itself as the gate before ddd-concept-eval."""
     content = (SKILL_DIR / "SKILL.md").read_text()
-    assert "concept judge" in content.lower() or "concept-judge" in content.lower()
+    assert "ddd-concept-eval" in content
 
 
-def test_skill_mentions_verb_requirement() -> None:
-    """Skill must mention the verb requirement for concept_claims."""
+def test_skill_mentions_real_falsifiability_rules() -> None:
+    """Skill must mention the actual rules: banned phrases + minimum length (not verb detection)."""
     content = (SKILL_DIR / "SKILL.md").read_text()
-    assert "verb" in content.lower()
+    # Must mention banned-phrase rule
+    assert "banned" in content.lower() or "marketing" in content.lower(), (
+        "SKILL.md must document the banned marketing phrases rule"
+    )
+    # Must mention minimum-length rule
+    assert "5 words" in content or "fewer than 5" in content or "minimum" in content.lower(), (
+        "SKILL.md must document the minimum-length rule"
+    )
 
 
 def test_command_has_description() -> None:

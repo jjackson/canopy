@@ -1,5 +1,5 @@
 ---
-description: Run pure-python structural QA on a unified spec YAML — delegates provenance/persona/schema checks to validate(), adds falsifiability check on every concept_claim (no banned marketing phrases, minimum 5 words). Returns pass | fail verdict. Gates the concept judge.
+description: Run pure-python structural QA on a unified spec YAML — delegates provenance/persona/schema checks to validate(), adds falsifiability check on every concept_claim (no banned marketing phrases, minimum 5 words). Returns pass | fail verdict. Gates the concept judge (ddd-concept-eval).
 argument-hint: [<spec_path>]
 allowed-tools: [Read, Bash]
 ---

@@ -83,7 +83,9 @@ Each scene must include:
     "robust", "best-in-class", "cutting-edge", or similar marketing language.
     DO write: a specific action and its observable result, optionally with a
     measurable outcome (e.g. "within 2 seconds", "without leaving the page").
-  - **Contains a verb** — passive or active, but something must happen.
+  - **At least 5 words** — a claim shorter than 5 words is too vague to be testable.
+    Subtle vacuousness (e.g. articulate-but-empty fluff) is caught later by the LLM
+    concept judge (/ddd-concept-eval).
 - `provenance` — the `SpineItem.id` this scene demonstrates (e.g. `"S1"`).  Must
   match an existing spine id in the linked why_brief.
 - `design_intent` (optional but strongly recommended) — the design decision or
@@ -95,8 +97,8 @@ Each scene must include:
 - "The sampling engine selects buildings proportional to floor count and shows the sample on a map"
 
 **Examples of non-falsifiable concept_claims (will fail ddd-spec-qa):**
-- "A world-class seamless experience for field workers" — banned phrases, no verb
-- "Robust performance" — banned phrase, no observable action
+- "A world-class seamless experience for field workers" — banned phrases (world-class, seamless)
+- "Robust performance" — banned phrase, too short to be testable
 - "Powerful filtering" — banned phrase
 
 ### Step 4 — Fill canopy walkthrough header keys
@@ -193,7 +195,7 @@ DDD Unified Spec — <feature>
   Validator (structural): PASS
   Validator (spec_qa):    PASS
 
-Next step: run /ddd-spec-qa for full structural QA, then /ddd-concept-judge.
+Next step: run /ddd-spec-qa for full structural QA, then /ddd-concept-eval.
 ```
 
 If there are DECISION gaps from the why_brief, list them explicitly so the user

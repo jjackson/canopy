@@ -5,7 +5,7 @@ description: |
   delegates to validate() for persona-defined, provenance-to-spine-id, and
   required-field checks; adds falsifiability check on every Scene.concept_claim
   (fails on empty, whitespace, banned marketing phrases, or fewer than 5 words).
-  Returns a Verdict (pass | fail). Gates the concept judge (ddd-concept-judge).
+  Returns a Verdict (pass | fail). Gates the concept judge (ddd-concept-eval).
   Use when asked to "qa the spec", "validate spec", or after ddd-spec completes.
 ---
 
@@ -97,7 +97,7 @@ If `verdict: pass`, tell the user:
 
 ```
 ddd-spec-qa: PASS
-Next step: run /ddd-concept-judge to score concept_claims against the walkthrough.
+Next step: run /ddd-concept-eval to score concept_claims against the walkthrough.
 ```
 
 ### Step 4 — On fail: guide the fix

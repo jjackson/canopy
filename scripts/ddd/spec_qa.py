@@ -190,7 +190,7 @@ def spec_qa(
                 else:
                     violations.append(
                         f"scene '{scene.title}': concept_claim is not falsifiable — "
-                        f"'{claim[:80]}' uses marketing language or has no verb; "
+                        f"'{claim[:80]}' uses marketing language or is too short (fewer than 5 words); "
                         "write a specific, observable outcome instead"
                     )
 

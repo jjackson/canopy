@@ -166,7 +166,7 @@ If verdict is `pass`, tell the user:
 
 ```
 Why-brief is ready. Next step: run /ddd-why-brief to iterate if needed, or
-proceed to the concept gate (/ddd-concept-gate) with any DECISION gaps surfaced.
+proceed to the concept judge (/ddd-concept-eval) with any DECISION gaps surfaced.
 ```
 
 ## Output verdict shape
