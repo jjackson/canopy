@@ -1,0 +1,151 @@
+{
+  "$defs": {
+    "Persona": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "color": {
+          "title": "Color",
+          "type": "string"
+        },
+        "intro": {
+          "title": "Intro",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "role",
+        "color",
+        "intro"
+      ],
+      "title": "Persona",
+      "type": "object"
+    },
+    "Scene": {
+      "properties": {
+        "persona": {
+          "title": "Persona",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "show": {
+          "title": "Show",
+          "type": "string"
+        },
+        "concept_claim": {
+          "title": "Concept Claim",
+          "type": "string"
+        },
+        "provenance": {
+          "title": "Provenance",
+          "type": "string"
+        },
+        "design_intent": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Design Intent"
+        },
+        "impressive_because": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Impressive Because"
+        }
+      },
+      "required": [
+        "persona",
+        "title",
+        "show",
+        "concept_claim",
+        "provenance"
+      ],
+      "title": "Scene",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "narrative": {
+      "title": "Narrative",
+      "type": "string"
+    },
+    "base_url": {
+      "title": "Base Url",
+      "type": "string"
+    },
+    "auth": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Auth"
+    },
+    "why_brief": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Why Brief"
+    },
+    "personas": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Persona"
+      },
+      "title": "Personas",
+      "type": "object"
+    },
+    "scenes": {
+      "items": {
+        "$ref": "#/$defs/Scene"
+      },
+      "title": "Scenes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "name",
+    "narrative",
+    "base_url",
+    "personas",
+    "scenes"
+  ],
+  "title": "UnifiedSpec",
+  "type": "object"
+}
