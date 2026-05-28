@@ -59,12 +59,17 @@ bootstrap pattern exactly.
 
 ## Bootstrap
 
-1. Resolve the DDD directory:
+1. Resolve the DDD directory and canopy repo:
 
    ```bash
    PLUGIN_PATH=$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude/plugins/installed_plugins.json'))); print(d['plugins']['canopy@canopy'][0]['installPath'])")
    DDD_DIR=$(bash "$PLUGIN_PATH/scripts/ddd/resolve_ddd_dir.sh")
+   # scripts/ddd ships in the canopy repo, not the plugin cache — resolve it:
+   DDD_REPO="$HOME/emdash-projects/canopy"; [ -d "$DDD_REPO/scripts/ddd" ] || DDD_REPO="$HOME/.claude/plugins/marketplaces/canopy"
+   if [ ! -d "$DDD_REPO/scripts/ddd" ]; then echo "ERROR: scripts/ddd not found — run /canopy:update to sync the canopy checkout"; exit 1; fi
    ```
+
+   `$DDD_REPO` is used throughout the agent for all `scripts.ddd` invocations.
 
 2. Read `$DDD_DIR/context.md`. If it does not exist or is empty, bootstrap it:
    - Read CLAUDE.md and the git log (`git log --oneline -20`)
@@ -73,9 +78,9 @@ bootstrap pattern exactly.
 
 3. Read `$DDD_DIR/learnings.md` (may not exist yet — that is fine).
 
-4. Start or resume a run:
-   - **New run:** `python -c "from scripts.ddd.runstate import new_run; print(new_run('<feature>'))"`
-   - **Resume:** `python -c "from scripts.ddd.runstate import load; state = load('<run_id>'); print(state.phase)"`
+4. Start or resume a run (run from `$DDD_REPO` so `scripts.ddd` is importable):
+   - **New run:** `(cd "$DDD_REPO" && uv run python -c "from scripts.ddd.runstate import new_run; print(new_run('<feature>'))")`
+   - **Resume:** `(cd "$DDD_REPO" && uv run python -c "from scripts.ddd.runstate import load; state = load('<run_id>'); print(state.phase)")`
 
 ---
 
@@ -185,14 +190,18 @@ Findings arrive from **two distinct sources** with different route vocabularies.
 
 ## Converge or loop
 
-After routing all findings and re-rendering changed scenes:
+After routing all findings and re-rendering changed scenes (run from `$DDD_REPO`
+so `scripts.ddd` is importable; `$DDD_REPO` is resolved in Bootstrap Step 1):
 
-```python
+```bash
+(cd "$DDD_REPO" && uv run python -c "
 from scripts.ddd.run_pipeline import compute_convergence, MAX_ITERATIONS  # MAX_ITERATIONS caps the iteration loop described below
 from scripts.ddd.runstate import load
 
-state = load(run_id)
+state = load('$RUN_ID')
 converged = compute_convergence(concept_verdict, user_verdict)
+print('converged:', converged)
+")
 ```
 
 **If `converged` is True:** proceed toward promotion. This is the
@@ -227,11 +236,10 @@ After every complete iteration:
    to `.canopy/ddd/learnings.md` in the format:
    `[gate-tracking] class=<class> decision=<accept|redirect> run=<run_id>`
 
-3. **Save run state:**
+3. **Save run state** (run from `$DDD_REPO` so `scripts.ddd` is importable):
 
-   ```python
-   from scripts.ddd.runstate import save
-   save(state)
+   ```bash
+   (cd "$DDD_REPO" && uv run python -c "from scripts.ddd.runstate import save; save(state)")
    ```
 
 ---

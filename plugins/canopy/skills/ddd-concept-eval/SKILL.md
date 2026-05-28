@@ -51,10 +51,16 @@ concept** is sound — not whether the video is pretty. Emits structured
 
 ### Step 0 — Check QA gate
 
-Before scoring, verify ddd-spec-qa has passed for this spec:
+Before scoring, verify ddd-spec-qa has passed for this spec (the script lives in
+the canopy repo):
 
 ```bash
-python -m scripts.ddd.spec_qa <run_dir>/unified_spec.yaml
+# scripts/ddd ships in the canopy repo, not the plugin cache — resolve it:
+DDD_REPO="$HOME/emdash-projects/canopy"; [ -d "$DDD_REPO/scripts/ddd" ] || DDD_REPO="$HOME/.claude/plugins/marketplaces/canopy"
+if [ ! -d "$DDD_REPO/scripts/ddd" ]; then echo "ERROR: scripts/ddd not found — run /canopy:update to sync the canopy checkout"; exit 1; fi
+# pass the file arg as an absolute path (resolved before the cd):
+SPEC_ABS="$(realpath <run_dir>/unified_spec.yaml)"
+(cd "$DDD_REPO" && uv run python -m scripts.ddd.spec_qa "$SPEC_ABS")
 ```
 
 If the exit code is non-zero (verdict: fail), stop immediately and tell the user:

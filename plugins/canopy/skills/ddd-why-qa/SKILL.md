@@ -35,8 +35,15 @@ Pure python — deterministic, fast, no LLM calls.  Implements four rules:
 
 ### Step 1 — Run the QA module
 
+Run the QA module (it lives in the canopy repo):
+
 ```bash
-python -m scripts.ddd.why_qa <why_brief_path>
+# scripts/ddd ships in the canopy repo, not the plugin cache — resolve it:
+DDD_REPO="$HOME/emdash-projects/canopy"; [ -d "$DDD_REPO/scripts/ddd" ] || DDD_REPO="$HOME/.claude/plugins/marketplaces/canopy"
+if [ ! -d "$DDD_REPO/scripts/ddd" ]; then echo "ERROR: scripts/ddd not found — run /canopy:update to sync the canopy checkout"; exit 1; fi
+# pass the file arg as an absolute path (resolved before the cd):
+WHY_BRIEF_ABS="$(realpath <why_brief_path>)"
+(cd "$DDD_REPO" && uv run python -m scripts.ddd.why_qa "$WHY_BRIEF_ABS")
 ```
 
 The module exits 0 on pass, 1 on fail.  Capture stdout/stderr to display to the user.
