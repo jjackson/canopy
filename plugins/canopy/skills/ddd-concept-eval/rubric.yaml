@@ -1,0 +1,90 @@
+# Concept-eval rubric for ddd-concept-eval (SP3.1)
+# Five weighted dimensions; weights sum to 1.0.
+# overall_rule: lowest  (weakest-link scoring — one bad dim fails the eval)
+#
+# ## Calibration status
+# Provisional rubric; calibrate via a defect-creator analog after 3 real runs
+# (deferred per spec). Not yet calibrated.
+
+overall_rule: lowest
+
+# Output schema for design_findings[] collected during the eval.
+# Each finding: {scene, dimension, severity, route, detail, fix_recommendation}
+# route must be one of the four values below.
+design_findings_output:
+  fields: [scene, dimension, severity, route, detail, fix_recommendation]
+  route_values: [PRODUCT, CONCEPT, RESEARCH, DEFER]
+
+dimensions:
+  - id: concept_clarity
+    label: "Concept Clarity"
+    weight: 0.20
+    default_score: 3
+    anchor:
+      "5": "A smart outsider watching the walkthrough for the first time can state in one sentence what the product does and why it matters — without any verbal caveats from the presenter."
+      "4": "Concept is clear; one scene requires a spoken bridge to land the 'why it matters' for a cold audience."
+      "3": "Concept is understandable to someone already familiar with the space, but a true outsider would need a question answered. (DEFAULT)"
+      "2": "The walkthrough establishes what the product does but not why anyone would want it; or it assumes context a new viewer won't have."
+      "1": "A smart outsider would leave confused about both what the product is and why it matters."
+    deduction_rules:
+      - "No scene names a concrete user or role the product serves: max 3"
+      - "Opening scene fails to establish the problem being solved: max 2"
+
+  - id: design_soundness
+    label: "Design Soundness"
+    weight: 0.25
+    default_score: 3
+    anchor:
+      "5": "Every interaction shown is coherent — inputs lead to outputs that match the concept; there are no dead ends, contradictory affordances, or unexplained leaps."
+      "4": "Interactions are sound; one flow step feels slightly off (e.g. an unexpected modal, an unlabeled action) but doesn't break the idea."
+      "3": "The idea holds together at a high level; some interactions are hand-wavy or skipped over in the footage. (DEFAULT)"
+      "2": "At least one core interaction shown is incoherent or would confuse a first-time user trying to reproduce it."
+      "1": "The walkthrough shows interactions that contradict each other or that break the product's own logic."
+    deduction_rules:
+      - "A scene shows an error state without explaining it: max 2"
+      - "A core action is clicked off-camera or skipped entirely with no narration: max 3"
+
+  - id: why_groundedness
+    label: "Why Groundedness"
+    weight: 0.20
+    default_score: 3
+    anchor:
+      "5": "Every scene's concept_claim traces directly to a named why_brief spine item with matching rationale and non-assumed evidence. The provenance chain is unbroken from claim to evidence."
+      "4": "All concept_claims trace to the why_brief; one claim's provenance points to a spine item whose evidence is assumed rather than grounded."
+      "3": "Most concept_claims are backed by the why_brief; 1-2 claims are asserted in narration without a clear provenance link. (DEFAULT)"
+      "2": "Multiple concept_claims have no traceable connection to the why_brief spine — they appear to have been invented for the walkthrough."
+      "1": "The walkthrough's concept_claims are systematically disconnected from the why_brief; the product could be anything."
+    deduction_rules:
+      - "A scene's provenance field is empty or 'n/a': max 2 per offending scene"
+      - "A concept_claim directly contradicts a why_brief spine item: max 1"
+
+  - id: claim_reality_coherence
+    label: "Claim–Reality Coherence"
+    weight: 0.15
+    default_score: 3
+    # This dimension is scored and surfaced but NEVER causes verdict=blocked.
+    blocking: false
+    anchor:
+      "5": "Every narration claim is fully demonstrated in the captured footage: numbers match, features shown exist in the UI, no 'coming soon' moments."
+      "4": "Claims are mostly demonstrated; one claim is narrated but only partially visible in the screenshot."
+      "3": "Most claims are shown; 1-2 claims require the viewer to trust the narrator rather than what they can see. (DEFAULT)"
+      "2": "Multiple narration claims have no corresponding evidence in the footage — the narrator says things the screenshots don't back up."
+      "1": "The walkthrough's narration systematically overstates what the footage shows; a viewer would feel misled."
+    deduction_rules:
+      - "Narrated statistic or number not visible anywhere in the captured page text: max 2 per scene"
+      - "Narration references a UI element not present in the screenshot: max 2 per scene"
+
+  - id: motion_friction
+    label: "Motion Friction"
+    weight: 0.20
+    default_score: 3
+    anchor:
+      "5": "The walkthrough flows naturally — transitions are smooth, no scene requires the viewer to mentally skip awkward moments; the product looks like a pleasure to use."
+      "4": "Flow is mostly smooth; one scene has a noticeable hesitation, slow load, or clunky transition that a script revision could fix."
+      "3": "There are rough edges visible (slow loads, jarring page transitions, confusing navigation order) but they don't stop the demo. (DEFAULT)"
+      "2": "Multiple scenes have friction points that would cause a live demo presenter to stutter or skip ahead; the product looks hard to use."
+      "1": "The walkthrough is so friction-laden that the product appears broken or unusable to a viewer watching cold."
+    deduction_rules:
+      - "A scene shows a loading spinner dominating the frame: max 3"
+      - "Scene order requires the viewer to go backwards conceptually (later scenes set up earlier ones): max 2"
+      - "A navigational dead-end is captured (404, blank page, error) with no recovery shown: max 1"
