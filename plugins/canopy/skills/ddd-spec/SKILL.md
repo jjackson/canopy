@@ -90,6 +90,38 @@ Each scene must include:
   match an existing spine id in the linked why_brief.
 - `design_intent` (optional but strongly recommended) — the design decision or
   hypothesis under test in this scene.  What are we betting on?
+- **`features` (required by ddd-spec-qa — ≥1 per scene)** — a list of concrete
+  buildable units.  Each feature must have:
+  - `id` — a short unique slug (e.g. `"boundary-draw"`).
+  - `description` — what to implement, in one sentence.  Must be concrete enough
+    that an engineer can open a ticket from it.
+  - `verify` — a **runnable validation** (≥3 words) — a real API assertion, UI
+    state check, or test command.  Vague phrases like "check it works" will fail
+    the `ddd-narrative-actionability-eval`.
+
+**Good features vs vague features:**
+
+```yaml
+# GOOD — concrete buildable unit with a runnable verify
+features:
+  - id: task-filter-ui
+    description: Status dropdown filter on the task list page (/tasks)
+    verify: "Playwright: select 'Open' in Status dropdown, assert only open tasks visible"
+  - id: task-filter-api
+    description: "GET /tasks?status= filters tasks server-side by status enum"
+    verify: "pytest: GET /tasks?status=open returns 200 with all tasks having status=open"
+
+# BAD — vague, not runnable
+features:
+  - id: filtering
+    description: Add filtering support
+    verify: test it  # too short, not a real assertion
+```
+
+**`ddd-spec-qa` now requires ≥1 verifiable feature per scene.**  A scene with
+`features: []` (or no `features` key) will fail spec-qa and block the gate.
+The `ddd-narrative-actionability-eval` will additionally score whether the
+narration (concept_claim + show) implies those features to a cold reader.
 
 **Examples of falsifiable concept_claims:**
 - "When a supervisor submits the audit form, the FLW receives a coaching task within 60 seconds"
@@ -127,6 +159,10 @@ scenes:
     concept_claim: ...
     provenance: ...
     design_intent: ...
+    features:
+      - id: <slug>
+        description: <concrete buildable unit — what to implement>
+        verify: <runnable validation — API assertion, UI state check, or test command>
 ```
 
 The output file path is `<run_dir>/<feature>.yaml`.
@@ -195,16 +231,19 @@ DDD Unified Spec — <feature>
   Spine items: N → M scenes
   Personas: <list of persona names>
   Scenes:
-    [S1] <scene title> — <concept_claim (first 60 chars)>...
-    [S2] <scene title> — ...
+    [S1] <scene title> — <concept_claim (first 60 chars)>... (N features)
+    [S2] <scene title> — ... (N features)
 
   Output: docs/walkthroughs/<feature>.yaml
   Validator (structural): PASS
   Validator (spec_qa):    PASS
 
-Next step: run /ddd-spec-qa for structural QA, then **/ddd-narrative-review to get
-the user's explicit agreement on the narrative (the concept gate) — before any
-rendering or building** — then /ddd-run.
+Next steps:
+  1. /ddd-narrative-actionability-eval — LLM-as-judge: can a cold reader derive the
+     declared features from the narration alone? (gate — must pass before review)
+  2. /ddd-narrative-review — get the user's explicit approve/redraft on the story
+     arc (the concept gate) before any rendering or building.
+  3. /ddd-run — render, judge, and converge.
 ```
 
 If there are DECISION gaps from the why_brief, list them explicitly so the user

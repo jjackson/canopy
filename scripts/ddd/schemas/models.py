@@ -110,14 +110,29 @@ class Decision(BaseModel):
     class_: str = Field(alias="class")
 
 
+class NarrationItem(BaseModel):
+    """One scene's narration entry in a ReviewRequest (DDD v3).
+
+    Carries the scene's story beat (``text``), its index (``scene``), its
+    slug (``id``), and the list of concrete buildable features declared by
+    the spec's ``Scene.features[]``.
+    """
+
+    scene: int
+    id: str
+    text: str
+    features: list[Feature] = []
+
+
 class ReviewRequest(BaseModel):
     schema_version: int = 1
     run_id: str
     gate: str
     video: dict
     decisions: list[Decision]
-    narration: list[dict]
+    narration: list[NarrationItem | dict]
     autonomous_audit: list[str] = []
+    actionability: dict | None = None
 
 
 class RunState(BaseModel):

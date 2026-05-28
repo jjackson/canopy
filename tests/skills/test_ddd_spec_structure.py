@@ -110,3 +110,55 @@ def test_command_has_description() -> None:
 def test_command_has_allowed_tools() -> None:
     content = (COMMANDS / "ddd-spec.md").read_text()
     assert "allowed-tools" in content
+
+
+# ---------------------------------------------------------------------------
+# v3 — features[] requirement (ddd-v3-author-and-gate)
+# ---------------------------------------------------------------------------
+
+
+def test_skill_requires_features_per_scene() -> None:
+    """v3: SKILL.md must require ≥1 verifiable feature per scene."""
+    content = (SKILL_DIR / "SKILL.md").read_text()
+    assert "features" in content, "SKILL.md must document the 'features' key"
+
+
+def test_skill_documents_feature_id_description_verify() -> None:
+    """v3: each feature must have id, description, verify."""
+    content = (SKILL_DIR / "SKILL.md").read_text()
+    assert "id" in content
+    assert "description" in content
+    assert "verify" in content
+
+
+def test_skill_requires_runnable_verify() -> None:
+    """v3: verify must be a runnable validation, not a vague placeholder."""
+    content = (SKILL_DIR / "SKILL.md").read_text()
+    runnable_signals = ["runnable", "assertion", "api assertion", "test command", "verify"]
+    assert any(s.lower() in content.lower() for s in runnable_signals), (
+        "SKILL.md must describe 'verify' as a runnable validation (API assertion, test command, etc.)"
+    )
+
+
+def test_skill_mentions_spec_qa_feature_gate() -> None:
+    """v3: SKILL.md must mention that spec-qa now requires ≥1 feature per scene."""
+    content = (SKILL_DIR / "SKILL.md").read_text()
+    feature_gate_signals = [
+        "≥1",
+        "at least 1",
+        "at least one",
+        "ddd-spec-qa now requires",
+        "requires ≥1",
+        "requires at least",
+    ]
+    assert any(s.lower() in content.lower() for s in feature_gate_signals), (
+        "SKILL.md must mention that ddd-spec-qa now requires ≥1 verifiable feature per scene"
+    )
+
+
+def test_skill_mentions_actionability_eval() -> None:
+    """v3: SKILL.md must mention ddd-narrative-actionability-eval."""
+    content = (SKILL_DIR / "SKILL.md").read_text()
+    assert "ddd-narrative-actionability-eval" in content or "actionability" in content, (
+        "SKILL.md must mention the ddd-narrative-actionability-eval gate"
+    )

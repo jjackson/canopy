@@ -464,3 +464,56 @@ def test_command_allowed_tools_includes_skill_or_agent() -> None:
     assert "Skill" in content or "Agent" in content, (
         "Command allowed-tools must include Skill or Agent to dispatch sub-skills"
     )
+
+
+# ---------------------------------------------------------------------------
+# v3 — actionability gate + approve/redraft vocabulary
+# ---------------------------------------------------------------------------
+
+
+def test_agent_includes_actionability_eval_gate() -> None:
+    """v3: Agent must invoke ddd-narrative-actionability-eval between spec-qa and narrative-review."""
+    content = AGENT_FILE.read_text()
+    assert "ddd-narrative-actionability-eval" in content, (
+        "Agent must invoke ddd-narrative-actionability-eval as a gate (Step 6a)"
+    )
+
+
+def test_agent_actionability_gate_appears_before_narrative_review() -> None:
+    """v3: actionability eval must appear before narrative-review in the agent flow."""
+    content = AGENT_FILE.read_text()
+    idx_eval = content.find("ddd-narrative-actionability-eval")
+    idx_review = content.find("ddd-narrative-review")
+    assert idx_eval != -1, "ddd-narrative-actionability-eval not found in agent"
+    assert idx_review != -1, "ddd-narrative-review not found in agent"
+    assert idx_eval < idx_review, (
+        "ddd-narrative-actionability-eval must appear before ddd-narrative-review in the agent flow"
+    )
+
+
+def test_agent_actionability_fail_loops_to_spec() -> None:
+    """v3: if actionability eval fails, agent must loop back to ddd-spec (not advance to review)."""
+    content = AGENT_FILE.read_text()
+    # The actionability section must mention looping back or returning to ddd-spec on fail
+    fail_loop_signals = [
+        "loop back to step 5",
+        "loop back to ddd-spec",
+        "back to step 5",
+        "back to ddd-spec",
+        "do not advance",
+        "do not proceed",
+    ]
+    assert any(s.lower() in content.lower() for s in fail_loop_signals), (
+        "Agent must state that an actionability fail loops back to ddd-spec (not advance to review)"
+    )
+
+
+def test_agent_narrative_review_uses_approve_redraft() -> None:
+    """v3: narrative-agreement gate must use approve/redraft (not agree/edit/rethink)."""
+    content = AGENT_FILE.read_text()
+    assert "approve" in content.lower(), (
+        "Agent must use 'approve' as the go-forward narrative decision"
+    )
+    assert "redraft" in content.lower(), (
+        "Agent must use 'redraft' as the loop-back narrative decision"
+    )

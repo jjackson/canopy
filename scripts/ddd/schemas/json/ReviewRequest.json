@@ -35,6 +35,62 @@
       ],
       "title": "Decision",
       "type": "object"
+    },
+    "Feature": {
+      "description": "A single buildable, verifiable capability within a scene (DDD v3).",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "verify": {
+          "title": "Verify",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "verify"
+      ],
+      "title": "Feature",
+      "type": "object"
+    },
+    "NarrationItem": {
+      "description": "One scene's narration entry in a ReviewRequest (DDD v3).\n\nCarries the scene's story beat (``text``), its index (``scene``), its\nslug (``id``), and the list of concrete buildable features declared by\nthe spec's ``Scene.features[]``.",
+      "properties": {
+        "scene": {
+          "title": "Scene",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "features": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Feature"
+          },
+          "title": "Features",
+          "type": "array"
+        }
+      },
+      "required": [
+        "scene",
+        "id",
+        "text"
+      ],
+      "title": "NarrationItem",
+      "type": "object"
     }
   },
   "properties": {
@@ -65,8 +121,15 @@
     },
     "narration": {
       "items": {
-        "additionalProperties": true,
-        "type": "object"
+        "anyOf": [
+          {
+            "$ref": "#/$defs/NarrationItem"
+          },
+          {
+            "additionalProperties": true,
+            "type": "object"
+          }
+        ]
       },
       "title": "Narration",
       "type": "array"
@@ -78,6 +141,19 @@
       },
       "title": "Autonomous Audit",
       "type": "array"
+    },
+    "actionability": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Actionability"
     }
   },
   "required": [
