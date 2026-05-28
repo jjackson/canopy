@@ -1,0 +1,72 @@
+# Why-Brief evaluation rubric for ddd-why-eval (SP1.4)
+# Five weighted dimensions; weights sum to 1.0.
+# overall_rule: lowest  (weakest-link scoring — one bad dim fails the eval)
+
+overall_rule: lowest
+
+dimensions:
+  - id: problem_clarity
+    label: "Problem Clarity"
+    weight: 0.20
+    default_score: 3
+    anchor:
+      "5": "Problem statement names the actor, the pain, and is falsifiable in one specific sentence. No hedge language."
+      "4": "Problem is clear and actor-named; minor vagueness in one clause but still actionable."
+      "3": "Problem is understandable but generic — could apply to many features without modification. (DEFAULT)"
+      "2": "Problem is either actor-free, hedge-laden, or would require substantial rewrite to become actionable."
+      "1": "No discernible problem statement, or so vague it provides no design direction."
+    deduction_rules:
+      - "Uses 'might', 'could potentially', or 'may help': max 3"
+      - "Problem is empty or whitespace-only: max 1"
+
+  - id: rationale_soundness
+    label: "Rationale Soundness"
+    weight: 0.25
+    default_score: 3
+    anchor:
+      "5": "Every spine item's rationale is a direct logical step from the previous claim. A skeptic reading only the rationales would accept the argument."
+      "4": "Rationales are sound with one gap in reasoning that a footnote would close."
+      "3": "Rationales exist and are readable but some leaps are made without explanation. (DEFAULT)"
+      "2": "Multiple spine items have rationales that are circular, empty, or assert without justifying."
+      "1": "Rationales are missing, boilerplate, or contradict the claims they support."
+    deduction_rules:
+      - "Any SpineItem.rationale is empty or whitespace-only: max 1"
+
+  - id: evidence_sufficiency
+    label: "Evidence Sufficiency"
+    weight: 0.25
+    default_score: 3
+    anchor:
+      "5": "Every grounded claim has ≥2 independent non-assumed evidence items. No grounded claim relies on a single source."
+      "4": "All grounded claims have ≥1 real evidence item; one claim has only a single source."
+      "3": "Most claims have some evidence; ≤2 grounded claims rely solely on assumed evidence. (DEFAULT)"
+      "2": ">2 grounded claims have no real evidence, or the majority of evidence items are assumed."
+      "1": "All evidence is assumed, or grounded claims vastly outnumber real evidence items."
+    deduction_rules:
+      - "grounded SpineItem with zero non-assumed evidence: max 2 per offending item"
+
+  - id: gap_honesty
+    label: "Gap Honesty"
+    weight: 0.15
+    default_score: 3
+    anchor:
+      "5": "Every unsupported or assumed claim has a Gap with correct type, actionable proposed_action, and resolving claim_ref. No claim is silently left unverified."
+      "4": "Gaps are present for all unsupported claims; one gap has a vague proposed_action."
+      "3": "Most unsupported claims have gaps; 1-2 assumed items are not surfaced as gaps. (DEFAULT)"
+      "2": "Multiple assumed/unsupported spine items have no corresponding gap."
+      "1": "Gaps section is empty but assumed or gap-status items exist in the spine."
+    deduction_rules:
+      - "Gap.claim_ref does not resolve to any SpineItem.id: max 2 per offending gap"
+
+  - id: user_narrative_strength
+    label: "User Narrative Strength"
+    weight: 0.15
+    default_score: 3
+    anchor:
+      "5": "The spine reads as a compelling story: from observed user pain, through a clear insight, to a concrete solution. A non-technical stakeholder would understand and remember it."
+      "4": "The narrative flows logically; one transition between claims feels abrupt."
+      "3": "The spine covers the required beats but reads as a checklist rather than a story. (DEFAULT)"
+      "2": "The narrative is hard to follow; claims are not ordered by logical dependency."
+      "1": "The spine has no narrative arc — claims are disconnected or ordered arbitrarily."
+    deduction_rules:
+      - "Fewer than 3 spine items: max 2 (insufficient narrative depth)"

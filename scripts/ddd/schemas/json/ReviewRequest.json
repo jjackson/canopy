@@ -1,0 +1,92 @@
+{
+  "$defs": {
+    "Decision": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "prompt": {
+          "title": "Prompt",
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Options",
+          "type": "array"
+        },
+        "recommended": {
+          "title": "Recommended",
+          "type": "string"
+        },
+        "class": {
+          "title": "Class",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "prompt",
+        "options",
+        "recommended",
+        "class"
+      ],
+      "title": "Decision",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "gate": {
+      "title": "Gate",
+      "type": "string"
+    },
+    "video": {
+      "additionalProperties": true,
+      "title": "Video",
+      "type": "object"
+    },
+    "decisions": {
+      "items": {
+        "$ref": "#/$defs/Decision"
+      },
+      "title": "Decisions",
+      "type": "array"
+    },
+    "narration": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Narration",
+      "type": "array"
+    },
+    "autonomous_audit": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Autonomous Audit",
+      "type": "array"
+    }
+  },
+  "required": [
+    "run_id",
+    "gate",
+    "video",
+    "decisions",
+    "narration"
+  ],
+  "title": "ReviewRequest",
+  "type": "object"
+}
