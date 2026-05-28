@@ -50,6 +50,95 @@ def test_gap_invalid_type_raises():
 # SP0.2 — Remaining models
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Feature model (v3 — actionable narratives)
+# ---------------------------------------------------------------------------
+
+def test_feature_round_trip():
+    from scripts.ddd.schemas.models import Feature
+
+    f = Feature(
+        id="F1",
+        description="Display a filterable list of tasks sorted by due date",
+        verify="GET /api/tasks?status=open returns tasks in ascending due_date order",
+    )
+    d = f.model_dump()
+    assert d["id"] == "F1"
+    assert d["description"] == "Display a filterable list of tasks sorted by due date"
+    assert d["verify"] == "GET /api/tasks?status=open returns tasks in ascending due_date order"
+
+
+def test_feature_missing_id_raises():
+    from scripts.ddd.schemas.models import Feature
+
+    with pytest.raises(pydantic.ValidationError):
+        Feature(
+            description="Some description",
+            verify="Run pytest tests/test_foo.py",
+        )
+
+
+def test_feature_missing_description_raises():
+    from scripts.ddd.schemas.models import Feature
+
+    with pytest.raises(pydantic.ValidationError):
+        Feature(
+            id="F1",
+            verify="Run pytest tests/test_foo.py",
+        )
+
+
+def test_feature_missing_verify_raises():
+    from scripts.ddd.schemas.models import Feature
+
+    with pytest.raises(pydantic.ValidationError):
+        Feature(
+            id="F1",
+            description="Some description",
+        )
+
+
+def test_scene_round_trips_with_features():
+    from scripts.ddd.schemas.models import Scene, Feature
+
+    scene = Scene(
+        persona="alice",
+        title="Filter task list",
+        show="navigate to /tasks, click Status filter, select Open",
+        concept_claim="Users can filter the task list by status and see only open tasks without a page reload",
+        provenance="S1",
+        features=[
+            Feature(
+                id="task-filter-ui",
+                description="Status dropdown filter on the task list page",
+                verify="Selenium: select 'Open' in the Status dropdown, assert only open tasks visible",
+            ),
+            Feature(
+                id="task-filter-api",
+                description="GET /tasks?status= endpoint filters tasks by status",
+                verify="pytest: GET /tasks?status=open returns 200 with tasks all having status=open",
+            ),
+        ],
+    )
+    d = scene.model_dump()
+    assert len(d["features"]) == 2
+    assert d["features"][0]["id"] == "task-filter-ui"
+    assert d["features"][1]["id"] == "task-filter-api"
+
+
+def test_scene_features_defaults_to_empty_list():
+    from scripts.ddd.schemas.models import Scene
+
+    scene = Scene(
+        persona="alice",
+        title="Submit Form",
+        show="navigate to /form, fill fields, click Submit",
+        concept_claim="Users can submit the form and see a confirmation message",
+        provenance="S1",
+    )
+    assert scene.features == []
+
+
 def test_scene_missing_required_fields_raises():
     from scripts.ddd.schemas.models import Scene
 

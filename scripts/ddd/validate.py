@@ -23,6 +23,7 @@ from pydantic import ValidationError
 
 from scripts.ddd.schemas.models import (
     Decision,
+    Feature,
     ReviewRequest,
     RunState,
     UnifiedSpec,
@@ -90,6 +91,8 @@ def _semantic_unified_spec(obj: UnifiedSpec, spec_path: Path | None) -> list[str
         Scene.provenance must match some SpineItem.id
     (e) Scene.persona must be a key in the personas dict
     (f) why_brief declared but not resolvable/invalid → problem (not silent)
+    (v3-a) feature id must be unique within a scene
+    (v3-b) every feature must have non-empty description AND non-empty verify
     """
     problems: list[str] = []
 
@@ -99,6 +102,33 @@ def _semantic_unified_spec(obj: UnifiedSpec, spec_path: Path | None) -> list[str
             problems.append(
                 f"scene references undefined persona: {scene.persona}"
             )
+
+    # (v3-a,b) feature checks per scene
+    for scene in obj.scenes:
+        seen_feature_ids: set[str] = set()
+        for feature in scene.features:
+            # (v3-a) duplicate feature ids within the scene
+            if feature.id in seen_feature_ids:
+                problems.append(
+                    f"scene '{scene.title}' feature '{feature.id}': duplicate feature id — "
+                    "feature ids must be unique within a scene"
+                )
+            seen_feature_ids.add(feature.id)
+
+            # (v3-b) non-empty description
+            if not feature.description.strip():
+                problems.append(
+                    f"scene '{scene.title}' feature '{feature.id}': description is empty — "
+                    "must be a concrete, buildable unit description"
+                )
+
+            # (v3-b) non-empty verify
+            if not feature.verify.strip():
+                problems.append(
+                    f"scene '{scene.title}' feature '{feature.id}': verify is empty — "
+                    "must describe how to validate this feature is done "
+                    "(e.g. an API assertion, a UI state check, a test command)"
+                )
 
     # (b) + (f) provenance cross-check when why_brief is declared
     if obj.why_brief:
@@ -191,6 +221,7 @@ def dump_json_schemas(out_dir: str | Path = "scripts/ddd/schemas/json") -> None:
 
     all_models = [
         WhyBrief,
+        Feature,
         UnifiedSpec,
         Verdict,
         Decision,

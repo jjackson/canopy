@@ -1,0 +1,66 @@
+# Actionability eval rubric for ddd-narrative-actionability-eval (DDD v3).
+# Four weighted dimensions; weights sum to 1.0.
+# overall_rule: lowest  (weakest-link scoring — one bad dim fails the eval)
+#
+# ## Calibration status
+# Provisional rubric; calibrate via a defect-creator analog after 3 real runs.
+# Not yet calibrated.
+
+overall_rule: lowest
+
+dimensions:
+  - id: coverage
+    label: "Feature Coverage"
+    weight: 0.35
+    default_score: 3
+    anchor:
+      "5": "The cold derivation independently inferred every single declared feature — the narration is so precise that a builder can enumerate all required features without seeing the declared list."
+      "4": "The cold derivation inferred ≥90% of declared features; at most one minor declared feature was not implied by the narration alone."
+      "3": "The cold derivation inferred most declared features; 1–2 features were missing from the cold plan (the narration hints at them but doesn't make them inevitable). (DEFAULT)"
+      "2": "Multiple declared features were not inferable from the narration — a builder following the narration alone would miss substantial chunks of the required work."
+      "1": "The cold derivation produced a build plan that barely overlaps with the declared features; the narration is so vague it implies a different product."
+    deduction_rules:
+      - "A declared feature not inferable from narration/concept_claim/show at all: −1 per feature, max 3"
+      - "More than half of declared features missed: max 2"
+
+  - id: specificity
+    label: "Build Specificity"
+    weight: 0.25
+    default_score: 3
+    anchor:
+      "5": "Every item in the cold-derived build plan is concrete and buildable: named endpoints, UI elements, data schemas, or test assertions — not architectural hand-waves."
+      "4": "Build plan is mostly concrete; one item is stated at a slightly higher level of abstraction but a senior engineer could still execute it without clarification."
+      "3": "Build plan mixes concrete items with a few hand-wavy statements ('add filtering logic', 'handle errors') that require the builder to invent specifics. (DEFAULT)"
+      "2": "The majority of inferred build steps are vague enough that a builder would need significant discovery work before writing any code."
+      "1": "The entire cold-derived plan is a restatement of the narration at the same level of abstraction — it names outcomes but not how to achieve them."
+    deduction_rules:
+      - "An inferred build step with no implementation path (pure outcome statement): −0.5 per step, max 2"
+      - "No concrete artifact (endpoint, UI element, schema, test) named anywhere in the cold plan: max 2"
+
+  - id: correctness
+    label: "Inference Correctness"
+    weight: 0.20
+    default_score: 3
+    anchor:
+      "5": "Every cold-derived feature inference aligns with a declared feature's intent — no wrong inferences, no phantom features that misread the narration."
+      "4": "All inferences are directionally correct; one cold-derived item is a valid interpretation that slightly diverges from the declared feature's exact scope."
+      "3": "Most inferences are correct; one cold-derived item is misaligned enough that acting on it would produce the wrong feature. (DEFAULT)"
+      "2": "Multiple cold-derived items contradict the declared features — a builder following the cold plan would implement the wrong thing in at least two places."
+      "1": "The cold derivation consistently misreads the narration; the inferred build plan would produce a product substantially different from what the declared features describe."
+    deduction_rules:
+      - "A cold-derived feature directly contradicts a declared feature's verify condition: −1 per contradiction, max 3"
+      - "A phantom feature inferred from the narration that has no corresponding declared feature and would waste build effort: −0.5 per phantom, max 2"
+
+  - id: consistency
+    label: "Derivation Consistency"
+    weight: 0.20
+    default_score: 3
+    anchor:
+      "5": "All ~3 independent cold derivations produced the same set of features and build steps — the narration is unambiguous: every builder would start in the same place."
+      "4": "Derivations agreed on ≥90% of features; one item appeared in some runs but not others, suggesting the narration is slightly ambiguous at that point."
+      "3": "Derivations agreed on core features but diverged on 1–2 secondary items — the narration has one or two ambiguous phrases that different readers resolve differently. (DEFAULT)"
+      "2": "Significant divergence across derivations — at least one core feature was inferred in some runs and entirely missed in others, making the narration unreliable."
+      "1": "The ~3 derivations produced substantially different build plans — the narration is so ambiguous that two engineers reading it would start completely different implementations."
+    deduction_rules:
+      - "A feature present in some derivations and absent in others (core ambiguity): −1 per feature, max 3"
+      - "Derivations diverge on the primary user action or interaction (the central mechanic): max 2"
