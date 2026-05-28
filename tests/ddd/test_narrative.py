@@ -120,28 +120,29 @@ class TestBuildNarrativeReviewRequest:
         assert len(result.narration) == len(spec.scenes)
 
     def test_narration_items_have_required_keys(self):
+        """Each narration item (NarrationItem) must have scene, id, and text."""
         spec = _make_spec()
         result = build_narrative_review_request(spec, "run-001")
         for item in result.narration:
-            assert "scene" in item, f"narration item missing 'scene' key: {item}"
-            assert "id" in item, f"narration item missing 'id' key: {item}"
-            assert "text" in item, f"narration item missing 'text' key: {item}"
+            assert hasattr(item, "scene"), f"narration item missing 'scene': {item}"
+            assert hasattr(item, "id"), f"narration item missing 'id': {item}"
+            assert hasattr(item, "text"), f"narration item missing 'text': {item}"
 
     def test_narration_scene_indices_are_zero_based(self):
         spec = _make_spec()
         result = build_narrative_review_request(spec, "run-001")
         for i, item in enumerate(result.narration):
-            assert item["scene"] == i, (
-                f"scene index mismatch at position {i}: expected {i}, got {item['scene']}"
+            assert item.scene == i, (
+                f"scene index mismatch at position {i}: expected {i}, got {item.scene}"
             )
 
     def test_narration_text_is_concept_claim(self):
         spec = _make_spec()
         result = build_narrative_review_request(spec, "run-001")
         for item, scene in zip(result.narration, spec.scenes):
-            assert item["text"] == scene.concept_claim, (
+            assert item.text == scene.concept_claim, (
                 f"narration item text must be the scene's concept_claim; "
-                f"got {item['text']!r}, expected {scene.concept_claim!r}"
+                f"got {item.text!r}, expected {scene.concept_claim!r}"
             )
 
     def test_narration_id_is_title_slug(self):
@@ -150,9 +151,9 @@ class TestBuildNarrativeReviewRequest:
         result = build_narrative_review_request(spec, "run-001")
         for item, scene in zip(result.narration, spec.scenes):
             expected_slug = re.sub(r"[^a-z0-9]+", "-", scene.title.lower()).strip("-")
-            assert item["id"] == expected_slug, (
+            assert item.id == expected_slug, (
                 f"narration item id must be a slug of the scene title; "
-                f"got {item['id']!r}, expected {expected_slug!r}"
+                f"got {item.id!r}, expected {expected_slug!r}"
             )
 
     def test_decisions_contains_one_narrative_verdict(self):
@@ -169,19 +170,21 @@ class TestBuildNarrativeReviewRequest:
         # Must mention both narrative agreement and building/rendering
         assert "narrative" in decision.prompt.lower() or "story" in decision.prompt.lower()
 
-    def test_decision_options_are_agree_edit_rethink(self):
+    def test_decision_options_are_approve_redraft(self):
+        """v3: options must be {approve, redraft} — the approve/redraft shape."""
         spec = _make_spec()
         result = build_narrative_review_request(spec, "run-001")
         decision = result.decisions[0]
-        assert set(decision.options) == {"agree", "edit", "rethink"}, (
-            f"decision options must be {{agree, edit, rethink}}; got {decision.options}"
+        assert set(decision.options) == {"approve", "redraft"}, (
+            f"decision options must be {{approve, redraft}}; got {decision.options}"
         )
 
-    def test_decision_recommended_is_agree(self):
+    def test_decision_recommended_is_approve(self):
+        """v3: recommended must be 'approve' (was 'agree' in v2)."""
         spec = _make_spec()
         result = build_narrative_review_request(spec, "run-001")
         decision = result.decisions[0]
-        assert decision.recommended == "agree"
+        assert decision.recommended == "approve"
 
     def test_decision_class_is_concept_change(self):
         """Decision must use class_='concept_change' (stored under alias 'class')."""
@@ -215,8 +218,102 @@ class TestBuildNarrativeReviewRequest:
         )
         result = build_narrative_review_request(spec, "run-single")
         assert len(result.narration) == 1
-        assert result.narration[0]["scene"] == 0
-        assert result.narration[0]["text"] == "Users can see the dashboard summary on first load."
+        assert result.narration[0].scene == 0
+        assert result.narration[0].text == "Users can see the dashboard summary on first load."
+
+    # -----------------------------------------------------------------------
+    # v3: narration items carry per-scene features
+    # -----------------------------------------------------------------------
+
+    def test_narration_items_carry_features_from_scenes(self):
+        """Each narration item must include the features declared on the matching scene."""
+        from scripts.ddd.schemas.models import Feature
+
+        spec = _make_spec(
+            scenes=[
+                Scene(
+                    persona="alice",
+                    title="Area Selection",
+                    show="Navigate to /areas and draw a boundary.",
+                    concept_claim="Users draw a boundary to select the survey area.",
+                    provenance="S1",
+                    features=[
+                        Feature(
+                            id="boundary-draw",
+                            description="Polygon drawing widget on /areas map",
+                            verify="Playwright: draw polygon, assert POST /areas returns 201",
+                        ),
+                        Feature(
+                            id="area-persist",
+                            description="Drawn area persists across page reloads",
+                            verify="Reload /areas, assert polygon still visible in DOM",
+                        ),
+                    ],
+                ),
+                Scene(
+                    persona="alice",
+                    title="Sample Generation",
+                    show="Click Generate Sample.",
+                    concept_claim="System generates a proportional building sample.",
+                    provenance="S2",
+                    features=[
+                        Feature(
+                            id="sample-algo",
+                            description="Proportional sampling algorithm",
+                            verify="pytest: sampling returns floor-weighted buildings",
+                        )
+                    ],
+                ),
+            ]
+        )
+        result = build_narrative_review_request(spec, "run-features")
+        # Scene 0 must carry its 2 features
+        item0 = result.narration[0]
+        assert hasattr(item0, "features") or isinstance(item0, dict), (
+            "narration item must be a NarrationItem or dict with 'features' key"
+        )
+        feats0 = item0.features if hasattr(item0, "features") else item0.get("features", [])
+        assert len(feats0) == 2, f"expected 2 features on scene 0, got {len(feats0)}"
+        feat_ids = [f.id if hasattr(f, "id") else f["id"] for f in feats0]
+        assert "boundary-draw" in feat_ids
+        assert "area-persist" in feat_ids
+
+        # Scene 1 must carry its 1 feature
+        item1 = result.narration[1]
+        feats1 = item1.features if hasattr(item1, "features") else item1.get("features", [])
+        assert len(feats1) == 1
+
+    def test_narration_items_have_empty_features_when_scene_has_none(self):
+        """Narration items for scenes with no features must carry an empty features list."""
+        spec = _make_spec()  # default scenes have no features
+        result = build_narrative_review_request(spec, "run-no-features")
+        for item in result.narration:
+            feats = item.features if hasattr(item, "features") else item.get("features", [])
+            assert feats == [], (
+                f"narration item for scene without features must carry empty list; got {feats}"
+            )
+
+    # -----------------------------------------------------------------------
+    # v3: actionability passthrough
+    # -----------------------------------------------------------------------
+
+    def test_actionability_defaults_to_none(self):
+        """Without an actionability param, ReviewRequest.actionability is None."""
+        spec = _make_spec()
+        result = build_narrative_review_request(spec, "run-001")
+        assert result.actionability is None
+
+    def test_actionability_param_passes_through(self):
+        """When actionability= is provided, it is set on the returned ReviewRequest."""
+        spec = _make_spec()
+        actionability = {
+            "overall_score": 4.0,
+            "per_scene": {"area-selection": {"score": 4.0, "missed": []}},
+        }
+        result = build_narrative_review_request(spec, "run-001", actionability=actionability)
+        assert result.actionability is not None
+        assert result.actionability["overall_score"] == 4.0
+        assert "area-selection" in result.actionability["per_scene"]
 
 
 # ---------------------------------------------------------------------------
@@ -236,35 +333,39 @@ class TestApplyNarrativeEdits:
         assert "decision" in result
         assert "edited" in result
 
-    def test_agree_decision_round_trips(self, tmp_path):
+    def test_approve_round_trips(self, tmp_path):
+        """v3: 'approve' is the canonical go-forward decision."""
         spec = _make_spec()
         spec_path = _write_spec(tmp_path, spec)
         response = {
-            "decisions": {"narrative-verdict": "agree"},
+            "decisions": {"narrative-verdict": "approve"},
             "narration_edits": {},
         }
         result = apply_narrative_edits(str(spec_path), response)
-        assert result["decision"] == "agree"
+        assert result["decision"] == "approve"
 
-    def test_edit_decision_round_trips(self, tmp_path):
+    def test_redraft_round_trips_directly(self, tmp_path):
+        """v3: 'redraft' is the canonical loop-back decision."""
         spec = _make_spec()
         spec_path = _write_spec(tmp_path, spec)
         response = {
-            "decisions": {"narrative-verdict": "edit"},
+            "decisions": {"narrative-verdict": "redraft"},
             "narration_edits": {},
         }
         result = apply_narrative_edits(str(spec_path), response)
-        assert result["decision"] == "edit"
+        assert result["decision"] == "redraft"
 
-    def test_rethink_decision_round_trips(self, tmp_path):
+    def test_returns_dict_with_decision_and_edited_on_unknown(self, tmp_path):
+        """An unrecognised decision value passes through unchanged (unknown future values)."""
         spec = _make_spec()
         spec_path = _write_spec(tmp_path, spec)
         response = {
-            "decisions": {"narrative-verdict": "rethink"},
+            "decisions": {"narrative-verdict": "some-future-value"},
             "narration_edits": {},
         }
         result = apply_narrative_edits(str(spec_path), response)
-        assert result["decision"] == "rethink"
+        assert "decision" in result
+        assert "edited" in result
 
     def test_no_edits_returns_zero_edited_count(self, tmp_path):
         spec = _make_spec()
@@ -358,27 +459,27 @@ class TestApplyNarrativeEdits:
         spec = _make_spec()
         spec_path = _write_spec(tmp_path, spec)
 
-        response = {"decisions": {"narrative-verdict": "agree"}, "narration_edits": {}}
+        response = {"decisions": {"narrative-verdict": "approve"}, "narration_edits": {}}
         # Must not raise
         result = apply_narrative_edits(spec_path, response)
-        assert result["decision"] == "agree"
+        assert result["decision"] == "approve"
 
-    def test_missing_decisions_key_defaults_to_agree(self, tmp_path):
-        """Robust default: if 'decisions' key absent, decision defaults to 'agree'."""
+    def test_missing_decisions_key_defaults_to_approve(self, tmp_path):
+        """Robust default: if 'decisions' key absent, decision defaults to 'approve'."""
         spec = _make_spec()
         spec_path = _write_spec(tmp_path, spec)
         response = {"narration_edits": {}}
         result = apply_narrative_edits(str(spec_path), response)
-        assert result["decision"] == "agree"
+        assert result["decision"] == "approve"
 
     def test_missing_narration_edits_key_is_handled(self, tmp_path):
         """Robust default: if 'narration_edits' absent, no changes are applied."""
         spec = _make_spec()
         spec_path = _write_spec(tmp_path, spec)
-        response = {"decisions": {"narrative-verdict": "rethink"}}
+        response = {"decisions": {"narrative-verdict": "redraft"}}
         result = apply_narrative_edits(str(spec_path), response)
         assert result["edited"] == 0
-        assert result["decision"] == "rethink"
+        assert result["decision"] == "redraft"
 
     def test_writes_spec_back_to_disk(self, tmp_path):
         """After apply, spec file on disk must be valid YAML with updated content."""
@@ -396,3 +497,72 @@ class TestApplyNarrativeEdits:
         updated = yaml.safe_load(spec_path.read_text())
         assert isinstance(updated, dict)
         assert "scenes" in updated
+
+    # -----------------------------------------------------------------------
+    # v3: approve / redraft vocabulary
+    # -----------------------------------------------------------------------
+
+    def test_approve_decision_round_trips(self, tmp_path):
+        """v3: 'approve' is the canonical approval decision."""
+        spec = _make_spec()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "narration_edits": {},
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["decision"] == "approve"
+
+    def test_redraft_decision_round_trips(self, tmp_path):
+        """v3: 'redraft' triggers looping back to /ddd-spec."""
+        spec = _make_spec()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "redraft"},
+            "narration_edits": {},
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["decision"] == "redraft"
+
+    # -----------------------------------------------------------------------
+    # v3: legacy compatibility (agree/edit → approve, rethink → redraft)
+    # -----------------------------------------------------------------------
+
+    def test_legacy_agree_treated_as_approve(self, tmp_path):
+        """Legacy 'agree' decision must be coerced to 'approve' for safety."""
+        spec = _make_spec()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "agree"},
+            "narration_edits": {},
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["decision"] == "approve", (
+            f"legacy 'agree' must map to 'approve'; got {result['decision']!r}"
+        )
+
+    def test_legacy_edit_treated_as_approve(self, tmp_path):
+        """Legacy 'edit' decision must be coerced to 'approve' for safety."""
+        spec = _make_spec()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "edit"},
+            "narration_edits": {},
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["decision"] == "approve", (
+            f"legacy 'edit' must map to 'approve'; got {result['decision']!r}"
+        )
+
+    def test_legacy_rethink_treated_as_redraft(self, tmp_path):
+        """Legacy 'rethink' decision must be coerced to 'redraft' for safety."""
+        spec = _make_spec()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "rethink"},
+            "narration_edits": {},
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["decision"] == "redraft", (
+            f"legacy 'rethink' must map to 'redraft'; got {result['decision']!r}"
+        )

@@ -1,4 +1,4 @@
-"""Narrative-agreement gate for demo-driven-development v2 (ddd-v2).
+"""Narrative-agreement gate for demo-driven-development v3 (ddd-v3).
 
 This module adds the missing narrative-agreement step to the DDD loop.
 Before rendering, judging, or routing gaps, the user must explicitly AGREE
@@ -21,7 +21,7 @@ from pathlib import Path
 
 import yaml
 
-from scripts.ddd.schemas.models import Decision, ReviewRequest, UnifiedSpec
+from scripts.ddd.schemas.models import Decision, NarrationItem, ReviewRequest, UnifiedSpec
 
 
 # ---------------------------------------------------------------------------
@@ -45,14 +45,18 @@ def _title_slug(title: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def build_narrative_review_request(spec: UnifiedSpec, run_id: str) -> ReviewRequest:
-    """Build a ReviewRequest for the narrative-agreement gate.
+def build_narrative_review_request(
+    spec: UnifiedSpec,
+    run_id: str,
+    actionability: dict | None = None,
+) -> ReviewRequest:
+    """Build a ReviewRequest for the narrative-agreement gate (DDD v3).
 
     This is a pre-render review — no video cut has been made yet, so
     ``video`` is an empty dict.  The narration list presents one item per
     scene, each carrying the scene's ``concept_claim`` as the editable
-    story beat.  The single decision asks the user to agree, request edits,
-    or ask for a full rethink before anything is built or rendered.
+    story beat AND the scene's declared ``features[]`` (concrete buildable
+    units).  The single decision uses the v3 approve/redraft shape.
 
     Parameters
     ----------
@@ -60,6 +64,12 @@ def build_narrative_review_request(spec: UnifiedSpec, run_id: str) -> ReviewRequ
         The fully-parsed UnifiedSpec for the feature under review.
     run_id:
         The DDD run identifier (e.g. ``"rooftop-surveys-2026-01-01-001"``).
+    actionability:
+        Optional actionability block populated by the caller after
+        ``ddd-narrative-actionability-eval`` has run.  If provided, it is
+        set on the returned ReviewRequest so the human reviewer can see the
+        actionability score alongside the narration.  Leave ``None`` (the
+        default) when posting before the eval has run.
 
     Returns
     -------
@@ -68,22 +78,22 @@ def build_narrative_review_request(spec: UnifiedSpec, run_id: str) -> ReviewRequ
         ``review.post_review_request``.
     """
     narration = [
-        {
-            "scene": i,
-            "id": _title_slug(scene.title),
-            "text": scene.concept_claim,
-        }
+        NarrationItem(
+            scene=i,
+            id=_title_slug(scene.title),
+            text=scene.concept_claim,
+            features=scene.features,
+        )
         for i, scene in enumerate(spec.scenes)
     ]
 
     decision = Decision(
         id="narrative-verdict",
         prompt=(
-            "Does this narrative nail the story we want to tell a prospective user"
-            " — before we build anything?"
+            "Approve this narrative as the build plan, or send it back to re-draft?"
         ),
-        options=["agree", "edit", "rethink"],
-        recommended="agree",
+        options=["approve", "redraft"],
+        recommended="approve",
         **{"class": "concept_change"},
     )
 
@@ -94,6 +104,7 @@ def build_narrative_review_request(spec: UnifiedSpec, run_id: str) -> ReviewRequ
         narration=narration,
         autonomous_audit=[],
         decisions=[decision],
+        actionability=actionability,
     )
 
 
@@ -124,22 +135,35 @@ def apply_narrative_edits(
         The ``response_json`` dict from the resolved review.  Expected shape::
 
             {
-                "decisions": {"narrative-verdict": "agree" | "edit" | "rethink"},
+                "decisions": {"narrative-verdict": "approve" | "redraft"},
                 "narration_edits": {"<scene-slug>": "<new concept_claim>", ...}
             }
+
+        Legacy v2 values are accepted for safety and coerced to v3:
+        ``"agree"``/``"edit"`` → ``"approve"``; ``"rethink"`` → ``"redraft"``.
 
     Returns
     -------
     dict
-        ``{"decision": str, "edited": int}`` where ``edited`` is the count of
-        scenes whose ``concept_claim`` was changed.
+        ``{"decision": str, "edited": int}`` where ``decision`` is the
+        normalised v3 value (``"approve"`` or ``"redraft"``) and ``edited``
+        is the count of scenes whose ``concept_claim`` was changed.
     """
     spec_path = Path(spec_path)
     raw = yaml.safe_load(spec_path.read_text())
 
     narration_edits: dict[str, str] = response_json.get("narration_edits", {}) or {}
     decisions: dict[str, str] = response_json.get("decisions", {}) or {}
-    decision: str = decisions.get("narrative-verdict", "agree")
+    raw_decision: str = decisions.get("narrative-verdict", "approve")
+
+    # Normalise to v3 vocabulary: legacy "agree"/"edit" → "approve"; "rethink" → "redraft".
+    # New values ("approve"/"redraft") pass through unchanged.
+    _LEGACY_MAP = {
+        "agree": "approve",
+        "edit": "approve",
+        "rethink": "redraft",
+    }
+    decision: str = _LEGACY_MAP.get(raw_decision, raw_decision)
 
     # Build a slug→scene-index mapping from the on-disk spec
     scenes: list[dict] = raw.get("scenes", [])

@@ -246,3 +246,157 @@ def test_decision_loads_from_class_key_and_class_kwarg():
         class_="SCOPE",
     )
     assert d2.class_ == "SCOPE"
+
+
+# ---------------------------------------------------------------------------
+# NarrationItem model (v3 — carries per-scene features)
+# ---------------------------------------------------------------------------
+
+def test_narration_item_round_trip():
+    from scripts.ddd.schemas.models import NarrationItem, Feature
+
+    item = NarrationItem(
+        scene=0,
+        id="area-selection",
+        text="Users draw a boundary and generate a sample in under 30 seconds.",
+        features=[
+            Feature(
+                id="boundary-draw",
+                description="Map widget lets user draw a polygon boundary",
+                verify="Playwright: draw polygon on /areas, assert polygon saved to POST /areas",
+            )
+        ],
+    )
+    d = item.model_dump()
+    assert d["scene"] == 0
+    assert d["id"] == "area-selection"
+    assert d["text"] == "Users draw a boundary and generate a sample in under 30 seconds."
+    assert len(d["features"]) == 1
+    assert d["features"][0]["id"] == "boundary-draw"
+
+
+def test_narration_item_features_defaults_to_empty():
+    from scripts.ddd.schemas.models import NarrationItem
+
+    item = NarrationItem(scene=1, id="sample-gen", text="Generates a proportional sample.")
+    assert item.features == []
+
+
+def test_narration_item_missing_id_raises():
+    import pydantic
+    from scripts.ddd.schemas.models import NarrationItem
+
+    with pytest.raises(pydantic.ValidationError):
+        NarrationItem(scene=0, text="some text")
+
+
+def test_narration_item_missing_text_raises():
+    import pydantic
+    from scripts.ddd.schemas.models import NarrationItem
+
+    with pytest.raises(pydantic.ValidationError):
+        NarrationItem(scene=0, id="foo")
+
+
+# ---------------------------------------------------------------------------
+# ReviewRequest — actionability field (v3)
+# ---------------------------------------------------------------------------
+
+def test_review_request_actionability_defaults_to_none():
+    from scripts.ddd.schemas.models import Decision, ReviewRequest
+
+    d = Decision(
+        id="D1", prompt="p", options=["A"], recommended="A", class_="concept_change"
+    )
+    rr = ReviewRequest(
+        run_id="run-001",
+        gate="concept_change",
+        video={},
+        decisions=[d],
+        narration=[],
+    )
+    assert rr.actionability is None
+
+
+def test_review_request_actionability_can_be_set():
+    from scripts.ddd.schemas.models import Decision, ReviewRequest
+
+    d = Decision(
+        id="D1", prompt="p", options=["A"], recommended="A", class_="concept_change"
+    )
+    actionability = {
+        "overall_score": 4.2,
+        "per_scene": {
+            "area-selection": {"score": 4.0, "missed": []},
+            "sample-gen": {"score": 4.5, "missed": []},
+        },
+    }
+    rr = ReviewRequest(
+        run_id="run-001",
+        gate="concept_change",
+        video={},
+        decisions=[d],
+        narration=[],
+        actionability=actionability,
+    )
+    assert rr.actionability is not None
+    assert rr.actionability["overall_score"] == 4.2
+    assert "area-selection" in rr.actionability["per_scene"]
+
+
+def test_review_request_actionability_serializes_in_dump():
+    from scripts.ddd.schemas.models import Decision, ReviewRequest
+
+    d = Decision(
+        id="D1", prompt="p", options=["A"], recommended="A", class_="concept_change"
+    )
+    actionability = {"overall_score": 3.8, "per_scene": {}}
+    rr = ReviewRequest(
+        run_id="run-001",
+        gate="concept_change",
+        video={},
+        decisions=[d],
+        narration=[],
+        actionability=actionability,
+    )
+    dumped = rr.model_dump()
+    assert "actionability" in dumped
+    assert dumped["actionability"]["overall_score"] == 3.8
+
+
+def test_review_request_narration_can_hold_narration_items():
+    """ReviewRequest.narration accepts NarrationItem instances (v3 typed list)."""
+    from scripts.ddd.schemas.models import Decision, Feature, NarrationItem, ReviewRequest
+
+    d = Decision(
+        id="narrative-verdict",
+        prompt="Approve or redraft?",
+        options=["approve", "redraft"],
+        recommended="approve",
+        class_="concept_change",
+    )
+    items = [
+        NarrationItem(
+            scene=0,
+            id="area-selection",
+            text="Users draw a boundary on the map.",
+            features=[
+                Feature(
+                    id="map-draw",
+                    description="Polygon drawing tool on the map",
+                    verify="assert POST /areas with polygon GeoJSON returns 201",
+                )
+            ],
+        )
+    ]
+    rr = ReviewRequest(
+        run_id="run-001",
+        gate="concept_change",
+        video={},
+        decisions=[d],
+        narration=items,
+    )
+    dumped = rr.model_dump()
+    assert len(dumped["narration"]) == 1
+    assert dumped["narration"][0]["id"] == "area-selection"
+    assert len(dumped["narration"][0]["features"]) == 1
