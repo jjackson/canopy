@@ -158,15 +158,28 @@ After `ddd-run` returns, load `<run_dir>/run_state.yaml` and
 
 ## Route findings
 
-Read `design_findings.json`. For each finding, route by its `route` field:
+Findings arrive from **two distinct sources** with different route vocabularies. Handle each source separately.
+
+### A. Design-findings routes (source: `design_findings.json` from `ddd-concept-eval`)
+
+`ddd-concept-eval` emits findings with `route` ∈ **{PRODUCT, CONCEPT, RESEARCH, DEFER}**. `CAPABILITY` is NOT a valid route from this source — it can only appear as a why-brief gap type (see §B below).
 
 | Route | Destination | Action |
 |-------|-------------|--------|
-| `PRODUCT` | `/design-review`, `/review`, or `/qa` | Dispatch specialist skills to fix the presentation layer. Reuse walkthrough improve-mode routing: `design_soundness`/`motion_friction` → `/design-review`; `concept_clarity` content issues → `/review`; `Demo Readiness` → `/qa`. Re-render only the affected scenes after each fix commit. |
+| `PRODUCT` | `/design-review`, `/review`, or `/qa` | Dispatch specialist skills via the Agent tool to fix the presentation layer: `design_soundness`/`motion_friction` findings → `/design-review`; `concept_clarity` content issues → `/review`; broken interactive flows → `/qa`. Re-render only the affected scenes after each fix commit. |
 | `CONCEPT` | Edit spec + re-run `ddd-spec` | Edit the unified spec's `narration`, `design_intent`, or `concept_claim` fields to address the concept gap. Re-invoke `ddd-spec` and `ddd-spec-qa` to validate the change. If the fix requires changing *what the product does* (not just how it's described), escalate to a **concept_change** pause. |
 | `RESEARCH` | Autonomous investigation + Phase 0 re-run | Spawn an investigation subagent (Agent tool) to gather evidence addressing the gap. Update `evidence.json` and re-run `ddd-why-brief` → `ddd-why-qa` → `ddd-why-eval` for the affected spine items. |
-| `CAPABILITY` | Create product-build task | Record a product-build task in context.md and the learning store. Tag for SP7 promotion. These are not blockers — log and proceed. |
-| `DEFER` | Log only | Append to the digest's collapsed autonomous section. Do not act on DEFER findings this iteration. |
+| `DEFER` | Log only | Append to the digest's collapsed autonomous section. Do not act on DEFER findings this iteration. Advisory findings (e.g. `claim_reality_coherence`) always land here. |
+
+### B. Why-brief gap types (source: `why_brief.yaml` gaps from Phase 0 `ddd-why-brief`)
+
+`ddd-why-brief` emits gaps with `type` ∈ **{RESEARCH, CAPABILITY, DECISION}**. These are processed during and after Phase 0, not during design-findings routing. `CAPABILITY` originates exclusively here — it never appears in `design_findings.json`.
+
+| Gap type | Destination | Action |
+|----------|-------------|--------|
+| `RESEARCH` | Autonomous investigation | Spawn a subagent to ground the claim in evidence. Update `evidence.json` and re-run the relevant Phase 0 step. |
+| `CAPABILITY` | Create product-build task | Record a product-build task in context.md and the learning store. Tag for SP7 promotion. Not a blocker — log and proceed. |
+| `DECISION` | `concept_change` pause | Surface to the user immediately (see Phase 0 Step 4). Do not proceed to the spec until all DECISION gaps are resolved. |
 
 ---
 
@@ -175,7 +188,7 @@ Read `design_findings.json`. For each finding, route by its `route` field:
 After routing all findings and re-rendering changed scenes:
 
 ```python
-from scripts.ddd.run_pipeline import compute_convergence, MAX_ITERATIONS
+from scripts.ddd.run_pipeline import compute_convergence, MAX_ITERATIONS  # MAX_ITERATIONS caps the iteration loop described below
 from scripts.ddd.runstate import load
 
 state = load(run_id)
@@ -256,5 +269,5 @@ proceeding with autonomous work.
 - Never auto-apply a self-tuning class demotion — always suggest-then-confirm.
 - Save learnings after every completed cycle via `runstate.append_learning`.
 - Max iterations before human checkpoint: `MAX_ITERATIONS` (currently 3).
-- When dispatching PRODUCT fixers, reuse walkthrough improve-mode routing tables.
+- When dispatching PRODUCT fixers, route by dimension: `design_soundness`/`motion_friction` → `/design-review`; `concept_clarity` → `/review`; broken flows → `/qa`.
 - Prefer re-rendering only changed scenes over full re-runs.

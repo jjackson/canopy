@@ -10,11 +10,16 @@ Checked invariants:
   4.  All 8 DDD skills named in chain order.
   5.  TWO-gate pause policy stated: concept_change + external_release.
   6.  Nothing-else-blocks rule stated explicitly.
-  7.  Four routing targets with their destinations:
-      PRODUCT → /design-review, /review, or /qa
-      CONCEPT → re-run ddd-spec (edit narration/design_intent)
-      RESEARCH → autonomous investigation + re-run Phase 0
-      CAPABILITY → product-build task
+  7.  Routing section distinguishes two finding sources:
+      A. Design-findings routes (from ddd-concept-eval's design_findings.json):
+         PRODUCT → /design-review, /review, or /qa
+         CONCEPT → re-run ddd-spec (edit narration/design_intent)
+         RESEARCH → autonomous investigation + re-run Phase 0
+         DEFER → log only (non-blocking)
+      B. Why-brief gap types (from Phase 0 ddd-why-brief):
+         RESEARCH → autonomous investigation
+         CAPABILITY → product-build task  ← originates HERE, not in design_findings
+         DECISION → concept_change pause
   8.  compute_convergence referenced.
   9.  MAX_ITERATIONS referenced.
  10.  Reads .canopy/ddd/context and .canopy/ddd/learnings.
@@ -179,7 +184,69 @@ def test_agent_states_nothing_else_blocks() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Four routing targets
+# Routing: two-source structure
+# ---------------------------------------------------------------------------
+
+
+def test_agent_routing_distinguishes_two_finding_sources() -> None:
+    """Agent must explicitly separate design_findings.json routes from why-brief gap types.
+
+    The routing section must reference both source artifacts so a maintainer
+    understands that CAPABILITY is NOT a design_findings route.
+    """
+    content = AGENT_FILE.read_text()
+    has_design_findings_source = "design_findings" in content or "ddd-concept-eval" in content
+    has_why_brief_source = "why_brief" in content or "why-brief" in content or "ddd-why-brief" in content
+    assert has_design_findings_source, (
+        "Routing section must reference design_findings.json (or ddd-concept-eval) as a source"
+    )
+    assert has_why_brief_source, (
+        "Routing section must reference why_brief (or ddd-why-brief) as a source"
+    )
+
+
+def test_agent_capability_route_tied_to_why_brief_not_design_findings() -> None:
+    """CAPABILITY must be documented as coming from why-brief gaps (Phase 0), NOT design_findings.
+
+    The agent must make clear that CAPABILITY originates from ddd-why-brief gap types so
+    a maintainer doesn't expect it to appear in design_findings.json.
+    """
+    content = AGENT_FILE.read_text()
+    assert "CAPABILITY" in content, "Agent must name CAPABILITY"
+    # CAPABILITY must appear in the same section as why-brief / Phase 0 gap types,
+    # not as one of the four design_findings route values.
+    # We verify by checking that the doc explicitly states CAPABILITY is NOT in design_findings,
+    # OR that CAPABILITY appears alongside the why-brief gap type vocabulary
+    # (RESEARCH / CAPABILITY / DECISION triplet from ddd-why-brief).
+    why_brief_gap_vocabulary = (
+        "CAPABILITY" in content and "DECISION" in content
+        and ("gap" in content.lower() or "why-brief" in content.lower() or "why_brief" in content.lower())
+    )
+    assert why_brief_gap_vocabulary, (
+        "CAPABILITY must appear alongside DECISION and gap/why-brief vocabulary "
+        "(these are why-brief gap types, not design_findings routes)"
+    )
+    # Additionally, CAPABILITY must appear as a row in the why-brief gap types table
+    # (§B), not in the design-findings route table (§A).  We locate the §B header by
+    # looking for the "why-brief gap types" section marker and confirm CAPABILITY
+    # appears after it.  Using rfind for CAPABILITY picks its last occurrence, which
+    # is always in the gap-types table (not in the earlier pause-policy preamble).
+    why_brief_section_marker = "Why-brief gap types" in content or "why-brief gap types" in content.lower()
+    assert why_brief_section_marker, (
+        "Agent must have a clearly labeled 'Why-brief gap types' section that covers CAPABILITY"
+    )
+    # Find the start of the §B section and verify CAPABILITY appears within it
+    # (i.e. after the section header, not only in the earlier preamble).
+    section_b_idx = content.lower().find("why-brief gap types")
+    capability_last_idx = content.rfind("CAPABILITY")
+    assert capability_last_idx > section_b_idx, (
+        "CAPABILITY's defining routing entry must appear in the why-brief gap types section (§B), "
+        "not only in the design-findings table (§A)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Design-findings routes: all four must be present
 # ---------------------------------------------------------------------------
 
 
@@ -208,19 +275,64 @@ def test_agent_routes_concept_findings() -> None:
 
 
 def test_agent_routes_research_findings() -> None:
-    """RESEARCH findings must trigger autonomous investigation and Phase 0 re-run."""
+    """RESEARCH findings must trigger autonomous investigation (in design-findings AND why-brief)."""
     content = AGENT_FILE.read_text()
     assert "RESEARCH" in content, "Agent must name the RESEARCH route"
+    # RESEARCH must appear in both the design-findings and why-brief sections
+    # (it is a valid route in both). Verify at least two occurrences.
+    assert content.count("RESEARCH") >= 2, (
+        "RESEARCH must appear at least twice — once as a design-findings route "
+        "and once as a why-brief gap type"
+    )
+
+
+def test_agent_routes_defer_findings() -> None:
+    """DEFER findings must be logged non-blocking (advisory findings land here)."""
+    content = AGENT_FILE.read_text()
+    assert "DEFER" in content, "Agent must name the DEFER route in the design-findings table"
+    # DEFER must be associated with non-blocking / log-only behavior
+    defer_log = "log" in content.lower() or "non-blocking" in content.lower() or "digest" in content.lower()
+    assert defer_log, (
+        "DEFER route must describe log-only or non-blocking handling"
+    )
+
+
+def test_agent_all_four_design_findings_routes_present() -> None:
+    """All four valid design_findings.json route values must appear in the routing section."""
+    content = AGENT_FILE.read_text()
+    for route in ("PRODUCT", "CONCEPT", "RESEARCH", "DEFER"):
+        assert route in content, (
+            f"Design-findings route '{route}' missing from agent routing section"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Why-brief gap types: all three must be present
+# ---------------------------------------------------------------------------
 
 
 def test_agent_routes_capability_findings() -> None:
-    """CAPABILITY findings must create a product-build task."""
+    """CAPABILITY gap type (from why-brief, Phase 0) must create a product-build task.
+
+    CAPABILITY is a why-brief gap type emitted by ddd-why-brief, NOT a route value
+    from design_findings.json. The agent must handle it but must not list it as a
+    design-findings route.
+    """
     content = AGENT_FILE.read_text()
-    assert "CAPABILITY" in content, "Agent must name the CAPABILITY route"
+    assert "CAPABILITY" in content, "Agent must name the CAPABILITY gap type"
     build_task = "task" in content.lower() or "build" in content.lower()
     assert build_task, (
-        "CAPABILITY route must create a product-build task"
+        "CAPABILITY gap type must create a product-build task"
     )
+
+
+def test_agent_all_three_why_brief_gap_types_present() -> None:
+    """All three why-brief gap types (RESEARCH, CAPABILITY, DECISION) must be handled."""
+    content = AGENT_FILE.read_text()
+    for gap_type in ("RESEARCH", "CAPABILITY", "DECISION"):
+        assert gap_type in content, (
+            f"Why-brief gap type '{gap_type}' missing from agent routing section"
+        )
 
 
 # ---------------------------------------------------------------------------
