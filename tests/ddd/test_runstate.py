@@ -117,3 +117,26 @@ def test_append_learning_creates_and_appends(tmp_path, monkeypatch):
     content2 = learnings_file.read_text()
     assert "First learning" in content2
     assert "Second learning" in content2
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: _resolve_ddd_dir falls back to home path when git is absent (FileNotFoundError)
+# ---------------------------------------------------------------------------
+
+def test_resolve_ddd_dir_fallback_when_git_absent(monkeypatch, tmp_path):
+    """When git is not on PATH (FileNotFoundError), fall back to $HOME/.canopy/ddd/<cwd-name>/."""
+    import subprocess
+    import scripts.ddd.runstate as rs
+
+    # Make subprocess.check_output raise FileNotFoundError (git not on PATH)
+    monkeypatch.setattr(subprocess, "check_output", lambda *a, **kw: (_ for _ in ()).throw(FileNotFoundError("git not found")))
+
+    # Run the resolver (we don't monkeypatch _resolve_ddd_dir here — we test the real one)
+    result = rs._resolve_ddd_dir()
+
+    import os
+    cwd_name = Path(os.getcwd()).name
+    expected = Path.home() / ".canopy" / "ddd" / cwd_name
+    assert result == expected, f"Expected {expected}, got {result}"
+    # The dir should have been created
+    assert result.is_dir()

@@ -31,12 +31,16 @@ from scripts.ddd.schemas.models import RunState
 
 
 # ---------------------------------------------------------------------------
-# Dir resolver (pure Python — no subprocess; unit-test-friendly)
+# Dir resolver (shells out to git; keep in sync with resolve_ddd_dir.sh)
 # ---------------------------------------------------------------------------
 
 
 def _resolve_ddd_dir() -> Path:
-    """Return (and create) the canonical DDD state directory."""
+    """Return (and create) the canonical DDD state directory.
+
+    Logic mirrors resolve_ddd_dir.sh — keep the two in sync when changing
+    the fallback path or git invocation.
+    """
     try:
         repo_root = subprocess.check_output(
             ["git", "rev-parse", "--show-toplevel"],
@@ -44,7 +48,9 @@ def _resolve_ddd_dir() -> Path:
             text=True,
         ).strip()
         ddd_dir = Path(repo_root) / ".canopy" / "ddd"
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # CalledProcessError: git ran but we're not in a repo
+        # FileNotFoundError: git is not installed / not on PATH
         import os
         cwd_name = Path(os.getcwd()).name
         ddd_dir = Path.home() / ".canopy" / "ddd" / cwd_name

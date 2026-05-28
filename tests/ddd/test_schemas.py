@@ -98,3 +98,62 @@ def test_decision_serializes_class_as_alias():
     assert dumped["class"] == "SCOPE"
     # Should not have the Python name "class_" in aliased output
     assert "class_" not in dumped
+
+
+def test_decision_default_dump_emits_class_not_class_underscore():
+    """Regression: plain model_dump() / model_dump_json() must emit 'class', not 'class_'."""
+    from scripts.ddd.schemas.models import Decision, ReviewRequest
+
+    d = Decision(
+        id="D1",
+        prompt="Which approach?",
+        options=["A", "B"],
+        recommended="A",
+        class_="SCOPE",
+    )
+    # Default model_dump() (no by_alias argument) must emit "class"
+    plain_dump = d.model_dump()
+    assert "class" in plain_dump, "model_dump() must emit 'class' key by default"
+    assert "class_" not in plain_dump, "model_dump() must NOT emit 'class_' by default"
+
+    # model_dump_json() must also emit "class"
+    json_str = d.model_dump_json()
+    assert '"class"' in json_str, "model_dump_json() must emit '\"class\"' by default"
+    assert '"class_"' not in json_str, "model_dump_json() must NOT emit '\"class_\"' by default"
+
+    # And through ReviewRequest (the real consumer path)
+    rr = ReviewRequest(
+        run_id="run-001",
+        gate="phase1",
+        video={"url": "http://example.com/v.mp4"},
+        decisions=[d],
+        narration=[{"text": "hello"}],
+    )
+    rr_json = rr.model_dump_json()
+    assert '"class"' in rr_json, "ReviewRequest.model_dump_json() must emit '\"class\"'"
+    assert '"class_"' not in rr_json, "ReviewRequest.model_dump_json() must NOT emit '\"class_\"'"
+
+
+def test_decision_loads_from_class_key_and_class_kwarg():
+    """Decision must accept both {'class': ...} dict input and class_=... kwarg."""
+    from scripts.ddd.schemas.models import Decision
+
+    # Load from dict with "class" key (JSON/YAML deserialization path)
+    d1 = Decision.model_validate({
+        "id": "D1",
+        "prompt": "p",
+        "options": ["A"],
+        "recommended": "A",
+        "class": "SCOPE",
+    })
+    assert d1.class_ == "SCOPE"
+
+    # Load using Python kwarg class_=
+    d2 = Decision(
+        id="D2",
+        prompt="p",
+        options=["A"],
+        recommended="A",
+        class_="SCOPE",
+    )
+    assert d2.class_ == "SCOPE"

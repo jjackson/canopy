@@ -6,6 +6,8 @@
 #
 # Stdout: the resolved path (created if it doesn't exist).
 # Stderr: human-readable notes, if any.
+#
+# Keep in sync with the other resolver: scripts/ddd/runstate._resolve_ddd_dir()
 
 set -euo pipefail
 

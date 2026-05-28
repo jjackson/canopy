@@ -42,7 +42,7 @@ _MODEL_MAP = {
 def _load(path: Path) -> Any:
     """Load YAML or JSON from *path*."""
     text = path.read_text()
-    if path.suffix in {".json"}:
+    if path.suffix.casefold() == ".json":
         return json.loads(text)
     return yaml.safe_load(text)
 
@@ -52,9 +52,18 @@ def _semantic_why_brief(obj: WhyBrief) -> list[str]:
 
     (a) grounded SpineItem must have ≥1 evidence with kind != 'assumed'
     (c) every Gap.claim_ref must resolve to a SpineItem.id
+    (d) duplicate SpineItem.id is an error
     """
     problems: list[str] = []
-    spine_ids = {s.id for s in obj.spine}
+
+    # (d) duplicate spine ids
+    seen_ids: set[str] = set()
+    for item in obj.spine:
+        if item.id in seen_ids:
+            problems.append(f"duplicate spine id: {item.id}")
+        seen_ids.add(item.id)
+
+    spine_ids = seen_ids  # reuse the set we just built
 
     for item in obj.spine:
         if item.status == "grounded":
@@ -79,12 +88,29 @@ def _semantic_unified_spec(obj: UnifiedSpec, spec_path: Path | None) -> list[str
 
     (b) when a why_brief is resolvable (relative to spec file), every
         Scene.provenance must match some SpineItem.id
+    (e) Scene.persona must be a key in the personas dict
+    (f) why_brief declared but not resolvable/invalid → problem (not silent)
     """
     problems: list[str] = []
 
-    if obj.why_brief and spec_path is not None:
-        wb_path = spec_path.parent / obj.why_brief
-        if wb_path.exists():
+    # (e) every scene persona must exist in the personas map
+    for scene in obj.scenes:
+        if scene.persona not in obj.personas:
+            problems.append(
+                f"scene references undefined persona: {scene.persona}"
+            )
+
+    # (b) + (f) provenance cross-check when why_brief is declared
+    if obj.why_brief:
+        wb_path: Path | None = None
+        if spec_path is not None:
+            wb_path = spec_path.parent / obj.why_brief
+
+        if wb_path is None or not wb_path.exists():
+            problems.append(
+                f"why_brief declared but not resolvable: {obj.why_brief}"
+            )
+        else:
             try:
                 wb_data = _load(wb_path)
                 wb = WhyBrief.model_validate(wb_data)
@@ -95,9 +121,10 @@ def _semantic_unified_spec(obj: UnifiedSpec, spec_path: Path | None) -> list[str
                             f"Scene '{scene.title}' has provenance '{scene.provenance}' "
                             f"which does not match any SpineItem.id in the why_brief."
                         )
-            except (ValidationError, Exception):
-                # If the why_brief itself is invalid, skip provenance check
-                pass
+            except (ValidationError, yaml.YAMLError, OSError):
+                problems.append(
+                    f"why_brief declared but not resolvable: {obj.why_brief}"
+                )
 
     return problems
 
@@ -141,7 +168,10 @@ def validate(
     try:
         obj = model_cls.model_validate(raw)
     except ValidationError as exc:
-        problems = [str(e) for e in exc.errors()]
+        problems = [
+            f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}"
+            for e in exc.errors()
+        ]
         return False, problems
 
     # Semantic validation
