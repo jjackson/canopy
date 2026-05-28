@@ -4,9 +4,9 @@ description: |
   Run pure-python structural QA on a unified spec YAML. No LLM — just rules:
   delegates to validate() for persona-defined, provenance-to-spine-id, and
   required-field checks; adds falsifiability check on every Scene.concept_claim
-  (fails on empty, whitespace, banned marketing phrases, or no verb). Returns a
-  Verdict (pass | fail). Gates the concept judge (ddd-concept-judge). Use when
-  asked to "qa the spec", "validate spec", or after ddd-spec completes.
+  (fails on empty, whitespace, banned marketing phrases, or fewer than 5 words).
+  Returns a Verdict (pass | fail). Gates the concept judge (ddd-concept-judge).
+  Use when asked to "qa the spec", "validate spec", or after ddd-spec completes.
 ---
 
 ## Preamble (run first)
@@ -37,7 +37,12 @@ Implements two layers of checks:
 5. Every `Scene.concept_claim` must be **falsifiable** — fails if it:
    - Contains a banned marketing phrase: "world-class", "seamless", "powerful",
      "robust", "best-in-class", "cutting-edge", "revolutionary", etc.
-   - Contains no verb (not an observable action or result).
+   - Is fewer than 5 words (too short to be a specific, testable claim).
+
+Note: verb-pattern detection is intentionally absent.  It blocked legitimate
+nominalized domain claims ("GPS pinning accuracy within 5 meters") while
+accepting articulate-but-empty fluff ("The system is good" — copula + adjective).
+Subtle vacuousness judgment belongs to the LLM concept judge (SP3).
 
 These rules exist because concept_claims are the testable hypotheses that the
 concept judge (SP3) will score.  A non-falsifiable claim cannot be judged.
@@ -45,15 +50,15 @@ concept judge (SP3) will score.  A non-falsifiable claim cannot be judged.
 ## Inputs
 
 - **`spec_path`** — path to the unified spec YAML (e.g. `docs/walkthroughs/<feature>.yaml`).
-- **`why_brief_path`** *(optional)* — explicit path to the why_brief if it is
-  not resolvable from the spec file's `why_brief` field.
+  The why_brief (if declared) is resolved automatically from the spec file's
+  `why_brief` field relative to the spec file — no separate path argument needed.
 
 ## Procedure
 
 ### Step 1 — Run the QA module
 
 ```bash
-python -m scripts.ddd.spec_qa <spec_path> [why_brief_path]
+python -m scripts.ddd.spec_qa <spec_path>
 ```
 
 The module exits 0 on pass, 1 on fail, 2 on usage error.  Capture stdout/stderr
@@ -103,9 +108,9 @@ Tell the user to fix the issues in the spec file and re-run `/ddd-spec-qa`.
 **Common fixes by violation type:**
 
 - `concept_claim is empty` → write a specific, observable outcome for this scene.
-- `concept_claim is not falsifiable` → remove banned phrases; write a specific
-  action + result (e.g. "Users can filter tasks by status and see only open items").
-- `concept_claim ... has no verb` → add an action verb describing what happens.
+- `concept_claim is not falsifiable` → remove banned phrases and ensure the claim
+  is at least 5 words; write a specific, testable outcome
+  (e.g. "Users can filter tasks by status and see only open items").
 - `scene references undefined persona` → add the persona to `personas` or fix the
   scene's `persona` key.
 - `provenance ... does not match any SpineItem.id` → update the provenance to

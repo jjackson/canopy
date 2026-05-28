@@ -1,6 +1,6 @@
 ---
-description: Run pure-python structural QA on a unified spec YAML — delegates provenance/persona/schema checks to validate(), adds falsifiability check on every concept_claim (no banned marketing phrases, must have a verb). Returns pass | fail verdict. Gates the concept judge.
-argument-hint: [<spec_path> [<why_brief_path>]]
+description: Run pure-python structural QA on a unified spec YAML — delegates provenance/persona/schema checks to validate(), adds falsifiability check on every concept_claim (no banned marketing phrases, minimum 5 words). Returns pass | fail verdict. Gates the concept judge.
+argument-hint: [<spec_path>]
 allowed-tools: [Read, Bash]
 ---
 
@@ -12,8 +12,8 @@ Structural gate: validate a unified spec before running the concept judge.
 
 - `<spec_path>` — path to the unified spec YAML (e.g. `docs/walkthroughs/<feature>.yaml`).
   If not supplied, looks for the most recent spec in `docs/walkthroughs/`.
-- `<why_brief_path>` *(optional)* — explicit path to the why_brief if it is
-  not resolvable from the spec file's `why_brief` field.
+  The why_brief (if declared) is resolved automatically from the spec's `why_brief`
+  field — no separate path argument is needed.
 
 ## Process
 

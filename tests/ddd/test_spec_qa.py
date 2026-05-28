@@ -1,11 +1,11 @@
 """Behavioral tests for scripts/ddd/spec_qa.py (SP2.2).
 
 TDD: these tests are written first and drive the implementation.
-spec_qa(spec_obj_or_path, why_brief_path=None) -> Verdict
+spec_qa(spec_obj_or_path) -> Verdict
   - "pass"  for a well-formed spec with no vacuous concept_claims
   - "fail"  (with blocking_reason) when:
       * a scene has an empty/whitespace concept_claim
-      * a scene has a vacuous concept_claim (banned marketing phrases)
+      * a scene has a vacuous concept_claim (banned marketing phrases or < 5 words)
       * a scene's provenance doesn't match any spine id (via delegation)
       * a scene references an undefined persona (via delegation)
       * a required field is missing (via delegation)
@@ -103,11 +103,11 @@ def test_valid_spec_with_why_brief_passes(tmp_path):
     """A valid spec with a resolvable why_brief and matching provenance passes."""
     from scripts.ddd.spec_qa import spec_qa
 
-    wb_path = _write_yaml(tmp_path, "why_brief.yaml", _why_brief_data(["S1"]))
+    _write_yaml(tmp_path, "why_brief.yaml", _why_brief_data(["S1"]))
     spec = _spec_data(provenance="S1", why_brief_rel="why_brief.yaml")
     spec_path = _write_yaml(tmp_path, "spec.yaml", spec)
 
-    result = spec_qa(spec_path, why_brief_path=str(wb_path))
+    result = spec_qa(spec_path)
     assert result.verdict == "pass"
     assert result.blocking_reason is None
 
@@ -173,11 +173,11 @@ def test_vacuous_claim_best_in_class_fails():
     assert result.verdict == "fail"
 
 
-def test_vacuous_claim_no_verb_fails():
-    """A concept_claim with no verb is not falsifiable → fail."""
+def test_vacuous_claim_too_short_fails():
+    """A concept_claim under 5 words is not falsifiable → fail."""
     from scripts.ddd.spec_qa import spec_qa
 
-    # A noun phrase with no action/verb
+    # Only 2 words — too short to be a specific claim
     spec = _spec_data(concept_claim="fast loading")
     result = spec_qa(spec)
     assert result.verdict == "fail"
@@ -222,6 +222,71 @@ def test_falsifiable_claim_with_verb_passes():
     )
     result = spec_qa(spec)
     assert result.verdict == "pass"
+
+
+# ---------------------------------------------------------------------------
+# False-positive guard: nominalized domain claims that verb-detection blocked
+# ---------------------------------------------------------------------------
+
+def test_nominalized_gps_claim_passes():
+    """'GPS pinning accuracy within 5 meters' — a valid nominalized claim — passes.
+
+    This is the canonical false-positive example: the old verb-pattern heuristic
+    wrongly rejected it because 'pinning' wasn't in the verb list as a gerund
+    and 'accuracy within 5 meters' has no finite verb.  The new heuristic (banned
+    phrases + min length) correctly passes it.
+    """
+    from scripts.ddd.spec_qa import spec_qa
+    from scripts.ddd.spec_qa import _is_falsifiable
+
+    claim = "GPS pinning accuracy within 5 meters"
+    assert _is_falsifiable(claim), f"Expected _is_falsifiable to return True for: {claim!r}"
+
+    spec = _spec_data(concept_claim=claim)
+    result = spec_qa(spec)
+    assert result.verdict == "pass", f"Expected pass but got: {result.blocking_reason}"
+
+
+def test_proportional_allocation_claim_passes():
+    """'Per-stratum allocation proportional to population' passes (nominalized, no finite verb)."""
+    from scripts.ddd.spec_qa import _is_falsifiable
+
+    claim = "Per-stratum allocation proportional to population density"
+    assert _is_falsifiable(claim), f"Expected True for: {claim!r}"
+
+
+def test_autosamples_rooftops_claim_passes():
+    """'Auto-samples thirty rooftops per population cluster' passes (≥5 words, no banned phrase)."""
+    from scripts.ddd.spec_qa import spec_qa
+    from scripts.ddd.spec_qa import _is_falsifiable
+
+    claim = "Auto-samples thirty rooftops per population cluster"
+    assert _is_falsifiable(claim), f"Expected True for: {claim!r}"
+
+    spec = _spec_data(concept_claim=claim)
+    result = spec_qa(spec)
+    assert result.verdict == "pass", f"Expected pass but got: {result.blocking_reason}"
+
+
+# ---------------------------------------------------------------------------
+# False-negative-now-caught: short copula fluff caught by min-length rule
+# ---------------------------------------------------------------------------
+
+def test_system_is_good_fails_min_length():
+    """'The system is good' (4 words) fails via the min-length rule.
+
+    The old verb-pattern heuristic wrongly accepted this because 'is' matched
+    \\bis\\b.  The new heuristic rejects it: 4 words < 5-word minimum.
+    """
+    from scripts.ddd.spec_qa import spec_qa
+    from scripts.ddd.spec_qa import _is_falsifiable
+
+    claim = "The system is good"
+    assert not _is_falsifiable(claim), f"Expected _is_falsifiable to return False for: {claim!r}"
+
+    spec = _spec_data(concept_claim=claim)
+    result = spec_qa(spec)
+    assert result.verdict == "fail", f"Expected fail but got pass for: {claim!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -407,19 +472,36 @@ def test_cli_bad_path_exits_1():
     assert result.returncode == 1
 
 
-def test_cli_with_why_brief_arg_exit_0(tmp_path):
-    """CLI accepts optional second arg: why_brief path."""
+def test_cli_with_why_brief_in_spec_exit_0(tmp_path):
+    """CLI passes when why_brief is resolvable from the spec's own why_brief field."""
     import subprocess
     import sys
 
-    wb_path = _write_yaml(tmp_path, "why_brief.yaml", _why_brief_data(["S1"]))
+    _write_yaml(tmp_path, "why_brief.yaml", _why_brief_data(["S1"]))
     spec = _spec_data(provenance="S1", why_brief_rel="why_brief.yaml")
     spec_path = _write_yaml(tmp_path, "spec.yaml", spec)
 
     result = subprocess.run(
-        [sys.executable, "-m", "scripts.ddd.spec_qa", str(spec_path), str(wb_path)],
+        [sys.executable, "-m", "scripts.ddd.spec_qa", str(spec_path)],
         capture_output=True,
         text=True,
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_cli_extra_arg_exits_2(tmp_path):
+    """Passing two args (old why_brief_path form) now triggers usage error (exit 2)."""
+    import subprocess
+    import sys
+
+    spec = _spec_data()
+    spec_path = _write_yaml(tmp_path, "spec.yaml", spec)
+
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.ddd.spec_qa", str(spec_path), "extra_arg"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 2
