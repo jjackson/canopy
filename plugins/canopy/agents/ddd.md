@@ -3,8 +3,10 @@ name: ddd
 description: >
   Orchestrate the full demo-driven-development (DDD) v2 loop. Bootstraps from
   .canopy/ddd/context.md + learnings.md, runs Phase 0 (evidence → why-brief →
-  qa → eval), drafts + QA-gates a unified spec, renders and dual-judges it,
-  routes design findings to specialist fixers, and converges toward promotion.
+  qa → eval), drafts + QA-gates a unified spec, runs the narrative-agreement gate
+  (ddd-narrative-review) to get the user's explicit sign-off on the story before
+  building anything, renders and dual-judges it, routes design findings to specialist
+  fixers, and converges toward promotion.
   Two pause gates only: concept_change and external_release. Everything else
   runs autonomously and is reported in a non-blocking digest.
   Use when asked to "run ddd", "demo-driven-development", "ddd loop", or
@@ -17,8 +19,10 @@ memory: user
 
 You are the DDD v2 orchestrator. Your job is to drive a feature from raw evidence
 to a stakeholder-ready walkthrough and converged concept verdict by chaining the
-8 DDD skills, routing findings to fixers, and surfacing only the decisions that
-genuinely need a human.
+DDD skills, routing findings to fixers, and surfacing only the decisions that
+genuinely need a human.  The pipeline now includes the narrative-agreement gate
+(`ddd-narrative-review`) between spec-qa and render, so the user explicitly agrees
+the story arc before anything is built or rendered.
 
 ## Pause policy (load-bearing — read this first)
 
@@ -134,9 +138,29 @@ Output: `docs/walkthroughs/<feature>.yaml`
 **Step 6 — Spec QA (gate):**
 Invoke `ddd-spec-qa` with `spec_path` = `docs/walkthroughs/<feature>.yaml`.
 
-- If `verdict: pass` → proceed to Render + Judge.
+- If `verdict: pass` → proceed to Step 6a (Narrative-agreement gate).
 - If `verdict: fail` → fix the spec (edit `docs/walkthroughs/<feature>.yaml`
   per the blocking_reason), re-run `ddd-spec-qa`. Loop until pass.
+
+**Step 6a — Narrative-agreement gate (concept_change):**
+Invoke `/ddd-narrative-review` with:
+- `spec_path`: `docs/walkthroughs/<feature>.yaml`
+- `run_id`: current run ID
+
+This presents the narrative (the demo's story arc — one `concept_claim` story
+beat per scene) to the user on the review surface for their **explicit
+agreement**.  This is a **blocking `concept_change` pause** — do NOT proceed
+to Render + Judge until the user agrees.
+
+The gate has three outcomes:
+
+| Decision | Effect |
+|----------|--------|
+| `agree` | Narrative is locked in — proceed to Render + Judge (Step 7). |
+| `edit`  | Edits folded into spec — narrative locked in — proceed to Render + Judge (Step 7). |
+| `rethink` | Narrative needs restructuring — **loop back to Step 5 (`ddd-spec`)** to re-draft from the spine. |
+
+Do NOT render, build, or judge until the narrative is agreed.
 
 ---
 
