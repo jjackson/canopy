@@ -202,7 +202,9 @@ DDD Unified Spec — <feature>
   Validator (structural): PASS
   Validator (spec_qa):    PASS
 
-Next step: run /ddd-spec-qa for full structural QA, then /ddd-concept-eval.
+Next step: run /ddd-spec-qa for structural QA, then **/ddd-narrative-review to get
+the user's explicit agreement on the narrative (the concept gate) — before any
+rendering or building** — then /ddd-run.
 ```
 
 If there are DECISION gaps from the why_brief, list them explicitly so the user
