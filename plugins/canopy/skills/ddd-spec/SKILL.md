@@ -5,7 +5,7 @@ description: |
   why_brief.yaml. Each spine item becomes one or more scenes with concept_claim,
   provenance, and design_intent. The output is simultaneously a design doc and a
   runnable canopy walkthrough spec. Loops until
-  python -m scripts.ddd.validate unified_spec passes. Use when asked to
+  scripts.ddd.validate unified_spec passes. Use when asked to
   "write the spec", "author the unified spec", or after ddd-why-qa passes.
 ---
 
@@ -138,10 +138,16 @@ it doesn't exist).
 
 ### Step 6 — Validate and loop
 
-Run the structural validator:
+Run the structural validator (it lives in the canopy repo; resolve `DDD_REPO` once
+and reuse it for both commands in this step):
 
 ```bash
-python -m scripts.ddd.validate unified_spec docs/walkthroughs/<feature>.yaml
+# scripts/ddd ships in the canopy repo, not the plugin cache — resolve it:
+DDD_REPO="$HOME/emdash-projects/canopy"; [ -d "$DDD_REPO/scripts/ddd" ] || DDD_REPO="$HOME/.claude/plugins/marketplaces/canopy"
+if [ ! -d "$DDD_REPO/scripts/ddd" ]; then echo "ERROR: scripts/ddd not found — run /canopy:update to sync the canopy checkout"; exit 1; fi
+# pass the file arg as an absolute path (resolved before the cd):
+SPEC_ABS="$(realpath docs/walkthroughs/<feature>.yaml)"
+(cd "$DDD_REPO" && uv run python -m scripts.ddd.validate unified_spec "$SPEC_ABS")
 ```
 
 If it exits non-zero, read each problem and fix the spec.  Re-run until the
@@ -158,10 +164,11 @@ Common fixes:
 - `base_url: field required` → add `base_url` at the top level.
 
 **Important:** after the validate pass, also run ddd-spec-qa (SP2.2) to catch
-non-falsifiable concept_claims before the concept judge runs:
+non-falsifiable concept_claims before the concept judge runs (reuse `DDD_REPO` from
+above — it is already resolved):
 
 ```bash
-python -m scripts.ddd.spec_qa docs/walkthroughs/<feature>.yaml
+(cd "$DDD_REPO" && uv run python -m scripts.ddd.spec_qa "$SPEC_ABS")
 ```
 
 Fix any `concept_claim is not falsifiable` violations before proceeding.
@@ -172,7 +179,7 @@ Before reporting success, verify the spec still satisfies the canopy walkthrough
 engine's minimum requirements:
 - `name`, `narrative`, `base_url`, `personas`, `scenes` are all present.
 - Every scene has `persona`, `title`, `show`.
-- The spec can be parsed by `python -m scripts.ddd.validate unified_spec`.
+- The spec can be parsed by `scripts.ddd.validate unified_spec` (run via the resolved `DDD_REPO` pattern from Step 6).
 
 Do NOT remove any of these keys even if they seem redundant with the DDD fields.
 The unified spec must remain playable by `/canopy:walkthrough`.

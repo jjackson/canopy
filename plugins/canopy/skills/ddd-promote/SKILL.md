@@ -58,8 +58,15 @@ All user-supplied text is HTML-escaped (no XSS).
 
 ### Step 1 — Run the promotion script
 
+Run the promotion script (it lives in the canopy repo):
+
 ```bash
-python -m scripts.ddd.promote <run_id> --video <video_path>
+# scripts/ddd ships in the canopy repo, not the plugin cache — resolve it:
+DDD_REPO="$HOME/emdash-projects/canopy"; [ -d "$DDD_REPO/scripts/ddd" ] || DDD_REPO="$HOME/.claude/plugins/marketplaces/canopy"
+if [ ! -d "$DDD_REPO/scripts/ddd" ]; then echo "ERROR: scripts/ddd not found — run /canopy:update to sync the canopy checkout"; exit 1; fi
+# pass the video_path as an absolute path (resolved before the cd):
+VIDEO_ABS="$(realpath <video_path>)"
+(cd "$DDD_REPO" && uv run python -m scripts.ddd.promote <run_id> --video "$VIDEO_ABS")
 ```
 
 The script orchestrates all steps internally:

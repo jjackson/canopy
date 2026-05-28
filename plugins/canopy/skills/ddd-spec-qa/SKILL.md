@@ -57,8 +57,15 @@ concept judge (SP3) will score.  A non-falsifiable claim cannot be judged.
 
 ### Step 1 — Run the QA module
 
+Run the QA module (it lives in the canopy repo):
+
 ```bash
-python -m scripts.ddd.spec_qa <spec_path>
+# scripts/ddd ships in the canopy repo, not the plugin cache — resolve it:
+DDD_REPO="$HOME/emdash-projects/canopy"; [ -d "$DDD_REPO/scripts/ddd" ] || DDD_REPO="$HOME/.claude/plugins/marketplaces/canopy"
+if [ ! -d "$DDD_REPO/scripts/ddd" ]; then echo "ERROR: scripts/ddd not found — run /canopy:update to sync the canopy checkout"; exit 1; fi
+# pass the file arg as an absolute path (resolved before the cd):
+SPEC_ABS="$(realpath <spec_path>)"
+(cd "$DDD_REPO" && uv run python -m scripts.ddd.spec_qa "$SPEC_ABS")
 ```
 
 The module exits 0 on pass, 1 on fail, 2 on usage error.  Capture stdout/stderr

@@ -40,10 +40,16 @@ gate → render → judge (concept + user-artifact in parallel) → assemble →
 
 ### Step 1 — Gate: spec QA
 
-Before rendering, verify the spec is structurally sound:
+Before rendering, verify the spec is structurally sound (the script lives in the
+canopy repo):
 
 ```bash
-python -m scripts.ddd.spec_qa <unified_spec>
+# scripts/ddd ships in the canopy repo, not the plugin cache — resolve it:
+DDD_REPO="$HOME/emdash-projects/canopy"; [ -d "$DDD_REPO/scripts/ddd" ] || DDD_REPO="$HOME/.claude/plugins/marketplaces/canopy"
+if [ ! -d "$DDD_REPO/scripts/ddd" ]; then echo "ERROR: scripts/ddd not found — run /canopy:update to sync the canopy checkout"; exit 1; fi
+# pass the file arg as an absolute path (resolved before the cd):
+UNIFIED_SPEC_ABS="$(realpath <unified_spec>)"
+(cd "$DDD_REPO" && uv run python -m scripts.ddd.spec_qa "$UNIFIED_SPEC_ABS")
 ```
 
 If the exit code is non-zero (verdict: fail), stop immediately and tell the user:

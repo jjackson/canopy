@@ -4,7 +4,7 @@ description: |
   Draft a why-brief (why_brief.yaml) from an evidence inventory produced by
   ddd-evidence-audit. Builds an ordered narrative spine where each claim links
   to evidence; unsupported/assumed claims become Gaps tagged RESEARCH /
-  CAPABILITY / DECISION. Loops until python -m scripts.ddd.validate passes.
+  CAPABILITY / DECISION. Loops until scripts.ddd.validate passes.
   Use when asked to "draft the why-brief", "write why-brief", or after
   ddd-evidence-audit completes.
 ---
@@ -109,10 +109,15 @@ gaps:
 
 ### Step 6 — Validate and loop
 
-Run the structural validator:
+Run the structural validator (it lives in the canopy repo):
 
 ```bash
-python -m scripts.ddd.validate why_brief <run_dir>/why_brief.yaml
+# scripts/ddd ships in the canopy repo, not the plugin cache — resolve it:
+DDD_REPO="$HOME/emdash-projects/canopy"; [ -d "$DDD_REPO/scripts/ddd" ] || DDD_REPO="$HOME/.claude/plugins/marketplaces/canopy"
+if [ ! -d "$DDD_REPO/scripts/ddd" ]; then echo "ERROR: scripts/ddd not found — run /canopy:update to sync the canopy checkout"; exit 1; fi
+# pass the file arg as an absolute path (resolved before the cd):
+WHY_BRIEF_ABS="$(realpath <run_dir>/why_brief.yaml)"
+(cd "$DDD_REPO" && uv run python -m scripts.ddd.validate why_brief "$WHY_BRIEF_ABS")
 ```
 
 If it exits non-zero, read each problem listed and fix `why_brief.yaml`.  Re-run until the validator exits 0.  After 3 fix attempts, if the validator still exits non-zero, stop and surface the remaining errors to the user rather than looping further.
