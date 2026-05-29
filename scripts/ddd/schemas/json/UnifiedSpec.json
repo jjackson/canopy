@@ -180,6 +180,19 @@
       "title": "Tagline",
       "type": "string"
     },
+    "capabilities": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "why_summary": {
+      "default": "",
+      "title": "Why Summary",
+      "type": "string"
+    },
     "getting_started": {
       "default": [],
       "items": {

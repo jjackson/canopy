@@ -90,6 +90,14 @@ class UnifiedSpec(BaseModel):
     page leads with it so a newcomer understands the feature before pressing play.
     The build-audience narrative/concept_claims are NOT a substitute (they carry
     internal jargon); this is the user-facing hook."""
+    capabilities: list[str] = []
+    """User-facing 'what you can do' bullets, phrased as the reader's benefits/outcomes
+    (not the build-audience concept_claims). The docs page uses these for the
+    capabilities section when present, falling back to concept_claims otherwise."""
+    why_summary: str = ""
+    """A short, plain-language 'why this matters' for the docs page (a couple of
+    sentences, no internal jargon). The docs page uses this for the Why section when
+    present, instead of the build-audience why_brief problem + spine."""
     getting_started: list[str] = []
     """Ordered, user-facing 'how do I start' steps for the docs page (what to run /
     do, in the reader's terms) — distinct from each scene's ``show`` (which is the
