@@ -81,6 +81,11 @@
           "title": "Persona",
           "type": "string"
         },
+        "provenance": {
+          "default": "",
+          "title": "Provenance",
+          "type": "string"
+        },
         "text": {
           "title": "Text",
           "type": "string"

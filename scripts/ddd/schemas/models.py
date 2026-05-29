@@ -134,6 +134,7 @@ class NarrationItem(BaseModel):
     id: str
     title: str = ""
     persona: str = ""
+    provenance: str = ""  # spine id this beat grounds — lets the surface co-locate grounding
     text: str
     features: list[Feature] = []
 

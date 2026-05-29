@@ -84,6 +84,7 @@ def build_narrative_review_request(
             id=_title_slug(scene.title),
             title=scene.title,
             persona=scene.persona,
+            provenance=scene.provenance,
             text=scene.concept_claim,
             features=scene.features,
         )
