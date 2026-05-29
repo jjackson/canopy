@@ -84,6 +84,14 @@ class UnifiedSpec(BaseModel):
     why_brief: str | None = None
     personas: dict[str, Persona]
     scenes: list[Scene]
+    build_order: list[str] = []
+    """Ordered list of scene-title slugs representing the tackle sequence.
+
+    Empty = default to narrative (scene array) order.  Partial lists are
+    allowed — unlisted scenes implicitly follow in scene order.  The slugs
+    must match those produced by ``_title_slug(scene.title)`` in
+    ``scripts.ddd.narrative``.
+    """
 
 
 class Dimension(BaseModel):
@@ -133,6 +141,14 @@ class ReviewRequest(BaseModel):
     narration: list[NarrationItem | dict]
     autonomous_audit: list[str] = []
     actionability: dict | None = None
+    build_order: list[str] = []
+    """Ordered list of scene-title slugs representing the user's chosen tackle sequence.
+
+    Populated by ``build_narrative_review_request`` from ``spec.build_order``
+    (or defaulted to scene order when the spec has no explicit order).  The
+    editor returns this field in its response_json and ``apply_narrative_edits``
+    persists it back onto the spec.
+    """
 
 
 class RunState(BaseModel):

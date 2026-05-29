@@ -14,6 +14,7 @@ Supported kinds: why_brief, unified_spec, verdict, review_request, run_state
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -128,6 +129,25 @@ def _semantic_unified_spec(obj: UnifiedSpec, spec_path: Path | None) -> list[str
                     f"scene '{scene.title}' feature '{feature.id}': verify is empty — "
                     "must describe how to validate this feature is done "
                     "(e.g. an API assertion, a UI state check, a test command)"
+                )
+
+    # (build_order) if non-empty: each slug must map to an existing scene, no duplicates
+    if obj.build_order:
+        scene_slugs: set[str] = set(
+            re.sub(r"[^a-z0-9]+", "-", scene.title.lower()).strip("-")
+            for scene in obj.scenes
+        )
+        seen_order_slugs: set[str] = set()
+        for slug in obj.build_order:
+            if slug in seen_order_slugs:
+                problems.append(
+                    f"build_order contains duplicate slug: '{slug}'"
+                )
+            seen_order_slugs.add(slug)
+            if slug not in scene_slugs:
+                problems.append(
+                    f"build_order references unknown scene slug '{slug}' "
+                    "(no scene title produces this slug)"
                 )
 
     # (b) + (f) provenance cross-check when why_brief is declared
