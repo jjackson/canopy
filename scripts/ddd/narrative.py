@@ -49,6 +49,7 @@ def build_narrative_review_request(
     spec: UnifiedSpec,
     run_id: str,
     actionability: dict | None = None,
+    why_brief: dict | None = None,
 ) -> ReviewRequest:
     """Build a ReviewRequest for the narrative-agreement gate (DDD v3).
 
@@ -113,6 +114,7 @@ def build_narrative_review_request(
         narration=narration,
         narrative=spec.narrative,
         personas={k: p.model_dump() for k, p in spec.personas.items()},
+        why_brief=why_brief or {},
         autonomous_audit=[],
         decisions=[decision],
         actionability=actionability,
@@ -141,6 +143,91 @@ def _generate_feature_id(description: str, existing_ids: set[str]) -> str:
         n += 1
         candidate = f"{base}-{n}"
     return candidate
+
+
+_PERSONA_FIELDS = ("name", "role", "intro", "org", "color")
+_SPINE_FIELDS = ("claim", "rationale")
+_GAP_FIELDS = ("detail", "proposed_action")
+
+
+def _apply_persona_edits(raw: dict, response_json: dict) -> int:
+    """Apply ``edited_personas`` onto ``raw['personas']`` in place.
+
+    Payload shape: ``{"<key>": {"name": ..., "org": ..., "role": ..., "intro": ...}}``
+    (partial — only changed fields). Unknown keys are ignored (the key is the
+    persona's stable identity and is never created/renamed here). Returns the
+    number of fields changed.
+    """
+    edited: dict = response_json.get("edited_personas") or {}
+    if not edited:
+        return 0
+    personas: dict = raw.get("personas") or {}
+    changed = 0
+    for key, fields in edited.items():
+        if key not in personas or not isinstance(fields, dict):
+            continue
+        for f in _PERSONA_FIELDS:
+            if f in fields and personas[key].get(f) != fields[f]:
+                personas[key][f] = fields[f]
+                changed += 1
+    if changed:
+        raw["personas"] = personas
+    return changed
+
+
+def _apply_why_brief_edits(spec_path: Path, raw: dict, response_json: dict) -> int:
+    """Apply ``edited_why_brief`` onto the why-brief file referenced by the spec.
+
+    Payload shape::
+
+        {"problem": "...",
+         "spine": {"<id>": {"claim": "...", "rationale": "..."}},
+         "gaps":  {"<id>": {"detail": "...", "proposed_action": "..."}}}
+
+    Only prose fields are editable; ids/status/type/claim_ref are structural and
+    left untouched. Writes the why-brief file back in place. Returns the number of
+    fields changed (0 if no edits, no why_brief link, or the file is unreadable).
+    """
+    edited: dict = response_json.get("edited_why_brief") or {}
+    wb_rel = raw.get("why_brief")
+    if not edited or not wb_rel:
+        return 0
+    wb_path = (Path(spec_path).parent / wb_rel).resolve()
+    try:
+        wb = yaml.safe_load(wb_path.read_text())
+    except Exception:
+        return 0
+    if not isinstance(wb, dict):
+        return 0
+
+    changed = 0
+    if "problem" in edited and wb.get("problem") != edited["problem"]:
+        wb["problem"] = edited["problem"]
+        changed += 1
+
+    spine_edits: dict = edited.get("spine") or {}
+    for item in wb.get("spine") or []:
+        e = spine_edits.get(item.get("id"))
+        if not isinstance(e, dict):
+            continue
+        for f in _SPINE_FIELDS:
+            if f in e and item.get(f) != e[f]:
+                item[f] = e[f]
+                changed += 1
+
+    gap_edits: dict = edited.get("gaps") or {}
+    for gap in wb.get("gaps") or []:
+        e = gap_edits.get(gap.get("id"))
+        if not isinstance(e, dict):
+            continue
+        for f in _GAP_FIELDS:
+            if f in e and gap.get(f) != e[f]:
+                gap[f] = e[f]
+                changed += 1
+
+    if changed:
+        wb_path.write_text(yaml.dump(wb, default_flow_style=False, allow_unicode=True, sort_keys=False))
+    return changed
 
 
 def apply_narrative_edits(
@@ -233,6 +320,12 @@ def apply_narrative_edits(
         "rethink": "redraft",
     }
     decision: str = _LEGACY_MAP.get(raw_decision, raw_decision)
+
+    # Persona + why-brief edits are independent of the scene-edit shape; apply
+    # both up front. Persona edits mutate `raw` (written with the spec below);
+    # why-brief edits write their own file.
+    personas_changed = _apply_persona_edits(raw, response_json)
+    why_brief_changed = _apply_why_brief_edits(Path(spec_path), raw, response_json)
 
     scenes: list[dict] = raw.get("scenes", [])
 
@@ -470,6 +563,8 @@ def apply_narrative_edits(
                 "added": added,
                 "deleted": deleted,
                 "features_changed": features_changed,
+                "personas_changed": personas_changed,
+                "why_brief_changed": why_brief_changed,
             },
             "needs_grounding": needs_grounding,
             "feedback": feedback,
@@ -524,7 +619,7 @@ def apply_narrative_edits(
         build_order_legacy = raw.get("build_order") or []
 
     # Write back (only if there were edits OR build_order changed, but always write to keep round-trip clean)
-    if edited > 0 or response_build_order_legacy is not None:
+    if edited > 0 or response_build_order_legacy is not None or personas_changed > 0:
         raw["scenes"] = scenes
         spec_path.write_text(
             yaml.dump(raw, default_flow_style=False, allow_unicode=True)
@@ -537,6 +632,8 @@ def apply_narrative_edits(
             "added": 0,
             "deleted": 0,
             "features_changed": 0,
+            "personas_changed": personas_changed,
+            "why_brief_changed": why_brief_changed,
         },
         "needs_grounding": [],
         "feedback": [],
@@ -551,6 +648,21 @@ def apply_narrative_edits(
 # ---------------------------------------------------------------------------
 
 
+def load_why_brief(spec_path: str | Path, spec: UnifiedSpec) -> dict:
+    """Load the why-brief dict referenced by ``spec.why_brief`` (a path relative
+    to the spec file).  Returns ``{}`` if no why_brief is declared or it can't be
+    read/parsed — the review surface degrades gracefully without it.
+    """
+    if not spec.why_brief:
+        return {}
+    wb_path = (Path(spec_path).parent / spec.why_brief).resolve()
+    try:
+        data = yaml.safe_load(wb_path.read_text())
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
 def _cmd_post(spec_path_str: str, run_id: str) -> None:
     """Post the narrative review request and print {id, url, share_token}."""
     from scripts.ddd import review as rv  # local import — network-touching
@@ -562,7 +674,8 @@ def _cmd_post(spec_path_str: str, run_id: str) -> None:
 
     raw = yaml.safe_load(spec_path.read_text())
     spec = UnifiedSpec.model_validate(raw)
-    request = build_narrative_review_request(spec, run_id)
+    why_brief = load_why_brief(spec_path, spec)
+    request = build_narrative_review_request(spec, run_id, why_brief=why_brief)
     result = rv.post_review_request(request)
     print(json.dumps(result))
 

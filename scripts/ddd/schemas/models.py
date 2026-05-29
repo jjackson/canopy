@@ -55,6 +55,7 @@ class Persona(BaseModel):
     role: str
     color: str
     intro: str
+    org: str = ""  # the organization this individual belongs to (e.g. "Dimagi", "LLO")
 
 
 class Feature(BaseModel):
@@ -151,8 +152,12 @@ class ReviewRequest(BaseModel):
     before the per-scene breakdown.  Populated from ``UnifiedSpec.narrative``.
     """
     personas: dict = {}
-    """Persona key -> {name, role, color, intro}, so the surface can show who
+    """Persona key -> {name, role, color, intro, org}, so the surface can show who
     is on screen in each scene (multi-persona handoffs).  From ``UnifiedSpec.personas``."""
+    why_brief: dict = {}
+    """The resolved why-brief (problem, spine[], gaps[]) so the review surface can
+    show + edit the grounding doc alongside the narrative.  Loaded by the caller
+    from ``UnifiedSpec.why_brief`` (a path relative to the spec file)."""
     autonomous_audit: list[str] = []
     actionability: dict | None = None
     build_order: list[str] = []

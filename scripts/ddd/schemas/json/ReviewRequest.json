@@ -155,6 +155,12 @@
       "title": "Personas",
       "type": "object"
     },
+    "why_brief": {
+      "additionalProperties": true,
+      "default": {},
+      "title": "Why Brief",
+      "type": "object"
+    },
     "autonomous_audit": {
       "default": [],
       "items": {

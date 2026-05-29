@@ -41,6 +41,11 @@
         "intro": {
           "title": "Intro",
           "type": "string"
+        },
+        "org": {
+          "default": "",
+          "title": "Org",
+          "type": "string"
         }
       },
       "required": [
