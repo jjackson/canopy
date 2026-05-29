@@ -55,6 +55,7 @@ class Persona(BaseModel):
     role: str
     color: str
     intro: str
+    org: str = ""  # the organization this individual belongs to (e.g. "Dimagi", "LLO")
 
 
 class Feature(BaseModel):
@@ -84,6 +85,23 @@ class UnifiedSpec(BaseModel):
     why_brief: str | None = None
     personas: dict[str, Persona]
     scenes: list[Scene]
+    tagline: str = ""
+    """One plain-language sentence: what this is + who it's for. The promoted docs
+    page leads with it so a newcomer understands the feature before pressing play.
+    The build-audience narrative/concept_claims are NOT a substitute (they carry
+    internal jargon); this is the user-facing hook."""
+    capabilities: list[str] = []
+    """User-facing 'what you can do' bullets, phrased as the reader's benefits/outcomes
+    (not the build-audience concept_claims). The docs page uses these for the
+    capabilities section when present, falling back to concept_claims otherwise."""
+    why_summary: str = ""
+    """A short, plain-language 'why this matters' for the docs page (a couple of
+    sentences, no internal jargon). The docs page uses this for the Why section when
+    present, instead of the build-audience why_brief problem + spine."""
+    getting_started: list[str] = []
+    """Ordered, user-facing 'how do I start' steps for the docs page (what to run /
+    do, in the reader's terms) — distinct from each scene's ``show`` (which is the
+    demo's on-screen walkthrough, not adoption instructions)."""
     build_order: list[str] = []
     """Ordered list of scene-title slugs representing the tackle sequence.
 
@@ -121,13 +139,19 @@ class Decision(BaseModel):
 class NarrationItem(BaseModel):
     """One scene's narration entry in a ReviewRequest (DDD v3).
 
-    Carries the scene's story beat (``text``), its index (``scene``), its
-    slug (``id``), and the list of concrete buildable features declared by
-    the spec's ``Scene.features[]``.
+    Carries the scene's 1-based number (``scene``), its slug (``id``), the
+    story-beat ``title``, the on-screen ``persona`` key, the editable story
+    beat (``text`` = concept_claim), and the concrete buildable features
+    declared by the spec's ``Scene.features[]``.  ``title``/``persona`` let
+    the review surface render the cohesive multi-persona narrative instead of
+    a generic "Scene N" label.
     """
 
     scene: int
     id: str
+    title: str = ""
+    persona: str = ""
+    provenance: str = ""  # spine id this beat grounds — lets the surface co-locate grounding
     text: str
     features: list[Feature] = []
 
@@ -139,6 +163,19 @@ class ReviewRequest(BaseModel):
     video: dict
     decisions: list[Decision]
     narration: list[NarrationItem | dict]
+    narrative: str = ""
+    """The cohesive demo narrative — the whole story the scenes decompose.
+
+    Rendered at the top of the review surface so the reviewer reads the arc
+    before the per-scene breakdown.  Populated from ``UnifiedSpec.narrative``.
+    """
+    personas: dict = {}
+    """Persona key -> {name, role, color, intro, org}, so the surface can show who
+    is on screen in each scene (multi-persona handoffs).  From ``UnifiedSpec.personas``."""
+    why_brief: dict = {}
+    """The resolved why-brief (problem, spine[], gaps[]) so the review surface can
+    show + edit the grounding doc alongside the narrative.  Loaded by the caller
+    from ``UnifiedSpec.why_brief`` (a path relative to the spec file)."""
     autonomous_audit: list[str] = []
     actionability: dict | None = None
     build_order: list[str] = []

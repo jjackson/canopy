@@ -112,16 +112,14 @@ class TestBuildDocsPage:
         result = build_docs_page(spec, why, "https://x.test/v.mp4")
         assert "What you can do" in result
         assert "Why it works this way" in result
-        assert "How to use it" in result
 
-    def test_contains_scene_show_steps(self):
+    def test_walkthrough_section_dropped(self):
+        # The build-audience scene `show` walkthrough is NOT rendered on the user
+        # docs page — the hero video is the walkthrough; the shows reference internal UI.
         spec = _make_spec()
         why = _make_why_brief()
         result = build_docs_page(spec, why, "https://x.test/v.mp4")
-        for scene in spec.scenes:
-            assert scene.show in result or html.escape(scene.show) in result, (
-                f"show step {scene.show!r} missing from HTML"
-            )
+        assert "What the demo walks through" not in result
 
     def test_contains_spine_claims(self):
         spec = _make_spec()

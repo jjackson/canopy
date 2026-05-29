@@ -61,7 +61,7 @@
       "type": "object"
     },
     "NarrationItem": {
-      "description": "One scene's narration entry in a ReviewRequest (DDD v3).\n\nCarries the scene's story beat (``text``), its index (``scene``), its\nslug (``id``), and the list of concrete buildable features declared by\nthe spec's ``Scene.features[]``.",
+      "description": "One scene's narration entry in a ReviewRequest (DDD v3).\n\nCarries the scene's 1-based number (``scene``), its slug (``id``), the\nstory-beat ``title``, the on-screen ``persona`` key, the editable story\nbeat (``text`` = concept_claim), and the concrete buildable features\ndeclared by the spec's ``Scene.features[]``.  ``title``/``persona`` let\nthe review surface render the cohesive multi-persona narrative instead of\na generic \"Scene N\" label.",
       "properties": {
         "scene": {
           "title": "Scene",
@@ -69,6 +69,21 @@
         },
         "id": {
           "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "title": "Title",
+          "type": "string"
+        },
+        "persona": {
+          "default": "",
+          "title": "Persona",
+          "type": "string"
+        },
+        "provenance": {
+          "default": "",
+          "title": "Provenance",
           "type": "string"
         },
         "text": {
@@ -133,6 +148,23 @@
       },
       "title": "Narration",
       "type": "array"
+    },
+    "narrative": {
+      "default": "",
+      "title": "Narrative",
+      "type": "string"
+    },
+    "personas": {
+      "additionalProperties": true,
+      "default": {},
+      "title": "Personas",
+      "type": "object"
+    },
+    "why_brief": {
+      "additionalProperties": true,
+      "default": {},
+      "title": "Why Brief",
+      "type": "object"
     },
     "autonomous_audit": {
       "default": [],

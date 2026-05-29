@@ -41,6 +41,11 @@
         "intro": {
           "title": "Intro",
           "type": "string"
+        },
+        "org": {
+          "default": "",
+          "title": "Org",
+          "type": "string"
         }
       },
       "required": [
@@ -168,6 +173,32 @@
         "$ref": "#/$defs/Scene"
       },
       "title": "Scenes",
+      "type": "array"
+    },
+    "tagline": {
+      "default": "",
+      "title": "Tagline",
+      "type": "string"
+    },
+    "capabilities": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "why_summary": {
+      "default": "",
+      "title": "Why Summary",
+      "type": "string"
+    },
+    "getting_started": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Getting Started",
       "type": "array"
     },
     "build_order": {

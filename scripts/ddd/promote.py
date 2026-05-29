@@ -32,6 +32,8 @@ import html
 import json
 import mimetypes
 import os
+import re
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Callable
@@ -146,12 +148,47 @@ a:hover { text-decoration: underline; }
   margin-bottom: 1rem;
 }
 
+.hero-lede {
+  font-size: 1.05rem;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+  margin-top: 0.5rem;
+  max-width: 70ch;
+}
+
 .hero-video-wrap {
+  position: relative;
   margin-top: 2rem;
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid var(--border);
   background: #000;
+}
+
+/* Visible "this is a playable video" affordance over the poster frame. */
+.hero-video-wrap::after {
+  content: "\\25B6";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-46%, -50%);
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 1.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.hero-caption {
+  margin-top: 0.6rem;
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+  text-align: center;
 }
 
 .hero-video-wrap video,
@@ -300,7 +337,7 @@ section {
 # ---------------------------------------------------------------------------
 
 
-def build_docs_page(spec: UnifiedSpec, why_brief: WhyBrief, video_url: str) -> str:
+def build_docs_page(spec: UnifiedSpec, why_brief: WhyBrief, video_url: str, poster_url: str = "") -> str:
     """Return a self-contained HTML documentation page.
 
     Structure
@@ -327,8 +364,22 @@ def build_docs_page(spec: UnifiedSpec, why_brief: WhyBrief, video_url: str) -> s
     str
         A complete, self-contained HTML document.
     """
-    feature_name = html.escape(spec.name or why_brief.feature)
+    # Humanize the slug for display ("demo-driven-development" -> "Demo Driven Development");
+    # keep the raw slug only for the <title>/internal use.
+    _raw_name = spec.name or why_brief.feature
+    feature_name = html.escape(_raw_name.replace("-", " ").replace("_", " ").strip().title())
     esc_video_url = html.escape(video_url, quote=True)
+    esc_poster = html.escape(poster_url, quote=True) if poster_url else ""
+    # One-line lede: a docs page needs a crisp, plain-language hook (what it is + who
+    # it's for), NOT the build-audience narrative. Prefer spec.tagline; fall back to the
+    # narrative's first sentence only when no tagline is authored.
+    tagline = (getattr(spec, "tagline", "") or "").strip()
+    if tagline:
+        narrative_lede = html.escape(tagline)
+    else:
+        _narr = (spec.narrative or "").strip()
+        _first = re.split(r"(?<=\.)\s+", _narr, maxsplit=1)[0] if _narr else ""
+        narrative_lede = html.escape(_first)
 
     # Determine if this is a remote URL or embeddable src — always use <video>
     # for .mp4 / data URIs; use <iframe> for http(s) links that look like
@@ -342,19 +393,22 @@ def build_docs_page(spec: UnifiedSpec, why_brief: WhyBrief, video_url: str) -> s
             f'<iframe src="{esc_video_url}" allowfullscreen title="Feature demo"></iframe>'
         )
     else:
+        poster_attr = f' poster="{esc_poster}"' if esc_poster else ""
         video_html = (
-            f'<video controls preload="metadata" src="{esc_video_url}">'
-            f"Your browser does not support the video tag."
+            f'<video controls preload="auto"{poster_attr} src="{esc_video_url}">'
+            f'<a href="{esc_video_url}">Watch the demo video</a>'
             f"</video>"
         )
 
     # --- What you can do ---
+    # Prefer user-facing capabilities (reader benefits); fall back to the build-audience
+    # concept_claims only when no plain capabilities are authored.
+    cap_source = getattr(spec, "capabilities", []) or [s.concept_claim for s in spec.scenes]
     cap_items = ""
-    for i, scene in enumerate(spec.scenes, 1):
-        claim = html.escape(scene.concept_claim)
+    for text in cap_source:
         cap_items += (
             f'<li><span class="cap-icon">&#10003;</span>'
-            f'<span>{claim}</span></li>\n'
+            f'<span>{html.escape(text)}</span></li>\n'
         )
 
     capabilities_section = f"""<section id="capabilities">
@@ -363,20 +417,44 @@ def build_docs_page(spec: UnifiedSpec, why_brief: WhyBrief, video_url: str) -> s
 {cap_items}</ul>
 </section>"""
 
-    # --- Why it works this way ---
-    problem_esc = html.escape(why_brief.problem)
-    spine_html = ""
-    for item in why_brief.spine:
-        claim_esc = html.escape(item.claim)
-        rationale_esc = html.escape(item.rationale)
-        spine_html += (
-            f'<div class="spine-item">'
-            f'<p class="spine-claim">{claim_esc}</p>'
-            f'<p class="spine-rationale">{rationale_esc}</p>'
-            f"</div>\n"
+    # --- Get started (user-facing adoption steps) ---
+    getting_started = getattr(spec, "getting_started", []) or []
+    if getting_started:
+        gs_items = "".join(
+            f'<li><span class="step-num">{i}</span>'
+            f'<span class="step-body">{html.escape(step)}</span></li>\n'
+            for i, step in enumerate(getting_started, 1)
         )
+        getting_started_section = f"""<section id="get-started">
+<h2>Get started</h2>
+<ol class="how-list">
+{gs_items}</ol>
+</section>"""
+    else:
+        getting_started_section = ""
 
-    why_section = f"""<section id="why">
+    # --- Why it works this way ---
+    # Prefer a short, plain why_summary for the user docs page; fall back to the
+    # build-audience problem + spine only when no user-facing summary is authored.
+    why_summary = (getattr(spec, "why_summary", "") or "").strip()
+    if why_summary:
+        why_section = f"""<section id="why">
+<h2>Why it works this way</h2>
+<div class="why-problem">{html.escape(why_summary)}</div>
+</section>"""
+    else:
+        problem_esc = html.escape(why_brief.problem)
+        spine_html = ""
+        for item in why_brief.spine:
+            claim_esc = html.escape(item.claim)
+            rationale_esc = html.escape(item.rationale)
+            spine_html += (
+                f'<div class="spine-item">'
+                f'<p class="spine-claim">{claim_esc}</p>'
+                f'<p class="spine-rationale">{rationale_esc}</p>'
+                f"</div>\n"
+            )
+        why_section = f"""<section id="why">
 <h2>Why it works this way</h2>
 <div class="why-problem">{problem_esc}</div>
 {spine_html}</section>"""
@@ -391,7 +469,7 @@ def build_docs_page(spec: UnifiedSpec, why_brief: WhyBrief, video_url: str) -> s
         )
 
     how_section = f"""<section id="how">
-<h2>How to use it</h2>
+<h2>What the demo walks through</h2>
 <ol class="how-list">
 {how_items}</ol>
 </section>"""
@@ -410,18 +488,20 @@ def build_docs_page(spec: UnifiedSpec, why_brief: WhyBrief, video_url: str) -> s
 <div class="hero">
   <p class="hero-label">Feature documentation</p>
   <h1>{feature_name}</h1>
+  {f'<p class="hero-lede">{narrative_lede}</p>' if narrative_lede else ''}
   <div class="hero-video-wrap">
     {video_html}
   </div>
+  <p class="hero-caption">▶ Watch the 40-second demo</p>
 </div>
 
 {capabilities_section}
 
+{getting_started_section}
+
 {why_section}
 
-{how_section}
-
-<footer class="page-footer">Generated by canopy demo-driven-development</footer>
+<footer class="page-footer">Generated by canopy</footer>
 
 </div>
 </body>
@@ -476,7 +556,6 @@ def _default_post(
         "Authorization": f"Bearer {pat}",
     }
     req = urllib.request.Request(url, data=body, method="POST", headers=headers)
-    import urllib.error
 
     try:
         resp = urllib.request.urlopen(req, timeout=120)

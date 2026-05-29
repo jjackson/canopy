@@ -128,13 +128,32 @@ class TestBuildNarrativeReviewRequest:
             assert hasattr(item, "id"), f"narration item missing 'id': {item}"
             assert hasattr(item, "text"), f"narration item missing 'text': {item}"
 
-    def test_narration_scene_indices_are_zero_based(self):
+    def test_narration_scene_indices_are_one_based(self):
         spec = _make_spec()
         result = build_narrative_review_request(spec, "run-001")
-        for i, item in enumerate(result.narration):
+        for i, item in enumerate(result.narration, start=1):
             assert item.scene == i, (
                 f"scene index mismatch at position {i}: expected {i}, got {item.scene}"
             )
+
+    def test_narration_carries_title_and_persona(self):
+        """v3: each narration item carries the scene's story-beat title and persona
+        so the review surface can render the cohesive multi-persona narrative."""
+        spec = _make_spec()
+        result = build_narrative_review_request(spec, "run-001")
+        for item, scene in zip(result.narration, spec.scenes):
+            assert item.title == scene.title
+            assert item.persona == scene.persona
+
+    def test_request_carries_narrative_and_personas(self):
+        """v3: the request carries the cohesive narrative + persona dict for the
+        review surface header."""
+        spec = _make_spec()
+        result = build_narrative_review_request(spec, "run-001")
+        assert result.narrative == spec.narrative
+        assert set(result.personas.keys()) == set(spec.personas.keys())
+        for key, persona in spec.personas.items():
+            assert result.personas[key]["name"] == persona.name
 
     def test_narration_text_is_concept_claim(self):
         spec = _make_spec()
@@ -218,7 +237,7 @@ class TestBuildNarrativeReviewRequest:
         )
         result = build_narrative_review_request(spec, "run-single")
         assert len(result.narration) == 1
-        assert result.narration[0].scene == 0
+        assert result.narration[0].scene == 1
         assert result.narration[0].text == "Users can see the dashboard summary on first load."
 
     # -----------------------------------------------------------------------
@@ -1173,3 +1192,120 @@ class TestApplyNarrativeEditsNewShape:
         scopes = {f["scope"] for f in feedbacks}
         assert "scene" in scopes
         assert "overall" in scopes
+
+
+# ---------------------------------------------------------------------------
+# v3: persona org field + why-brief carry + editable personas / why-brief
+# ---------------------------------------------------------------------------
+
+
+class TestPersonasAndWhyBrief:
+    def test_persona_org_round_trips_into_request(self):
+        from scripts.ddd.schemas.models import Feature, Persona, UnifiedSpec
+
+        spec = UnifiedSpec(
+            name="t",
+            narrative="A one-beat demo.",
+            base_url="https://x",
+            personas={
+                "maya": Persona(
+                    name="Maya",
+                    role="Program lead",
+                    color="#3B82F6",
+                    intro="Maya designs the plan.",
+                    org="Dimagi",
+                )
+            },
+            scenes=[
+                Scene(
+                    persona="maya",
+                    title="Maya designs the plan",
+                    show="open the map",
+                    concept_claim="Maya designs the plan from real boundaries.",
+                    provenance="S1",
+                    features=[Feature(id="f1", description="d", verify="pytest: ok")],
+                )
+            ],
+        )
+        req = build_narrative_review_request(spec, "run-1")
+        assert req.personas["maya"]["org"] == "Dimagi"
+
+    def test_build_carries_why_brief(self):
+        spec = _make_spec()
+        wb = {"problem": "P", "spine": [{"id": "S1", "claim": "c"}], "gaps": []}
+        req = build_narrative_review_request(spec, "run-1", why_brief=wb)
+        assert req.why_brief == wb
+        # default is empty dict when not provided
+        assert build_narrative_review_request(spec, "run-1").why_brief == {}
+
+    def test_apply_persona_edits_persists_to_spec(self, tmp_path):
+        spec = _make_spec()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [],
+            "edited_personas": {
+                "alice": {"name": "Alice Q", "org": "Dimagi", "role": "M&E Lead"}
+            },
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["applied"]["personas_changed"] == 3
+        reloaded = yaml.safe_load(spec_path.read_text())
+        assert reloaded["personas"]["alice"]["name"] == "Alice Q"
+        assert reloaded["personas"]["alice"]["org"] == "Dimagi"
+        assert reloaded["personas"]["alice"]["role"] == "M&E Lead"
+        # untouched persona unchanged
+        assert reloaded["personas"]["bob"]["name"] == "Bob"
+
+    def test_apply_persona_edits_ignores_unknown_key(self, tmp_path):
+        spec = _make_spec()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [],
+            "edited_personas": {"ghost": {"name": "Nobody"}},
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["applied"]["personas_changed"] == 0
+
+    def test_apply_why_brief_edits_persists_to_why_brief_file(self, tmp_path):
+        # why-brief lives next to the spec; spec.why_brief points at it
+        wb = {
+            "schema_version": 1,
+            "feature": "t",
+            "problem": "old problem",
+            "spine": [
+                {"id": "S1", "claim": "old claim", "rationale": "old rat", "status": "grounded",
+                 "evidence": [{"kind": "documented", "ref": "doc"}]},
+            ],
+            "gaps": [
+                {"id": "g1", "type": "CAPABILITY", "claim_ref": "S1",
+                 "detail": "old detail", "proposed_action": "old action"},
+            ],
+        }
+        wb_path = tmp_path / "why-brief.yaml"
+        wb_path.write_text(yaml.dump(wb))
+
+        spec = _make_spec()
+        raw = spec.model_dump()
+        raw["why_brief"] = "why-brief.yaml"
+        spec_path = tmp_path / "spec.yaml"
+        spec_path.write_text(yaml.dump(raw, default_flow_style=False, allow_unicode=True))
+
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [],
+            "edited_why_brief": {
+                "problem": "new problem",
+                "spine": {"S1": {"claim": "new claim"}},
+                "gaps": {"g1": {"proposed_action": "new action"}},
+            },
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["applied"]["why_brief_changed"] == 3
+        reloaded = yaml.safe_load(wb_path.read_text())
+        assert reloaded["problem"] == "new problem"
+        assert reloaded["spine"][0]["claim"] == "new claim"
+        assert reloaded["spine"][0]["rationale"] == "old rat"  # untouched
+        assert reloaded["gaps"][0]["proposed_action"] == "new action"
+        assert reloaded["gaps"][0]["detail"] == "old detail"  # untouched
