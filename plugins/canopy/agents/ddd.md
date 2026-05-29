@@ -22,8 +22,11 @@ memory: user
 You are the DDD v3 orchestrator. Your job is to drive a feature from raw evidence
 to a stakeholder-ready walkthrough and converged concept verdict by chaining the
 DDD skills, routing findings to fixers, and surfacing only the decisions that
-genuinely need a human.  The pipeline now includes two gates between spec-qa and
-render: first the **actionability eval** (`ddd-narrative-actionability-eval` — a
+genuinely need a human.  The pipeline now includes three gates between spec-qa and
+render: first the **narrative-coherence check** (`ddd-narrative-coherence` — a
+rule-based gate that catches outcome leakage in per-scene fields, so the
+actionability eval doesn't cold-derive against pre-committed system values),
+then the **actionability eval** (`ddd-narrative-actionability-eval` — a
 machine gate that verifies a cold reader can derive the declared features from the
 narration alone), then the **narrative-agreement gate** (`ddd-narrative-review` —
 an `approve`/`redraft` decision) so the user explicitly approves the story arc
@@ -143,11 +146,29 @@ Output: `docs/walkthroughs/<feature>.yaml`
 **Step 6 — Spec QA (gate):**
 Invoke `ddd-spec-qa` with `spec_path` = `docs/walkthroughs/<feature>.yaml`.
 
-- If `verdict: pass` → proceed to Step 6a (Actionability eval).
+- If `verdict: pass` → proceed to Step 6a (Narrative coherence).
 - If `verdict: fail` → fix the spec (edit `docs/walkthroughs/<feature>.yaml`
   per the blocking_reason), re-run `ddd-spec-qa`. Loop until pass.
 
-**Step 6a — Actionability eval (gate — do NOT skip):**
+**Step 6a — Narrative coherence (gate — do NOT skip):**
+Invoke `ddd-narrative-coherence` with `spec_path` = `docs/walkthroughs/<feature>.yaml`.
+
+This is a **rule-based gate** between structural QA (Step 6) and the cold-derive
+actionability eval (Step 6b). It catches **outcome leakage** — per-scene `show`
+or `concept_claim` fields that assert specific values the action they describe
+would generate, that a later beat is supposed to produce, or that the system
+only reveals at render time. A beat can describe the persona's ACTION and the
+INPUTS she enters; it cannot pre-commit to system-generated VALUES.
+
+- If `verdict: pass` → proceed to Step 6b (Actionability eval).
+- If `verdict: fail` → the `blocking_reason` lists every leak (scene title +
+  matched substring + why it's an outcome). Rewrite the offending `show` /
+  `concept_claim` fields to describe the action, not the values it produces,
+  then loop back to Step 6 (`ddd-spec-qa`). Do NOT advance to actionability
+  with a `fail` — the actionability eval's cold-derive would entrench the
+  leaked values.
+
+**Step 6b — Actionability eval (gate — do NOT skip):**
 Invoke `/ddd-narrative-actionability-eval` with `unified_spec_path` =
 `docs/walkthroughs/<feature>.yaml`.
 
@@ -156,11 +177,11 @@ independently derive the declared `features[]` from the narration alone.
 
 | Verdict | Effect |
 |---------|--------|
-| `pass`  | Narrative is actionable — proceed to Step 6b. |
-| `warn`  | Borderline — review the `fix_recommendation` in the output, then proceed with caution to Step 6b. |
-| `fail`  | Narrative is **too vague to act on** — **loop back to Step 5 (`ddd-spec`)** to add specificity to the flagged scenes before the human reviews. Do NOT advance to Step 6b with a `fail`. |
+| `pass`  | Narrative is actionable — proceed to Step 6c. |
+| `warn`  | Borderline — review the `fix_recommendation` in the output, then proceed with caution to Step 6c. |
+| `fail`  | Narrative is **too vague to act on** — **loop back to Step 5 (`ddd-spec`)** to add specificity to the flagged scenes before the human reviews. Do NOT advance to Step 6c with a `fail`. |
 
-**Step 6b — Narrative-agreement gate (concept_change):**
+**Step 6c — Narrative-agreement gate (concept_change):**
 Invoke `/ddd-narrative-review` with:
 - `spec_path`: `docs/walkthroughs/<feature>.yaml`
 - `run_id`: current run ID
