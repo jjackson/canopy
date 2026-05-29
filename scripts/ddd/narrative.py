@@ -21,11 +21,11 @@ from pathlib import Path
 
 import yaml
 
-from scripts.ddd.schemas.models import Decision, NarrationItem, ReviewRequest, UnifiedSpec
+from scripts.ddd.schemas.models import Decision, Feature, NarrationItem, ReviewRequest, UnifiedSpec
 
 
 # ---------------------------------------------------------------------------
-# Slug helper
+# Slug helper (shared by build and apply so slugs always agree)
 # ---------------------------------------------------------------------------
 
 
@@ -113,51 +113,108 @@ def build_narrative_review_request(
 # ---------------------------------------------------------------------------
 
 
+def _generate_feature_id(description: str, existing_ids: set[str]) -> str:
+    """Generate a stable id for a new feature from its description.
+
+    Uses the same slug technique as ``_title_slug`` to produce a deterministic,
+    human-readable id.  If the candidate collides with an existing id, appends
+    a numeric suffix.
+    """
+    base = re.sub(r"[^a-z0-9]+", "-", description.lower()).strip("-")[:40]
+    if not base:
+        base = "feature"
+    candidate = base
+    n = 1
+    while candidate in existing_ids:
+        n += 1
+        candidate = f"{base}-{n}"
+    return candidate
+
+
 def apply_narrative_edits(
     spec_path: str | Path,
     response_json: dict,
 ) -> dict:
     """Apply narration edits from a resolved review response back onto the spec.
 
-    Loads the spec YAML, applies ``response_json.get("narration_edits", {})``
-    (keyed by the narration item ``id``, i.e. the scene-title slug) to the
-    matching scene's ``concept_claim``, writes the spec back to disk, and
-    returns ``{"decision": <str>, "edited": <int>}``.
+    Loads the spec YAML, reconciles scenes and features against the payload,
+    writes the spec back to disk, and returns a structured result dict.
 
-    Unknown narration ids are silently skipped — the function is robust to
-    partial or mis-keyed responses.
+    The function supports two payload shapes:
+
+    **New shape** (``edited_scenes`` key present)::
+
+        {
+            "decisions": {"narrative-verdict": "approve" | "redraft"},
+            "edited_scenes": [
+                {
+                    "id": "<slug or 'new-<n>'>",
+                    "title": "...",
+                    "narration": "...",
+                    "deleted": false,
+                    "features": [
+                        {"id": "<id or 'new-<n>'>", "description": "...",
+                         "verify": "...", "feedback": "<optional>"}
+                    ],
+                    "feedback": "<optional per-scene>"
+                }
+            ],
+            "overall_feedback": "<optional>"
+        }
+
+    Scene reconciliation rules:
+
+    - ``"deleted": true`` → remove the matching ``Scene`` by slug id.
+    - ``"new-*"`` id → append a new ``Scene`` (empty ``provenance``,
+      first persona key, ``concept_claim`` from ``narration``).
+    - existing id → update the matching ``Scene``'s ``concept_claim`` and
+      reconcile its ``features``: update matching features, add ``new-*``
+      features with stable generated ids, remove features absent from payload.
+
+    **Legacy shape** (``narration_edits`` key, no ``edited_scenes``)::
+
+        {
+            "decisions": {"narrative-verdict": "approve" | "redraft"},
+            "narration_edits": {"<scene-slug>": "<new concept_claim>", ...}
+        }
+
+    Legacy v2 decision values are coerced:
+    ``"agree"``/``"edit"`` → ``"approve"``; ``"rethink"`` → ``"redraft"``.
 
     Parameters
     ----------
     spec_path:
         Path to the unified spec YAML file.
     response_json:
-        The ``response_json`` dict from the resolved review.  Expected shape::
-
-            {
-                "decisions": {"narrative-verdict": "approve" | "redraft"},
-                "narration_edits": {"<scene-slug>": "<new concept_claim>", ...}
-            }
-
-        Legacy v2 values are accepted for safety and coerced to v3:
-        ``"agree"``/``"edit"`` → ``"approve"``; ``"rethink"`` → ``"redraft"``.
+        The ``response_json`` dict from the resolved review.
 
     Returns
     -------
     dict
-        ``{"decision": str, "edited": int}`` where ``decision`` is the
-        normalised v3 value (``"approve"`` or ``"redraft"``) and ``edited``
-        is the count of scenes whose ``concept_claim`` was changed.
+        New shape::
+
+            {
+                "decision": "approve" | "redraft",
+                "applied": {"updated": n, "added": n, "deleted": n, "features_changed": n},
+                "needs_grounding": ["<new scene title>", ...],
+                "feedback": [
+                    {"scope": "feature" | "scene" | "overall", "ref": str, "text": str}
+                ]
+            }
+
+        Legacy shape (``narration_edits`` path) also returns ``"edited"`` for
+        backward compatibility::
+
+            {"decision": ..., "applied": ..., "needs_grounding": ...,
+             "feedback": ..., "edited": n}
     """
     spec_path = Path(spec_path)
     raw = yaml.safe_load(spec_path.read_text())
 
-    narration_edits: dict[str, str] = response_json.get("narration_edits", {}) or {}
     decisions: dict[str, str] = response_json.get("decisions", {}) or {}
     raw_decision: str = decisions.get("narrative-verdict", "approve")
 
     # Normalise to v3 vocabulary: legacy "agree"/"edit" → "approve"; "rethink" → "redraft".
-    # New values ("approve"/"redraft") pass through unchanged.
     _LEGACY_MAP = {
         "agree": "approve",
         "edit": "approve",
@@ -165,16 +222,224 @@ def apply_narrative_edits(
     }
     decision: str = _LEGACY_MAP.get(raw_decision, raw_decision)
 
-    # Build a slug→scene-index mapping from the on-disk spec
     scenes: list[dict] = raw.get("scenes", [])
-    slug_to_index: dict[str, int] = {}
+
+    # ------------------------------------------------------------------
+    # NEW shape: edited_scenes
+    # ------------------------------------------------------------------
+    if "edited_scenes" in response_json:
+        edited_scenes: list[dict] = response_json.get("edited_scenes") or []
+        overall_feedback: str = response_json.get("overall_feedback", "") or ""
+
+        # Collect feedback
+        feedback: list[dict] = []
+        if overall_feedback:
+            feedback.append({"scope": "overall", "ref": "", "text": overall_feedback})
+
+        # Build slug→index map for existing scenes
+        slug_to_index: dict[str, int] = {}
+        for idx, scene in enumerate(scenes):
+            title = scene.get("title", "")
+            slug_to_index[_title_slug(title)] = idx
+
+        # Determine first persona key from the spec
+        personas: dict = raw.get("personas", {})
+        first_persona = next(iter(personas), "")
+
+        # Counters
+        updated = 0
+        added = 0
+        deleted = 0
+        features_changed = 0
+
+        needs_grounding: list[str] = []
+
+        # Track which existing scene indices to keep (complement of deleted)
+        indices_to_delete: set[int] = set()
+
+        for es in edited_scenes:
+            scene_id: str = es.get("id", "")
+            scene_title: str = es.get("title", "")
+            narration: str = es.get("narration", "")
+            is_deleted: bool = bool(es.get("deleted", False))
+            scene_feedback: str = es.get("feedback", "") or ""
+            payload_features: list[dict] = es.get("features") or []
+
+            if scene_id.startswith("new-"):
+                if is_deleted:
+                    # New scene marked deleted — just skip it
+                    continue
+                # ADD new scene
+                new_features: list[dict] = []
+                existing_feat_ids: set[str] = set()
+                for f in payload_features:
+                    feat_id = f.get("id", "")
+                    feat_desc = f.get("description", "")
+                    feat_verify = f.get("verify", "")
+                    feat_feedback = f.get("feedback", "") or ""
+                    if feat_id.startswith("new-"):
+                        feat_id = _generate_feature_id(feat_desc, existing_feat_ids)
+                    existing_feat_ids.add(feat_id)
+                    new_features.append({
+                        "id": feat_id,
+                        "description": feat_desc,
+                        "verify": feat_verify,
+                    })
+                    if feat_feedback:
+                        feedback.append({
+                            "scope": "feature",
+                            "ref": feat_id,
+                            "text": feat_feedback,
+                        })
+
+                new_scene: dict = {
+                    "persona": first_persona,
+                    "title": scene_title,
+                    "show": narration,
+                    "concept_claim": narration,
+                    "provenance": "",
+                    "design_intent": None,
+                    "features": new_features,
+                }
+                scenes.append(new_scene)
+                # Update slug map for the newly added scene
+                slug_to_index[_title_slug(scene_title)] = len(scenes) - 1
+                needs_grounding.append(scene_title)
+                added += 1
+                features_changed += len(new_features)
+
+                if scene_feedback:
+                    feedback.append({
+                        "scope": "scene",
+                        "ref": _title_slug(scene_title),
+                        "text": scene_feedback,
+                    })
+
+            else:
+                # Existing scene
+                idx = slug_to_index.get(scene_id)
+                if idx is None:
+                    # Unknown slug — silently skip
+                    continue
+
+                if is_deleted:
+                    indices_to_delete.add(idx)
+                    deleted += 1
+                    continue
+
+                # UPDATE existing scene
+                scene_dict = scenes[idx]
+                old_claim = scene_dict.get("concept_claim", "")
+                if narration and old_claim != narration:
+                    scene_dict["concept_claim"] = narration
+                    updated += 1
+
+                # Reconcile features
+                existing_features: list[dict] = scene_dict.get("features") or []
+                existing_feat_map: dict[str, dict] = {
+                    f.get("id", ""): f for f in existing_features
+                }
+                payload_feat_ids: set[str] = set()
+                new_feature_list: list[dict] = []
+                all_feat_ids: set[str] = set(existing_feat_map.keys())
+
+                for f in payload_features:
+                    feat_id = f.get("id", "")
+                    feat_desc = f.get("description", "")
+                    feat_verify = f.get("verify", "")
+                    feat_feedback = f.get("feedback", "") or ""
+
+                    if feat_id.startswith("new-"):
+                        feat_id = _generate_feature_id(feat_desc, all_feat_ids)
+                        all_feat_ids.add(feat_id)
+                        new_feature_list.append({
+                            "id": feat_id,
+                            "description": feat_desc,
+                            "verify": feat_verify,
+                        })
+                        features_changed += 1
+                    else:
+                        payload_feat_ids.add(feat_id)
+                        if feat_id in existing_feat_map:
+                            existing_f = existing_feat_map[feat_id]
+                            changed = False
+                            if feat_desc and existing_f.get("description") != feat_desc:
+                                existing_f["description"] = feat_desc
+                                changed = True
+                            if feat_verify and existing_f.get("verify") != feat_verify:
+                                existing_f["verify"] = feat_verify
+                                changed = True
+                            if changed:
+                                features_changed += 1
+                            new_feature_list.append(existing_f)
+                        else:
+                            # New feature with explicit id
+                            new_feature_list.append({
+                                "id": feat_id,
+                                "description": feat_desc,
+                                "verify": feat_verify,
+                            })
+                            features_changed += 1
+
+                    if feat_feedback:
+                        feedback.append({
+                            "scope": "feature",
+                            "ref": feat_id,
+                            "text": feat_feedback,
+                        })
+
+                # Features in spec but absent from payload → removed (not appended)
+                removed_count = len(existing_feat_map) - len(
+                    [k for k in existing_feat_map if k in payload_feat_ids]
+                )
+                if removed_count > 0:
+                    features_changed += removed_count
+
+                scene_dict["features"] = new_feature_list
+                scenes[idx] = scene_dict
+
+                if scene_feedback:
+                    feedback.append({
+                        "scope": "scene",
+                        "ref": scene_id,
+                        "text": scene_feedback,
+                    })
+
+        # Remove deleted scenes (in reverse index order to preserve positions)
+        for idx in sorted(indices_to_delete, reverse=True):
+            scenes.pop(idx)
+
+        raw["scenes"] = scenes
+        spec_path.write_text(
+            yaml.dump(raw, default_flow_style=False, allow_unicode=True)
+        )
+
+        return {
+            "decision": decision,
+            "applied": {
+                "updated": updated,
+                "added": added,
+                "deleted": deleted,
+                "features_changed": features_changed,
+            },
+            "needs_grounding": needs_grounding,
+            "feedback": feedback,
+        }
+
+    # ------------------------------------------------------------------
+    # LEGACY shape: narration_edits
+    # ------------------------------------------------------------------
+    narration_edits: dict[str, str] = response_json.get("narration_edits", {}) or {}
+
+    # Build a slug→scene-index mapping from the on-disk spec
+    slug_to_index_legacy: dict[str, int] = {}
     for idx, scene in enumerate(scenes):
         title = scene.get("title", "")
-        slug_to_index[_title_slug(title)] = idx
+        slug_to_index_legacy[_title_slug(title)] = idx
 
     edited = 0
     for slug, new_claim in narration_edits.items():
-        idx = slug_to_index.get(slug)
+        idx = slug_to_index_legacy.get(slug)
         if idx is None:
             # Unknown slug — silently skip
             continue
@@ -189,7 +454,19 @@ def apply_narrative_edits(
             yaml.dump(raw, default_flow_style=False, allow_unicode=True)
         )
 
-    return {"decision": decision, "edited": edited}
+    return {
+        "decision": decision,
+        "applied": {
+            "updated": edited,
+            "added": 0,
+            "deleted": 0,
+            "features_changed": 0,
+        },
+        "needs_grounding": [],
+        "feedback": [],
+        # back-compat key
+        "edited": edited,
+    }
 
 
 # ---------------------------------------------------------------------------

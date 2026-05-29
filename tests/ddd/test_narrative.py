@@ -566,3 +566,610 @@ class TestApplyNarrativeEdits:
         assert result["decision"] == "redraft", (
             f"legacy 'rethink' must map to 'redraft'; got {result['decision']!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# apply_narrative_edits — new edited_scenes shape
+# ---------------------------------------------------------------------------
+
+
+def _make_spec_with_features() -> UnifiedSpec:
+    """Make a spec whose scenes carry concrete features for editing tests."""
+    from scripts.ddd.schemas.models import Feature
+
+    return UnifiedSpec(
+        name="rooftop-surveys",
+        narrative="Rooftop surveys ride Connect microplanning.",
+        base_url="https://labs.connect.dimagi.com",
+        personas={
+            "alice": Persona(
+                name="Alice",
+                role="Program Manager",
+                color="#3B82F6",
+                intro="Alice manages rooftop survey programs.",
+            ),
+            "bob": Persona(
+                name="Bob",
+                role="Field Supervisor",
+                color="#10B981",
+                intro="Bob assigns work to field teams.",
+            ),
+        },
+        scenes=[
+            Scene(
+                persona="alice",
+                title="Area Selection",
+                show="Navigate to /areas and draw a boundary on the map.",
+                concept_claim="Users can draw a custom boundary to select the survey area within 30 seconds.",
+                provenance="S1",
+                features=[
+                    Feature(
+                        id="boundary-draw",
+                        description="Polygon drawing widget on /areas map",
+                        verify="Playwright: draw polygon, assert POST /areas returns 201",
+                    ),
+                    Feature(
+                        id="area-persist",
+                        description="Drawn area persists across page reloads",
+                        verify="Reload /areas, assert polygon still visible in DOM",
+                    ),
+                ],
+            ),
+            Scene(
+                persona="alice",
+                title="Sample Generation",
+                show="Click 'Generate Sample' and review the building list.",
+                concept_claim="The system generates a proportional building sample and displays it on the map.",
+                provenance="S2",
+                features=[
+                    Feature(
+                        id="sample-algo",
+                        description="Proportional sampling algorithm",
+                        verify="pytest: sampling returns floor-weighted buildings",
+                    ),
+                ],
+            ),
+            Scene(
+                persona="bob",
+                title="Field Assignment",
+                show="Assign buildings to field workers from the team dashboard.",
+                concept_claim="Supervisors can assign sampled buildings to field workers with a single tap.",
+                provenance="S3",
+                features=[],
+            ),
+        ],
+    )
+
+
+class TestApplyNarrativeEditsNewShape:
+    """Tests for the new ``edited_scenes`` payload shape."""
+
+    # ------------------------------------------------------------------
+    # Return-shape basics
+    # ------------------------------------------------------------------
+
+    def test_returns_decision_and_applied_and_needs_grounding_and_feedback(self, tmp_path):
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [],
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        assert "decision" in result
+        assert "applied" in result
+        assert "needs_grounding" in result
+        assert "feedback" in result
+        applied = result["applied"]
+        for key in ("updated", "added", "deleted", "features_changed"):
+            assert key in applied, f"applied dict missing key {key!r}"
+
+    def test_approve_decision_round_trips(self, tmp_path):
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {"decisions": {"narrative-verdict": "approve"}, "edited_scenes": []}
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["decision"] == "approve"
+
+    def test_redraft_decision_round_trips(self, tmp_path):
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {"decisions": {"narrative-verdict": "redraft"}, "edited_scenes": []}
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["decision"] == "redraft"
+
+    def test_legacy_agree_coerced_in_new_shape(self, tmp_path):
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {"decisions": {"narrative-verdict": "agree"}, "edited_scenes": []}
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["decision"] == "approve"
+
+    def test_legacy_rethink_coerced_in_new_shape(self, tmp_path):
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {"decisions": {"narrative-verdict": "rethink"}, "edited_scenes": []}
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["decision"] == "redraft"
+
+    # ------------------------------------------------------------------
+    # Edit existing scene narration
+    # ------------------------------------------------------------------
+
+    def test_edit_existing_scene_narration_updates_concept_claim(self, tmp_path):
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        new_claim = "Users draw a precise boundary in under 30 seconds using satellite imagery."
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [
+                {
+                    "id": "area-selection",
+                    "title": "Area Selection",
+                    "narration": new_claim,
+                    "deleted": False,
+                    "features": [
+                        {"id": "boundary-draw", "description": "Polygon drawing widget on /areas map",
+                         "verify": "Playwright: draw polygon, assert POST /areas returns 201"},
+                        {"id": "area-persist", "description": "Drawn area persists across page reloads",
+                         "verify": "Reload /areas, assert polygon still visible in DOM"},
+                    ],
+                }
+            ],
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["applied"]["updated"] == 1
+
+        updated = yaml.safe_load(spec_path.read_text())
+        assert updated["scenes"][0]["concept_claim"] == new_claim
+
+    def test_edit_existing_scene_leaves_others_unchanged(self, tmp_path):
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [
+                {
+                    "id": "area-selection",
+                    "title": "Area Selection",
+                    "narration": "Updated narration for area selection.",
+                    "deleted": False,
+                    "features": [
+                        {"id": "boundary-draw", "description": "Polygon drawing widget on /areas map",
+                         "verify": "Playwright: draw polygon, assert POST /areas returns 201"},
+                    ],
+                }
+            ],
+        }
+        apply_narrative_edits(str(spec_path), response)
+        updated = yaml.safe_load(spec_path.read_text())
+        # Scenes 1 and 2 untouched
+        assert updated["scenes"][1]["concept_claim"] == spec.scenes[1].concept_claim
+        assert updated["scenes"][2]["concept_claim"] == spec.scenes[2].concept_claim
+
+    # ------------------------------------------------------------------
+    # Feature reconciliation — edit verify on existing feature
+    # ------------------------------------------------------------------
+
+    def test_edit_feature_verify_updates_it(self, tmp_path):
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        new_verify = "Playwright: draw polygon, assert POST /areas returns 201 and body has area_id"
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [
+                {
+                    "id": "area-selection",
+                    "title": "Area Selection",
+                    "narration": spec.scenes[0].concept_claim,
+                    "deleted": False,
+                    "features": [
+                        {"id": "boundary-draw", "description": "Polygon drawing widget on /areas map",
+                         "verify": new_verify},
+                        {"id": "area-persist", "description": "Drawn area persists across page reloads",
+                         "verify": "Reload /areas, assert polygon still visible in DOM"},
+                    ],
+                }
+            ],
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["applied"]["features_changed"] >= 1
+
+        updated = yaml.safe_load(spec_path.read_text())
+        feat_map = {f["id"]: f for f in updated["scenes"][0]["features"]}
+        assert feat_map["boundary-draw"]["verify"] == new_verify
+
+    # ------------------------------------------------------------------
+    # Feature reconciliation — delete feature (absent from payload)
+    # ------------------------------------------------------------------
+
+    def test_feature_absent_from_payload_is_removed(self, tmp_path):
+        """A feature present in the spec but NOT in the payload list is removed."""
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        # Send only boundary-draw; omit area-persist
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [
+                {
+                    "id": "area-selection",
+                    "title": "Area Selection",
+                    "narration": spec.scenes[0].concept_claim,
+                    "deleted": False,
+                    "features": [
+                        {"id": "boundary-draw", "description": "Polygon drawing widget on /areas map",
+                         "verify": "Playwright: draw polygon, assert POST /areas returns 201"},
+                    ],
+                }
+            ],
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["applied"]["features_changed"] >= 1
+
+        updated = yaml.safe_load(spec_path.read_text())
+        feat_ids = [f["id"] for f in updated["scenes"][0].get("features", [])]
+        assert "boundary-draw" in feat_ids
+        assert "area-persist" not in feat_ids, "area-persist should have been removed"
+
+    # ------------------------------------------------------------------
+    # Feature reconciliation — add new-* feature
+    # ------------------------------------------------------------------
+
+    def test_new_feature_id_appended_with_stable_id(self, tmp_path):
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [
+                {
+                    "id": "area-selection",
+                    "title": "Area Selection",
+                    "narration": spec.scenes[0].concept_claim,
+                    "deleted": False,
+                    "features": [
+                        {"id": "boundary-draw", "description": "Polygon drawing widget on /areas map",
+                         "verify": "Playwright: draw polygon, assert POST /areas returns 201"},
+                        {"id": "area-persist", "description": "Drawn area persists across page reloads",
+                         "verify": "Reload /areas, assert polygon still visible in DOM"},
+                        {"id": "new-1", "description": "Undo last drawn polygon",
+                         "verify": "Click undo, assert last polygon removed from map"},
+                    ],
+                }
+            ],
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["applied"]["features_changed"] >= 1
+
+        updated = yaml.safe_load(spec_path.read_text())
+        feat_ids = [f["id"] for f in updated["scenes"][0].get("features", [])]
+        assert "new-1" not in feat_ids, "new-* ids should be replaced with stable ids"
+        # Should have 3 features now (2 original + 1 new)
+        assert len(feat_ids) == 3
+
+    # ------------------------------------------------------------------
+    # Add new scene (new-* id)
+    # ------------------------------------------------------------------
+
+    def test_add_new_scene_appends_scene(self, tmp_path):
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [
+                {
+                    "id": "new-1",
+                    "title": "Data Export",
+                    "narration": "Program managers can export survey data as CSV in one click.",
+                    "deleted": False,
+                    "features": [
+                        {"id": "new-1", "description": "CSV export button on dashboard",
+                         "verify": "Click export, assert CSV downloaded with correct headers"},
+                    ],
+                }
+            ],
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["applied"]["added"] == 1
+        assert "Data Export" in result["needs_grounding"]
+
+        updated = yaml.safe_load(spec_path.read_text())
+        titles = [s["title"] for s in updated["scenes"]]
+        assert "Data Export" in titles
+
+    def test_new_scene_has_empty_provenance(self, tmp_path):
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [
+                {
+                    "id": "new-1",
+                    "title": "Data Export",
+                    "narration": "Program managers can export survey data as CSV.",
+                    "deleted": False,
+                    "features": [],
+                }
+            ],
+        }
+        apply_narrative_edits(str(spec_path), response)
+        updated = yaml.safe_load(spec_path.read_text())
+        new_scene = next(s for s in updated["scenes"] if s["title"] == "Data Export")
+        assert new_scene["provenance"] == "", (
+            f"new scene should have empty provenance, got {new_scene['provenance']!r}"
+        )
+
+    def test_new_scene_appears_in_needs_grounding(self, tmp_path):
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [
+                {
+                    "id": "new-1",
+                    "title": "Data Export",
+                    "narration": "Program managers can export survey data as CSV.",
+                    "deleted": False,
+                    "features": [],
+                }
+            ],
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        assert "Data Export" in result["needs_grounding"]
+
+    def test_new_scene_features_get_stable_ids(self, tmp_path):
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [
+                {
+                    "id": "new-1",
+                    "title": "Data Export",
+                    "narration": "Program managers can export survey data as CSV.",
+                    "deleted": False,
+                    "features": [
+                        {"id": "new-1", "description": "CSV export button on dashboard",
+                         "verify": "Click export, assert CSV downloaded"},
+                        {"id": "new-2", "description": "Export includes all survey fields",
+                         "verify": "Assert CSV headers match survey schema"},
+                    ],
+                }
+            ],
+        }
+        apply_narrative_edits(str(spec_path), response)
+        updated = yaml.safe_load(spec_path.read_text())
+        new_scene = next(s for s in updated["scenes"] if s["title"] == "Data Export")
+        feat_ids = [f["id"] for f in new_scene.get("features", [])]
+        assert len(feat_ids) == 2
+        for fid in feat_ids:
+            assert not fid.startswith("new-"), f"new-* id not replaced: {fid!r}"
+
+    # ------------------------------------------------------------------
+    # Delete scene
+    # ------------------------------------------------------------------
+
+    def test_delete_scene_removes_it(self, tmp_path):
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [
+                {
+                    "id": "field-assignment",
+                    "title": "Field Assignment",
+                    "narration": "",
+                    "deleted": True,
+                    "features": [],
+                }
+            ],
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["applied"]["deleted"] == 1
+
+        updated = yaml.safe_load(spec_path.read_text())
+        titles = [s["title"] for s in updated["scenes"]]
+        assert "Field Assignment" not in titles
+        # Other scenes still present
+        assert "Area Selection" in titles
+        assert "Sample Generation" in titles
+
+    def test_delete_scene_count_is_correct(self, tmp_path):
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [
+                {"id": "area-selection", "title": "Area Selection", "narration": "",
+                 "deleted": True, "features": []},
+                {"id": "sample-generation", "title": "Sample Generation", "narration": "",
+                 "deleted": True, "features": []},
+            ],
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["applied"]["deleted"] == 2
+
+        updated = yaml.safe_load(spec_path.read_text())
+        assert len(updated["scenes"]) == 1
+        assert updated["scenes"][0]["title"] == "Field Assignment"
+
+    # ------------------------------------------------------------------
+    # Feedback collection
+    # ------------------------------------------------------------------
+
+    def test_per_feature_feedback_collected(self, tmp_path):
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [
+                {
+                    "id": "area-selection",
+                    "title": "Area Selection",
+                    "narration": spec.scenes[0].concept_claim,
+                    "deleted": False,
+                    "features": [
+                        {"id": "boundary-draw",
+                         "description": "Polygon drawing widget on /areas map",
+                         "verify": "Playwright: draw polygon, assert POST /areas returns 201",
+                         "feedback": "The verify step should also check the response body."},
+                        {"id": "area-persist",
+                         "description": "Drawn area persists across page reloads",
+                         "verify": "Reload /areas, assert polygon still visible in DOM"},
+                    ],
+                }
+            ],
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        feature_feedbacks = [f for f in result["feedback"] if f["scope"] == "feature"]
+        assert len(feature_feedbacks) == 1
+        fb = feature_feedbacks[0]
+        assert fb["ref"] == "boundary-draw"
+        assert "verify" in fb["text"].lower() or "body" in fb["text"].lower()
+
+    def test_per_scene_feedback_collected(self, tmp_path):
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [
+                {
+                    "id": "sample-generation",
+                    "title": "Sample Generation",
+                    "narration": spec.scenes[1].concept_claim,
+                    "deleted": False,
+                    "features": [
+                        {"id": "sample-algo",
+                         "description": "Proportional sampling algorithm",
+                         "verify": "pytest: sampling returns floor-weighted buildings"},
+                    ],
+                    "feedback": "Consider showing the sampling ratio to the user.",
+                }
+            ],
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        scene_feedbacks = [f for f in result["feedback"] if f["scope"] == "scene"]
+        assert len(scene_feedbacks) == 1
+        assert scene_feedbacks[0]["ref"] == "sample-generation"
+        assert "sampling" in scene_feedbacks[0]["text"].lower()
+
+    def test_overall_feedback_collected(self, tmp_path):
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [],
+            "overall_feedback": "Overall the narrative flows well but needs more FLW perspective.",
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        overall_feedbacks = [f for f in result["feedback"] if f["scope"] == "overall"]
+        assert len(overall_feedbacks) == 1
+        assert "flw" in overall_feedbacks[0]["text"].lower() or "narrative" in overall_feedbacks[0]["text"].lower()
+
+    def test_feedback_scope_and_ref_are_correct(self, tmp_path):
+        """feature/scene/overall feedback each have correct scope and ref."""
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [
+                {
+                    "id": "area-selection",
+                    "title": "Area Selection",
+                    "narration": spec.scenes[0].concept_claim,
+                    "deleted": False,
+                    "features": [
+                        {"id": "boundary-draw",
+                         "description": "Polygon drawing widget on /areas map",
+                         "verify": "Playwright: draw polygon, assert POST /areas returns 201",
+                         "feedback": "feature-level feedback"},
+                    ],
+                    "feedback": "scene-level feedback",
+                }
+            ],
+            "overall_feedback": "overall feedback",
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        fb_by_scope = {f["scope"]: f for f in result["feedback"]}
+        assert "feature" in fb_by_scope
+        assert "scene" in fb_by_scope
+        assert "overall" in fb_by_scope
+        assert fb_by_scope["feature"]["ref"] == "boundary-draw"
+        assert fb_by_scope["scene"]["ref"] == "area-selection"
+        assert fb_by_scope["overall"]["ref"] == ""
+
+    def test_no_feedback_returns_empty_list(self, tmp_path):
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [
+                {
+                    "id": "area-selection",
+                    "title": "Area Selection",
+                    "narration": spec.scenes[0].concept_claim,
+                    "deleted": False,
+                    "features": [
+                        {"id": "boundary-draw", "description": "Polygon drawing widget on /areas map",
+                         "verify": "Playwright: draw polygon, assert POST /areas returns 201"},
+                    ],
+                }
+            ],
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["feedback"] == []
+
+    # ------------------------------------------------------------------
+    # Legacy narration_edits still works
+    # ------------------------------------------------------------------
+
+    def test_legacy_narration_edits_still_works(self, tmp_path):
+        """The old narration_edits dict shape must still apply edits correctly."""
+        spec = _make_spec()
+        spec_path = _write_spec(tmp_path, spec)
+        slug = re.sub(r"[^a-z0-9]+", "-", "Area Selection".lower()).strip("-")
+        new_claim = "Drawn boundary persists and is shareable."
+        response = {
+            "decisions": {"narrative-verdict": "approve"},
+            "narration_edits": {slug: new_claim},
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["decision"] == "approve"
+        # backward-compat key
+        assert "edited" in result
+        assert result["edited"] == 1
+
+        updated = yaml.safe_load(spec_path.read_text())
+        assert updated["scenes"][0]["concept_claim"] == new_claim
+
+    # ------------------------------------------------------------------
+    # redraft round-trips through new shape
+    # ------------------------------------------------------------------
+
+    def test_redraft_new_shape_round_trips(self, tmp_path):
+        spec = _make_spec_with_features()
+        spec_path = _write_spec(tmp_path, spec)
+        response = {
+            "decisions": {"narrative-verdict": "redraft"},
+            "edited_scenes": [
+                {
+                    "id": "area-selection",
+                    "title": "Area Selection",
+                    "narration": "Revised: users can draw a custom boundary in 15 seconds.",
+                    "deleted": False,
+                    "features": [
+                        {"id": "boundary-draw",
+                         "description": "Polygon drawing widget on /areas map",
+                         "verify": "Playwright: draw polygon, assert POST /areas returns 201"},
+                    ],
+                    "feedback": "Too slow — target 15s not 30s.",
+                }
+            ],
+            "overall_feedback": "Needs tighter time targets throughout.",
+        }
+        result = apply_narrative_edits(str(spec_path), response)
+        assert result["decision"] == "redraft"
+        assert result["applied"]["updated"] == 1
+        feedbacks = result["feedback"]
+        scopes = {f["scope"] for f in feedbacks}
+        assert "scene" in scopes
+        assert "overall" in scopes
