@@ -175,6 +175,19 @@
       "title": "Scenes",
       "type": "array"
     },
+    "tagline": {
+      "default": "",
+      "title": "Tagline",
+      "type": "string"
+    },
+    "getting_started": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Getting Started",
+      "type": "array"
+    },
     "build_order": {
       "default": [],
       "items": {

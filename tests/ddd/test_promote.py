@@ -112,7 +112,7 @@ class TestBuildDocsPage:
         result = build_docs_page(spec, why, "https://x.test/v.mp4")
         assert "What you can do" in result
         assert "Why it works this way" in result
-        assert "How to use it" in result
+        assert "What the demo walks through" in result
 
     def test_contains_scene_show_steps(self):
         spec = _make_spec()

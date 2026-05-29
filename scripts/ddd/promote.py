@@ -32,6 +32,7 @@ import html
 import json
 import mimetypes
 import os
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -145,6 +146,14 @@ a:hover { text-decoration: underline; }
   color: var(--foreground);
   line-height: 1.15;
   margin-bottom: 1rem;
+}
+
+.hero-lede {
+  font-size: 1.05rem;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+  margin-top: 0.5rem;
+  max-width: 70ch;
 }
 
 .hero-video-wrap {
@@ -301,7 +310,7 @@ section {
 # ---------------------------------------------------------------------------
 
 
-def build_docs_page(spec: UnifiedSpec, why_brief: WhyBrief, video_url: str) -> str:
+def build_docs_page(spec: UnifiedSpec, why_brief: WhyBrief, video_url: str, poster_url: str = "") -> str:
     """Return a self-contained HTML documentation page.
 
     Structure
@@ -330,6 +339,17 @@ def build_docs_page(spec: UnifiedSpec, why_brief: WhyBrief, video_url: str) -> s
     """
     feature_name = html.escape(spec.name or why_brief.feature)
     esc_video_url = html.escape(video_url, quote=True)
+    esc_poster = html.escape(poster_url, quote=True) if poster_url else ""
+    # One-line lede: a docs page needs a crisp, plain-language hook (what it is + who
+    # it's for), NOT the build-audience narrative. Prefer spec.tagline; fall back to the
+    # narrative's first sentence only when no tagline is authored.
+    tagline = (getattr(spec, "tagline", "") or "").strip()
+    if tagline:
+        narrative_lede = html.escape(tagline)
+    else:
+        _narr = (spec.narrative or "").strip()
+        _first = re.split(r"(?<=\.)\s+", _narr, maxsplit=1)[0] if _narr else ""
+        narrative_lede = html.escape(_first)
 
     # Determine if this is a remote URL or embeddable src — always use <video>
     # for .mp4 / data URIs; use <iframe> for http(s) links that look like
@@ -343,9 +363,10 @@ def build_docs_page(spec: UnifiedSpec, why_brief: WhyBrief, video_url: str) -> s
             f'<iframe src="{esc_video_url}" allowfullscreen title="Feature demo"></iframe>'
         )
     else:
+        poster_attr = f' poster="{esc_poster}"' if esc_poster else ""
         video_html = (
-            f'<video controls preload="metadata" src="{esc_video_url}">'
-            f"Your browser does not support the video tag."
+            f'<video controls preload="auto"{poster_attr} src="{esc_video_url}">'
+            f'<a href="{esc_video_url}">Watch the demo video</a>'
             f"</video>"
         )
 
@@ -363,6 +384,22 @@ def build_docs_page(spec: UnifiedSpec, why_brief: WhyBrief, video_url: str) -> s
 <ul class="capability-list">
 {cap_items}</ul>
 </section>"""
+
+    # --- Get started (user-facing adoption steps) ---
+    getting_started = getattr(spec, "getting_started", []) or []
+    if getting_started:
+        gs_items = "".join(
+            f'<li><span class="step-num">{i}</span>'
+            f'<span class="step-body">{html.escape(step)}</span></li>\n'
+            for i, step in enumerate(getting_started, 1)
+        )
+        getting_started_section = f"""<section id="get-started">
+<h2>Get started</h2>
+<ol class="how-list">
+{gs_items}</ol>
+</section>"""
+    else:
+        getting_started_section = ""
 
     # --- Why it works this way ---
     problem_esc = html.escape(why_brief.problem)
@@ -392,7 +429,7 @@ def build_docs_page(spec: UnifiedSpec, why_brief: WhyBrief, video_url: str) -> s
         )
 
     how_section = f"""<section id="how">
-<h2>How to use it</h2>
+<h2>What the demo walks through</h2>
 <ol class="how-list">
 {how_items}</ol>
 </section>"""
@@ -411,12 +448,15 @@ def build_docs_page(spec: UnifiedSpec, why_brief: WhyBrief, video_url: str) -> s
 <div class="hero">
   <p class="hero-label">Feature documentation</p>
   <h1>{feature_name}</h1>
+  {f'<p class="hero-lede">{narrative_lede}</p>' if narrative_lede else ''}
   <div class="hero-video-wrap">
     {video_html}
   </div>
 </div>
 
 {capabilities_section}
+
+{getting_started_section}
 
 {why_section}
 

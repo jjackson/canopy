@@ -85,6 +85,15 @@ class UnifiedSpec(BaseModel):
     why_brief: str | None = None
     personas: dict[str, Persona]
     scenes: list[Scene]
+    tagline: str = ""
+    """One plain-language sentence: what this is + who it's for. The promoted docs
+    page leads with it so a newcomer understands the feature before pressing play.
+    The build-audience narrative/concept_claims are NOT a substitute (they carry
+    internal jargon); this is the user-facing hook."""
+    getting_started: list[str] = []
+    """Ordered, user-facing 'how do I start' steps for the docs page (what to run /
+    do, in the reader's terms) — distinct from each scene's ``show`` (which is the
+    demo's on-screen walkthrough, not adoption instructions)."""
     build_order: list[str] = []
     """Ordered list of scene-title slugs representing the tackle sequence.
 
