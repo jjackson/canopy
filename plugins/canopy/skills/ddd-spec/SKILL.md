@@ -54,16 +54,27 @@ Parse the why_brief.  Note:
 - `gaps` — surface any DECISION gaps to the user before proceeding (they may
   affect design_intent choices).
 
-### Step 2 — Cast the personas
+### Step 2 — Cast the personas (define them explicitly, first)
+
+Personas are a **first-class, explicit** part of the spec — define them BEFORE the
+narrative, because the narrative will name a persona in every beat and the scenes
+inherit their persona from that beat.  Get the cast right here and the rest falls
+out.
 
 From the feature context, cast 1–3 personas — the *characters* in the demo.  Each
 persona must have:
-- `name` — a real first name (e.g. "Alice").
-- `role` — the actor's role in the workflow (e.g. "Program Manager").
+- `name` — the character's name. Use a real first name for an individual ("Maya"),
+  or the organization's name when the actor *is* an org acting as one role
+  ("Dimagi", "LLO"). Pick one convention and hold it across the cast.
+- `role` — the actor's role in the workflow (e.g. "Program Manager", "Local partner").
 - `color` — a hex color that will appear in the walkthrough UI (e.g. `"#3B82F6"`).
 - `intro` — one sentence describing who this persona is and their goal.
 
 Every scene's `persona` field must be a key that exists in this `personas` dict.
+
+When persona identity matters to the user (named orgs, specific roles), confirm the
+exact names with them — personas are durable and reused across runs, and they are
+not editable on the review surface after the fact.
 
 **If you cast more than one persona, they must hand off to each other** across the
 demo — the story moves from one character to the next as the workflow crosses a
@@ -98,15 +109,41 @@ This narrative is rendered at the top of the review surface, so the reviewer rea
 the whole arc before the per-scene breakdown.  It is the thing they approve or
 send back.
 
+**Write it so the scenes fall out of the literal text.** The narrative is the
+single source of truth; the scene list is a *mechanical decomposition of it*, not
+a separate authoring pass. So:
+
+- Write the narrative as an **ordered sequence of beats — one sentence (or tight
+  pair of sentences) per beat**, in the order they happen on screen.
+- **Each beat names the persona acting in it.** ("Dimagi opens the map…", "the LLO
+  cleans it…") — that named persona becomes the scene's `persona`.
+- The **number of beats equals the number of scenes**, in the same order. A reader
+  should be able to split the narrative into sentences and recover the scene list.
+- Keep the language concrete enough that each sentence already describes an
+  observable moment — because in Step 4 that sentence *becomes* the scene's claim.
+
+If a sentence is too vague to become a scene, sharpen it here in the narrative
+rather than inventing scene detail later. The narrative and the scenes must never
+drift apart.
+
 ### Step 4 — Decompose the narrative into story-beat scenes
 
-Now break the narrative into ordered **story beats** — one scene per beat.  Scenes
-are numbered from **1** (the first beat the viewer sees), and scene N+1 must follow
-from scene N: a viewer watching 1 → 2 → … → last should feel one continuous demo.
+Now split the narrative into its beats — **one scene per narrative sentence/beat,
+in order**. This is a decomposition of the text you already wrote, not new
+invention. Scenes are numbered from **1** (the first beat the viewer sees), and
+scene N+1 must follow from scene N: a viewer watching 1 → 2 → … → last should feel
+one continuous demo.
 
-Decompose by *moment in the story*, not by capability.  Each beat is a thing that
-happens on screen, with one persona driving it.  Where the narrative handed off to
-a new persona, the scene's `persona` changes.
+For each scene, take it **directly from its narrative sentence**:
+- `persona` ← the persona that sentence named.
+- `concept_claim` ← that sentence, tightened into one falsifiable assertion (see below).
+- `title` ← a short story-beat label for that same moment.
+- `show` ← the concrete browser actions that play out that moment.
+
+Because the scenes are a literal decomposition, the scene count equals the beat
+count and their order matches the narrative order. If you find yourself adding a
+scene with no home in the narrative, or a narrative beat with no scene, fix the
+narrative first (Step 3) so the two stay in lockstep.
 
 **Scene `title` — the story beat (CRITICAL):**
 - The title is a **moment in the demo the viewer watches**, phrased as a story beat
