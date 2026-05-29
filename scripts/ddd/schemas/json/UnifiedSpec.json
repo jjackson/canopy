@@ -169,6 +169,14 @@
       },
       "title": "Scenes",
       "type": "array"
+    },
+    "build_order": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Build Order",
+      "type": "array"
     }
   },
   "required": [

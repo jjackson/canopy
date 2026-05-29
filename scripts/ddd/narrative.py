@@ -87,6 +87,13 @@ def build_narrative_review_request(
         for i, scene in enumerate(spec.scenes)
     ]
 
+    # build_order: use spec's explicit order when set, else default to scene order
+    build_order: list[str] = (
+        spec.build_order
+        if spec.build_order
+        else [_title_slug(scene.title) for scene in spec.scenes]
+    )
+
     decision = Decision(
         id="narrative-verdict",
         prompt=(
@@ -105,6 +112,7 @@ def build_narrative_review_request(
         autonomous_audit=[],
         decisions=[decision],
         actionability=actionability,
+        build_order=build_order,
     )
 
 
@@ -410,6 +418,43 @@ def apply_narrative_edits(
             scenes.pop(idx)
 
         raw["scenes"] = scenes
+
+        # ------------------------------------------------------------------
+        # build_order: read from response, validate against surviving scenes,
+        # drop deleted slugs, append newly-added scene slugs.
+        # ------------------------------------------------------------------
+        surviving_slugs: set[str] = {
+            _title_slug(s.get("title", "")) for s in scenes
+        }
+        # Slugs of scenes that were newly added in this edit cycle
+        newly_added_slugs: list[str] = [
+            _title_slug(t) for t in needs_grounding
+        ]
+        response_build_order: list[str] | None = response_json.get("build_order")
+        if response_build_order is not None:
+            # Keep only slugs that map to surviving scenes (drops deleted + unknown ones)
+            build_order_out: list[str] = [
+                slug for slug in response_build_order if slug in surviving_slugs
+            ]
+            # Append newly-added scene slugs not already in the list
+            listed_set: set[str] = set(build_order_out)
+            for slug in newly_added_slugs:
+                if slug not in listed_set and slug in surviving_slugs:
+                    build_order_out.append(slug)
+                    listed_set.add(slug)
+        else:
+            # No build_order in response: preserve the spec's existing value,
+            # but still append newly-added scene slugs at the end.
+            existing_bo: list[str] = raw.get("build_order") or []
+            # Drop any slugs that no longer map to surviving scenes
+            build_order_out = [s for s in existing_bo if s in surviving_slugs]
+            listed_set = set(build_order_out)
+            for slug in newly_added_slugs:
+                if slug not in listed_set and slug in surviving_slugs:
+                    build_order_out.append(slug)
+                    listed_set.add(slug)
+
+        raw["build_order"] = build_order_out
         spec_path.write_text(
             yaml.dump(raw, default_flow_style=False, allow_unicode=True)
         )
@@ -424,6 +469,7 @@ def apply_narrative_edits(
             },
             "needs_grounding": needs_grounding,
             "feedback": feedback,
+            "build_order": build_order_out,
         }
 
     # ------------------------------------------------------------------
@@ -447,8 +493,34 @@ def apply_narrative_edits(
             scenes[idx]["concept_claim"] = new_claim
             edited += 1
 
-    # Write back (only if there were edits, but always write to keep round-trip clean)
-    if edited > 0:
+    # ------------------------------------------------------------------
+    # build_order (legacy path): read from response, validate against
+    # surviving scenes, preserve existing spec value when not provided.
+    # ------------------------------------------------------------------
+    surviving_slugs_legacy: set[str] = {
+        _title_slug(s.get("title", "")) for s in scenes
+    }
+    response_build_order_legacy: list[str] | None = response_json.get("build_order")
+    if response_build_order_legacy is not None:
+        # Filter to only surviving slugs (ignore unknown/bogus ones)
+        build_order_legacy: list[str] = [
+            slug for slug in response_build_order_legacy
+            if slug in surviving_slugs_legacy
+        ]
+        # Append any surviving scene slugs not already listed
+        listed_legacy: set[str] = set(build_order_legacy)
+        for scene in scenes:
+            slug = _title_slug(scene.get("title", ""))
+            if slug not in listed_legacy:
+                build_order_legacy.append(slug)
+                listed_legacy.add(slug)
+        raw["build_order"] = build_order_legacy
+    else:
+        # Preserve whatever the spec already has (may be absent)
+        build_order_legacy = raw.get("build_order") or []
+
+    # Write back (only if there were edits OR build_order changed, but always write to keep round-trip clean)
+    if edited > 0 or response_build_order_legacy is not None:
         raw["scenes"] = scenes
         spec_path.write_text(
             yaml.dump(raw, default_flow_style=False, allow_unicode=True)
@@ -466,6 +538,7 @@ def apply_narrative_edits(
         "feedback": [],
         # back-compat key
         "edited": edited,
+        "build_order": build_order_legacy,
     }
 
 
