@@ -49,9 +49,21 @@ before anything is built or rendered.
 CAPABILITY task creation, iteration loops, learning updates — runs autonomously and
 is reported in the non-blocking digest email. Everything else runs autonomously.
 
-When async (not interactive), the `ReviewRequest` is handed to the canopy-web review
-page (SP6 — the destination exists from SP6 onward; until then, fall back to
-`AskUserQuestion` inline). When live and interactive, present via `AskUserQuestion`.
+**The canopy-web review surface is the destination for every ReviewRequest — in
+BOTH async and live/interactive modes.** SP6 shipped it; it is the richer review UI
+(editable per-scene narration, pre-selected `recommended` decisions, hero
+video/storyboard) and the whole point of building it was to replace ad-hoc inline
+prompts. Post via the gate's own tooling — the **narrative-agreement gate** uses
+`scripts.ddd.narrative post <spec> <run_id>`; other ReviewRequests use
+`scripts.ddd.review`. Present the returned review URL **plus** an inline storyboard so
+the user can glance at the arc in chat, then act on the page; pick up their decision by
+polling `review.await_resolution` (async) or from their reply (live).
+
+Do **NOT** use the built-in `AskUserQuestion` tool to run a gate when the review
+surface is reachable — that bypasses the UI we built. `AskUserQuestion` is a
+**last-resort fallback only** when canopy-web is genuinely unavailable (no PAT, or the
+endpoint is unreachable); if you fall back, say so explicitly and capture the decision
+the same way.
 
 ---
 
