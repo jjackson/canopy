@@ -29,6 +29,37 @@ If remote is ahead, pull first:
 cd ~/emdash-projects/canopy && git pull --rebase && git push
 ```
 
+## Shipping Changes — always PR, then auto-merge (the maintainer does NOT review)
+
+**Default workflow for every change: open a PR and merge it yourself.** The
+maintainer does not review canopy PRs — opening one and waiting for review just
+strands the work. So the PR is a record-keeping + CI step, not a review gate.
+
+```bash
+# from the worktree branch, once work is committed:
+git push -u origin <branch>
+gh pr create --title "..." --body "...\n\nCloses #<issue>"   # link the issue if any
+gh pr merge <n> --merge                                       # auto-merge immediately
+```
+
+Then follow the plugin-update steps below (`/canopy:update` etc.) if
+`plugins/canopy/` changed.
+
+- **Always PR** (don't `git merge` straight to main) so CI runs and there's a
+  durable record. The direct-merge commands above are the fallback for when
+  `gh` is unavailable or a merge conflict needs hand-resolving in the main
+  checkout — not the default.
+- **Auto-merge — do not wait for review.** `gh pr merge --merge` right after
+  creating the PR. The merge button isn't gated on CI for this private repo, so
+  a red CI check won't block you; glance at the run, but the merge is yours to
+  make.
+- **Verify before merging** (this is the real gate, since no human reviews):
+  the suite passes (or only known-unrelated failures remain) and — for
+  `plugins/canopy/` changes — `canopy version verify` is green.
+- Branch protection / required reviewers are NOT configured, so this is purely
+  a discipline convention. Keep PRs scoped and the body honest about what was
+  and wasn't verified.
+
 ## Tech Stack
 - Python 3.11+, PyYAML, Click
 - Claude Code hooks and skills
@@ -298,11 +329,14 @@ available without GitHub Pro), so discipline is the failure mode they protect ag
 ### Update workflow (the ONLY way to update)
 1. Make changes to skills, commands, or agents in `plugins/canopy/`
 2. Bump the **patch version** in BOTH `plugins/canopy/.claude-plugin/plugin.json` AND `VERSION` (e.g. `0.2.6` → `0.2.7`). See the STOP block above — this is the #1 mistake. A GitHub Actions check will fail if they don't match, but it will NOT catch a missing bump.
-3. Commit, merge to main, push:
+3. Commit, push, PR, and auto-merge (see § Shipping Changes — the maintainer
+   does NOT review; merge it yourself):
    ```bash
    # From a worktree:
    git add -A && git commit -m "feat/fix: description"
-   cd ~/emdash-projects/canopy && git merge <branch> && git push
+   git push -u origin <branch>
+   gh pr create --title "..." --body "..."
+   gh pr merge <n> --merge
    ```
 4. **IMMEDIATELY after pushing**, run `/canopy:update` in the current session.
    This is mandatory — it pulls from GitHub, creates a new cache dir, and updates
