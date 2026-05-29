@@ -90,6 +90,13 @@ For EACH scene in the unified spec, perform a **cold derivation**:
 - Do NOT look at the scene's `features[]` during derivation. The goal is to determine
   what a builder would infer independently — looking at the declared features defeats
   the purpose of the eval.
+- **Sandbox the derivation from the source repo.** If you dispatch subagents to derive,
+  give each one ONLY the narration payload (title + show + concept_claim per scene) and
+  instruct it explicitly NOT to read the codebase, grep, or open any file — derive purely
+  from the text. A derivation agent that reads the implementation is no longer cold; it
+  will "infer" features it actually just read, inflating coverage and consistency and
+  hiding genuine narrative vagueness. (This leak was caught dogfooding the eval on DDD
+  itself: agents that browsed the repo scored ~4 where blind derivation would land ~3.)
 - Write out the concrete build steps you would execute to make this scene real: what
   endpoints, UI elements, data structures, or behaviors need to exist?
 
