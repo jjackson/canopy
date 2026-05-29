@@ -121,13 +121,18 @@ class Decision(BaseModel):
 class NarrationItem(BaseModel):
     """One scene's narration entry in a ReviewRequest (DDD v3).
 
-    Carries the scene's story beat (``text``), its index (``scene``), its
-    slug (``id``), and the list of concrete buildable features declared by
-    the spec's ``Scene.features[]``.
+    Carries the scene's 1-based number (``scene``), its slug (``id``), the
+    story-beat ``title``, the on-screen ``persona`` key, the editable story
+    beat (``text`` = concept_claim), and the concrete buildable features
+    declared by the spec's ``Scene.features[]``.  ``title``/``persona`` let
+    the review surface render the cohesive multi-persona narrative instead of
+    a generic "Scene N" label.
     """
 
     scene: int
     id: str
+    title: str = ""
+    persona: str = ""
     text: str
     features: list[Feature] = []
 
@@ -139,6 +144,15 @@ class ReviewRequest(BaseModel):
     video: dict
     decisions: list[Decision]
     narration: list[NarrationItem | dict]
+    narrative: str = ""
+    """The cohesive demo narrative — the whole story the scenes decompose.
+
+    Rendered at the top of the review surface so the reviewer reads the arc
+    before the per-scene breakdown.  Populated from ``UnifiedSpec.narrative``.
+    """
+    personas: dict = {}
+    """Persona key -> {name, role, color, intro}, so the surface can show who
+    is on screen in each scene (multi-persona handoffs).  From ``UnifiedSpec.personas``."""
     autonomous_audit: list[str] = []
     actionability: dict | None = None
     build_order: list[str] = []

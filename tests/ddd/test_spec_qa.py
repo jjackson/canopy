@@ -338,6 +338,45 @@ def test_undefined_persona_fails():
 
 
 # ---------------------------------------------------------------------------
+# Failure: status-tag parenthetical in a scene title (story-beat enforcement)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "bad_title",
+    [
+        "Pick where to work (frontier)",
+        "Review and clean the plan (the hero)",
+        "Monitor impact (gap)",
+        "Push to Connect (built)",
+        "Wire the dashboard (WIP)",
+    ],
+)
+def test_status_tag_in_title_fails(bad_title):
+    """A scene title carrying a build-status parenthetical → fail.
+
+    Scene titles are story beats (what the viewer watches), not design-doc
+    status annotations. Build status belongs in the why_brief spine."""
+    from scripts.ddd.spec_qa import spec_qa
+
+    spec = _spec_data()
+    spec["scenes"][0]["title"] = bad_title
+    result = spec_qa(spec)
+    assert result.verdict == "fail"
+    assert result.blocking_reason is not None
+    assert "status tag" in result.blocking_reason.lower() or "story beat" in result.blocking_reason.lower()
+
+
+def test_clean_story_beat_title_passes():
+    """A normal story-beat title with incidental parentheses does not trip the check."""
+    from scripts.ddd.spec_qa import spec_qa
+
+    spec = _spec_data()
+    spec["scenes"][0]["title"] = "Maya picks the district (and draws a boundary)"
+    result = spec_qa(spec)
+    assert result.verdict == "pass"
+
+
+# ---------------------------------------------------------------------------
 # Failure: missing required field (via delegation to validate)
 # ---------------------------------------------------------------------------
 

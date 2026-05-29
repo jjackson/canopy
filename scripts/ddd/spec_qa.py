@@ -67,6 +67,32 @@ _BANNED_PHRASES: list[str] = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Status-tag parentheticals that don't belong in a story-beat scene title.
+# A scene title is a moment in the demo the viewer watches ("Maya picks the
+# district"), NOT a design-doc status annotation ("Pick an area (frontier)").
+# These leak build-status thinking into the narrative; the build status lives
+# in the why_brief spine + feature provenance, not the title.
+# ---------------------------------------------------------------------------
+
+_BANNED_TITLE_TAGS: list[str] = [
+    "(frontier)",
+    "(gap)",
+    "(the hero)",
+    "(hero)",
+    "(built)",
+    "(wip)",
+    "(future)",
+    "(planned)",
+    "(stretch)",
+    "(tbd)",
+    "(todo)",
+    "(coming soon)",
+    "(not built)",
+    "(unbuilt)",
+]
+
+
 def _is_falsifiable(claim: str) -> bool:
     """Return True if the claim is falsifiable (not vacuous marketing copy).
 
@@ -180,6 +206,17 @@ def spec_qa(
     # --------------------------------------------------- QA-specific checks
     if spec is not None:
         for scene in spec.scenes:
+            title_lower = scene.title.lower()
+            for tag in _BANNED_TITLE_TAGS:
+                if tag in title_lower:
+                    violations.append(
+                        f"scene '{scene.title}': title contains the status tag '{tag}' — "
+                        "a scene title is a story beat in the demo (what the viewer watches), "
+                        "not a build-status annotation. Move build status to the why_brief "
+                        "spine / feature provenance and retitle as a story moment."
+                    )
+                    break
+
             claim = scene.concept_claim
             if not _is_falsifiable(claim):
                 if not claim.strip():

@@ -81,10 +81,12 @@ def build_narrative_review_request(
         NarrationItem(
             scene=i,
             id=_title_slug(scene.title),
+            title=scene.title,
+            persona=scene.persona,
             text=scene.concept_claim,
             features=scene.features,
         )
-        for i, scene in enumerate(spec.scenes)
+        for i, scene in enumerate(spec.scenes, start=1)
     ]
 
     # build_order: use spec's explicit order when set, else default to scene order
@@ -109,6 +111,8 @@ def build_narrative_review_request(
         gate="concept_change",
         video={},
         narration=narration,
+        narrative=spec.narrative,
+        personas={k: p.model_dump() for k, p in spec.personas.items()},
         autonomous_audit=[],
         decisions=[decision],
         actionability=actionability,

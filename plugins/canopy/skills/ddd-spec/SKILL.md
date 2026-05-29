@@ -2,11 +2,12 @@
 name: ddd-spec
 description: |
   Author a unified spec (docs/walkthroughs/<feature>.yaml) from a validated
-  why_brief.yaml. Each spine item becomes one or more scenes with concept_claim,
-  provenance, and design_intent. The output is simultaneously a design doc and a
-  runnable canopy walkthrough spec. Loops until
-  scripts.ddd.validate unified_spec passes. Use when asked to
-  "write the spec", "author the unified spec", or after ddd-why-qa passes.
+  why_brief.yaml. Write ONE cohesive multi-persona demo narrative first, then
+  decompose it into ordered story-beat scenes (each carrying concept_claim,
+  provenance, design_intent, and verifiable features). The output is
+  simultaneously a design doc and a runnable canopy walkthrough spec. Loops
+  until scripts.ddd.validate unified_spec passes. Use when asked to "write the
+  spec", "author the unified spec", or after ddd-why-qa passes.
 ---
 
 ## Preamble (run first)
@@ -53,9 +54,10 @@ Parse the why_brief.  Note:
 - `gaps` — surface any DECISION gaps to the user before proceeding (they may
   affect design_intent choices).
 
-### Step 2 — Define personas
+### Step 2 — Cast the personas
 
-From the feature context, define 1–3 personas.  Each persona must have:
+From the feature context, cast 1–3 personas — the *characters* in the demo.  Each
+persona must have:
 - `name` — a real first name (e.g. "Alice").
 - `role` — the actor's role in the workflow (e.g. "Program Manager").
 - `color` — a hex color that will appear in the walkthrough UI (e.g. `"#3B82F6"`).
@@ -63,16 +65,68 @@ From the feature context, define 1–3 personas.  Each persona must have:
 
 Every scene's `persona` field must be a key that exists in this `personas` dict.
 
-### Step 3 — Draft scenes, one or more per spine item
+**If you cast more than one persona, they must hand off to each other** across the
+demo — the story moves from one character to the next as the workflow crosses a
+role boundary (e.g. a Program Lead designs the plan → a Field Partner runs it →
+the Lead reviews the result).  A multi-persona spec where each persona owns an
+isolated, unconnected block is a red flag: that's a feature catalog, not a demo.
+Look at `baobab-demo.yaml` (Sarah posts → Amina responds → James reviews → Sarah
+reports) for the handoff pattern.
 
-For each SpineItem in the why_brief spine (in order), author one or more scenes.
-Each scene must include:
+### Step 3 — Write the cohesive demo narrative FIRST
+
+**This is the most important step. Do it before drafting any scenes.**
+
+Write the `narrative` — the single, continuous story the demo tells, the thing a
+viewer would watch top to bottom and follow as one arc.  It is *not* a 1-line
+tagline and *not* a list of capabilities.  It is a short paragraph (3–6 sentences)
+that:
+
+- Names the personas and follows them **in sequence** through the workflow, handing
+  off where roles change.
+- Has a beginning (the situation / the problem the user walks in with), a middle
+  (what they do), and a payoff (what they walk away with).
+- Reads as one journey, not "the product can do A; it can also do B; it also does C."
+- Is grounded in the why_brief `problem` + the logical arc of the `spine` — but
+  told as a *story*, not as a spine summary.
+
+Test it: read the narrative aloud. If it sounds like a demo you'd be proud to
+record, continue. If it sounds like a feature list ("First, area selection. Then,
+plan generation. Then, monitoring."), rewrite it as a story before going on.
+
+This narrative is rendered at the top of the review surface, so the reviewer reads
+the whole arc before the per-scene breakdown.  It is the thing they approve or
+send back.
+
+### Step 4 — Decompose the narrative into story-beat scenes
+
+Now break the narrative into ordered **story beats** — one scene per beat.  Scenes
+are numbered from **1** (the first beat the viewer sees), and scene N+1 must follow
+from scene N: a viewer watching 1 → 2 → … → last should feel one continuous demo.
+
+Decompose by *moment in the story*, not by capability.  Each beat is a thing that
+happens on screen, with one persona driving it.  Where the narrative handed off to
+a new persona, the scene's `persona` changes.
+
+**Scene `title` — the story beat (CRITICAL):**
+- The title is a **moment in the demo the viewer watches**, phrased as a story beat
+  (e.g. "Maya turns a district into a draft plan", "Now the harder case — the lake
+  that isn't a settlement", "Sam hands the cleaned plan back").
+- It is NOT a capability/feature name ("Area selection", "Plan generation",
+  "Monitoring dashboard") and NOT a design-doc status annotation.  **Status tags
+  like `(frontier)`, `(gap)`, `(the hero)`, `(built)`, `(WIP)` in the title are
+  rejected by spec-qa** — build status lives in the why_brief spine + feature
+  provenance, never in the story title.
 
 **Canopy walkthrough keys (required by the walkthrough engine):**
-- `persona` — must be a key in the `personas` dict.
-- `title` — a short, action-oriented title for the scene (e.g. "Submit audit form").
+- `persona` — must be a key in the `personas` dict (who is on screen this beat).
+- `title` — the story-beat title (see above).
 - `show` — concrete, imperative browser actions the walkthrough will execute
   (e.g. `"navigate to /audit/new, fill the 'observation' field, click Submit"`).
+
+A spine item may span several beats, and a single beat may touch more than one
+spine item — decompose by the *story*, then attach `provenance` to whichever spine
+item the beat demonstrates.  Every spine item must be covered by at least one beat.
 
 **DDD-specific keys (required by ddd-spec-qa gate):**
 - `concept_claim` — one assertive sentence describing what the product does in this
@@ -133,15 +187,17 @@ narration (concept_claim + show) implies those features to a cold reader.
 - "Robust performance" — banned phrase, too short to be testable
 - "Powerful filtering" — banned phrase
 
-### Step 4 — Fill canopy walkthrough header keys
+### Step 5 — Assemble and write the spec file
 
-At the top level of the spec, include:
+Assemble the full spec: the cohesive `narrative` from Step 3 at the top, the
+personas from Step 2, and the ordered story-beat scenes from Step 4.
 
 ```yaml
 name: <feature slug>
 narrative: >-
-  <1–2 sentences derived from why_brief.problem and the spine's logical arc.
-  This is read aloud as the walkthrough introduction.>
+  <The cohesive demo narrative from Step 3 — a 3–6 sentence story that follows
+  the personas through the workflow as one continuous arc. NOT a tagline, NOT a
+  capability list.>
 base_url: <live environment URL, e.g. https://labs.connect.dimagi.com>
 auth:
   type: session   # or omit if the walkthrough handles auth via browser cookies
@@ -152,9 +208,9 @@ personas:
     role: ...
     color: ...
     intro: ...
-scenes:
-  - persona: ...
-    title: ...
+scenes:                       # ordered story beats, numbered from 1 by position
+  - persona: ...              # who is on screen this beat
+    title: ...                # the story beat (a moment), NOT a capability name
     show: ...
     concept_claim: ...
     provenance: ...
@@ -165,12 +221,8 @@ scenes:
         verify: <runnable validation — API assertion, UI state check, or test command>
 ```
 
-The output file path is `<run_dir>/<feature>.yaml`.
-
-### Step 5 — Write the spec file
-
-Write the draft to `docs/walkthroughs/<feature>.yaml` (create the directory if
-it doesn't exist).
+Write the draft to `docs/walkthroughs/<feature>.yaml` (create the directory if it
+doesn't exist).  The output file path is `<run_dir>/<feature>.yaml`.
 
 ### Step 6 — Validate and loop
 
@@ -207,7 +259,11 @@ above — it is already resolved):
 (cd "$DDD_REPO" && uv run python -m scripts.ddd.spec_qa "$SPEC_ABS")
 ```
 
-Fix any `concept_claim is not falsifiable` violations before proceeding.
+Fix any `concept_claim is not falsifiable` violations before proceeding.  spec-qa
+also rejects **status tags in scene titles** (`title contains the status tag
+'(frontier)'` etc.) — if you see this, the title is annotating build status
+instead of telling a story beat. Retitle it as a moment in the demo and move the
+status to the why_brief spine.
 
 ### Step 7 — Confirm the spec remains a runnable walkthrough
 
@@ -230,9 +286,10 @@ DDD Unified Spec — <feature>
 
   Spine items: N → M scenes
   Personas: <list of persona names>
-  Scenes:
-    [S1] <scene title> — <concept_claim (first 60 chars)>... (N features)
-    [S2] <scene title> — ... (N features)
+  Narrative: <the cohesive narrative, first ~100 chars>...
+  Scenes (the story beats, in order):
+    [Scene 1] <persona> — <story-beat title> — <concept_claim (first 50 chars)>... (N features)
+    [Scene 2] <persona> — <story-beat title> — ... (N features)
 
   Output: docs/walkthroughs/<feature>.yaml
   Validator (structural): PASS

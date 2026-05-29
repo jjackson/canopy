@@ -128,13 +128,32 @@ class TestBuildNarrativeReviewRequest:
             assert hasattr(item, "id"), f"narration item missing 'id': {item}"
             assert hasattr(item, "text"), f"narration item missing 'text': {item}"
 
-    def test_narration_scene_indices_are_zero_based(self):
+    def test_narration_scene_indices_are_one_based(self):
         spec = _make_spec()
         result = build_narrative_review_request(spec, "run-001")
-        for i, item in enumerate(result.narration):
+        for i, item in enumerate(result.narration, start=1):
             assert item.scene == i, (
                 f"scene index mismatch at position {i}: expected {i}, got {item.scene}"
             )
+
+    def test_narration_carries_title_and_persona(self):
+        """v3: each narration item carries the scene's story-beat title and persona
+        so the review surface can render the cohesive multi-persona narrative."""
+        spec = _make_spec()
+        result = build_narrative_review_request(spec, "run-001")
+        for item, scene in zip(result.narration, spec.scenes):
+            assert item.title == scene.title
+            assert item.persona == scene.persona
+
+    def test_request_carries_narrative_and_personas(self):
+        """v3: the request carries the cohesive narrative + persona dict for the
+        review surface header."""
+        spec = _make_spec()
+        result = build_narrative_review_request(spec, "run-001")
+        assert result.narrative == spec.narrative
+        assert set(result.personas.keys()) == set(spec.personas.keys())
+        for key, persona in spec.personas.items():
+            assert result.personas[key]["name"] == persona.name
 
     def test_narration_text_is_concept_claim(self):
         spec = _make_spec()
@@ -218,7 +237,7 @@ class TestBuildNarrativeReviewRequest:
         )
         result = build_narrative_review_request(spec, "run-single")
         assert len(result.narration) == 1
-        assert result.narration[0].scene == 0
+        assert result.narration[0].scene == 1
         assert result.narration[0].text == "Users can see the dashboard summary on first load."
 
     # -----------------------------------------------------------------------
