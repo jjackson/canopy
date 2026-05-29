@@ -6,13 +6,13 @@
     "url": "https://github.com/jjackson"
   },
   "metadata": {
-    "version": "0.2.115"
+    "version": "0.2.116"
   },
   "plugins": [
     {
       "name": "canopy",
       "source": "./plugins/canopy",
-      "version": "0.2.115",
+      "version": "0.2.116",
       "description": "Self-improving AI workflow skills — session analysis, PM supervision, autonomous development"
     }
   ]
