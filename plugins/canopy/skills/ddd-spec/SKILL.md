@@ -61,6 +61,12 @@ narrative, because the narrative will name a persona in every beat and the scene
 inherit their persona from that beat.  Get the cast right here and the rest falls
 out.
 
+**Personas are PEOPLE only — never the tool, system, product, or feature.** The thing
+being demoed is what the personas *use*; it is never itself a character. "DDD",
+"the pipeline", "the API", "the agent" are NOT personas — the human who drives them
+is. Many features have exactly **one** persona (the single user) until there is a
+genuine second *human* role; don't invent a system-persona to manufacture a handoff.
+
 From the feature context, cast 1–3 personas — the *characters* in the demo.  Each
 persona must have:
 - `name` — the character's name. Use a real first name for an individual ("Maya"),

@@ -1,0 +1,17 @@
+schema_version: 1
+rubric_name: ddd-concept-eval
+judge: independent subagent (blind to authorship)
+ran_at: "2026-05-29"
+dimensions:
+  concept_clarity:        { score: 4, weight: 0.20, justification: "Intro + problem block explain DDD end-to-end; a newcomer can follow ground->narrate->gate->judge->promote." }
+  design_soundness:       { score: 3, weight: 0.25, justification: "Sound skeleton, but leaking persona: keys, empty-looking Cast fields, repetitive labels, decision-above-content hurt hierarchy." }
+  why_groundedness:       { score: 4, weight: 0.20, justification: "Dedicated problem block + per-scene 'Why it matters' name a real problem." }
+  claim_reality_coherence:{ score: 2, weight: 0.15, justification: "Page DISPLAYS actionability scores while its own gap text confesses scores were hand-fabricated; Built badges admitted unvalidated. Claims contradict shown reality." }
+  motion_friction:        { score: 3, weight: 0.20, justification: "Static review is actionable but cramped: long scroll, decision before content, dense intro." }
+overall_score: 2
+overall_rule: lowest
+verdict: fail
+top_fixes:
+  - "Stop displaying fabricated/unvalidated numbers; null scores + Built badges until real evals/verifies have run."
+  - "Repair Cast/Personas block (show names, hide raw persona: keys)."
+  - "Move approve/redraft below the scene arc; collapse scenes by default."

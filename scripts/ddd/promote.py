@@ -32,6 +32,7 @@ import html
 import json
 import mimetypes
 import os
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Callable
@@ -476,7 +477,6 @@ def _default_post(
         "Authorization": f"Bearer {pat}",
     }
     req = urllib.request.Request(url, data=body, method="POST", headers=headers)
-    import urllib.error
 
     try:
         resp = urllib.request.urlopen(req, timeout=120)
