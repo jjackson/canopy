@@ -25,6 +25,49 @@ from scripts.ddd.schemas.models import Decision, Feature, NarrationItem, ReviewR
 
 
 # ---------------------------------------------------------------------------
+# Narrative sentence helpers — used by build_narrative_review_request to show
+# the LITERAL sentence per scene (so what the user reads in the top paragraph
+# matches what they see in each scene card), and by apply_narrative_edits to
+# round-trip an edited sentence back into spec.narrative (not concept_claim).
+#
+# Falls back to scene.concept_claim when the sentence count doesn't match the
+# scene count — that keeps multi-sentence scenes (per gap-flexible-scene-length)
+# and short narratives working without breaking the read side.
+# ---------------------------------------------------------------------------
+
+import re as _re
+
+_SENTENCE_SPLIT_RE = _re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'])")
+
+
+def _split_narrative_sentences(narrative: str) -> list[str]:
+    """Split a paragraph into sentences. Conservative: splits on sentence-ending
+    punctuation followed by whitespace + a capital letter (or opening quote).
+    Returns sentence strings with leading/trailing whitespace stripped, in
+    original order.
+    """
+    if not narrative:
+        return []
+    normalized = " ".join(narrative.split())
+    parts = _SENTENCE_SPLIT_RE.split(normalized)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _scene_text_for_review(spec: "UnifiedSpec", scene_idx_zero_based: int) -> str:
+    """The text shown for one scene in the review surface.
+
+    Prefer the literal narrative sentence at position N — that way the reviewer
+    reads the same prose in the top paragraph and in scene N's card. Fall back
+    to ``scene.concept_claim`` when the sentence count doesn't match the scene
+    count (multi-sentence scenes, paragraph still being drafted).
+    """
+    sentences = _split_narrative_sentences(spec.narrative)
+    if len(sentences) == len(spec.scenes):
+        return sentences[scene_idx_zero_based]
+    return spec.scenes[scene_idx_zero_based].concept_claim
+
+
+# ---------------------------------------------------------------------------
 # Slug helper (shared by build and apply so slugs always agree)
 # ---------------------------------------------------------------------------
 
@@ -85,7 +128,7 @@ def build_narrative_review_request(
             title=scene.title,
             persona=scene.persona,
             provenance=scene.provenance,
-            text=scene.concept_claim,
+            text=_scene_text_for_review(spec, i - 1),
             features=scene.features,
         )
         for i, scene in enumerate(spec.scenes, start=1)
@@ -433,12 +476,32 @@ def apply_narrative_edits(
                     deleted += 1
                     continue
 
-                # UPDATE existing scene
+                # UPDATE existing scene.
+                #
+                # Two roundtrip modes — must match the read side
+                # (build_narrative_review_request -> _scene_text_for_review):
+                #
+                # - **Sentence mode** (narrative-sentence count == scene count):
+                #   the reviewer was shown the literal sentence at position
+                #   idx in spec.narrative; their edit replaces that sentence
+                #   and we re-join the paragraph. concept_claim is left alone.
+                # - **Concept-claim mode** (fallback): legacy behavior —
+                #   edits round-trip into scene.concept_claim.
                 scene_dict = scenes[idx]
                 old_claim = scene_dict.get("concept_claim", "")
-                if narration and old_claim != narration:
-                    scene_dict["concept_claim"] = narration
-                    updated += 1
+                if narration:
+                    sentences = _split_narrative_sentences(raw.get("narrative", "") or "")
+                    in_sentence_mode = len(sentences) == len(scenes)
+                    if in_sentence_mode:
+                        old_sentence = sentences[idx]
+                        if narration != old_sentence:
+                            sentences[idx] = narration
+                            raw["narrative"] = " ".join(sentences)
+                            updated += 1
+                    else:
+                        if old_claim != narration:
+                            scene_dict["concept_claim"] = narration
+                            updated += 1
 
                 # Reconcile features
                 existing_features: list[dict] = scene_dict.get("features") or []
