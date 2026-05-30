@@ -765,6 +765,55 @@ def version_bump(repo):
         click.echo(f"  wrote: {mp_path} ({mp_n} version field{'s' if mp_n != 1 else ''})")
 
 
+@main.command("structure-drift")
+@click.option("--repo", default=None, type=click.Path(exists=True, file_okay=False),
+              help="Repo root to audit (defaults to the canopy checkout this CLI ships from)")
+@click.option("--strict", is_flag=True,
+              help="Exit non-zero if any finding exists (CI gate)")
+@click.option("--per-skill-limit", default=None, type=int,
+              help="Per-skill description char limit (default: 1024)")
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def structure_drift_cmd(repo, strict, per_skill_limit, as_json):
+    """Self-audit canopy's documented structural invariants in one pass.
+
+    Checks the invariants canopy documents in .claude/CLAUDE.md:
+      - command/skill collisions follow Pattern B (read SKILL.md from disk)
+      - no command/skill/agent uses a reserved built-in slash-command name
+      - VERSION == plugin.json version == marketplace.json version field(s)
+      - no skill description exceeds the per-skill char budget
+
+    Default: print findings and exit 0. With --strict, exit non-zero when any
+    finding exists, so CI can gate on it.
+    """
+    import json as json_mod
+    from orchestrator.structure_drift import run_structure_drift, DEFAULT_PER_SKILL_LIMIT
+
+    repo_root = Path(repo) if repo else None
+    psl = per_skill_limit if per_skill_limit is not None else DEFAULT_PER_SKILL_LIMIT
+
+    report = run_structure_drift(repo_root=repo_root, per_skill_limit=psl)
+
+    if as_json:
+        click.echo(json_mod.dumps(report, indent=2, default=str))
+    else:
+        counts = report["counts"]
+        if report["ok"]:
+            click.echo("OK: no structure drift detected.")
+        else:
+            click.echo(
+                f"DRIFT: {counts['total']} finding(s) — "
+                f"{counts['error']} error, {counts['warning']} warning\n"
+            )
+            for inv, items in report["by_invariant"].items():
+                click.echo(f"[{inv}]")
+                for f in items:
+                    click.echo(f"  {f['severity'].upper()}: {f['detail']}")
+                click.echo()
+
+    if strict and not report["ok"]:
+        raise click.exceptions.Exit(1)
+
+
 @main.group()
 def skills():
     """Inspect installed skills (plugin + user)."""
