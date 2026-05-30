@@ -53,13 +53,16 @@ That prints the slugs of every active project. If the user passed a specific slu
 Insights are an inbox. Before generating fresh ones, clear the previous run's output so old, dismissed, or no-longer-true cards don't pile up:
 
 ```bash
-curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
-  "$CANOPY_WEB/api/insights/clear/?source=canopy:portfolio-review" --max-time 10
+CLEAR_HTTP=$(curl -s -o /tmp/pr-clear.json -w "%{http_code}" -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  "$CANOPY_WEB/api/insights/clear/?source=canopy:portfolio-review" --max-time 10)
+[ "$CLEAR_HTTP" = "200" ] && echo "cleared: $(head -c 120 /tmp/pr-clear.json)" \
+  || echo "WARN: clear returned HTTP $CLEAR_HTTP — skipping; new insights pile alongside old (user can dismiss)."
 ```
 
 This only deletes insights with `source=canopy:portfolio-review` — manually-posted insights from other sources are untouched.
 
-**Note:** the `/api/insights/clear/` endpoint requires OAuth, not the bearer token. If this returns 401, fall back to dismissing one-by-one via `DELETE /api/insights/<id>/` after fetching the list — or simply skip this step and let new insights pile alongside old ones (the user can dismiss).
+**Note:** the clear endpoint is **POST** (`@insights_router.post("/clear/")`), not DELETE — a DELETE returns 405 and silently no-ops. Clearing is best-effort: on any non-200 the step warns and continues (at worst old insights pile up and the user can dismiss them).
 
 ## Step 4 — for each slug, gather + classify + post
 

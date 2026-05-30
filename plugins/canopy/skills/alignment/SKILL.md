@@ -74,17 +74,24 @@ no-longer-true findings don't pile up:
 
 ```bash
 TOKEN=$(cat ~/.claude/canopy/workbench-token)
-curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
-  "$CANOPY_WEB/api/insights/clear/?source=canopy:alignment" --max-time 10
+CLEAR_HTTP=$(curl -s -o /tmp/alignment-clear.json -w "%{http_code}" -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  "$CANOPY_WEB/api/insights/clear/?source=canopy:alignment" --max-time 10)
+if [ "$CLEAR_HTTP" = "200" ]; then
+  echo "cleared: $(head -c 120 /tmp/alignment-clear.json)"
+else
+  echo "WARN: clear returned HTTP $CLEAR_HTTP — skipping clear, new cards will pile alongside old ones (user can dismiss)."
+fi
 ```
 
-This only deletes insights with `source=canopy:alignment` — cards from other
-sources are untouched.
+The clear endpoint is **POST** (`@insights_router.post("/clear/")`), not DELETE —
+a DELETE returns 405 and silently no-ops. It deletes only insights with
+`source=canopy:alignment`; cards from other sources are untouched.
 
-**Note:** the clear endpoint may require OAuth rather than the bearer token. If
-this returns 401, fall back to dismissing one-by-one via
-`DELETE /api/insights/<id>/`, or skip this step and let new cards pile alongside
-old ones (the user can dismiss).
+**Note:** clearing is best-effort. On any non-200 (401 if the token lacks the
+right scope, 405 if the verb is wrong on an older deploy), the skill warns and
+continues rather than aborting — at worst old cards pile up and the user can
+dismiss them.
 
 ## Step 3 — dispatch ONE comparison subagent
 
