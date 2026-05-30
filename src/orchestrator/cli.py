@@ -500,6 +500,43 @@ def test_audit_apply(stamp_dir, repo, aggressive, dry_run, framework):
     click.echo(render_apply_summary(result))
 
 
+@main.command("doctor")
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def doctor_cmd(as_json):
+    """Diagnose canopy plugin health.
+
+    Runs read-only checks — hook registration, session log, repo map,
+    workbench token, plugin version. Exits non-zero if any check fails so it
+    can gate CI.
+    """
+    import json as json_mod
+    from orchestrator.doctor import run_doctor
+
+    results, overall_ok = run_doctor()
+
+    if as_json:
+        click.echo(json_mod.dumps(
+            {
+                "ok": overall_ok,
+                "checks": [r.to_dict() for r in results],
+            },
+            indent=2,
+        ))
+    else:
+        width = max(len(r.name) for r in results)
+        for r in results:
+            status = "OK  " if r.ok else "FAIL"
+            click.echo(f"  [{status}] {r.name.ljust(width)}  {r.detail}")
+        click.echo()
+        if overall_ok:
+            click.echo("All checks passed — canopy is healthy.")
+        else:
+            click.echo("Some checks failed — see details above.")
+
+    if not overall_ok:
+        raise click.exceptions.Exit(1)
+
+
 @main.command("patterns")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 def patterns_cmd(as_json):
