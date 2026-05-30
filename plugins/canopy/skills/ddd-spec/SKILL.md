@@ -348,3 +348,47 @@ Next steps:
 
 If there are DECISION gaps from the why_brief, list them explicitly so the user
 can make those decisions before the concept judge runs.
+
+## Scene shape — one scene = one persona + one beat + one claim
+
+The structural rule: each scene demonstrates ONE claim, owned by ONE persona,
+in ONE narrative beat. The actionability eval scores per scene (cold-derives a
+build plan from each scene's narration alone, then compares to that scene's
+`features[]`), and the build phase tracks features per scene; a scene that
+fragments across multiple claims fragments both.
+
+**The split smell test:** if a scene's `features[]` map to multiple distinct
+spine items — different provenances would honestly apply to different features
+within the scene — that's a scene wanting to be N scenes. Split before
+posting. Each resulting scene gets one provenance (the spine item its features
+ground) and its own `narrative`/`show`/`concept_claim` for that single beat.
+
+`scene.narrative` (the canonical per-scene text — what `apply_narrative_edits`
+writes when the user edits a scene) MAY be one or more sentences. Prefer one
+cohesive sentence; multi-sentence is fine when the beat genuinely is one
+moment of the demo. But if you see multiple sentences each describing distinct
+user actions with distinct backing capabilities, that's the split signal — not
+a "leave it as a multi-sentence beat" signal.
+
+## After retitling — sync the build_order
+
+If you retitle a scene, regenerate any `build_order` entries that referenced
+its old slug. The slug derives from the title (`_title_slug`); spec_qa will
+reject any `build_order` entry whose slug doesn't match a current scene.
+
+## YAML pitfalls when writing scene fields
+
+Watch for these when writing `show`, `role`, `concept_claim`, `verify`, and the
+top-level `narrative`:
+
+- **Colons inside the value** (e.g. `Coverage: Balanced`) break naive
+  single-quoted strings — YAML treats the second colon as a mapping marker.
+  Use **double-quoted strings** (`"..."`) for any field whose value contains
+  `: ` (colon-space), `{`, `}`, or unescaped apostrophes.
+- **Apostrophes inside a YAML single-quoted block** must be doubled — write
+  `Kim''s edits` for "Kim's edits" inside a `'...'` block. Inside `"..."`
+  blocks, plain apostrophes are fine.
+- **Curly braces** inside an unquoted value get parsed as a flow mapping —
+  quote the whole value (e.g. `"...payload {a: b} for each..."`).
+
+When in doubt, double-quote.
