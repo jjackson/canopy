@@ -151,6 +151,69 @@ DDD Narrative Gate — <feature>
   Redraft requested — looping back to /ddd-spec to re-draft the narrative.
 ```
 
+## Iteration behavior — how to handle the user's redraft
+
+When the user resolves the gate with `redraft` and `apply_narrative_edits` has
+written their edits back to the spec, the following rules govern the next loop
+turn. They exist so the iteration is fast, faithful, and doesn't burn the user's
+attention on things they've already implicitly decided.
+
+### Always show the resulting artifact in the conversation, not just the URL
+
+After `apply_narrative_edits` resolves and you've posted a fresh review URL,
+present the **updated narrative inline in chat** alongside the URL — the new
+narrative paragraph + a per-scene beat-by-beat table (number, persona, scene
+title, status badge `Existing feature`/`New feature`). A URL alone is the wrong
+shape: it forces the user to chase, and most of the time they won't react to
+something they have to chase to see. The artifact has to be in front of them in
+the conversation so they can react in the same turn. Pull the artifact from
+the per-scene `scene.narrative` values so the inline summary matches what they
+see on the review surface.
+
+### Fix typos/grammar without asking — defer only on taste
+
+When applying edits to per-scene fields (`narrative`, `show`, feature
+`description`/`verify`), clean obvious typos, dropped words, and mangled
+grammar without asking the user. Their intent is the content they typed, not
+the literal characters; carrying a typo through the loop noises the
+actionability eval, the rendered demo, the docs page, and every blind judge
+that reads it. A typo on a load-bearing word in a feature's `verify` can fail
+the build check.
+
+Test before deferring: *would the next DDD step (actionability eval, render,
+build) be cleaner if I just fixed this?* If yes, fix.
+
+**Defer only on irreplaceable taste:**
+- Direction/framing — does this beat belong? right level of abstraction?
+- Named-entity choices — don't rename a persona to a specific real person, don't
+  change "Kano" to a different state without explicit approval.
+- External release (already a hard gate).
+
+### Act on edits that imply new structure — don't ask first
+
+When a user's redraft introduces a new capability, persona change, or
+structural shift, propagate it through the spec **without asking**. Their edit
+IS the answer; asking re-buys their attention on something they've already
+decided.
+
+- **New capability in scene narrative** → add the matching spine item (status
+  `gap`) + a gap entry with concrete `proposed_action` + features on the
+  relevant scene with concrete `verify`s. If the scene now has a different
+  central claim, change its `provenance` to point at the new spine item.
+- **Persona rename / pronoun change** → propagate through every scene's
+  narration + the persona's `name`/`role`/`intro`/`org` + any role text that
+  references a beat count.
+- **A scene's narration covers multiple distinct claims** (different
+  provenances would apply to different sub-actions) → split into one scene per
+  claim before posting. Don't ask "want me to split this?" — split, then show.
+  See `ddd-spec` § "Scene shape" for the split rule.
+- **Retitled a scene** → regenerate the `build_order` entry for the old slug
+  with the new slug (or spec_qa will reject the spec).
+
+The exception is genuine taste calls where the user hasn't expressed a
+preference: "split into 2 scenes or 3" if both are equally honest, or
+"which real person should we name." Those still gate on the user.
+
 ## Important
 
 - This gate centers the demo **narrative** and gets the user's explicit
