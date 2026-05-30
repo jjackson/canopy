@@ -75,6 +75,13 @@ class Scene(BaseModel):
     design_intent: str | None = None
     impressive_because: str | None = None
     features: list[Feature] = []
+    narrative: str = ""
+    """Canonical per-scene narrative text — the story beat the reviewer reads.
+    May be one OR MORE sentences (per gap-flexible-scene-length). When set, it
+    takes precedence over sentence-split-of-spec.narrative-by-position for both
+    the review UI and the apply-edits writeback. When empty (legacy / first
+    edit not yet made), the renderer falls back to splitting ``UnifiedSpec.narrative``
+    by sentence and taking the i-th sentence."""
 
 
 class UnifiedSpec(BaseModel):

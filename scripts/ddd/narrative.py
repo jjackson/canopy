@@ -56,15 +56,52 @@ def _split_narrative_sentences(narrative: str) -> list[str]:
 def _scene_text_for_review(spec: "UnifiedSpec", scene_idx_zero_based: int) -> str:
     """The text shown for one scene in the review surface.
 
-    Prefer the literal narrative sentence at position N — that way the reviewer
-    reads the same prose in the top paragraph and in scene N's card. Fall back
-    to ``scene.concept_claim`` when the sentence count doesn't match the scene
-    count (multi-sentence scenes, paragraph still being drafted).
+    Resolution order:
+    1. ``scene.narrative`` if non-empty — the canonical per-scene narrative
+       text. Supports multi-sentence scenes (gap-flexible-scene-length).
+    2. Sentence-split of ``spec.narrative`` by position when the sentence
+       count matches the scene count (1:1 fallback for legacy specs).
+    3. ``scene.concept_claim`` as last-resort.
     """
+    scene = spec.scenes[scene_idx_zero_based]
+    s_nar = getattr(scene, "narrative", "")
+    if s_nar and s_nar.strip():
+        return s_nar.strip()
     sentences = _split_narrative_sentences(spec.narrative)
     if len(sentences) == len(spec.scenes):
         return sentences[scene_idx_zero_based]
-    return spec.scenes[scene_idx_zero_based].concept_claim
+    return scene.concept_claim
+
+
+def _rebuild_spec_narrative(raw: dict) -> None:
+    """Rebuild ``raw['narrative']`` as the join of per-scene narratives.
+
+    For each scene in raw['scenes'], use ``scene['narrative']`` when set; else
+    fall back to the sentence at that scene's position in the OLD narrative
+    paragraph (if 1:1). Mutates raw in place. Used after apply_narrative_edits
+    has set scene.narrative on the edited scenes so the top paragraph stays
+    consistent with per-scene text.
+    """
+    scenes = raw.get("scenes") or []
+    if not scenes:
+        return
+    old_paragraph = raw.get("narrative", "") or ""
+    old_sentences = _split_narrative_sentences(old_paragraph)
+    sentence_mode_fallback = len(old_sentences) == len(scenes)
+    parts: list[str] = []
+    for i, scene in enumerate(scenes):
+        s_nar = (scene.get("narrative") or "").strip()
+        if s_nar:
+            parts.append(s_nar)
+        elif sentence_mode_fallback:
+            parts.append(old_sentences[i])
+        else:
+            parts.append(
+                (scene.get("concept_claim") or "").strip()
+                or scene.get("title", "")
+                or ""
+            )
+    raw["narrative"] = " ".join(p for p in parts if p)
 
 
 # ---------------------------------------------------------------------------
@@ -478,30 +515,27 @@ def apply_narrative_edits(
 
                 # UPDATE existing scene.
                 #
-                # Two roundtrip modes — must match the read side
-                # (build_narrative_review_request -> _scene_text_for_review):
-                #
-                # - **Sentence mode** (narrative-sentence count == scene count):
-                #   the reviewer was shown the literal sentence at position
-                #   idx in spec.narrative; their edit replaces that sentence
-                #   and we re-join the paragraph. concept_claim is left alone.
-                # - **Concept-claim mode** (fallback): legacy behavior —
-                #   edits round-trip into scene.concept_claim.
+                # Canonical narrative roundtrip (v2 — supports multi-sentence
+                # scenes per gap-flexible-scene-length):
+                # - When narration changes, write to scene.narrative (the
+                #   canonical per-scene field). spec.narrative is rebuilt as
+                #   the join of per-scene narratives after the apply loop.
+                # - concept_claim is no longer touched by narration edits;
+                #   it stays a separate testable claim.
                 scene_dict = scenes[idx]
-                old_claim = scene_dict.get("concept_claim", "")
                 if narration:
-                    sentences = _split_narrative_sentences(raw.get("narrative", "") or "")
-                    in_sentence_mode = len(sentences) == len(scenes)
-                    if in_sentence_mode:
-                        old_sentence = sentences[idx]
-                        if narration != old_sentence:
-                            sentences[idx] = narration
-                            raw["narrative"] = " ".join(sentences)
-                            updated += 1
-                    else:
-                        if old_claim != narration:
-                            scene_dict["concept_claim"] = narration
-                            updated += 1
+                    old_text = (scene_dict.get("narrative") or "").strip()
+                    if not old_text:
+                        # First edit: derive old_text from the legacy mapping
+                        # so we don't false-positive a no-op edit as a change.
+                        sentences = _split_narrative_sentences(raw.get("narrative", "") or "")
+                        if len(sentences) == len(scenes):
+                            old_text = sentences[idx].strip()
+                        else:
+                            old_text = (scene_dict.get("concept_claim") or "").strip()
+                    if narration.strip() != old_text:
+                        scene_dict["narrative"] = narration.strip()
+                        updated += 1
 
                 # Reconcile features
                 existing_features: list[dict] = scene_dict.get("features") or []
@@ -579,6 +613,11 @@ def apply_narrative_edits(
             scenes.pop(idx)
 
         raw["scenes"] = scenes
+
+        # Now that per-scene narrative edits are applied (incl. multi-sentence
+        # scenes), rebuild spec.narrative as the join of per-scene texts. The
+        # top "demo" paragraph stays consistent with the per-scene cards.
+        _rebuild_spec_narrative(raw)
 
         # ------------------------------------------------------------------
         # build_order: read from response, validate against surviving scenes,

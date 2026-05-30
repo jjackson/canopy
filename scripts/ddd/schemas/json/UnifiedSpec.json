@@ -110,6 +110,11 @@
           },
           "title": "Features",
           "type": "array"
+        },
+        "narrative": {
+          "default": "",
+          "title": "Narrative",
+          "type": "string"
         }
       },
       "required": [
