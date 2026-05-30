@@ -155,14 +155,58 @@ class TestBuildNarrativeReviewRequest:
         for key, persona in spec.personas.items():
             assert result.personas[key]["name"] == persona.name
 
-    def test_narration_text_is_concept_claim(self):
+    def test_narration_text_falls_back_to_concept_claim_when_sentences_mismatch(self):
+        """When the narrative paragraph's sentence count doesn't match the scene
+        count (here: 1 narrative sentence + 3 scenes), each narration item
+        falls back to its scene.concept_claim — the read-side default for
+        multi-sentence scenes or under-drafted paragraphs."""
         spec = _make_spec()
+        assert len(spec.scenes) == 3
         result = build_narrative_review_request(spec, "run-001")
         for item, scene in zip(result.narration, spec.scenes):
             assert item.text == scene.concept_claim, (
-                f"narration item text must be the scene's concept_claim; "
-                f"got {item.text!r}, expected {scene.concept_claim!r}"
+                f"narration item text must fall back to the scene's concept_claim "
+                f"when sentence count != scene count; got {item.text!r}, "
+                f"expected {scene.concept_claim!r}"
             )
+
+    def test_narration_text_is_literal_narrative_sentence_in_one_to_one_mode(self):
+        """When the narrative paragraph has exactly one sentence per scene,
+        each narration item's text is the LITERAL sentence at that position —
+        so the reviewer reads the same prose top-to-bottom in the paragraph
+        and in each scene card.
+
+        This is the fix for the "concept_claim paraphrases the narrative
+        sentence" drift the user caught on the microplans-10-wards spec.
+        """
+        scenes = [
+            Scene(
+                persona="alice",
+                title="Beat 1",
+                show="step 1",
+                concept_claim="A paraphrased claim about beat 1.",
+                provenance="S1",
+            ),
+            Scene(
+                persona="alice",
+                title="Beat 2",
+                show="step 2",
+                concept_claim="A paraphrased claim about beat 2.",
+                provenance="S2",
+            ),
+        ]
+        spec = _make_spec(scenes=scenes)
+        # Override narrative to have exactly 2 sentences (one per scene).
+        spec.narrative = (
+            "Alice opens the workspace and reviews the area list. "
+            "She then generates the sample for the chosen ward."
+        )
+        result = build_narrative_review_request(spec, "run-one-to-one")
+        assert result.narration[0].text == "Alice opens the workspace and reviews the area list."
+        assert result.narration[1].text == "She then generates the sample for the chosen ward."
+        # concept_claim is NOT what's shown to the reviewer in this mode.
+        for item, scene in zip(result.narration, spec.scenes):
+            assert item.text != scene.concept_claim
 
     def test_narration_id_is_title_slug(self):
         """id must be the scene title lowercased with spaces replaced by hyphens."""
@@ -235,10 +279,14 @@ class TestBuildNarrativeReviewRequest:
                 )
             ]
         )
+        # 1 scene + 1 narrative sentence triggers sentence-mode, so the
+        # narration item's text is the LITERAL narrative sentence, not the
+        # paraphrased concept_claim. The default _make_spec narrative is
+        # "Rooftop surveys ride Connect microplanning."
         result = build_narrative_review_request(spec, "run-single")
         assert len(result.narration) == 1
         assert result.narration[0].scene == 1
-        assert result.narration[0].text == "Users can see the dashboard summary on first load."
+        assert result.narration[0].text == "Rooftop surveys ride Connect microplanning."
 
     # -----------------------------------------------------------------------
     # v3: narration items carry per-scene features
