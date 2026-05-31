@@ -73,18 +73,18 @@ Insights are an inbox. Clear the previous run's `canopy:alignment` cards so old
 or no-longer-true findings don't pile up.
 
 **Preferred — the canopy-web MCP `clear_insights` tool.** The canopy plugin
-registers the canopy-web MCP server, so when it's connected this session call the
-tool (operationId `apps_projects_api_clear_insights`, surfaced as
-`mcp__plugin_canopy_canopy-web__apps_projects_api_clear_insights`) with a filter
-body:
+registers the canopy-web MCP server (Streamable HTTP, per-user PAT auth), so when
+it's connected this session call the tool
+`mcp__plugin_canopy_canopy-web__clear_insights` with:
 
 ```json
 { "source": "canopy:alignment" }
 ```
 
-It returns `{ "cleared": N }`. This is the canonical path — one typed contract
-derived from canopy-web's OpenAPI, so there's no hand-maintained URL/verb to
-drift (the reason an earlier `DELETE` silently no-op'd).
+(args are `source` / `category` / `project` / `older_than_days`, all optional).
+It returns `{ "cleared": N }` and runs as your authenticated user. This is the
+canonical path — one typed contract, no hand-maintained URL/verb to drift (the
+reason an earlier `DELETE` silently no-op'd).
 
 **Fallback — REST POST** (only if the canopy-web MCP tool isn't available this
 session):
