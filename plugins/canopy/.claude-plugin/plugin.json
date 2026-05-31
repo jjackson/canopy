@@ -1,6 +1,6 @@
 {
   "name": "canopy",
-  "version": "0.2.130",
+  "version": "0.2.131",
   "description": "Self-improving AI workflow skills — session analysis, improvement cycles, PM supervision, and learning loops",
   "author": {
     "name": "Jonathan Jackson",
@@ -13,9 +13,7 @@
     "canopy-web": {
       "type": "http",
       "url": "https://canopy-web-ujpz2cuyxq-uc.a.run.app/api/mcp/",
-      "headers": {
-        "Authorization": "Bearer ${CANOPY_WEB_PAT}"
-      }
+      "headersHelper": "${CLAUDE_PLUGIN_ROOT}/scripts/canopy-web-mcp-headers.sh"
     }
   }
 }
