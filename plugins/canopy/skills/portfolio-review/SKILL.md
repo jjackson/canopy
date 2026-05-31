@@ -50,19 +50,22 @@ That prints the slugs of every active project. If the user passed a specific slu
 
 ## Step 3 — clear stale insights from this source
 
-Insights are an inbox. Before generating fresh ones, clear the previous run's output so old, dismissed, or no-longer-true cards don't pile up:
+Insights are an inbox. Before generating fresh ones, clear the previous run's output so old, dismissed, or no-longer-true cards don't pile up.
+
+**Preferred — the canopy-web MCP `clear_insights` tool.** When the canopy-web MCP server (registered by the canopy plugin) is connected this session, call the tool (operationId `apps_projects_api_clear_insights`, surfaced as `mcp__plugin_canopy_canopy-web__apps_projects_api_clear_insights`) with a filter body `{ "source": "canopy:portfolio-review" }`; it returns `{ "cleared": N }`. One typed contract from canopy-web's OpenAPI — no hand-maintained URL/verb to drift.
+
+**Fallback — REST POST** (only if the canopy-web MCP tool isn't available this session):
 
 ```bash
 CLEAR_HTTP=$(curl -s -o /tmp/pr-clear.json -w "%{http_code}" -X POST \
-  -H "Authorization: Bearer $TOKEN" \
-  "$CANOPY_WEB/api/insights/clear/?source=canopy:portfolio-review" --max-time 10)
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  --data '{"source":"canopy:portfolio-review"}' \
+  "$CANOPY_WEB/api/insights/clear/" --max-time 10)
 [ "$CLEAR_HTTP" = "200" ] && echo "cleared: $(head -c 120 /tmp/pr-clear.json)" \
   || echo "WARN: clear returned HTTP $CLEAR_HTTP — skipping; new insights pile alongside old (user can dismiss)."
 ```
 
-This only deletes insights with `source=canopy:portfolio-review` — manually-posted insights from other sources are untouched.
-
-**Note:** the clear endpoint is **POST** (`@insights_router.post("/clear/")`), not DELETE — a DELETE returns 405 and silently no-ops. Clearing is best-effort: on any non-200 the step warns and continues (at worst old insights pile up and the user can dismiss them).
+The clear endpoint takes a JSON **body** (`{source?, category?, project?, older_than_days?}`); filters AND-combine and an empty body clears all, so always send `{"source":"canopy:portfolio-review"}` to scope deletion to this skill's cards. Clearing is best-effort: on any non-200 the step warns and continues.
 
 ## Step 4 — for each slug, gather + classify + post
 
