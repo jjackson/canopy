@@ -12,6 +12,13 @@ recent, verifiable themes in the git log.
 ## [Unreleased]
 
 ### Added
+- **`patch-gstack-browse` skill** (0.2.124) — re-applies the SwiftShader WebGL
+  patch to gstack `browse` so headless Chromium can render WebGL pages (Mapbox
+  GL, three.js, deck.gl) for screenshot QA. Idempotent: patches
+  `browser-manager.ts` with `--enable-unsafe-swiftshader`, rebuilds + re-signs
+  the binary, restarts the daemon, and verifies a WebGL2 context. Re-run after a
+  gstack update overwrites the source. Ships a `/canopy:patch-gstack-browse`
+  command wrapper.
 - **PAT-mint test harness** (0.2.121) — ported ace's PAT-mint test to canopy and
   added minimal vitest infrastructure to cover the canopy-web Personal Access
   Token loopback flow.
