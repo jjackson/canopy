@@ -1,6 +1,6 @@
 ---
 description: Render + dual-verdict run (SP4) — gates on ddd-spec-qa, invokes canopy:walkthrough to render the unified_spec, dispatches ddd-concept-eval + canopy:visual-judge (audience=feature user) in parallel, assembles both verdicts into run_state.yaml, and reports convergence.
-argument-hint: <run_id> <unified_spec_path> <why_brief_path>
+argument-hint: <run_id> <unified_spec_path> <why_brief_path> [--scene <selector>]
 allowed-tools: [Read, Write, Bash, Skill, Agent]
 ---
 
@@ -15,6 +15,13 @@ run_state → convergence report.
 - `<run_id>` — run identifier from `scripts.ddd.runstate.new_run`.
 - `<unified_spec_path>` — path to `unified_spec.yaml` (runnable walkthrough spec).
 - `<why_brief_path>` — path to `why_brief.yaml`.
+- `--scene <selector>` (optional) — render only a subset of scenes. Same
+  selector syntax as `/canopy:walkthrough --scene` (index, range, list,
+  or title substring). Use when iterating on one scene's feature without
+  re-running the whole spec. The full dual-judge rubric still applies —
+  only the render step is filtered. `run_state.yaml` records
+  `scenes_run` so partial iterations are visible in convergence reports
+  and don't get confused with full-spec runs.
 
 ## Process
 

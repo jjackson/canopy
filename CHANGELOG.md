@@ -12,6 +12,17 @@ recent, verifiable themes in the git log.
 ## [Unreleased]
 
 ### Added
+- **`--scene <selector>` filter for walkthrough + ddd-run** (0.2.127) —
+  run the canonical rubric on a subset of scenes when iteration only
+  touched one scene's feature. Selector forms: `2` (index), `2,4,5`
+  (list), `2-4` (range), `name-match` (title/spine substring).
+  Preserves original scene indices in the output JSON and deck so a
+  scene-2 score from a partial run is directly comparable to a scene-2
+  score from a full run. Sidecar gains `scenes_run` + `scene_filter`
+  fields. `run_state.yaml` carries the same. `/canopy:ddd-promote`
+  hard-refuses partial runs at Step 0 — promotion requires full-spec
+  coverage. Lets users stay on the DDD path instead of falling back to
+  ad-hoc screenshots when iterating on a single scene's feature.
 - **`patch-gstack-browse` skill** (0.2.124) — re-applies the SwiftShader WebGL
   patch to gstack `browse` so headless Chromium can render WebGL pages (Mapbox
   GL, three.js, deck.gl) for screenshot QA. Idempotent: patches
