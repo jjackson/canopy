@@ -56,6 +56,23 @@ All user-supplied text is HTML-escaped (no XSS).
 
 ## Procedure
 
+### Step 0 — Pre-flight: refuse partial runs
+
+Read `<run_dir>/run_state.yaml`. If `scene_filter` is set (i.e. the
+converged run came from `/canopy:ddd-run --scene <selector>`), STOP and
+tell the user:
+
+> "Run `<run_id>` was a partial render — it covered scenes <scenes_run>
+> out of <spec_total>. Promotion requires a full-spec run so the
+> published docs page reflects the whole feature, not just one scene.
+> Re-run `/canopy:ddd-run <new_run_id> <unified_spec> <why_brief>`
+> WITHOUT `--scene`, then promote that."
+
+Do NOT attempt to assemble a docs page from a partial run, even if the
+filtered scope converged — the "What you can do" section is built per
+scene, and a partial run would publish a docs page missing capabilities
+the spec promises.
+
 ### Step 1 — Run the promotion script
 
 Run the promotion script (it lives in the canopy repo):

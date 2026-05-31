@@ -35,6 +35,16 @@ gate → render → judge (concept + user-artifact in parallel) → assemble →
   walkthrough spec — the render step drives it directly via `canopy:walkthrough`.
 - **`why_brief`** — path to `why_brief.yaml` (needed by the concept judge for
   provenance cross-checks).
+- **`--scene <selector>`** *(optional)* — render only a subset of scenes.
+  Same selector grammar as `/canopy:walkthrough --scene`. Use when the
+  iteration that just landed only touched one scene's feature and a
+  full-spec run would mostly re-render unchanged scenes. The full
+  dual-judge rubric still applies — only the render step is filtered.
+  When set, `run_state.yaml` carries `scenes_run` (the original 1-based
+  spec indices actually rendered) and `scene_filter` (the raw selector)
+  so convergence reports and promotion checks can tell partial runs from
+  full ones. **Promotion (`/canopy:ddd-promote`) requires a full run** —
+  a partial run cannot promote a feature.
 
 ## Procedure
 
@@ -70,6 +80,12 @@ Invoke `canopy:walkthrough` (or the equivalent Skill tool call) against
 - `scene_<N>.png` — per-scene screenshot for each scene in the spec.
 - `scene_<N>_page_text.json` — captured page text (`$B text` output) per scene.
 - The walkthrough JSON sidecar into the run dir.
+
+If invoked with `--scene <selector>`, pass it through verbatim to
+`canopy:walkthrough` so only the matching scenes get rendered. The skill
+preserves original scene_index in filenames (so `--scene 2` produces
+`scene_2.png` and `scene_2_page_text.json`, not `scene_1.png`), keeping
+artifact paths stable across partial and full runs.
 
 All output lands in the run directory (`<ddd_dir>/runs/<run_id>/`).
 
@@ -182,25 +198,41 @@ state = assemble_run_state(
     concept_path="<run_dir>/verdict-concept.yaml",
     user_path="<run_dir>/verdict-user.yaml",
 )
+
+# Scene-filter metadata: read from the walkthrough sidecar and stamp it
+# onto state. assemble_run_state preserves unknown keys, so a simple
+# attribute set is fine. If your runstate model is stricter, add these as
+# top-level fields on RunState.
+import json
+sidecar = json.load(open(f"{run_dir}/walkthrough-run-data.json"))
+state.scenes_run = sidecar.get("scenes_run")          # e.g. [2] or [1,2,3,4,5]
+state.scene_filter = sidecar.get("scene_filter")      # e.g. "2" or null
 save(state)
 
 converged = compute_convergence(concept_verdict, user_verdict)
 ```
 
+**Promotion gate.** `state.scene_filter is not None` means this is a
+partial run — `/canopy:ddd-promote` MUST refuse to promote it. A
+feature is only promotable when convergence has been demonstrated
+against the full spec.
+
 ### Step 5 — Report
 
-Print a summary:
+Print a summary. When `scene_filter` is set, prepend a one-line "Scope"
+banner so the reader doesn't mistake a single-scene pass for a full pass:
 
 ```
 DDD Run — <run_id>
 ══════════════════════════════════════
   Spec: <unified_spec>
+  Scope: --scene <selector> → rendered scenes <indices> of <total>      # only if filtered
   Run dir: <run_dir>
 
   Concept judge:       <concept overall_score>/5  (<verdict>)
   User-artifact judge: <user overall_score>/5     (<verdict>)
 
-  Convergence: YES | NO  (threshold: 4.0)
+  Convergence (filtered): YES | NO  (threshold: 4.0)                    # "filtered" tag if partial
 
   Top findings (<N> total):
     [PRODUCT]  Scene N: <detail>
@@ -210,12 +242,19 @@ DDD Run — <run_id>
   run_state.yaml updated → phase: judged
 ```
 
-If converged=YES, tell the user:
+If converged=YES and scene_filter is null:
 ```
 Both judges passed. Run is converged — proceed to promotion or human review.
 ```
 
-If converged=NO, tell the user:
+If converged=YES and scene_filter is set:
+```
+Both judges passed on the filtered scope. The filtered scene(s) are
+ready, but promotion requires a full-spec run — drop --scene and re-run
+/canopy:ddd-run when you want to ship.
+```
+
+If converged=NO:
 ```
 Not yet converged (<which judge(s)> below threshold or blocked).
 Max iterations: 3.  Current iteration: <state.iteration>.

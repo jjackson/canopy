@@ -28,9 +28,115 @@ evaluations.
 - `/walkthrough generate` — Interactively create a new walkthrough spec
 - `/walkthrough` (no args) — List available specs in `docs/walkthroughs/`
 
+All run modes accept `--scene <selector>` to render only a subset of
+scenes. See **Scene filter** below.
+
 For orchestrated improvement cycles, adversarial reviews, and eval tracking,
 use the walkthrough **agent** (invoked via `/walkthrough improve`, `/walkthrough adversarial`,
 or `/walkthrough eval`).
+
+## Scene filter (`--scene`)
+
+Use this when you've just shipped a change that affects one scene and want
+to re-grade THAT scene under the canonical 5-dimension rubric, instead of
+re-running the whole spec.
+
+**Why it exists:** without it, single-scene iteration drifts off the DDD
+path — people screenshot and "verify" manually, skipping the rubric. The
+filter lets the canonical pipeline run end-to-end on a subset, so the
+judge, the deck, and the eval history stay consistent.
+
+### Selector syntax
+
+| Form | Meaning |
+|------|---------|
+| `--scene 2` | Just scene 2 (1-based index) |
+| `--scene 2,4,5` | Scenes 2, 4, and 5 |
+| `--scene 2-4` | Inclusive range — scenes 2, 3, 4 |
+| `--scene name-match` | Case-insensitive substring match against scene `title` or `spine_id` |
+
+If the selector matches **zero** scenes, STOP and tell the user:
+
+> "Selector `<sel>` matched no scenes in <spec>. Spec has scenes: 1=<t1>,
+> 2=<t2>, ... Pick a different selector or omit `--scene` to run all."
+
+If the selector matches **all** scenes, treat it the same as no filter and
+say so once: "selector matched all N scenes — equivalent to a full run."
+
+### Behavior contract
+
+1. **Preserve original scene indices.** A single-scene run for spec scene
+   2 still labels the output "Scene 2 of N" in narration and the deck —
+   NOT "Scene 1 of 1". This keeps comparison against full-spec runs
+   honest (a scene-2 score from a partial run is directly comparable to
+   a scene-2 score from a full run).
+
+2. **Tag the sidecar.** Add two fields to `/tmp/walkthrough-run-data.json`:
+   - `scenes_run: [2]` — the list of scene_index values actually rendered
+   - `scene_filter: "2"` — the raw selector string from `--scene`
+
+   Downstream tooling (deck generator, video recorder, eval history,
+   `ddd-run` convergence reporter) reads these to distinguish partial
+   runs from full runs.
+
+3. **Run the full rubric.** The 5-dimension rubric still applies per
+   scene. `--scene` only changes WHICH scenes get rendered, not how
+   they're judged. Do not skip the blocking rule, do not weaken
+   `canopy:visual-judge`, do not skip the cross-walkthrough sanity floor
+   (it just operates on the filtered set).
+
+4. **Single-scene caveats.** With one scene rendered, the "cross-scene
+   sanity floor" loses some statistical power — log "scene-filter mode:
+   sanity floor weak (n=1)" in the summary but still apply it.
+
+5. **Improve mode.** `/walkthrough improve <name> --scene 2` iterates
+   until scene 2 passes 4+ on all dimensions, then stops. The composite
+   in the final report should say "(scene 2 graded; scenes 1,3,4,5 not
+   re-run this iteration)".
+
+6. **Eval mode.** `/walkthrough eval <name> --scene 2` writes to
+   `screenshots/walkthroughs/<name>/runs/YYYY-MM-DD-vNNN-scene2/` (note
+   the `-scene<sel>` suffix on the run dir). Does NOT overwrite the
+   full-spec baseline. `--update-baseline` with `--scene` is rejected —
+   baselines must be full-spec runs, not partials.
+
+### Parsing the selector
+
+Use this Python snippet (or equivalent) once at the start of the run:
+
+```python
+def select_scenes(spec_scenes, selector):
+    """Return list of (orig_index, scene_dict) tuples to actually run.
+    orig_index is 1-based and preserved through the rest of the pipeline.
+    """
+    indexed = list(enumerate(spec_scenes, start=1))
+    if not selector:
+        return indexed
+    sel = selector.strip()
+    # 2-4 (range)
+    if "-" in sel and all(p.strip().isdigit() for p in sel.split("-", 1)):
+        a, b = (int(p) for p in sel.split("-", 1))
+        return [(i, s) for i, s in indexed if a <= i <= b]
+    # 2,4,5 (list)
+    if "," in sel and all(p.strip().isdigit() for p in sel.split(",")):
+        wanted = {int(p) for p in sel.split(",")}
+        return [(i, s) for i, s in indexed if i in wanted]
+    # single index
+    if sel.isdigit():
+        n = int(sel)
+        return [(i, s) for i, s in indexed if i == n]
+    # title / spine_id substring (case-insensitive)
+    needle = sel.lower()
+    return [
+        (i, s) for i, s in indexed
+        if needle in (s.get("title", "") or "").lower()
+        or needle in (s.get("spine_id", "") or "").lower()
+    ]
+```
+
+The rest of the procedure (auth, pre-flight, scene execution, judging,
+deck generation, video recording) is identical — it just iterates over
+the filtered subset instead of `spec.scenes` directly.
 
 ## YAML Spec Format
 
@@ -209,12 +315,17 @@ and the user will catch it.
 
 ## Execution
 
-For each scene in the spec:
+For each `(orig_index, scene)` in the filtered scene list (see **Scene
+filter** for the selector logic — when `--scene` is omitted, the filtered
+list IS the full `spec.scenes`):
 
 ### Scene Execution Pattern
 
-1. **Announce the scene** to the user:
-   "Scene {n}/{total}: {title} (as {persona_name})"
+1. **Announce the scene** to the user using the **original spec index**:
+   "Scene {orig_index}/{spec_total}: {title} (as {persona_name})"
+
+   With a scene filter, mention it once at the top:
+   > "Scene filter active: `--scene <sel>` → running {len(filtered)} of {spec_total} scenes (indices: {orig_indices})."
 
 2. **Navigate and interact.** Read the `show` field and use your knowledge of the app
    and its URL structure to navigate to the right page. The `show` field is intentionally
@@ -367,13 +478,15 @@ write it to `/tmp/walkthrough-run-data.json`:
   "generated_at": "<current ISO timestamp>",
   "duration_seconds": 180,
   "personas": "<from spec — the full personas dict>",
+  "scenes_run": [2],
+  "scene_filter": "2",
   "slides": [
     { "type": "title" },
     { "type": "persona_intro", "persona_key": "<first persona>" },
     {
       "type": "scene",
-      "scene_index": 1,
-      "scene_total": "<total scenes>",
+      "scene_index": 2,
+      "scene_total": "<total scenes IN THE SPEC, not the filtered count>",
       "persona_key": "<persona>",
       "title": "<scene title>",
       "narration": "<impressive_because from spec>",
@@ -401,6 +514,13 @@ write it to `/tmp/walkthrough-run-data.json`:
 **IMPORTANT:** `duration_seconds` MUST be an integer, not a string. `ai_evaluation.score`
 must be the LOWEST of the 5 dimension scores (weakest-link). The commentary must include
 all 5 dimension scores in the format shown above.
+
+**Scene-filter fields.** `scenes_run` is a JSON array of the original 1-based
+spec indices that were actually rendered (e.g. `[2]` for a single-scene
+run; `[1, 2, 3, 4, 5]` for a full run). `scene_filter` is the raw selector
+string from `--scene`, or `null` for a full run. Both fields MUST be
+present even on full runs (use `scenes_run: [1, 2, ..., N]` and
+`scene_filter: null`) so consumers can always check shape unconditionally.
 
 **Capture `url` and `logged_in_as` for every scene.** These render as a context row under
 the slide title so a viewer can tell at a glance where the screenshot came from and under
