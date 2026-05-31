@@ -763,7 +763,11 @@ class TestApplyNarrativeEditsNewShape:
     # Edit existing scene narration
     # ------------------------------------------------------------------
 
-    def test_edit_existing_scene_narration_updates_concept_claim(self, tmp_path):
+    def test_edit_existing_scene_narration_writes_to_scene_narrative_v2(self, tmp_path):
+        """v2 (gap-flexible-scene-length): narration edits write to scene.narrative
+        (the canonical per-scene field), not to concept_claim. concept_claim stays
+        as a separate testable claim. spec.narrative is rebuilt from the per-scene
+        narratives so the top paragraph stays consistent."""
         spec = _make_spec_with_features()
         spec_path = _write_spec(tmp_path, spec)
         new_claim = "Users draw a precise boundary in under 30 seconds using satellite imagery."
@@ -788,7 +792,12 @@ class TestApplyNarrativeEditsNewShape:
         assert result["applied"]["updated"] == 1
 
         updated = yaml.safe_load(spec_path.read_text())
-        assert updated["scenes"][0]["concept_claim"] == new_claim
+        # v2: writes to scene.narrative, not concept_claim.
+        assert updated["scenes"][0]["narrative"] == new_claim
+        # concept_claim left alone — it's a separate testable claim now.
+        assert updated["scenes"][0]["concept_claim"] == spec.scenes[0].concept_claim
+        # spec.narrative rebuilt to include the new per-scene text.
+        assert new_claim in updated["narrative"]
 
     def test_edit_existing_scene_leaves_others_unchanged(self, tmp_path):
         spec = _make_spec_with_features()

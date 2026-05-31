@@ -1,6 +1,6 @@
 {
   "name": "canopy",
-  "version": "0.2.125",
+  "version": "0.2.126",
   "description": "Self-improving AI workflow skills — session analysis, improvement cycles, PM supervision, and learning loops",
   "author": {
     "name": "Jonathan Jackson",
@@ -8,11 +8,5 @@
   },
   "repository": "https://github.com/jjackson/canopy",
   "license": "MIT",
-  "keywords": ["orchestration", "self-improving", "pm", "autonomous", "sessions"],
-  "mcpServers": {
-    "canopy-web": {
-      "type": "sse",
-      "url": "https://canopy-web-ujpz2cuyxq-uc.a.run.app/api/mcp/sse"
-    }
-  }
+  "keywords": ["orchestration", "self-improving", "pm", "autonomous", "sessions"]
 }
