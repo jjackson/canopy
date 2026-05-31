@@ -45,9 +45,39 @@ def _render_title_slide(run_data):
     scene_count = sum(1 for s in run_data["slides"] if s["type"] == "scene")
     persona_count = len(run_data["personas"])
     ai_count = sum(1 for s in run_data["slides"] if s.get("type") == "scene" and s.get("ai_evaluation"))
+
+    # Partial-scope banner. When the run came from /canopy:walkthrough --scene <sel>
+    # (or /canopy:ddd-run --scene <sel>), the sidecar carries `scenes_run` (the orig
+    # 1-based spec indices that were actually rendered) and `scene_filter` (the raw
+    # selector string). Render a banner so a viewer can't mistake a partial run for
+    # a full-spec run — the deck still shows "Scene 2 of 10" on the scene slide, but
+    # the title makes the scope explicit. Both fields are optional and absent on
+    # legacy run-data, so this is fully backward-compatible.
+    scenes_run = run_data.get("scenes_run")
+    scene_filter = run_data.get("scene_filter")
+    partial_banner = ""
+    if scene_filter and scenes_run:
+        # Look up the spec scene count from any scene slide's scene_total — that's
+        # the count of scenes IN THE SPEC, not the count rendered.
+        spec_total = next(
+            (s.get("scene_total") for s in run_data["slides"]
+             if s.get("type") == "scene" and s.get("scene_total")),
+            scene_count,
+        )
+        indices = ", ".join(str(i) for i in scenes_run)
+        sel_esc = html.escape(str(scene_filter))
+        partial_banner = (
+            f'<div class="partial-scope-banner">'
+            f'<strong>Partial run</strong> &middot; <code>--scene {sel_esc}</code> '
+            f'rendered scene(s) {indices} of {spec_total}. '
+            f'Promotion requires a full-spec run.'
+            f"</div>"
+        )
+
     return f"""<div class="slide slide-title">
   <div class="title-accent-bar"></div>
   <div class="title-content">
+    {partial_banner}
     <h1>{name}</h1>
     <p class="narrative">&#8220;{narrative}&#8221;</p>
     <p class="title-subtitle">Walkthrough Demo &mdash; {scene_count} scenes across {persona_count} personas</p>
@@ -87,6 +117,21 @@ def _render_scene_slide(slide, personas, slide_index, total_slides):
     # Progress bar percentage
     scene_slides_total = max(total_slides, 1)
     progress_pct = int((slide_index / scene_slides_total) * 100)
+
+    # Scene counter: "Scene 2 of 10" using the ORIGINAL spec index + total.
+    # The fields are 1-based and reflect the spec (not the rendered subset), so
+    # a single-scene render for spec scene 2 still labels "Scene 2 of 10" — not
+    # "Scene 1 of 1". This keeps a partial-run scene's identity stable: anyone
+    # looking at the deck can see exactly which scene of the spec this is.
+    scene_index_in_spec = slide.get("scene_index")
+    scene_total_in_spec = slide.get("scene_total")
+    if scene_index_in_spec and scene_total_in_spec:
+        scene_counter_html = (
+            f'<span class="scene-counter">Scene {scene_index_in_spec} '
+            f"of {scene_total_in_spec}</span>"
+        )
+    else:
+        scene_counter_html = ""
 
     # Screenshot or placeholder
     if slide.get("screenshot_b64"):
@@ -131,6 +176,7 @@ def _render_scene_slide(slide, personas, slide_index, total_slides):
     return f"""<div class="slide slide-scene" style="border-top: 3px solid {p_color};">
   <div class="slide-header">
     <span class="persona-badge" style="background-color: {p_color}">{p_name}</span>
+    {scene_counter_html}
     <div class="slide-progress-bar"><div class="slide-progress-fill"
       style="width:{progress_pct}%;background:{p_color};"></div></div>
   </div>
@@ -672,6 +718,42 @@ ul li {
   color: var(--muted-foreground);
   font-weight: 500;
   margin-bottom: 0.75rem;
+}
+
+/* Scene counter — "Scene 2 of 10" on each scene slide header, next to
+   the persona badge. Uses spec indices (not deck-slide indices), so a
+   partial-run deck for spec scene 2 still reads "Scene 2 of 10". */
+.scene-counter {
+  display: inline-block;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+  font-weight: 500;
+  margin-left: 0.5rem;
+}
+
+/* Partial-scope banner on the title slide — only renders when scenes_run
+   + scene_filter are set on the run-data sidecar (i.e. the run came from
+   /canopy:walkthrough --scene or /canopy:ddd-run --scene). Makes "this is
+   a partial run, not a promotable full pass" visible at a glance. */
+.partial-scope-banner {
+  display: block;
+  background: rgba(217, 119, 6, 0.08);
+  border: 1px solid var(--warning);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.85rem;
+  margin: 0 0 1.25rem 0;
+  font-size: 0.85rem;
+  color: var(--warning);
+}
+.partial-scope-banner code {
+  background: rgba(217, 119, 6, 0.15);
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+  font-size: 0.8rem;
 }
 
 .score-feature {
