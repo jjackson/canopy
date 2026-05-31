@@ -12,6 +12,20 @@ recent, verifiable themes in the git log.
 ## [Unreleased]
 
 ### Added
+- **Auto-iterate gate based on per-finding `fix_kind`** (0.2.132) — judges
+  now emit `fix_kind ∈ {mechanical, options, redesign}` per finding so the
+  orchestrator can decide auto-apply vs ask WITHOUT re-parsing prose. The
+  `/canopy:ddd-run` Step 5 report computes `auto_iterate_next_action ∈
+  {continue, stop_done, stop_partial, stop_concept_change, stop_unclear,
+  stop_max_iter}` and stamps it onto `run_state.yaml`. The `/canopy:ddd`
+  agent's Converge-or-loop branches on it: mechanical findings auto-apply
+  per route (PRODUCT → labs PR+merge+deploy, CONCEPT → spec edit,
+  RESEARCH → why_brief edit, DEFER → log only), then re-fire the same
+  scope. The loop stops only when `options`/`redesign` findings appear or
+  max-iter is reached. Removes the previous behavior where ddd-run's
+  "warn but no PRODUCT/CONCEPT-routed concrete fix" still stopped the
+  agent and asked the user. Per the labs autonomy mandate, mechanical
+  PRODUCT fixes auto-deploy from main without prompting.
 - **Deck generator renders scene_total + partial-scope banner** (0.2.129) — `generate_presentation.py` now reads `scene_total` from the run-data sidecar and labels each scene slide "Scene N of M" (the original spec index/total), not "Slide 1/1". When the run-data carries `scenes_run` + `scene_filter` (from a `--scene` render), the title slide gets a "Partial run" banner naming the selector, the rendered scene indices, and that promotion requires a full-spec run. Backward-compatible: legacy run-data without those fields renders unchanged.
 - **RunState gains `scenes_run` + `scene_filter` fields** (0.2.128) —
   makes the 0.2.127 SKILL.md contract real on the underlying pydantic

@@ -45,9 +45,22 @@ before anything is built or rendered.
    humans (stakeholders outside the immediate team). When this gate fires, emit a
    `ReviewRequest` with `gate: external_release` before any publish action.
 
-**Nothing else blocks.** All other work — PRODUCT fixes, RESEARCH investigations,
-CAPABILITY task creation, iteration loops, learning updates — runs autonomously and
-is reported in the non-blocking digest email. Everything else runs autonomously.
+**Plus one soft stop:** `stop_unclear` (see "Converge or loop" below). This fires
+when a finding's `fix_kind` is `options` or `redesign` — i.e. the rubric output
+couldn't pick a single concrete fix. The loop pauses and surfaces the un-auto-
+applicable findings via the review surface so the user picks. It's NOT a hard
+gate (no concept-direction lock), but the loop genuinely cannot proceed without
+input on which path to take.
+
+**Nothing else blocks.** All other work — mechanical PRODUCT fixes (labs PR +
+deploy), CONCEPT spec edits, RESEARCH investigations, CAPABILITY task creation,
+iteration loops, learning updates — runs autonomously and is reported in the
+non-blocking digest email. The route taxonomy decides WHERE the fix lands; the
+`fix_kind` discriminator decides WHETHER the agent can apply it without asking.
+A PRODUCT finding with `fix_kind: mechanical` is a green light — open the PR,
+deploy, re-fire ddd-run, continue the loop. A CONCEPT finding with
+`fix_kind: mechanical` (e.g. patch a spec field) is also a green light. Only
+`options`/`redesign` findings stop the loop.
 
 **The canopy-web review surface is the destination for every ReviewRequest — in
 BOTH async and live/interactive modes.** SP6 shipped it; it is the richer review UI
@@ -266,32 +279,92 @@ Findings arrive from **two distinct sources** with different route vocabularies.
 
 ## Converge or loop
 
-After routing all findings and re-rendering changed scenes (run from `$DDD_REPO`
-so `scripts.ddd` is importable; `$DDD_REPO` is resolved in Bootstrap Step 1):
+After routing all findings and re-rendering changed scenes, **read
+`state.auto_iterate_next_action`** from `run_state.yaml` (computed by
+`ddd-run` Step 5; see the `ddd-run` SKILL for the contract). Branch on it:
+
+### `stop_done` (converged, full-spec)
+
+Both judges passed on the full spec. This triggers the **`external_release`**
+pause gate — emit a `ReviewRequest` (gate: external_release) before
+publishing the walkthrough deck or video to any external audience. Present
+the deck link + run summary as the review context.
+
+### `stop_partial` (converged on filtered scope)
+
+Both judges passed on the filtered scope, but `scene_filter` is set so
+this is not a promotable run. Tell the user the filtered scenes are
+ready, and offer to drop `--scene` and re-fire on the full spec when
+they're ready to attempt promotion. Do **not** auto-launch the full-spec
+run — render budget is much larger and the user should opt in.
+
+### `continue` (mechanical fixes only)
+
+All non-DEFER findings are `fix_kind: mechanical`. **Apply them, re-fire
+ddd-run on the same scope, increment `state.iteration`.** Same `run_id`
+— don't create a sibling. Run silently per the autonomy mandate; surface
+only the digest at the end.
+
+For each finding, apply by route:
+
+| Route | Apply step |
+|-------|-----------|
+| **`PRODUCT`** | The fix lives in product code (labs repo). Use the Edit/Write tool against the relevant labs files. Open a labs PR with the fix_recommendation as the PR title + finding detail as the body. Merge `--squash --admin` (per the labs autonomy mandate — small PRs don't serialize on CI). Trigger `deploy-labs.yml --ref main`. Poll for worker cutover (workers serve stale code 2–4 min — verify the new code is live via a smoke-test endpoint before considering the deploy done). Then re-fire ddd-run. |
+| **`CONCEPT`** (mechanical) | The fix lives in `unified_spec.yaml`. Edit the named field (typically `narration`, `design_intent`, `show`, or `concept_claim`). Re-run `/canopy:ddd-spec-qa` to validate. If QA fails, stop and report. |
+| **`RESEARCH`** | The fix lives in `why_brief.yaml`. Apply the named change (add a spine item, patch evidence). Re-run `/canopy:ddd-why-qa` and `/canopy:ddd-why-eval` to validate. If QA fails, stop and report. |
+| **`DEFER`** | Append to `<run_dir>/deferred-findings.md` with the finding + recommendation. Never act on DEFER findings in the loop — they're advisory. |
+
+After all mechanical fixes are applied, re-fire ddd-run on the same scope:
 
 ```bash
 (cd "$DDD_REPO" && uv run python -c "
-from scripts.ddd.run_pipeline import compute_convergence, MAX_ITERATIONS  # MAX_ITERATIONS caps the iteration loop described below
-from scripts.ddd.runstate import load
-
+from scripts.ddd.runstate import load, save
 state = load('$RUN_ID')
-converged = compute_convergence(concept_verdict, user_verdict)
-print('converged:', converged)
+state.iteration += 1
+save(state)
 ")
+# Then re-invoke /canopy:ddd-run with the same args (including --scene if set).
 ```
 
-**If `converged` is True:** proceed toward promotion. This is the
-**`external_release`** pause gate — emit a `ReviewRequest` (gate: external_release)
-before publishing the walkthrough deck or video to any external audience. Present
-the deck link + run summary as the review context.
+Same `run_id` — the iteration counter is the loop's only identity.
 
-**If `converged` is False AND `state.iteration < MAX_ITERATIONS`:**
-increment `state.iteration`, save state, loop back to Render + Judge (Step 7)
-with the updated spec and evidence.
+### `stop_concept_change` (CONCEPT/redesign finding)
 
-**If `converged` is False AND `state.iteration >= MAX_ITERATIONS`:**
-surface the remaining findings to the user. This is a human-review checkpoint —
-not a full gate, but a pause to ask for guidance before exceeding the iteration cap.
+A finding with `route: CONCEPT` and `fix_kind: redesign` is present.
+These touch what the product fundamentally IS — irreplaceable-taste
+territory per project memory. Emit a `ReviewRequest` (gate:
+concept_change) with each redesign-level finding as a decision item. Do
+not loop until the user resolves.
+
+### `stop_unclear` (options/redesign blocks loop)
+
+At least one non-DEFER finding has `fix_kind: options` (multiple paths,
+judge couldn't pick) or `fix_kind: redesign` (vague). The orchestrator
+can't proceed without a user pick. Surface the un-auto-applicable findings
+via canopy-web review surface (one decision per finding, `recommended`
+left null since the rubric output couldn't pick). Resume on resolution.
+
+### `stop_max_iter` (cap reached)
+
+`state.iteration >= MAX_ITERATIONS - 1`. Surface all remaining findings
+and ask the user whether to extend, abandon, or accept partial progress.
+This is a human-review checkpoint, not a full gate.
+
+---
+
+**Why this branching is safe.** The `fix_kind` discriminator on each
+finding is the load-bearing safety check. Judges emit `mechanical` only
+when their `fix_recommendation` names exactly one concrete change.
+Anything else is `options` or `redesign`, and the loop stops. The route
+taxonomy decides WHERE the fix lands; the kind decides WHETHER to act.
+
+**Why mechanical PRODUCT fixes can auto-deploy.** Per the labs autonomy
+mandate, the agent can commit/merge/deploy labs PRs without prompting,
+as long as the change is reversible (PR-based, not data-destructive)
+and stays inside the labs repo. Findings that would require changes to
+`dimagi/commcare-connect` route to PRODUCT but their `fix_recommendation`
+must point at the labs surface; if it doesn't, set `fix_kind: options`
+and route through the user.
 
 ---
 

@@ -180,6 +180,35 @@ Skill('canopy:visual-judge', args={
 
 Collect the verdict object and write it as `verdict-user.yaml` in the run dir.
 
+**Per-finding `fix_kind` on user-artifact findings.** For each dimension that
+scored ≤ 3, the visual-judge verdict carries a `fix_recommendation`. Add a
+`fix_kind` tag alongside it so the orchestrator can decide auto-apply vs ask
+without re-parsing prose. Same vocabulary as `ddd-concept-eval`:
+
+- `mechanical` — your recommendation names ONE concrete change (add a picker,
+  rename a label, fix a URL). The orchestrator can apply via Edit + PR + deploy.
+- `options` — recommendation lists 2+ paths and you couldn't pick. Smell:
+  contains "Alternative:", "or", "could also". Requires user pick.
+- `redesign` — underlying idea needs rethinking; no single fix would address it.
+
+When in doubt, prefer `options` over `mechanical` — a wrongly auto-applied
+finding is worse than one extra prompt.
+
+The user-artifact verdict YAML carries these inside per-dimension entries:
+
+```yaml
+dimensions:
+  task_completion:
+    score: 2
+    weight: 0.40
+    justification: "Ambiguous rows offer only Skip — no inline disambiguation..."
+    fix_recommendation: "Add an inline LGA picker per ambiguous row, populated from candidate list."
+    fix_kind: mechanical
+```
+
+For dimensions that scored ≥ 4 (no finding emitted), `fix_recommendation` and
+`fix_kind` are omitted.
+
 ### Step 4 — Assemble + convergence
 
 Call `run_pipeline.assemble_run_state` to merge both verdict paths and findings
@@ -217,10 +246,50 @@ partial run — `/canopy:ddd-promote` MUST refuse to promote it. A
 feature is only promotable when convergence has been demonstrated
 against the full spec.
 
-### Step 5 — Report
+### Step 5 — Report + auto_iterate signal
 
-Print a summary. When `scene_filter` is set, prepend a one-line "Scope"
-banner so the reader doesn't mistake a single-scene pass for a full pass:
+Before printing the report, compute the **auto_iterate signal** so the
+orchestrator (and the human reader) knows whether the next iteration can
+proceed without user input.
+
+```python
+# Aggregate findings from BOTH sources (concept design_findings + user-artifact dimension findings)
+all_findings = []
+for f in findings:                                    # design_findings.json
+    all_findings.append({"route": f["route"], "fix_kind": f.get("fix_kind", "options")})
+for dim_id, d in user_verdict.dimensions.items():     # user-artifact per-dimension
+    if d.get("fix_kind"):
+        all_findings.append({"route": "PRODUCT", "fix_kind": d["fix_kind"]})
+
+# Decide the next action.
+# Order of precedence: done > concept_change > partial_filtered > max_iter > continue > stop_unclear.
+MAX_ITERATIONS = 3
+non_defer = [f for f in all_findings if f["route"] != "DEFER"]
+unclear = [f for f in non_defer if f["fix_kind"] in ("options", "redesign")]
+
+if converged and not state.scene_filter:
+    auto_iterate_next_action = "stop_done"
+    reason = "Both judges passed full spec — ready for promotion."
+elif converged and state.scene_filter:
+    auto_iterate_next_action = "stop_partial"
+    reason = "Both judges passed the filtered scope. Drop --scene and re-fire for full-spec promotion."
+elif any(f["route"] == "CONCEPT" and f["fix_kind"] == "redesign" for f in non_defer):
+    auto_iterate_next_action = "stop_concept_change"
+    reason = "Concept-change finding present — fix requires user judgment on direction."
+elif unclear:
+    auto_iterate_next_action = "stop_unclear"
+    reason = f"{len(unclear)} finding(s) with fix_kind='options' or 'redesign' — need user pick."
+elif state.iteration >= MAX_ITERATIONS - 1:           # 0-indexed; next iter would be 3
+    auto_iterate_next_action = "stop_max_iter"
+    reason = f"Max iterations ({MAX_ITERATIONS}) would be exceeded by next iteration."
+else:
+    auto_iterate_next_action = "continue"
+    reason = f"All non-DEFER findings are fix_kind='mechanical'. Orchestrator can apply and re-fire."
+```
+
+Stamp `auto_iterate_next_action` and `auto_iterate_reason` onto run_state
+(both are optional fields on RunState — set them after save() or extend the
+model). Then print the summary:
 
 ```
 DDD Run — <run_id>
@@ -234,32 +303,30 @@ DDD Run — <run_id>
 
   Convergence (filtered): YES | NO  (threshold: 4.0)                    # "filtered" tag if partial
 
+  Auto-iterate: <action>  (<reason>)                                    # NEW
+
   Top findings (<N> total):
-    [PRODUCT]  Scene N: <detail>
-    [CONCEPT]  Scene M: <detail>
+    [PRODUCT mechanical]  Scene N: <detail>
+    [CONCEPT options]     Scene M: <detail>
+    [RESEARCH mechanical] Scene K: <detail>
+    [DEFER ]              Scene J: <detail>
     ...
 
   run_state.yaml updated → phase: judged
 ```
 
-If converged=YES and scene_filter is null:
-```
-Both judges passed. Run is converged — proceed to promotion or human review.
-```
+The per-finding tag in the listing is `[<route> <fix_kind>]` so the reader
+can see at a glance which findings the orchestrator will auto-apply
+(`mechanical`) vs which need attention (`options`/`redesign`/DEFER).
 
-If converged=YES and scene_filter is set:
-```
-Both judges passed on the filtered scope. The filtered scene(s) are
-ready, but promotion requires a full-spec run — drop --scene and re-run
-/canopy:ddd-run when you want to ship.
-```
+**Tail messages by `auto_iterate_next_action`:**
 
-If converged=NO:
-```
-Not yet converged (<which judge(s)> below threshold or blocked).
-Max iterations: 3.  Current iteration: <state.iteration>.
-Recommend: address top findings and re-run /canopy:ddd-run.
-```
+- `stop_done` — "Both judges passed. Run is converged — proceed to promotion."
+- `stop_partial` — "Filtered scope passed. Drop `--scene` and re-fire for promotion."
+- `stop_concept_change` — "Concept-change finding present — surface to user via canopy-web review surface."
+- `stop_unclear` — "Findings with `options`/`redesign` fix_kind block auto-iteration. List them and ask the user to pick or redesign."
+- `stop_max_iter` — "Max iterations reached. Stop and surface remaining findings."
+- `continue` — "Orchestrator can apply mechanical fixes per finding and re-fire `/canopy:ddd-run` on the same scope."
 
 ## Output files
 

@@ -216,3 +216,18 @@ class RunState(BaseModel):
     # /canopy:ddd-promote refuses any run with scene_filter != None.
     scenes_run: list[int] | None = None
     scene_filter: str | None = None
+    # Auto-iterate signal (0.2.131). Computed by /canopy:ddd-run Step 5 after
+    # the dual-judge verdict comes back; consumed by the /canopy:ddd
+    # orchestrator's Converge-or-loop branch. Possible values:
+    #   continue              — all non-DEFER findings are fix_kind=mechanical;
+    #                           orchestrator may apply fixes and re-fire.
+    #   stop_done             — converged; full-spec; ready for promotion.
+    #   stop_partial          — converged on filtered scope; drop --scene to
+    #                           promote.
+    #   stop_concept_change   — a CONCEPT/redesign finding present; needs the
+    #                           irreplaceable-taste pause.
+    #   stop_unclear          — non-DEFER finding with fix_kind=options or
+    #                           redesign; needs user pick.
+    #   stop_max_iter         — MAX_ITERATIONS would be exceeded.
+    auto_iterate_next_action: str | None = None
+    auto_iterate_reason: str | None = None
