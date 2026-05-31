@@ -12,11 +12,35 @@
 overall_rule: lowest
 
 # Output schema for design_findings[] collected during the eval.
-# Each finding: {scene, dimension, severity, route, detail, fix_recommendation}
-# route must be one of the four values below.
+# Each finding: {scene, dimension, severity, route, detail, fix_recommendation, fix_kind}
+# route must be one of the route_values below.
+# fix_kind must be one of the fix_kind_values below.
 design_findings_output:
-  fields: [scene, dimension, severity, route, detail, fix_recommendation]
+  fields: [scene, dimension, severity, route, detail, fix_recommendation, fix_kind]
   route_values: [PRODUCT, CONCEPT, RESEARCH, DEFER]
+  # fix_kind tells the orchestrator whether the fix is auto-applicable, so it
+  # can decide "apply this now" vs "ask the user" WITHOUT having to re-parse
+  # the fix_recommendation prose. The discriminator:
+  #
+  #   mechanical = single concrete action. fix_recommendation names one
+  #     specific change (rename a field, patch a URL, add a picker, add a
+  #     spine item with full text). The orchestrator can apply it via Edit
+  #     (and PR + deploy for code) without choosing between options.
+  #     This is the COMMON case when a rubric is well-tuned — most findings
+  #     have an obvious one-true-fix.
+  #
+  #   options = the recommendation lists 2+ paths and the judge couldn't
+  #     pick one. Smell: words like "Alternative:", "or", "consider X or Y",
+  #     "could also". Requires a user pick. Surface; don't auto-apply.
+  #
+  #   redesign = the underlying idea needs rethinking; no single concrete
+  #     change would address it. Smell: "the design itself doesn't hold",
+  #     "this whole approach...", recommendations that are themselves
+  #     questions. Surface as concept_change; do NOT auto-apply.
+  #
+  # Picking conservatively: when in doubt, prefer `options` over `mechanical`.
+  # A wrongly-auto-applied finding is much worse than one extra prompt.
+  fix_kind_values: [mechanical, options, redesign]
 
 dimensions:
   - id: concept_clarity

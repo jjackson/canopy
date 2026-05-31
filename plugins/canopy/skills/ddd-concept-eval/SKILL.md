@@ -114,6 +114,7 @@ scene: <scene index or title>
 dimension: <dim_id>
 severity: high | medium | low   # high if score ≤ 1, medium if score == 2, low if score == 3
 route: PRODUCT | CONCEPT | RESEARCH | DEFER
+fix_kind: mechanical | options | redesign
 detail: <copy the justification from the visual-judge dimension output>
 fix_recommendation: <copy the fix_recommendation from visual-judge, or synthesize>
 ```
@@ -124,6 +125,41 @@ Route assignment rules:
 - `why_groundedness` findings → RESEARCH (if provenance is missing) or CONCEPT (if the claim contradicts the why_brief)
 - `claim_reality_coherence` findings → always DEFER (non-blocking; note discrepancy for later triage)
 - `motion_friction` findings → PRODUCT
+
+`fix_kind` assignment — set it based on the SHAPE of your fix_recommendation,
+NOT on what feels right:
+
+- **`mechanical`** — your fix_recommendation names ONE concrete change a
+  reader could apply without choosing. Examples:
+  - "Add an inline LGA picker on each ambiguous row, populated from the
+    candidate list returned by resolve_many."
+  - "Patch unified_spec.yaml feature `resolve-many-endpoint.verify` to
+    reference the actual shipped URL: POST /labs/explorer/boundaries/resolve_many/."
+  - "Rename the scene title from 'Dana sees the wards' to 'Dana confirms
+    each ward before commit'."
+  This is the COMMON case. Most well-tuned findings are mechanical.
+
+- **`options`** — your fix_recommendation lists 2+ paths and you couldn't
+  pick. Smell tests: contains "Alternative:", "or", "could also", "consider
+  X or Y". Examples:
+  - "Add a spine item with id `name-resolution-confirm`. Alternative: extend
+    `area-selection` to cover bulk input and document the link."
+  - "Either tighten the narration to match the 6/4 reality, or expand
+    scene 2 into two beats — initial resolve, then disambiguation."
+  These need a user pick. The orchestrator surfaces them.
+
+- **`redesign`** — the underlying idea needs rethinking; no single change
+  fixes it. Smell tests: the recommendation is itself a question, or it
+  asks for a meeting/discussion/reconception. Examples:
+  - "The concept of 'all wards must be matched before commit' may be wrong
+    here — consider whether partial batches make sense."
+  - "Rethink what 'matched' means in the context of programmatic ward sets."
+  These surface as `concept_change` — never auto-apply.
+
+When in doubt, prefer `options` over `mechanical`. A wrongly auto-applied
+finding is much worse than one extra user prompt. The orchestrator's
+auto-iterate loop only acts on `mechanical` findings; anything else stops
+the loop and surfaces to the user.
 
 **claim_reality_coherence findings are surfaced and scored but NEVER set verdict=blocked.**
 
