@@ -12,6 +12,7 @@ recent, verifiable themes in the git log.
 ## [Unreleased]
 
 ### Added
+- **Deck generator renders scene_total + partial-scope banner** (0.2.129) — `generate_presentation.py` now reads `scene_total` from the run-data sidecar and labels each scene slide "Scene N of M" (the original spec index/total), not "Slide 1/1". When the run-data carries `scenes_run` + `scene_filter` (from a `--scene` render), the title slide gets a "Partial run" banner naming the selector, the rendered scene indices, and that promotion requires a full-spec run. Backward-compatible: legacy run-data without those fields renders unchanged.
 - **RunState gains `scenes_run` + `scene_filter` fields** (0.2.128) —
   makes the 0.2.127 SKILL.md contract real on the underlying pydantic
   model. Without it, `runstate.save()` rejected partial-run metadata.
