@@ -52,7 +52,7 @@ That prints the slugs of every active project. If the user passed a specific slu
 
 Insights are an inbox. Before generating fresh ones, clear the previous run's output so old, dismissed, or no-longer-true cards don't pile up.
 
-**Preferred — the canopy-web MCP `clear_insights` tool.** When the canopy-web MCP server (registered by the canopy plugin) is connected this session, call the tool (operationId `apps_projects_api_clear_insights`, surfaced as `mcp__plugin_canopy_canopy-web__apps_projects_api_clear_insights`) with a filter body `{ "source": "canopy:portfolio-review" }`; it returns `{ "cleared": N }`. One typed contract from canopy-web's OpenAPI — no hand-maintained URL/verb to drift.
+**Preferred — the canopy-web MCP `clear_insights` tool.** When the canopy-web MCP server (registered by the canopy plugin; Streamable HTTP, per-user PAT auth) is connected this session, call `mcp__plugin_canopy_canopy-web__clear_insights` with `{ "source": "canopy:portfolio-review" }` (args `source`/`category`/`project`/`older_than_days`, all optional); it returns `{ "cleared": N }` and runs as your authenticated user. One typed contract — no hand-maintained URL/verb to drift.
 
 **Fallback — REST POST** (only if the canopy-web MCP tool isn't available this session):
 
