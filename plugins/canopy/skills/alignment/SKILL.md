@@ -69,29 +69,40 @@ Expect `200`. Otherwise stop.
 
 ## Step 2 — clear stale alignment cards
 
-Insights are an inbox. Clear the previous run's alignment cards so old or
-no-longer-true findings don't pile up:
+Insights are an inbox. Clear the previous run's `canopy:alignment` cards so old
+or no-longer-true findings don't pile up.
+
+**Preferred — the canopy-web MCP `clear_insights` tool.** The canopy plugin
+registers the canopy-web MCP server, so when it's connected this session call the
+tool (operationId `apps_projects_api_clear_insights`, surfaced as
+`mcp__plugin_canopy_canopy-web__apps_projects_api_clear_insights`) with a filter
+body:
+
+```json
+{ "source": "canopy:alignment" }
+```
+
+It returns `{ "cleared": N }`. This is the canonical path — one typed contract
+derived from canopy-web's OpenAPI, so there's no hand-maintained URL/verb to
+drift (the reason an earlier `DELETE` silently no-op'd).
+
+**Fallback — REST POST** (only if the canopy-web MCP tool isn't available this
+session):
 
 ```bash
 TOKEN=$(cat ~/.claude/canopy/workbench-token)
 CLEAR_HTTP=$(curl -s -o /tmp/alignment-clear.json -w "%{http_code}" -X POST \
-  -H "Authorization: Bearer $TOKEN" \
-  "$CANOPY_WEB/api/insights/clear/?source=canopy:alignment" --max-time 10)
-if [ "$CLEAR_HTTP" = "200" ]; then
-  echo "cleared: $(head -c 120 /tmp/alignment-clear.json)"
-else
-  echo "WARN: clear returned HTTP $CLEAR_HTTP — skipping clear, new cards will pile alongside old ones (user can dismiss)."
-fi
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  --data '{"source":"canopy:alignment"}' \
+  "$CANOPY_WEB/api/insights/clear/" --max-time 10)
+[ "$CLEAR_HTTP" = "200" ] && echo "cleared: $(head -c 120 /tmp/alignment-clear.json)" \
+  || echo "WARN: clear returned HTTP $CLEAR_HTTP — skipping; new cards pile alongside old (user can dismiss)."
 ```
 
-The clear endpoint is **POST** (`@insights_router.post("/clear/")`), not DELETE —
-a DELETE returns 405 and silently no-ops. It deletes only insights with
-`source=canopy:alignment`; cards from other sources are untouched.
-
-**Note:** clearing is best-effort. On any non-200 (401 if the token lacks the
-right scope, 405 if the verb is wrong on an older deploy), the skill warns and
-continues rather than aborting — at worst old cards pile up and the user can
-dismiss them.
+The clear endpoint takes a JSON **body** (`{source?, category?, project?,
+older_than_days?}`); filters AND-combine and an empty body clears all, so always
+send `{"source":"canopy:alignment"}` to scope deletion to this skill's cards.
+Clearing is best-effort: on any non-200 the skill warns and continues.
 
 ## Step 3 — dispatch ONE comparison subagent
 
