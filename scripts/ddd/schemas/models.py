@@ -209,3 +209,10 @@ class RunState(BaseModel):
     pending_review: str | None = None
     last_actor: str | None = None
     last_actor_at: str | None = None
+    # Scene-filter metadata (0.2.128). A full-spec run sets scenes_run to the
+    # complete list of spec indices and scene_filter to None. A partial run
+    # (--scene <selector> on /canopy:ddd-run or /canopy:walkthrough) sets
+    # scenes_run to the rendered subset and scene_filter to the raw selector.
+    # /canopy:ddd-promote refuses any run with scene_filter != None.
+    scenes_run: list[int] | None = None
+    scene_filter: str | None = None

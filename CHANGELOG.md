@@ -12,6 +12,9 @@ recent, verifiable themes in the git log.
 ## [Unreleased]
 
 ### Added
+- **RunState gains `scenes_run` + `scene_filter` fields** (0.2.128) —
+  makes the 0.2.127 SKILL.md contract real on the underlying pydantic
+  model. Without it, `runstate.save()` rejected partial-run metadata.
 - **`--scene <selector>` filter for walkthrough + ddd-run** (0.2.127) —
   run the canonical rubric on a subset of scenes when iteration only
   touched one scene's feature. Selector forms: `2` (index), `2,4,5`
