@@ -60,23 +60,35 @@ open from any device, on any network, without re-entering the agent's
 host environment. Local paths only work for the agent at runtime; they
 fail the moment the user reads the message anywhere else.
 
-**Upload first, then link.** Before surfacing:
+**Upload happens automatically per iteration** — `/canopy:ddd-run`
+Step 2b generates the iteration's deck and uploads it to canopy-web
+BEFORE the judges score, then stamps the returned hosted URLs onto:
 
-1. Upload the relevant scene PNG to ace-web (use `/canopy:walkthrough-share`
-   for full decks, or the project's configured ace-web upload tool for
-   single-scene PNGs).
-2. Upload the scene MP4 clip when available — same path.
-3. Upload the rendered HTML deck (via `/canopy:walkthrough-share`).
-4. Capture the returned URLs.
+- `state.iteration_decks[<iteration>]` — the hosted HTML deck URL
+- `state.iteration_clips[<iteration>]` — the hosted MP4 clip URL (only
+  if a clip was recorded this iteration)
+
+Surfaced findings READ those URLs from run_state. There is no manual
+upload at surface-time. To deep-link a specific scene, append
+`#scene-<N>` to the deck URL (the deck generator emits stable scene
+anchors). When the same iteration is re-rendered (same `state.iteration`
+without bumping), the upload re-runs and the dict entry overwrites.
+
+If `state.iteration_decks[state.iteration]` is missing (Step 2b's
+upload failed for this iteration), check `<run_dir>/upload-errors.md`
+for the reason, mention it explicitly in the surface message ("deck
+upload failed for iter <N>: <reason> — falling back to a verbal
+description"), and provide a verbal description instead. **NEVER**
+substitute a `file://` path.
 
 Then in the surfaced message include:
 
-- **Hosted screenshot URL** for each scene the decision touches
-  (`https://ace-web.../<artifact-id>.png` or a canopy-web share URL with
-  `#scene-<N>` anchor). NEVER `file://`. Embed inline as `![scene
-  N](URL)` when the visual IS the question.
+- **Deep-linked deck URL** per finding, of the form
+  `<state.iteration_decks[state.iteration]>#scene-<N>` where N is the
+  scene's original spec index. Open from any device, navigates straight
+  to the affected scene.
 - **Hosted video clip URL** with time fragment when available
-  (`https://ace-web.../<deck-id>.mp4?t=<seconds-of-scene-N>` or platform
+  (`<state.iteration_clips[<iter>]>?t=<seconds-of-scene-N>` or platform
   equivalent). NEVER `file://`.
 - **HTML deck deep-link** via canopy-web/ace-web share URL with
   `#scene-<N>` anchor.

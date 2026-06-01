@@ -95,6 +95,68 @@ All output lands in the run directory (`<ddd_dir>/runs/<run_id>/`).
 > rooftop run — not here.  For dry runs and unit tests, the render step is
 > exercised separately.
 
+### Step 2b — Upload artifacts to canopy-web (auto, every iteration)
+
+Immediately after render, BEFORE the judges run, generate the per-iteration
+HTML deck and upload it to canopy-web so every downstream consumer has a
+hosted URL to reference. This step exists so the orchestrator never has to
+do a one-off upload at surface-time, and so surfaced findings can include
+hosted links the user can open from any device (per the pause-policy
+artifact-link contract in `agents/ddd.md`).
+
+```bash
+# Generate the deck for this iteration. Same generator
+# /canopy:walkthrough uses; scene_index + scene_total + scenes_run +
+# scene_filter all flow through and the generator emits id="scene-<N>"
+# anchors on every scene slide for deep-linking.
+GEN="$DDD_REPO/scripts/walkthrough/generate_presentation.py"
+ITER_DECK="<run_dir>/iter${state.iteration}_deck.html"
+python3 "$GEN" \
+  --input "<run_dir>/walkthrough-run-data.json" \
+  --output "$ITER_DECK"
+
+# Upload to canopy-web via /canopy:walkthrough-share's upload script.
+# --public mints a share token so the URL works for anyone with the link
+# (the user reading the surfaced finding on their phone). If you need
+# dimagi-OAuth-gated only, drop --public.
+UPLOAD="$DDD_REPO/scripts/walkthrough-share/upload.py"
+DECK_URL=$(python3 "$UPLOAD" "$ITER_DECK" \
+  --title "<unified_spec.name> iter${state.iteration}" \
+  --public 2>&1 | grep -oE 'https://[^ ]*' | tail -1)
+```
+
+If the recorded mp4 exists in the run dir, upload that too:
+
+```bash
+ITER_CLIP="<run_dir>/iter${state.iteration}_clip.mp4"  # if recorded
+if [ -f "$ITER_CLIP" ]; then
+  CLIP_URL=$(python3 "$UPLOAD" "$ITER_CLIP" --public 2>&1 | grep -oE 'https://[^ ]*' | tail -1)
+fi
+```
+
+Stamp the URLs onto `run_state.yaml` so every downstream step (judges,
+surfaced findings, the digest) can read them without re-running the upload:
+
+```python
+from scripts.ddd.runstate import load, save
+state = load(run_id)
+state.iteration_decks[state.iteration] = DECK_URL
+if CLIP_URL:
+    state.iteration_clips[state.iteration] = CLIP_URL
+save(state)
+```
+
+**On upload failure:** log the failure to `<run_dir>/upload-errors.md` with
+the iteration number and reason, leave the `iteration_decks` entry unset,
+and CONTINUE to the judge step. The judges still score from the local
+PNGs; the orchestrator's surface step will then fall back to a verbal
+description per the artifact-link-or-verbal-description rule in
+`agents/ddd.md`. **NEVER** fall back to `file://` paths.
+
+**Deep-linking a scene:** consumers append `#scene-<N>` to the hosted
+deck URL, where N is the original spec scene index. Example:
+`<DECK_URL>#scene-2`. The deck generator emits stable anchors.
+
 ### Step 3 — Judge (parallel dispatch)
 
 Dispatch **both judges simultaneously** — they are independent and can run in
@@ -297,6 +359,8 @@ DDD Run — <run_id>
   Spec: <unified_spec>
   Scope: --scene <selector> → rendered scenes <indices> of <total>      # only if filtered
   Run dir: <run_dir>
+  Hosted deck (iter <N>): <DECK_URL>                                    # NEW — from Step 2b
+  Hosted clip (iter <N>): <CLIP_URL>                                    # NEW — only if recorded
 
   Concept judge:       <concept overall_score>/5  (<verdict>)
   User-artifact judge: <user overall_score>/5     (<verdict>)
@@ -306,14 +370,20 @@ DDD Run — <run_id>
   Auto-iterate: <action>  (<reason>)                                    # NEW
 
   Top findings (<N> total):
-    [PRODUCT mechanical]  Scene N: <detail>
-    [CONCEPT options]     Scene M: <detail>
-    [RESEARCH mechanical] Scene K: <detail>
-    [DEFER ]              Scene J: <detail>
+    [PRODUCT mechanical]  Scene N: <detail>     <DECK_URL>#scene-<N>    # deep-link per finding
+    [CONCEPT options]     Scene M: <detail>     <DECK_URL>#scene-<M>
+    [RESEARCH mechanical] Scene K: <detail>     <DECK_URL>#scene-<K>
+    [DEFER ]              Scene J: <detail>     <DECK_URL>#scene-<J>
     ...
 
   run_state.yaml updated → phase: judged
 ```
+
+Each finding's deep-link uses the hosted deck URL from Step 2b plus the
+`#scene-<N>` anchor for the scene the finding is about. If Step 2b's
+upload failed (no entry in `state.iteration_decks[state.iteration]`),
+drop the deep-link column and print a one-line note above the findings
+table explaining the upload failure — never substitute a `file://` path.
 
 The per-finding tag in the listing is `[<route> <fix_kind>]` so the reader
 can see at a glance which findings the orchestrator will auto-apply
