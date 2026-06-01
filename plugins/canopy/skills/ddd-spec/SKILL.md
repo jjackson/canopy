@@ -191,6 +191,41 @@ narrative first (Step 3) so the two stay in lockstep.
   (`scripts/walkthrough/_lib/recorder.py`) skips any action it can't resolve, so a
   stale target degrades that one step, never the whole render.
 
+**Narrative voice — the persona stays the subject (CRITICAL):**
+
+The whole point of DDD narration is that a *person* uses the product. Across the
+top `narrative`, every scene `title`, every `concept_claim`, and the prose of every
+`show`, the **persona is the grammatical subject and the words are theirs** — what
+they do, see, decide, and want. Write "Maya keeps Google and clicks Generate," not
+"the panel lists the providers and a source is selected."
+
+This is the structure that quietly erodes on rewrites. A scene edit triggered by a
+shipped feature drifts into **system-as-subject** and **implementation jargon** —
+"a comparability panel appears", "the system returns the counts", "the providers
+Overture conflates", "PSU", "FeatureCollection". Each of those drops the person out
+of the story and turns a demo into a tour of panels. Hold the line:
+
+- **The persona acts; the UI is what they act on.** Subject = the persona, never "a
+  panel", "the system", "the endpoint". ✓ "Maya opens the comparability panel" — ✗ "a
+  comparability panel appears".
+- **Use the persona's words, not the codebase's.** If the persona wouldn't say
+  "Overture conflates", "PSU", or "FeatureCollection", keep it out of
+  `show`/`concept_claim`. Engineering vocabulary lives in `features[].description` /
+  `verify`, never in the story prose.
+- **`show` is the persona's narrated moment; `actions` is the click-path.** Keep
+  `show` readable as the person doing the thing; put literal selectors/clicks in
+  `actions`.
+
+Before / after — same beat, with and without the person:
+
+```
+✗ "The sampling panel lists the providers Overture conflates; after generating,
+   each shows its building count."
+✓ "Maya weighs her three building sources — Google, OpenStreetMap, Microsoft —
+   keeps Google, the one her statistician expects, and after she generates sees how
+   many buildings each found."
+```
+
 A spine item may span several beats, and a single beat may touch more than one
 spine item — decompose by the *story*, then attach `provenance` to whichever spine
 item the beat demonstrates.  Every spine item must be covered by at least one beat.
@@ -253,6 +288,29 @@ narration (concept_claim + show) implies those features to a cold reader.
 - "A world-class seamless experience for field workers" — banned phrases (world-class, seamless)
 - "Robust performance" — banned phrase, too short to be testable
 - "Powerful filtering" — banned phrase
+
+### Step 4b — Refreshing an existing narrative (the build changed)
+
+Most narratives are not written once — they are **refreshed** when a feature ships,
+a flow is reordered, or a beat goes stale. This is exactly where the person-based
+structure decays: a refresh tempts you to reach into the affected scene and patch
+its `show`/`concept_claim` to describe the new UI, and after a few such edits the
+clean story has become a feature list. Do not patch scenes. Re-derive them:
+
+1. **Edit the top `narrative` beat first** (Step 3). Fold the change into the one
+   continuous story so it still reads as the persona's arc — same voice, persona as
+   subject. If the change adds or moves a beat, add/move the *sentence* here first.
+2. **Re-derive the affected scene from that beat** (Step 4): persona, title,
+   concept_claim, show — re-written in the persona's voice, not edited toward a UI
+   description. Keep `beats == scenes` and their order in lockstep with the narrative.
+3. **Re-read the whole refreshed `narrative` aloud** (Step 3's test). If it now
+   sounds like a tour of panels and endpoints rather than one person getting
+   something done, you patched scenes instead of re-deriving them — go back to 1.
+
+The "Narrative voice" rule in Step 4 applies in full to every refresh. A rewrite
+that drops the persona as subject, or imports codebase jargon ("PSU", "the panel
+appears", "Overture conflates") into `show`/`concept_claim`, is a regression even if
+every gate still passes.
 
 ### Step 5 — Assemble and write the spec file
 
