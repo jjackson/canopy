@@ -125,12 +125,29 @@ DECK_URL=$(python3 "$UPLOAD" "$ITER_DECK" \
   --public 2>&1 | grep -oE 'https://[^ ]*' | tail -1)
 ```
 
-If the recorded mp4 exists in the run dir, upload that too:
+If the recorded mp4 exists in the run dir, upload that too — and attach the
+**companion links** the `/w/<id>` viewer renders so someone watching the clip
+can act on it: jump back to the narrative, open the still-frame deck, and click
+into the app pages the demo visited.
+
+- `--narrative-url` — the narrative-review URL the gate stamped on
+  `state.narrative_review_url` ("Back to the narrative").
+- `--companion-url "$DECK_URL"` — the still-frame deck uploaded just above
+  (labelled "Still-frame walkthrough" automatically for a video).
+- `--spec "<unified_spec>"` — derives one "Explore in the app" reference link
+  per scene `url` (label = scene title, deduped). The clip's destinations,
+  clickable and live.
 
 ```bash
 ITER_CLIP="<run_dir>/iter${state.iteration}_clip.mp4"  # if recorded
 if [ -f "$ITER_CLIP" ]; then
-  CLIP_URL=$(python3 "$UPLOAD" "$ITER_CLIP" --public 2>&1 | grep -oE 'https://[^ ]*' | tail -1)
+  NARRATIVE_URL=$(python3 -c "from scripts.ddd.runstate import load; print(load('$run_id').narrative_review_url or '')")
+  CLIP_ARGS=( "$ITER_CLIP" --public
+    --title "<unified_spec.name> iter${state.iteration} (video)"
+    --spec "<unified_spec>" )
+  [ -n "$DECK_URL" ] && CLIP_ARGS+=( --companion-url "$DECK_URL" )
+  [ -n "$NARRATIVE_URL" ] && CLIP_ARGS+=( --narrative-url "$NARRATIVE_URL" )
+  CLIP_URL=$(python3 "$UPLOAD" "${CLIP_ARGS[@]}" 2>&1 | grep -oE 'https://[^ ]*' | tail -1)
 fi
 ```
 

@@ -70,6 +70,18 @@ SPEC_ABS="$(realpath <spec_path>)"
 This returns JSON: `{"id": "<review_id>", "url": "<review_url>", "share_token": "<token>"}`.
 Capture the `url`.
 
+Stamp the review URL onto `run_state.yaml` so `ddd-run`'s upload step can pass
+it as the video's `narrative` companion link (the "Back to the narrative" link
+on the `/w/<id>` viewer). Prefer the token-bearing URL so a non-owner viewer
+can open it:
+
+```python
+from scripts.ddd.runstate import load, save
+state = load("<run_id>")
+state.narrative_review_url = "<review_url>?t=<token>"  # or the server's `url` if already tokenized
+save(state)
+```
+
 ### Step 3 — Present the URL + inline storyboard
 
 Before waiting for the user's response, present:

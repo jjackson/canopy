@@ -12,6 +12,18 @@ recent, verifiable themes in the git log.
 ## [Unreleased]
 
 ### Added
+- **Companion links on the walkthrough viewer** (0.2.150) — an uploaded
+  walkthrough can carry typed companion links the canopy-web `/w/<id>` viewer
+  renders: `narrative` (back to the story that generated it), `companion`
+  (the sibling still-frame deck ↔ video), and `reference` (the app pages the
+  demo visited, clickable + live). `walkthrough-share/upload.py` gains
+  `--narrative-url`, `--companion-url`, `--link "Label::url"` (repeatable),
+  and `--spec` (derives one reference link per scene `url`, deduped).
+  `/canopy:ddd-run` attaches them automatically when it uploads each
+  iteration's clip — pulling the narrative-review URL the
+  `/canopy:ddd-narrative-review` gate now stamps on
+  `RunState.narrative_review_url`. Requires the companion canopy-web change
+  (the `links` field on the Walkthrough model + viewer panels).
 - **`wait_for` per-action `seconds:` timeout + `--skip-empty-scenes`** (0.2.148) —
   two opt-in recorder knobs that together remove ~130s of dead-space from a
   238s microplans-10-wards hero clip. Both ADDITIVE — every existing spec

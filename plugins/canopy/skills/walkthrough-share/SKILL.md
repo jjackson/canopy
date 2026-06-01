@@ -58,6 +58,18 @@ python3 ~/emdash-projects/canopy/scripts/walkthrough-share/upload.py \
 python3 ~/emdash-projects/canopy/scripts/walkthrough-share/upload.py \
   screenshots/walkthroughs/my-demo.mp4 \
   --public
+
+# Upload a video WITH companion links the /w/<id> viewer renders:
+# - back to the narrative that generated it
+# - the still-frame (deck) version of the same demo
+# - the app pages the demo walked through (one per scene url in the spec)
+python3 ~/emdash-projects/canopy/scripts/walkthrough-share/upload.py \
+  screenshots/walkthroughs/my-demo.mp4 \
+  --public \
+  --narrative-url "https://canopy-web.../review/42/?t=abc" \
+  --companion-url "https://canopy-web.../w/<deck-uuid>?t=def" \
+  --spec docs/walkthroughs/my-demo.yaml \
+  --link "Connect microplanning::https://connect.dimagi.com/microplanning"
 ```
 
 The script prints:
@@ -65,11 +77,26 @@ The script prints:
 ```
 inlining HTML assets from <dir>…
 uploading <N> MB to <api>…
+attaching <N> companion link(s)   # only when links are passed
 View: <api>/w/<uuid>
 Share: <api>/w/<uuid>?t=<token>   # only with --public
 ```
 
 Pass the `Share:` line back to the user verbatim.
+
+## Companion links (the `/w/<id>` viewer panels)
+
+The viewer page renders attached links in two panels under the player:
+
+- **This walkthrough** — `narrative` + `companion` links. Use these to send a
+  viewer back to the story that generated the demo and to the sibling artifact
+  (the still-frame deck for a video, or the video for a deck).
+- **Explore in the app** — `reference` links: the destinations the demo
+  visited, clickable and live so the viewer can go try them.
+
+The DDD loop (`/canopy:ddd-run`) attaches these automatically when it uploads
+each iteration's clip. For a one-off upload, pass them yourself with the flags
+below.
 
 ## Argument map
 
@@ -80,7 +107,15 @@ Pass the `Share:` line back to the user verbatim.
 | `--description <str>` | no | Optional long-form description. |
 | `--project <slug>` | no | Links the walkthrough to a canopy-web project tile. Must match an existing slug (no server-side validation today; bad slug = no link, no error). |
 | `--public` | no | Sets visibility=link and prints a `?t=<token>` URL. Default is private. |
+| `--narrative-url <url>` | no | "Back to the narrative" link (kind=narrative). Label via `--narrative-label`. |
+| `--companion-url <url>` | no | Sibling artifact (kind=companion). Label defaults by kind: "Still-frame walkthrough" for a video, "Watch the video" for a deck. Override with `--companion-label`. |
+| `--link "Label::url"` | no | A reference link (kind=reference). Repeatable. |
+| `--spec <path>` | no | Walkthrough spec YAML — derives one reference link per scene `url` (label = scene title, deduped). Imports pyyaml lazily. |
 | `--api-url <url>` | no | Override canopy-web base URL (also via `CANOPY_WEB_API_URL`). |
+
+Reference links from `--link` and `--spec` are merged and de-duplicated by URL.
+Malformed input fails loud: a bad `--link` (no `::`) or a server-rejected link
+(missing url, etc.) exits non-zero rather than silently dropping.
 
 ## First-time setup
 
