@@ -12,7 +12,7 @@ recent, verifiable themes in the git log.
 ## [Unreleased]
 
 ### Added
-- **`wait_for` per-action `seconds:` timeout + `--skip-empty-scenes`** (0.2.147) —
+- **`wait_for` per-action `seconds:` timeout + `--skip-empty-scenes`** (0.2.148) —
   two opt-in recorder knobs that together remove ~130s of dead-space from a
   238s microplans-10-wards hero clip. Both ADDITIVE — every existing spec
   records identically without changes.
