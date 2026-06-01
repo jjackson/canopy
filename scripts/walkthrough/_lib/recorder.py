@@ -58,8 +58,11 @@ ACTION_KINDS = (
 # --------------------------------------------------------------------------- #
 
 
-def slow_move(page: Page, x: float, y: float, steps: int = 28) -> None:
-    """Mouse move with enough steps that the cursor overlay animates the glide."""
+def slow_move(page: Page, x: float, y: float, steps: int = 36) -> None:
+    """Mouse move with enough steps that the cursor overlay animates the glide.
+
+    Deliberately slow — a cursor that teleports reads as a jump-cut; a cursor that
+    visibly travels to its target reads as a person operating the page."""
     page.mouse.move(x, y, steps=steps)
 
 
@@ -109,12 +112,19 @@ def _glide_to(page: Page, target: str, *, timeout_ms: int = 6000, dwell_s: float
 # --------------------------------------------------------------------------- #
 
 
-def click_text(page: Page, target: str, *, timeout_ms: int = 6000, settle_ms: int = 800) -> bool:
-    """Glide the cursor onto ``target`` (text or selector) and click it."""
-    box = _glide_to(page, target, timeout_ms=timeout_ms)
+def click_text(page: Page, target: str, *, timeout_ms: int = 6000, settle_ms: int = 900) -> bool:
+    """Glide the cursor onto ``target`` (text or selector), pause, and click it.
+
+    The pre-click dwell + the overlay's click feedback (press-pulse + ring + a
+    lingering dot) make it unmistakable WHERE the click landed — re-measure the
+    box right before clicking so the dot lands on the element, not a stale spot."""
+    box = _glide_to(page, target, timeout_ms=timeout_ms, dwell_s=0.5)
     if not box:
         print(f"  ! click target not found: {target!r}")
         return False
+    box = _box_center(page, target) or box  # re-measure post-glide (page may have shifted)
+    slow_move(page, box["x"], box["y"], steps=10)
+    page.wait_for_timeout(250)
     page.mouse.click(box["x"], box["y"])
     page.wait_for_timeout(settle_ms)
     return True
