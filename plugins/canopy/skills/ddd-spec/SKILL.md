@@ -171,9 +171,13 @@ narrative first (Step 3) so the two stay in lockstep.
   shows the feature being *used*, not just a page being panned. A scene with no
   `actions` records as a static scroll — which scores ~1/5 on "demonstrates using
   the features." Each action is `{kind, target?, value?, seconds?, note?}` where
-  `kind` ∈ {goto, click, click_menu, fill, type, press, hover, scroll_to, scroll,
-  wait_for, hold} and `target` is visible text or a CSS selector. Write `actions`
-  as the literal click-path that realizes `show`:
+  `kind` ∈ {goto, click, click_menu, fill, select, type, press, hover, scroll_to,
+  scroll, wait_for, hold} and `target` is visible text or a CSS selector. For
+  `kind: select` (native `<select>` controls — which `click` can't reliably open
+  across platforms), `value` is the option's `value` attribute, OR a digit-only
+  string interpreted as the 0-based `index`, OR the option's visible label —
+  the recorder tries each in order. Write `actions` as the literal click-path
+  that realizes `show`:
   ```yaml
       show: "exclude an invalid work area and watch the per-worker metrics update"
       actions:

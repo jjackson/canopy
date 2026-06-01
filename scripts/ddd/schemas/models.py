@@ -76,16 +76,19 @@ class Action(BaseModel):
     cursor primitive; unknown kinds are skipped, never fatal.
 
     Fields (all optional except ``kind``):
-      kind     — one of: goto, click, click_menu, fill, type, press, hover,
+      kind     — one of: goto, click, click_menu, fill, select, type, press, hover,
                  scroll_to, scroll, wait_for, hold
-      target   — text label or CSS selector to act on (click/hover/fill/scroll_to/wait_for)
-      value    — text to fill/type, key to press, url to goto, "bottom"/"top"/px for scroll
+      target   — text label or CSS selector to act on
+                 (click/hover/fill/select/scroll_to/wait_for)
+      value    — text to fill/type, key to press, url to goto, "bottom"/"top"/px
+                 for scroll, OR the ``<select>`` option's value attribute /
+                 0-based index / visible label for ``select``
       seconds  — dwell/hold duration
       note     — human note: what this step demonstrates (shown in render logs)
     """
 
     kind: Literal[
-        "goto", "click", "click_menu", "fill", "type", "press",
+        "goto", "click", "click_menu", "fill", "select", "type", "press",
         "hover", "scroll_to", "scroll", "wait_for", "hold",
     ]
     target: str | None = None
