@@ -156,6 +156,34 @@ Use the current date from the environment context for `YYYY-MM-DD` (do not call
 a date command in a way that breaks determinism — the conversation provides
 today's date).
 
+## Phase 4.5 — Recommend an action per issue (then offer to do it all)
+
+Don't stop at dispositions. After the report, state a concrete **recommended
+next action** for every issue, so the user can approve in one shot. Default
+operating assumption: the user will usually say *"do everything you're
+recommending"* — so make the list **executable, not advisory**.
+
+- **implement → a PR you're confident in:** recommend **merging** (mark the
+  draft ready + arm auto-merge). "Confident" means the project's validation
+  passed AND the change required no unverifiable guess. Be honest about the
+  exception: a draft you flagged as **unvalidated** — e.g. a recipe/selector
+  gesture not yet confirmed on a live device, per a target repo's "validate
+  live before shipping" rule — is the ~1-in-10 case. For it, recommend
+  **hold + the specific validation step**, never a rubber-stamp merge.
+- **investigate:** recommend the concrete **next step** — what to run, on which
+  surface, and what evidence to capture to adjudicate it. Name the command /
+  repro / dump; don't just restate "needs more info."
+- **close:** already actioned in Phase 5 — no separate recommendation needed.
+
+Then present **one consolidated gate**: "Do all of the above?" (Approve all /
+Let me pick / Skip). On *Approve all*, execute every recommendation — arm
+auto-merge on the confident PRs, post any next-step plans, run whatever is
+executable in-session. For steps gated on a live device / fresh run you can't
+drive headlessly, say so explicitly and hand back the exact command for the
+user to kick off. This consolidated gate is in ADDITION to the per-group gates
+in Phase 5 below (those still apply to the close / investigate writes); think of
+Phase 4.5 as the "what should happen next, and shall I just do it" close.
+
 ## Phase 5 — Act (gated, grouped by disposition)
 
 Confirm **each non-empty group separately** via its own `AskUserQuestion`, so
@@ -189,6 +217,13 @@ implement+ship conventions:
   `Closes #<n>` only if you're confident it fully resolves it)
 - do one issue at a time; if validation can't pass after 2 attempts, stop and
   report rather than thrashing
+- **then honor the Phase 4.5 recommendation:** if you're confident in the PR
+  (validation passed, no unverifiable guess) and the user approved, mark it
+  **ready** and arm auto-merge (`gh pr ready <n>` + `gh pr merge <n> --auto
+  --merge`, matching the target repo's merge convention). If you flagged it
+  **unvalidated** (a guess that needs live-device / runtime confirmation),
+  keep it a draft and recommend the validation step instead — never
+  auto-merge an unverified change.
 
 Read `skills/product-management/SKILL.md` from the same install path if you need
 the full implement/ship detail — do not reimplement branch/PR logic from memory.
