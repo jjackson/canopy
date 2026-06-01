@@ -83,6 +83,7 @@ ACTION_KINDS: tuple[str, ...] = (
     "scroll",      # scroll the page (value: "bottom" | "top" | "<px>")
     "wait_for",    # wait for target text/selector to appear, or value=ms
     "hold",        # dwell in place for seconds (value or seconds)
+    "draw",        # draw a polygon on a map/canvas (target=element, points=[[fx,fy],...] fractions)
 )
 
 
@@ -239,6 +240,30 @@ class HoldAction(_ActionBase):
     seconds: float
 
 
+class DrawAction(_ActionBase):
+    """Draw a polygon on a map or canvas by clicking a sequence of points.
+
+    The recorder has no way to express map drawing through the other verbs —
+    ``click`` resolves a DOM element's centre, but a Mapbox-GL-Draw polygon (or any
+    canvas drawing tool) needs clicks at *coordinates on the canvas*, not on a
+    labelled element. ``draw`` fills that gap.
+
+    ``target`` is the map/canvas element (e.g. ``css:#review-map``). ``points`` is a
+    list of ``[fx, fy]`` fractional positions (0-1) within that element's bounding
+    box — fractions, not pixels, so the polygon is independent of viewport size. The
+    synthetic cursor glides to each vertex and clicks (real Playwright pointer events
+    the drawing tool receives), then double-clicks the last vertex to close the
+    polygon (Mapbox finishes a polygon on double-click).
+
+    Activate the drawing tool first — a normal ``click`` on its toolbar button (e.g.
+    ``css:.mapbox-gl-draw_polygon``) — then ``draw`` places the vertices.
+    """
+
+    kind: Literal["draw"]
+    target: str
+    points: list[tuple[float, float]]
+
+
 # Discriminated union: Pydantic picks the right subclass from ``kind`` alone.
 # Existing YAML specs (lists of dicts with ``kind: ...`` + the verb's fields)
 # validate against this without any spec edits — all real-world action shapes
@@ -247,7 +272,7 @@ Action = Annotated[
     Union[
         GotoAction, ClickAction, ClickMenuAction, FillAction, SelectAction,
         TypeAction, PressAction, HoverAction, ScrollToAction, ScrollAction,
-        WaitForAction, HoldAction,
+        WaitForAction, HoldAction, DrawAction,
     ],
     Field(discriminator="kind"),
 ]
@@ -259,7 +284,7 @@ Action = Annotated[
 ACTION_CLASSES: tuple[type[_ActionBase], ...] = (
     GotoAction, ClickAction, ClickMenuAction, FillAction, SelectAction,
     TypeAction, PressAction, HoverAction, ScrollToAction, ScrollAction,
-    WaitForAction, HoldAction,
+    WaitForAction, HoldAction, DrawAction,
 )
 
 
