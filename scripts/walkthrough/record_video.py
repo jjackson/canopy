@@ -91,6 +91,28 @@ def webm_to_mp4(ffmpeg: str, webm: Path, out: Path) -> None:
         sys.exit(f"ERROR: ffmpeg failed (exit {result.returncode}):\n{result.stderr[-2000:]}")
 
 
+def _is_empty_scene(scene: dict) -> bool:
+    """A scene with no ``actions`` is a narrative-only beat.
+
+    Used by ``--skip-empty-scenes`` to drop those from the recording loop —
+    the deck still shows them as title-card slides built from spec.scenes
+    independently, so the narrative survives. Same gate as
+    ``Recorder.take_snapshot``'s ``has_actions`` check (kept here as a
+    separate helper so the filter in ``main`` and any future caller share
+    one definition of "empty")."""
+    return not bool(scene.get("actions") or [])
+
+
+def filter_empty_scenes(scenes: list[dict]) -> list[dict]:
+    """Drop scenes whose ``actions`` list is empty, preserving order and
+    each surviving scene's 1-based ORIGINAL spec ``scene_index``.
+
+    Pure function, no I/O — exercised by unit tests without spinning a
+    browser. ``record_video.main`` calls this when ``--skip-empty-scenes``
+    is set."""
+    return [s for s in scenes if not _is_empty_scene(s)]
+
+
 def build_scenes_from_spec(spec: dict, base_url: str, *, run_data: dict | None) -> list[dict]:
     """Resolve spec.scenes to the scene records the Recorder consumes.
 
@@ -203,6 +225,17 @@ def main() -> None:
             "duplicate the previous scene's steady-state frame)."
         ),
     )
+    ap.add_argument(
+        "--skip-empty-scenes",
+        action="store_true",
+        help=(
+            "don't record scenes whose actions list is empty (the narrative-"
+            "only back half of long specs). The mp4 then skips those scenes "
+            "entirely — the deck still shows them as title-card slides built "
+            "from spec.scenes independently, so the narrative survives. "
+            "Default: record every scene (back-compat)."
+        ),
+    )
     args = ap.parse_args()
 
     ffmpeg = check_ffmpeg()
@@ -222,6 +255,19 @@ def main() -> None:
     base_url = (spec.get("base_url") or "").rstrip("/")
 
     scenes = build_scenes_from_spec(spec, base_url, run_data=run_data)
+    if args.skip_empty_scenes:
+        # Drop scenes with no actions from the recording loop entirely. The
+        # deck is built from spec.scenes separately (generate_presentation),
+        # so narrative-only beats still appear as title-card slides — we just
+        # don't waste 4-6s of clip on a static page that holds min_hold_ms
+        # on whatever the previous scene's last URL was. Filter AFTER
+        # build_scenes_from_spec so the surviving scenes keep their 1-based
+        # ORIGINAL spec scene_index (matches snapshot + ActionResult tagging).
+        before = len(scenes)
+        scenes = filter_empty_scenes(scenes)
+        skipped = before - len(scenes)
+        if skipped:
+            print(f"  · --skip-empty-scenes: dropped {skipped} action-empty scene(s) from the recording")
     if not scenes:
         sys.exit("ERROR: no scenes resolved from spec (check --input filtering)")
 

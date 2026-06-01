@@ -223,10 +223,21 @@ class WaitForAction(_ActionBase):
     skip the selector engine (which would otherwise sit through its full
     timeout before falling back) — see the recorder's
     ``_lib/targets.wait_for_target``.
+
+    ``seconds`` is a per-action timeout override. The recorder's default
+    ``wait_for`` timeout is ``RecorderConfig.wait_for_timeout_ms`` (12s);
+    when an author knows a particular condition might take longer (an SSE
+    bulk-create stream that runs 30-90s) the spec can say
+    ``seconds: 120`` to wait up to two minutes — and the recorder exits
+    the moment the target appears, instead of holding blindly. The
+    alternative — padding with a fixed ``hold`` after a normal-timeout
+    ``wait_for`` — guarantees 100+ seconds of dead-air on a clip if the
+    condition resolves early. ``None`` preserves the default.
     """
 
     kind: Literal["wait_for"]
     target: str
+    seconds: float | None = None
 
 
 class HoldAction(_ActionBase):
