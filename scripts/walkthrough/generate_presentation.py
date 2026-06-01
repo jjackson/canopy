@@ -173,7 +173,15 @@ def _render_scene_slide(slide, personas, slide_index, total_slides):
     <p>{commentary}</p>
   </div>"""
 
-    return f"""<div class="slide slide-scene" style="border-top: 3px solid {p_color};">
+    # Anchor IDs on scene slides so consumers (DDD orchestrator, surfaced
+    # findings, /canopy:walkthrough-share URLs) can deep-link directly to a
+    # specific scene: <hosted-deck-url>#scene-2. Uses the ORIGINAL spec
+    # index so the anchor is stable across partial/full runs — a scene-2
+    # partial-run deck anchors at #scene-2, not #scene-1, matching what a
+    # full-spec scene-2 anchor would be.
+    scene_index_for_anchor = slide.get("scene_index")
+    scene_anchor = f' id="scene-{scene_index_for_anchor}"' if scene_index_for_anchor else ""
+    return f"""<div{scene_anchor} class="slide slide-scene" style="border-top: 3px solid {p_color};">
   <div class="slide-header">
     <span class="persona-badge" style="background-color: {p_color}">{p_name}</span>
     {scene_counter_html}

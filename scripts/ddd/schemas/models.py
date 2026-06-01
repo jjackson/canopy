@@ -231,3 +231,20 @@ class RunState(BaseModel):
     #   stop_max_iter         — MAX_ITERATIONS would be exceeded.
     auto_iterate_next_action: str | None = None
     auto_iterate_reason: str | None = None
+    # Hosted artifact URLs per iteration (0.2.135). Populated by
+    # /canopy:ddd-run's render-then-upload step: each iteration's rendered
+    # deck (and clip, when present) is auto-uploaded to canopy-web and the
+    # returned URL is stamped here. Surfaced findings and review-request
+    # gates reference these URLs directly — no manual upload needed at
+    # surface-time, no local file:// paths leaking into messages that the
+    # user reads on another device.
+    #
+    # Shape:
+    #   iteration_decks: {0: "https://canopy-web.../w/<uuid1>", 1: "<...>"}
+    #   iteration_clips: {0: "https://canopy-web.../w/<uuid2>", 1: "<...>"}
+    #
+    # Deep-link to a specific scene by appending "#scene-<N>" — the deck
+    # generator emits id="scene-<N>" anchors on every scene slide using the
+    # original spec index, so the anchor is stable across partial/full runs.
+    iteration_decks: dict[int, str] = {}
+    iteration_clips: dict[int, str] = {}
