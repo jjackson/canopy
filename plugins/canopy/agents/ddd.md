@@ -52,6 +52,52 @@ applicable findings via the review surface so the user picks. It's NOT a hard
 gate (no concept-direction lock), but the loop genuinely cannot proceed without
 input on which path to take.
 
+**Every surfaced decision MUST include ace-web hosted artifact links —
+NEVER local `file://` paths.** When a `ReviewRequest` fires (any gate) —
+OR when surfacing options/redesign findings inline because the review
+surface isn't reachable — the message MUST include URLs the reviewer can
+open from any device, on any network, without re-entering the agent's
+host environment. Local paths only work for the agent at runtime; they
+fail the moment the user reads the message anywhere else.
+
+**Upload first, then link.** Before surfacing:
+
+1. Upload the relevant scene PNG to ace-web (use `/canopy:walkthrough-share`
+   for full decks, or the project's configured ace-web upload tool for
+   single-scene PNGs).
+2. Upload the scene MP4 clip when available — same path.
+3. Upload the rendered HTML deck (via `/canopy:walkthrough-share`).
+4. Capture the returned URLs.
+
+Then in the surfaced message include:
+
+- **Hosted screenshot URL** for each scene the decision touches
+  (`https://ace-web.../<artifact-id>.png` or a canopy-web share URL with
+  `#scene-<N>` anchor). NEVER `file://`. Embed inline as `![scene
+  N](URL)` when the visual IS the question.
+- **Hosted video clip URL** with time fragment when available
+  (`https://ace-web.../<deck-id>.mp4?t=<seconds-of-scene-N>` or platform
+  equivalent). NEVER `file://`.
+- **HTML deck deep-link** via canopy-web/ace-web share URL with
+  `#scene-<N>` anchor.
+- **Element identifier** for each finding — name the exact thing on the
+  artifact ("top-right pill", "Coverage row at table position 6", "the
+  sidebar Programs entry showing 'Diag'"), so the reader can locate it
+  in the linked artifact at a glance.
+
+**If ace-web upload fails**, say so explicitly in the surfaced message
+("ace-web upload failed: <reason> — falling back to a verbal description")
+and provide the verbal description, NOT a local path. The user reads
+these on whatever device they happen to have open; a `file://` link
+silently does nothing for them.
+
+Why this matters: every "do you want me to ship this fix?" question that
+arrives without a hosted link forces the user to either trust the
+agent's prose description or hunt for the artifact themselves. The
+user's taste is the scarce resource; making them hunt — or worse,
+pointing them at links that 404 from their device — is the opposite of
+leveraging it.
+
 **Nothing else blocks.** All other work — mechanical PRODUCT fixes (labs PR +
 deploy), CONCEPT spec edits, RESEARCH investigations, CAPABILITY task creation,
 iteration loops, learning updates — runs autonomously and is reported in the
@@ -336,6 +382,15 @@ territory per project memory. Emit a `ReviewRequest` (gate:
 concept_change) with each redesign-level finding as a decision item. Do
 not loop until the user resolves.
 
+**Artifact links required (ace-web hosted, NOT `file://`).** Each
+decision item in the `ReviewRequest` MUST include: (1)
+`screenshot_url: https://<ace-web-host>/.../scene_<N>.png` — uploaded
+BEFORE the gate fires, (2) `video_clip_url` with time fragment if
+available, also hosted, (3) a one-line `element_locator` naming the
+exact thing on the artifact the finding is about (see pause-policy
+section above). Local file paths fail the moment the user reads on
+another device.
+
 ### `stop_unclear` (options/redesign blocks loop)
 
 At least one non-DEFER finding has `fix_kind: options` (multiple paths,
@@ -344,11 +399,23 @@ can't proceed without a user pick. Surface the un-auto-applicable findings
 via canopy-web review surface (one decision per finding, `recommended`
 left null since the rubric output couldn't pick). Resume on resolution.
 
+**Artifact links required (ace-web hosted)** — same contract as
+`stop_concept_change`: upload the scene screenshot to ace-web and embed
+the URL inline (NOT a local path); include the element_locator naming
+what each option would change; include the hosted video clip URL with
+time fragment when the scene has been recorded.
+
 ### `stop_max_iter` (cap reached)
 
 `state.iteration >= MAX_ITERATIONS - 1`. Surface all remaining findings
 and ask the user whether to extend, abandon, or accept partial progress.
 This is a human-review checkpoint, not a full gate.
+
+**Artifact links required (ace-web hosted)** — same contract. The user
+should be able to open the most recent capture(s) directly from the
+message — on whatever device they're reading on — and see the remaining
+gaps without re-running anything. Local file paths defeat this; upload
+the artifacts to ace-web BEFORE surfacing.
 
 ---
 
