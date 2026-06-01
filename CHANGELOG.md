@@ -12,6 +12,7 @@ recent, verifiable themes in the git log.
 ## [Unreleased]
 
 ### Added
+- **DDD surfaced decisions must include ace-web hosted artifact links** (0.2.134) — `agents/ddd.md` pause-policy section + every stop_* branch (`stop_concept_change`, `stop_unclear`, `stop_max_iter`) now require that surfaced `ReviewRequest` items include hosted ace-web screenshot URLs (NOT local `file://` paths), with an `element_locator` naming what the finding is about. Local paths fail the moment the user reads the message on another device; hosted URLs work everywhere. If upload fails, the agent says so explicitly and falls back to a verbal description, never a local path.
 - **Auto-iterate gate based on per-finding `fix_kind`** (0.2.132) — judges
   now emit `fix_kind ∈ {mechanical, options, redesign}` per finding so the
   orchestrator can decide auto-apply vs ask WITHOUT re-parsing prose. The
