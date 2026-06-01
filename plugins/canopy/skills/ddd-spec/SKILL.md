@@ -166,6 +166,13 @@ narrative first (Step 3) so the two stay in lockstep.
 - `title` — the story-beat title (see above).
 - `show` — concrete, imperative browser actions the walkthrough will execute
   (e.g. `"navigate to /audit/new, fill the 'observation' field, click Submit"`).
+- `url` (strongly recommended) — the **canonical scene entry point**. The recorder
+  auto-navigates to this URL at the top of the scene; you do NOT also write a leading
+  `goto` action for the same path. A scene may omit `url:` to **continue on whatever
+  page the previous scene's actions navigated to** — this is how a narrative can
+  CREATE an entity in one scene (e.g. click "Create plan" → app routes to the new
+  record) and operate on it in later scenes whose URL can't be known ahead of time.
+  Give scene 1 a `url:`; leave it empty on continue-scenes.
 - `actions` (optional but strongly recommended) — the **machine-executable** form
   of `show`: a list of cursor interactions the video recorder performs so the demo
   shows the feature being *used*, not just a page being panned. A scene with no
@@ -187,9 +194,13 @@ narrative first (Step 3) so the two stay in lockstep.
   Write `actions` as the literal click-path
   that realizes `show`:
   ```yaml
+      persona: maya
+      title: "Maya tunes the plan"
+      url: "/microplans/program/133/setup/"
       show: "exclude an invalid work area and watch the per-worker metrics update"
       actions:
-        - { kind: scroll_to, target: "PLAN METRICS" }
+        - { kind: wait_for, target: "PLAN METRICS" }
+        - { kind: scroll_to, target: "Exclude" }
         - { kind: click, target: "Exclude", note: "drop an invalid area" }
         - { kind: wait_for, target: "Excluded 1" }
         - { kind: hold, seconds: 1.5 }
@@ -198,6 +209,51 @@ narrative first (Step 3) so the two stay in lockstep.
   over hovers — a visible state change is what earns `feature_use` 5. The recorder
   (`scripts/walkthrough/_lib/recorder.py`) skips any action it can't resolve, so a
   stale target degrades that one step, never the whole render.
+
+  **Anti-pattern — don't write both `url:` AND a leading `goto target: <same-url>`.**
+  The recorder navigates from `scene.url` automatically at the top of every scene.
+  A duplicate leading `goto` to the same path causes a visible page reload ~1-2s
+  into every scene (the load you already paid for happens AGAIN). Pick one: `url:`
+  is the declarative entry point — a `goto` action is only for navigating
+  **mid-scene** to a DIFFERENT page. The recorder's `build_scenes_from_spec` strips
+  redundant leading gotos as a safety net (canopy 0.2.151+), but the spec should
+  still read as authored — don't rely on the strip.
+
+  **Open with `wait_for` instead of an `initial_hold`.** When the scene starts on a
+  page that takes a moment to render (any labs page that talks to the API), the
+  first action should be `{kind: wait_for, target: <visible text or selector>}` —
+  NOT a `hold seconds: 2.0` "let the page settle." Three reasons:
+  - `wait_for` exits the instant the page is ready; `hold` always burns the full
+    duration even if the page rendered in 100ms.
+  - When the recorder sees a leading `wait_for` it also skips the default
+    `initial_hold_ms` (800-2500ms) and `goto_settle_ms` (600-2000ms) blind pauses
+    — the `wait_for` IS the settle, so the holds become pure dead air on top
+    (canopy 0.2.151+).
+  - Long bulk operations (a 30-90s background import) use the `seconds:` override
+    on `wait_for`, not a `hold seconds: 90`: `{kind: wait_for, target: "Created 10
+    of 10 plans", seconds: 120}`. Exits the instant the success text appears;
+    never wastes a frame.
+
+  **Quick reference for scene-start authoring:**
+  ```yaml
+  # ✓ good — declarative url + wait_for as settle
+  - persona: maya
+    title: "Maya opens the workspace"
+    url: "/microplans/program/133/"
+    show: "..."
+    actions:
+      - { kind: wait_for, target: "Microplan portfolio" }
+      - { kind: scroll_to, target: "+ Bulk paste list" }
+
+  # ✗ bad — duplicate goto + blind hold (the old pattern this PR retires)
+  - persona: maya
+    title: "Maya opens the workspace"
+    show: "..."
+    actions:
+      - { kind: goto, target: "/microplans/program/133/" }
+      - { kind: wait_for, target: "Microplan portfolio" }
+      - { kind: hold, seconds: 2.0, note: "frame the empty portfolio" }
+  ```
 
 **Narrative voice — the persona stays the subject (CRITICAL):**
 

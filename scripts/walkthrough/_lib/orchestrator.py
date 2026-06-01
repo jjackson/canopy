@@ -155,19 +155,27 @@ class Recorder:
 
     # ---- implementation -------------------------------------------------
 
-    def goto_and_settle(self, page: Page, url: str) -> None:
+    def goto_and_settle(self, page: Page, url: str, *, skip_settle: bool = False) -> None:
         """Navigate without depending on ``networkidle``.
 
         ``networkidle`` hangs on apps with long-poll or streaming endpoints
         (labs uses both). ``domcontentloaded`` + a brief settle is enough for
         recording — the page is *visible*, not necessarily *idle*.
+
+        ``skip_settle=True`` omits the ``goto_settle_ms`` blind pause at the
+        end. ``run_scene`` passes True when the first action is ``wait_for``
+        — the wait_for IS the settle (it polls until the page state is
+        right), so the extra 1200ms of blind hold is pure dead air on top.
+        Backward-compatible default (False) keeps the original behavior for
+        any external caller.
         """
         page.goto(url, wait_until="domcontentloaded", timeout=self.config.goto_timeout_ms)
         try:
             page.wait_for_load_state("load", timeout=self.config.load_settle_timeout_ms)
         except Exception:
             pass
-        page.wait_for_timeout(self.config.goto_settle_ms)
+        if not skip_settle:
+            page.wait_for_timeout(self.config.goto_settle_ms)
 
     def run_scene(self, page: Page, scene: dict, *, scene_index: int | None = None) -> float:
         """Record one scene. Returns elapsed seconds (floored by ``min_hold_ms``).
@@ -185,14 +193,35 @@ class Recorder:
         """
         idx = scene_index if scene_index is not None else scene.get("scene_index")
         url = self.goto_for_scene(scene, page.url)
+        # Inspect the first action ONCE: a leading ``wait_for`` is itself a
+        # settle (it polls until a known page state appears), so the
+        # ``goto_settle_ms`` blind hold AND the ``initial_hold_ms`` blind
+        # hold both become pure dead air on top of it. Skip both in that
+        # case. For every other first-action kind (click, scroll_to, fill,
+        # etc.) the original behavior holds — the holds give the page a
+        # moment to render before the cursor moves.
+        actions_list = scene.get("actions") or []
+        first_action_kind = (
+            (actions_list[0].get("kind") or "") if actions_list and isinstance(actions_list[0], dict) else ""
+        )
+        leading_waitfor = first_action_kind == "wait_for"
+
         if url is not None:
             print(f"  · goto {url}")
-            self.goto_and_settle(page, url)
+            if leading_waitfor:
+                print("  · deferring goto_settle_ms (first action is wait_for)")
+            self.goto_and_settle(page, url, skip_settle=leading_waitfor)
         else:
             print(f"  · staying on {page.url}  — no nav for this scene")
 
         self.before_scene(scene)
-        page.wait_for_timeout(self.config.initial_hold_ms)
+        if leading_waitfor:
+            # Skip initial_hold_ms — the wait_for that's about to run is the
+            # settle. Print once per scene so authors can SEE the recorder is
+            # using the cheap path and not "doing nothing".
+            print("  · deferring initial_hold_ms (first action is wait_for)")
+        else:
+            page.wait_for_timeout(self.config.initial_hold_ms)
 
         start = time.monotonic()
         scene_results: list[ActionResult] = []

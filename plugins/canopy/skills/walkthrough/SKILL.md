@@ -598,9 +598,11 @@ recorder tries each in order. Example:
 scenes:
   - persona: maya
     title: "Maya tunes the plan"
+    url: "/microplans/program/133/setup/"
     show: "exclude an invalid work area and watch the metrics update"
     actions:
-      - { kind: scroll_to, target: "PLAN METRICS" }
+      - { kind: wait_for, target: "PLAN METRICS" }
+      - { kind: scroll_to, target: "Exclude" }
       - { kind: click, target: "Exclude", note: "drop an invalid area" }
       - { kind: wait_for, target: "Excluded 1" }
       - { kind: hold, seconds: 1.5 }
@@ -609,13 +611,41 @@ scenes:
 A bad/missing action target is logged and skipped — never fatal. The primitives
 live in `scripts/walkthrough/_lib/recorder.py` (`execute_action` dispatcher).
 
+**Anti-pattern — don't write both `url:` AND a leading `goto target: <same-url>`.**
+The recorder navigates from `scene.url` automatically at the top of every scene. A
+duplicate leading `goto` to the same path causes a visible page reload ~1-2s into
+every scene (the page already loaded once, and now it loads again). Pick one:
+`url:` is the declarative entry point — a `goto` action is only for navigating
+**mid-scene** to a DIFFERENT page. The recorder strips redundant leading gotos as a
+safety net (canopy 0.2.151+) but the spec should still read as authored — don't
+lean on the strip.
+
+**Open with `wait_for`, not a `hold`.** When the scene starts on a page that takes
+a moment to render, the first action should be `{kind: wait_for, target: <text or
+selector>}`. `wait_for` exits the instant the page is ready; `hold` always burns
+its full duration. As a bonus, a leading `wait_for` tells the recorder to skip its
+default `initial_hold_ms` + `goto_settle_ms` blind pauses (canopy 0.2.151+) — the
+wait_for IS the settle, so the holds are pure dead air on top.
+
+**Long waits use `wait_for seconds:`, not `hold seconds:`.** For waits that can
+exceed the default 12s (a 30-90s bulk import, a slow background job), use the
+`seconds:` override on `wait_for`:
+```yaml
+- { kind: wait_for, target: "Created 10 of 10 plans", seconds: 120 }
+```
+NOT `{kind: hold, seconds: 90}` — `wait_for` exits the instant the success text
+appears; `hold` always burns the full 90s even if the job finished in 15.
+
 **Create-and-carry-through flows.** A scene may omit its `url` to *continue on the
 page the previous scene's actions navigated to*. This is how a narrative can CREATE
 an entity in one scene (e.g. click "Create plan" → the app routes to the new
 record's page) and operate on it in later scenes whose URL can't be known ahead of
 time. Give scene 1 a `url` (the entry point); leave `url` empty on continue-scenes
 and drive them with `actions` (use a `goto` action to jump to a known static page
-like a workspace, and click-by-name to return to the created record).
+like a workspace, and click-by-name to return to the created record). In a
+continue-scene a leading `goto` IS meaningful (it's a deliberate page change, not
+a redundancy) — the strip rule only fires when both `url:` AND a leading `goto` to
+the same path are set.
 
 ### Pacing
 

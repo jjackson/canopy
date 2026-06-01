@@ -174,6 +174,28 @@ def build_scenes_from_spec(spec: dict, base_url: str, *, run_data: dict | None) 
         if not url:
             url = captured_urls.get(i)
 
+        # Drop a redundant leading ``goto`` action when its target matches
+        # ``scene.url`` (after _absolutize) — the orchestrator already
+        # navigates to ``scene.url`` at the top of ``run_scene``, so leaving
+        # the goto in causes a visible page reload 1-2s into every scene.
+        # This was the load-bearing bug behind ~2.5s of scene-start dead-air
+        # on every recording.
+        #
+        # Conservative: only drop the FIRST action, only when it's a goto,
+        # only when its absolutized target equals the resolved scene.url.
+        # An intentional reload-then-elsewhere pattern (url: /x then
+        # goto /y) is preserved — the leading goto's target won't match.
+        if url and actions:
+            first = actions[0]
+            if (first.get("kind") or "") == "goto":
+                first_target = _absolutize(first.get("target") or first.get("value") or "")
+                if first_target and first_target == url:
+                    actions = actions[1:]
+                    print(
+                        f"  · scene {i}: dropping redundant first goto "
+                        f"(target matches scene.url) — use scene.url instead"
+                    )
+
         scenes.append({
             "url": url,  # may be None → orchestrator stays on previous URL
             "title": s.get("title", f"Scene {i}"),
