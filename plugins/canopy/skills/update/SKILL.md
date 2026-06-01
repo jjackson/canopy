@@ -11,8 +11,10 @@ procedure — there is nothing else to discover.**
 
 ## Step 1: Fast version check (ONE command)
 
-Single HTTP pull to GitHub raw. No caching. ~200ms typical, dominated by the
-single curl. The script prints exactly one line.
+Reads the remote VERSION via `git fetch` against the local marketplace clone —
+uncached, unlike `raw.githubusercontent.com` (CDN-cached 1–5 min, which would
+spuriously report `UP_TO_DATE` right after a push). Completes in ~1–3s
+(dominated by the network fetch). The script prints exactly one line.
 
 ```bash
 bash "$(sed -n '/"canopy@canopy"/,/\]/{ s/.*"installPath": *"\([^"]*\)".*/\1/p; }' "$HOME/.claude/plugins/installed_plugins.json" | head -1)/scripts/canopy-update-check.sh"

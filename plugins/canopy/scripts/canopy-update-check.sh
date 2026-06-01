@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# canopy-update-check — single fast HTTP pull, no caching.
+# canopy-update-check — fast version check via git fetch (uncached).
 #
 # Output: exactly one line, one of:
 #   UP_TO_DATE <version>
@@ -9,20 +9,23 @@
 # What it does:
 #   1. Read installed canopy version from ~/.claude/plugins/installed_plugins.json
 #      using sed (avoiding python3 startup overhead).
-#   2. curl one ~10-byte VERSION file from GitHub raw.
+#   2. Read the remote VERSION via `git fetch` + `git show origin/main:VERSION`
+#      against the local marketplace clone.
 #   3. Compare; print result; exit.
 #
-# That's it. No cache, no TTL, no state directory. Designed for:
-#   - frequent /canopy:update invocations (canopy is shipping changes constantly)
-#   - speed (~200ms typical, dominated by the single curl)
-#   - clarity (the script does ONE thing)
-#
-# Falls back to `gh api` only if the curl response isn't a valid version
-# string — typically because raw.githubusercontent.com's CDN lags a few
-# minutes after a fresh push.
+# Why git fetch instead of curl raw.githubusercontent.com:
+#   raw.githubusercontent.com is CDN-cached ~1–5 minutes. Right after a push it
+#   can serve the PREVIOUS version — a still-valid X.Y.Z — so a regex check
+#   passes and the tool reports UP_TO_DATE falsely. That window is the common
+#   case for canopy, whose documented flow is "merge, then /canopy:update
+#   immediately." `git fetch` hits GitHub's git smart-HTTP endpoint, which is
+#   not CDN-cached and reflects refs essentially immediately. The ~1s extra
+#   latency over a curl is imperceptible for an interactive command, and Step 2
+#   of the update needs this same marketplace checkout anyway (it `git pull`s
+#   it), so requiring it here just surfaces a broken checkout one step earlier.
 set -u
 
-REMOTE_URL="${CANOPY_REMOTE_URL:-https://raw.githubusercontent.com/jjackson/canopy/main/VERSION}"
+MARKETPLACE="${CANOPY_MARKETPLACE:-$HOME/.claude/plugins/marketplaces/canopy}"
 INSTALLED_PLUGINS="$HOME/.claude/plugins/installed_plugins.json"
 
 # ─── 1. Installed version ────────────────────────────────────
@@ -40,16 +43,14 @@ if [ -z "$LOCAL" ]; then
   exit 0
 fi
 
-# ─── 2. Remote version (single HTTP pull) ────────────────────
-REMOTE="$(curl -sf --max-time 5 "$REMOTE_URL" 2>/dev/null | tr -d '[:space:]')"
-
-# CDN lag fallback — only if curl didn't return a valid version.
-if ! echo "$REMOTE" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-  if command -v gh >/dev/null 2>&1; then
-    REMOTE="$(gh api 'repos/jjackson/canopy/contents/VERSION' --jq .content 2>/dev/null \
-      | base64 -d 2>/dev/null | tr -d '[:space:]')"
-  fi
+# ─── 2. Remote version (git fetch — uncached, no CDN) ────────
+if [ ! -d "$MARKETPLACE/.git" ]; then
+  echo "ERROR marketplace_missing"
+  exit 0
 fi
+
+git -C "$MARKETPLACE" fetch --quiet origin main 2>/dev/null
+REMOTE="$(git -C "$MARKETPLACE" show origin/main:VERSION 2>/dev/null | tr -d '[:space:]')"
 
 if ! echo "$REMOTE" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
   echo "ERROR fetch_failed"
