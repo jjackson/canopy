@@ -257,7 +257,12 @@ def scroll_to(page: Page, target: str, *, config: RecorderConfig | None = None) 
 
 
 def draw_polygon(
-    page: Page, target: str, points: list, *, config: RecorderConfig | None = None
+    page: Page,
+    target: str,
+    points: list,
+    *,
+    tool: str | None = None,
+    config: RecorderConfig | None = None,
 ) -> bool:
     """Draw a polygon on a map/canvas by clicking a sequence of fractional points.
 
@@ -276,6 +281,19 @@ def draw_polygon(
     Returns False if the element doesn't resolve, has no box, or ``points`` is empty.
     """
     cfg = config or RecorderConfig()
+    # Activate the drawing tool first if asked. A normal Locator.click on a small map
+    # control (e.g. Mapbox's polygon button) fails Playwright's actionability checks;
+    # a coordinate mouse-click on its centre activates it reliably.
+    if tool:
+        trt = resolve_target(page, tool, timeout_ms=cfg.glide_timeout_ms)
+        if trt is not None:
+            tbox = trt.locator.bounding_box()
+            if tbox:
+                tx, ty = tbox["x"] + tbox["width"] / 2, tbox["y"] + tbox["height"] / 2
+                slow_move(page, tx, ty, steps=cfg.cursor_steps)
+                page.wait_for_timeout(cfg.glide_dwell_ms)
+                page.mouse.click(tx, ty)
+                page.wait_for_timeout(cfg.glide_dwell_ms)
     rt = resolve_target(page, target, timeout_ms=cfg.glide_timeout_ms)
     if rt is None:
         return False
@@ -418,7 +436,9 @@ def execute_action(
         elif kind == "hold":
             page.wait_for_timeout(int(float(seconds or value or 1.0) * 1000))
         elif kind == "draw":
-            ok = draw_polygon(page, target or "", action.get("points") or [], config=cfg)
+            ok = draw_polygon(
+                page, target or "", action.get("points") or [], tool=action.get("tool"), config=cfg
+            )
             if not ok:
                 error_kind = "target_not_found"
         else:

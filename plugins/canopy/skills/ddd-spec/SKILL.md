@@ -179,10 +179,11 @@ narrative first (Step 3) so the two stay in lockstep.
   the recorder tries each in order. For **`kind: draw`** (drawing a polygon on a
   map/canvas — Mapbox GL Draw etc., which no labelled-element click can express),
   `target` is the map element and `points` is a list of `[fx, fy]` fractions (0-1)
-  within its box; the cursor clicks each vertex then double-clicks to close. Activate
-  the draw tool first with a normal `click` on its toolbar button, e.g.
-  `{kind: click, target: "css:.mapbox-gl-draw_polygon"}` then
-  `{kind: draw, target: "css:#map", points: [[0.35,0.4],[0.6,0.4],[0.6,0.7],[0.35,0.7]]}`.
+  within its box; the cursor clicks each vertex then double-clicks to close. Set
+  `tool` to the draw-tool button (e.g. `css:.mapbox-gl-draw_polygon`) and `draw`
+  activates it first with a coordinate mouse-click (a normal `click` times out on
+  Playwright's actionability for those tiny map-control buttons), e.g.
+  `{kind: draw, target: "css:#map", tool: "css:.mapbox-gl-draw_polygon", points: [[0.35,0.4],[0.6,0.4],[0.6,0.7],[0.35,0.7]]}`.
   Write `actions` as the literal click-path
   that realizes `show`:
   ```yaml
