@@ -1,27 +1,33 @@
 #!/usr/bin/env python3
 """
-record_video.py — Optional silent video recording for canopy:walkthrough.
+record_video.py — Silent video recording for canopy:walkthrough specs.
 
-Replays the scenes from a completed walkthrough run (using the URLs captured
-in the run JSON) through a fresh Playwright Chromium context with
-record_video enabled, then converts the resulting webm to mp4 via ffmpeg.
+Reads the spec YAML and replays each scene's URL + actions through a Playwright
+Chromium context with ``record_video`` enabled, then converts the resulting
+webm to mp4 via ffmpeg. Produces one silent mp4 alongside the HTML deck.
 
-Runs AFTER the normal walkthrough capture/scoring flow — does not interfere
-with screenshots, scores, or deck generation. Produces one silent mp4
-alongside the HTML deck.
-
-Pacing presets (fast / medium / slow) combine a short initial hold, a
-smooth eased scroll over tall pages, and a short final hold. The scroll is
-what keeps a "fast" walkthrough from feeling fast-forwarded — viewers
-register motion as natural pace rather than a freeze-frame jump-cut.
+The recording loop lives in :class:`walkthrough._lib.orchestrator.Recorder` —
+this script is a thin CLI over it. To customise behaviour (skip nav when the
+URL hasn't changed, alternate viewport, custom hooks), subclass ``Recorder``
+in a one-off script and call ``.run(page, scenes)``; no need to fork this CLI.
 
 Usage:
     python3 record_video.py \\
-        --input /tmp/walkthrough-run-data.json \\
         --spec docs/walkthroughs/<name>.yaml \\
         --output screenshots/walkthroughs/<name>.mp4 \\
-        [--cookies /tmp/walkthrough-cookies.json]
+        [--cookies /tmp/walkthrough-cookies.json] \\
+        [--input /tmp/walkthrough-run-data.json] \\
+        [--scene 2,4 | --scene 2-4 | --scene name-match] \\
+        [--skip-same-url]
+
+``--spec`` is the source of truth for scenes. ``--input`` is accepted for
+backward compatibility: a walkthrough-run-data.json from canopy:walkthrough
+narrows the spec's scenes to the ones that were actually captured (so a
+``--scene 3`` partial run records exactly that scene). When ``--input`` is
+absent the full spec is recorded.
 """
+
+from __future__ import annotations
 
 import argparse
 import json
@@ -29,7 +35,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 try:
@@ -46,19 +51,16 @@ except ImportError:
         "  (or install canopy's optional browser deps: pip install -e '<canopy>[browser]')"
     )
 
-# Interactive-recorder lib lives next to this script in _lib/. Add this script's
-# dir to the path so `python3 record_video.py` (invoked by path) can import it.
+# Recorder lib lives next to this script in _lib/. Add this script's dir to the
+# path so `python3 record_video.py` (invoked by path) can import it.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _lib.recorder import CURSOR_OVERLAY_JS, execute_action  # noqa: E402
+from _lib.config import RecorderConfig  # noqa: E402
+from _lib.orchestrator import Recorder, SkipSameUrlRecorder  # noqa: E402
+from _lib.recorder import CURSOR_OVERLAY_JS  # noqa: E402
 
 
-# Pacing presets. Goal: a "fast" walkthrough that doesn't feel sped-up.
-# initial_hold + (scroll_distance / scroll_speed) + final_hold, floored by min_hold.
-PACING = {
-    "fast":   {"initial_hold": 0.8, "scroll_speed": 1200, "final_hold": 0.5, "min_hold": 2.5},
-    "medium": {"initial_hold": 1.5, "scroll_speed": 600,  "final_hold": 1.0, "min_hold": 4.0},
-    "slow":   {"initial_hold": 2.5, "scroll_speed": 300,  "final_hold": 1.5, "min_hold": 6.0},
-}
+# --------------------------------------------------------------------------- #
+# helpers
 
 
 def check_ffmpeg() -> str:
@@ -68,147 +70,139 @@ def check_ffmpeg() -> str:
     return p
 
 
-def smooth_scroll(page, pace_config) -> float:
-    """Scroll from top to bottom at pace_config['scroll_speed'] px/sec
-    with ease-in-out cubic. Returns seconds spent scrolling."""
-    height = page.evaluate("() => document.documentElement.scrollHeight")
-    viewport_h = page.evaluate("() => window.innerHeight")
-    distance = max(0, height - viewport_h)
-    if distance < 50:
-        return 0.0
-    speed = pace_config["scroll_speed"]
-    duration_ms = int((distance / speed) * 1000)
-    page.evaluate(
-        """([distance, duration]) => {
-          return new Promise(resolve => {
-            const start = performance.now();
-            const startY = window.scrollY;
-            function step(t) {
-              const elapsed = t - start;
-              const ratio = Math.min(1, elapsed / duration);
-              const eased = ratio < 0.5
-                ? 4 * ratio * ratio * ratio
-                : 1 - Math.pow(-2 * ratio + 2, 3) / 2;
-              window.scrollTo(0, startY + distance * eased);
-              if (ratio < 1) requestAnimationFrame(step);
-              else resolve();
-            }
-            requestAnimationFrame(step);
-          });
-        }""",
-        [distance, duration_ms],
+def webm_to_mp4(ffmpeg: str, webm: Path, out: Path) -> None:
+    """Re-encode the Playwright-recorded webm to a faststart mp4 via ffmpeg."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Converting {webm.name} → {out.name}")
+    result = subprocess.run(
+        [
+            ffmpeg, "-y", "-i", str(webm),
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            "-preset", "fast", "-crf", "23",
+            str(out),
+        ],
+        capture_output=True, text=True,
     )
-    return duration_ms / 1000.0
+    if result.returncode != 0:
+        sys.exit(f"ERROR: ffmpeg failed (exit {result.returncode}):\n{result.stderr[-2000:]}")
 
 
-def _goto_settle(page, url: str) -> None:
-    """Navigate without depending on networkidle (which hangs on apps with
-    long-poll / streaming endpoints — e.g. labs). domcontentloaded + a brief
-    settle is enough for the recorder; the page is visible, not necessarily idle."""
-    page.goto(url, wait_until="domcontentloaded", timeout=60000)
-    try:
-        page.wait_for_load_state("load", timeout=8000)
-    except Exception:
-        pass
-    page.wait_for_timeout(1200)
+def build_scenes_from_spec(spec: dict, base_url: str, *, run_data: dict | None) -> list[dict]:
+    """Resolve spec.scenes to the scene records the Recorder consumes.
+
+    Each scene is ``{"url": str | None, "title": str, "actions": [...]}``.
+    The URL comes from one of (in priority order):
+      1. An explicit ``url:`` on the scene (the cleanest authoring path).
+      2. The first ``goto`` action's target — the scene's own canonical start.
+      3. The matching slide in ``run_data`` (legacy capture path).
+      4. ``None`` — the orchestrator stays on the previous scene's ending page.
+
+    The ``None`` default matters: a multi-scene narrative often runs like
+    "scene 2 clicks a button that navigates, and scene 3 continues from
+    there". Forcing a nav to ``base/`` for those scenes would wipe the JS
+    state scene 2 just built. Authors who want a hard reset use
+    ``url: /...`` (or a ``goto`` action) explicitly.
+
+    If ``run_data`` is provided, only scenes with a matching captured slide
+    are returned — so ``--scene 3`` upstream is honoured here. Without
+    ``run_data`` we record every scene in the spec.
+    """
+    spec_scenes = spec.get("scenes") or []
+    base = base_url.rstrip("/")
+
+    # Build a 1-based index → captured URL map from run_data (if present).
+    captured_urls: dict[int, str] = {}
+    captured_filter: list[int] | None = None
+    if run_data is not None:
+        captured_filter = []
+        for slide in run_data.get("slides", []):
+            if slide.get("type") != "scene":
+                continue
+            idx = slide.get("scene_index")
+            if idx is None:
+                continue
+            captured_filter.append(int(idx))
+            if slide.get("url"):
+                captured_urls[int(idx)] = slide["url"]
+
+    def _absolutize(u: str) -> str:
+        u = (u or "").strip()
+        if not u:
+            return ""
+        return u if u.startswith("http") else base + u
+
+    scenes: list[dict] = []
+    for i, s in enumerate(spec_scenes, 1):
+        if captured_filter is not None and i not in captured_filter:
+            continue
+
+        actions = list(s.get("actions") or [])
+        url: str | None = None
+        explicit = s.get("url")
+        if explicit:
+            url = _absolutize(explicit)
+        if not url:
+            first_goto = next((a for a in actions if (a.get("kind") or "") == "goto"), None)
+            if first_goto:
+                url = _absolutize(first_goto.get("target") or first_goto.get("value") or "")
+        if not url:
+            url = captured_urls.get(i)
+
+        scenes.append({
+            "url": url,  # may be None → orchestrator stays on previous URL
+            "title": s.get("title", f"Scene {i}"),
+            "video_hold_seconds": s.get("video_hold_seconds"),
+            "actions": actions,
+        })
+    return scenes
 
 
-def record_scene(page, scene, pace_config, *, base_url: str = "") -> float:
-    url = scene.get("url")
-    title = scene.get("title", "(scene)")
-    actions = scene.get("actions") or []
-    if url:
-        print(f"  → {title}: {url}")
-        _goto_settle(page, url)
-    else:
-        # Continue scene: no URL → stay on whatever page the previous scene's
-        # actions navigated to (e.g. the review page a "Create plan" click landed
-        # on). This is what lets a narrative CREATE an entity in one scene and
-        # carry it through later scenes whose URL can't be known ahead of time.
-        print(f"  → {title}: (continue on {page.url})")
-    page.wait_for_timeout(int(pace_config["initial_hold"] * 1000))
-
-    # Interactive scene: drive the declared actions with the synthetic cursor so
-    # the recording shows the feature being USED, not just the page displayed.
-    if actions:
-        start = time.monotonic()
-        for action in actions:
-            execute_action(page, action, base_url=base_url)
-        page.wait_for_timeout(int(pace_config["final_hold"] * 1000))
-        elapsed = time.monotonic() - start + pace_config["initial_hold"] + pace_config["final_hold"]
-        return max(elapsed, pace_config["min_hold"])
-
-    # Static scene (no actions declared): fall back to the scroll-pan.
-    hold_override = scene.get("video_hold_seconds")
-    if hold_override is not None:
-        page.wait_for_timeout(int(float(hold_override) * 1000))
-        return pace_config["initial_hold"] + float(hold_override)
-
-    scroll_time = smooth_scroll(page, pace_config)
-    page.wait_for_timeout(int(pace_config["final_hold"] * 1000))
-    total = pace_config["initial_hold"] + scroll_time + pace_config["final_hold"]
-
-    if total < pace_config["min_hold"]:
-        extra = pace_config["min_hold"] - total
-        page.wait_for_timeout(int(extra * 1000))
-        total = pace_config["min_hold"]
-    return total
+# --------------------------------------------------------------------------- #
+# main
 
 
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--input", required=True, help="walkthrough run JSON")
-    ap.add_argument("--spec", required=True, help="walkthrough YAML spec")
+    ap.add_argument("--spec", required=True, help="walkthrough YAML spec (source of truth for scenes)")
     ap.add_argument("--output", required=True, help="output mp4 path")
+    ap.add_argument("--input", help="walkthrough run JSON (optional — narrows scenes to captured set)")
     ap.add_argument("--cookies", help="optional cookies JSON exported by `browse cookies`")
+    ap.add_argument(
+        "--skip-same-url",
+        action="store_true",
+        help="don't re-navigate between scenes whose URL hasn't changed (preserves JS state)",
+    )
+    ap.add_argument(
+        "--report",
+        help="optional path to write the JSON RunReport (per-action results + summary)",
+    )
     args = ap.parse_args()
 
     ffmpeg = check_ffmpeg()
-    run = json.loads(Path(args.input).read_text())
     spec = yaml.safe_load(Path(args.spec).read_text())
+    run_data: dict | None = None
+    if args.input:
+        run_data = json.loads(Path(args.input).read_text())
 
-    pace_name = spec.get("video_pace", "fast")
-    pace_config = PACING.get(pace_name)
-    if pace_config is None:
-        sys.exit(f"ERROR: video_pace must be one of {list(PACING)} (got: {pace_name!r})")
+    # Build the RecorderConfig: pace preset, optional spec override.
+    pace = spec.get("video_pace", "fast")
+    if pace not in ("fast", "medium", "slow"):
+        sys.exit(f"ERROR: video_pace must be fast | medium | slow (got: {pace!r})")
+    config = RecorderConfig.for_pace(pace).with_overrides(spec.get("video_recorder_config") or {})
 
     viewport_w = int(spec.get("video_viewport_width", 1280))
     viewport_h = int(spec.get("video_viewport_height", 720))
+    base_url = (spec.get("base_url") or "").rstrip("/")
 
-    # Pull scene metadata from run JSON; per-scene overrides from spec.scenes
-    # (by index — scene_index is 1-based in the run JSON).
-    spec_scenes = spec.get("scenes") or []
-    scenes = []
-    for slide in run.get("slides", []):
-        if slide.get("type") != "scene":
-            continue
-        idx = slide.get("scene_index", len(scenes) + 1)
-        override = None
-        actions = None
-        if 1 <= idx <= len(spec_scenes):
-            override = spec_scenes[idx - 1].get("video_hold_seconds")
-            # `actions` is the per-scene interaction script (cursor clicks/fills).
-            # When present, the recorder drives them instead of a blind scroll-pan.
-            actions = spec_scenes[idx - 1].get("actions")
-        # A scene needs SOMETHING to do: a URL to navigate to, or actions to run on
-        # the current page (a "continue" scene in a create-and-carry-through flow).
-        if not slide.get("url") and not actions:
-            continue
-        scenes.append({
-            "url": slide.get("url"),
-            "title": slide.get("title", ""),
-            "video_hold_seconds": override,
-            "actions": actions,
-        })
-
+    scenes = build_scenes_from_spec(spec, base_url, run_data=run_data)
     if not scenes:
-        sys.exit("ERROR: no scenes (need a url or actions) in run data")
+        sys.exit("ERROR: no scenes resolved from spec (check --input filtering)")
 
-    print(f"Recording {len(scenes)} scenes at pace={pace_name} ({viewport_w}x{viewport_h})")
+    print(f"Recording {len(scenes)} scenes at pace={pace} ({viewport_w}x{viewport_h})")
 
     with tempfile.TemporaryDirectory(prefix="walkthrough-video-") as td:
         video_dir = Path(td)
-        total_seconds = 0.0
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             context = browser.new_context(
@@ -231,47 +225,34 @@ def main():
 
             page = context.new_page()
 
-            # If no cookies given and spec has URL-based auth, replay it.
-            # Auth nav is NOT held — the recording starts capturing the moment
-            # the context opens, but the first scene will mask any auth-page
-            # flicker by overwriting it within a second.
+            # URL-based auth (e.g. /auth/e2e-login?token=...) for specs that
+            # use a magic-link login instead of cookie import.
             if not args.cookies:
                 auth = spec.get("auth") or {}
                 if auth.get("type") == "url" and auth.get("url"):
-                    base = spec["base_url"].rstrip("/")
                     try:
-                        page.goto(base + auth["url"], wait_until="networkidle", timeout=30000)
+                        page.goto(base_url + auth["url"], wait_until="networkidle", timeout=30000)
                     except Exception as e:
                         print(f"  ! auth nav warning: {e}", file=sys.stderr)
 
-            base_url = (spec.get("base_url") or "").rstrip("/")
-            for s in scenes:
-                total_seconds += record_scene(page, s, pace_config, base_url=base_url)
+            recorder_cls = SkipSameUrlRecorder if args.skip_same_url else Recorder
+            recorder = recorder_cls(config=config, base_url=base_url)
+            total_seconds = recorder.run(page, scenes)
 
             context.close()  # flush video
             browser.close()
 
+            recorder.print_summary()
+            if args.report:
+                Path(args.report).parent.mkdir(parents=True, exist_ok=True)
+                Path(args.report).write_text(recorder.report.to_json())
+                print(f"Wrote report: {args.report}")
+
         webms = list(video_dir.glob("*.webm"))
         if not webms:
             sys.exit("ERROR: no video file produced by Playwright")
-        webm_path = webms[0]
-
         out_path = Path(args.output)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        print(f"Converting {webm_path.name} → {out_path.name}")
-        result = subprocess.run(
-            [
-                ffmpeg, "-y", "-i", str(webm_path),
-                "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                "-movflags", "+faststart",
-                "-preset", "fast", "-crf", "23",
-                str(out_path),
-            ],
-            capture_output=True, text=True,
-        )
-        if result.returncode != 0:
-            sys.exit(f"ERROR: ffmpeg failed (exit {result.returncode}):\n{result.stderr[-2000:]}")
-
+        webm_to_mp4(ffmpeg, webms[0], out_path)
         size_mb = out_path.stat().st_size / (1024 * 1024)
         print(f"✓ {out_path} ({size_mb:.1f} MB, ~{total_seconds:.0f}s of footage)")
 
