@@ -172,11 +172,18 @@ narrative first (Step 3) so the two stay in lockstep.
   `actions` records as a static scroll — which scores ~1/5 on "demonstrates using
   the features." Each action is `{kind, target?, value?, seconds?, note?}` where
   `kind` ∈ {goto, click, click_menu, fill, select, type, press, hover, scroll_to,
-  scroll, wait_for, hold} and `target` is visible text or a CSS selector. For
+  scroll, wait_for, hold, draw} and `target` is visible text or a CSS selector. For
   `kind: select` (native `<select>` controls — which `click` can't reliably open
   across platforms), `value` is the option's `value` attribute, OR a digit-only
   string interpreted as the 0-based `index`, OR the option's visible label —
-  the recorder tries each in order. Write `actions` as the literal click-path
+  the recorder tries each in order. For **`kind: draw`** (drawing a polygon on a
+  map/canvas — Mapbox GL Draw etc., which no labelled-element click can express),
+  `target` is the map element and `points` is a list of `[fx, fy]` fractions (0-1)
+  within its box; the cursor clicks each vertex then double-clicks to close. Activate
+  the draw tool first with a normal `click` on its toolbar button, e.g.
+  `{kind: click, target: "css:.mapbox-gl-draw_polygon"}` then
+  `{kind: draw, target: "css:#map", points: [[0.35,0.4],[0.6,0.4],[0.6,0.7],[0.35,0.7]]}`.
+  Write `actions` as the literal click-path
   that realizes `show`:
   ```yaml
       show: "exclude an invalid work area and watch the per-worker metrics update"

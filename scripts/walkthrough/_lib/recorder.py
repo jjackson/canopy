@@ -53,7 +53,7 @@ try:
 except Exception:  # pragma: no cover — recorder may run without the ddd package on PYTHONPATH
     ACTION_KINDS = (
         "goto", "click", "click_menu", "fill", "select", "type", "press",
-        "hover", "scroll_to", "scroll", "wait_for", "hold",
+        "hover", "scroll_to", "scroll", "wait_for", "hold", "draw",
     )
 
 CURSOR_OVERLAY_JS = (Path(__file__).resolve().parent / "cursor_overlay.js").read_text()
@@ -256,6 +256,46 @@ def scroll_to(page: Page, target: str, *, config: RecorderConfig | None = None) 
     return True
 
 
+def draw_polygon(
+    page: Page, target: str, points: list, *, config: RecorderConfig | None = None
+) -> bool:
+    """Draw a polygon on a map/canvas by clicking a sequence of fractional points.
+
+    The other primitives resolve a DOM element and click its centre. Map drawing
+    (Mapbox GL Draw, or any canvas tool) needs clicks at *coordinates on the canvas*,
+    which no labelled-element verb can express — this is the gap ``draw`` fills.
+
+    ``target`` resolves to the map/canvas element; ``points`` is a list of
+    ``[fx, fy]`` fractions (0-1) within that element's bounding box. The synthetic
+    cursor glides to each vertex and clicks (real Playwright pointer events the
+    drawing tool receives, unlike JS-synthetic events), then double-clicks the last
+    vertex to close the polygon (Mapbox finishes a polygon on a double-click). The
+    drawing tool must already be active — click its toolbar button in a prior
+    ``click`` action.
+
+    Returns False if the element doesn't resolve, has no box, or ``points`` is empty.
+    """
+    cfg = config or RecorderConfig()
+    rt = resolve_target(page, target, timeout_ms=cfg.glide_timeout_ms)
+    if rt is None:
+        return False
+    box = rt.locator.bounding_box()
+    if not box or not points:
+        return False
+    coords = [
+        (box["x"] + float(fx) * box["width"], box["y"] + float(fy) * box["height"])
+        for fx, fy in points
+    ]
+    for x, y in coords:
+        slow_move(page, x, y, steps=cfg.cursor_steps)
+        page.wait_for_timeout(cfg.glide_dwell_ms)
+        page.mouse.click(x, y)
+    # Close the polygon — Mapbox GL Draw finishes on a double-click at the last vertex.
+    page.mouse.dblclick(*coords[-1])
+    page.wait_for_timeout(cfg.glide_dwell_ms)
+    return True
+
+
 def scroll_page(page: Page, to: str = "bottom", *, max_duration_ms: int = 4000) -> None:
     """Eased scroll to ``"top"``, ``"bottom"``, or a pixel offset."""
     if to == "top":
@@ -377,6 +417,10 @@ def execute_action(
                 error_kind = "timeout"
         elif kind == "hold":
             page.wait_for_timeout(int(float(seconds or value or 1.0) * 1000))
+        elif kind == "draw":
+            ok = draw_polygon(page, target or "", action.get("points") or [], config=cfg)
+            if not ok:
+                error_kind = "target_not_found"
         else:
             ok = False
             error_kind = "unknown_kind"

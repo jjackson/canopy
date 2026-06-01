@@ -185,3 +185,28 @@ def test_scene_actions_list_round_trips():
     assert [type(a).__name__ for a in actions] == [
         "GotoAction", "WaitForAction", "HoldAction", "ScrollToAction", "HoldAction",
     ]
+
+
+def test_draw_validates_with_points():
+    from scripts.ddd.schemas.models import DrawAction
+
+    a = ACTION.validate_python(
+        {"kind": "draw", "target": "css:#review-map", "points": [[0.3, 0.4], [0.6, 0.4], [0.6, 0.7]]}
+    )
+    assert isinstance(a, DrawAction)
+    assert a.target == "css:#review-map"
+    assert a.points == [(0.3, 0.4), (0.6, 0.4), (0.6, 0.7)]
+
+
+def test_draw_requires_target_and_points():
+    with pytest.raises(ValidationError):
+        ACTION.validate_python({"kind": "draw", "points": [[0.3, 0.4]]})  # no target
+    with pytest.raises(ValidationError):
+        ACTION.validate_python({"kind": "draw", "target": "css:#m"})  # no points
+
+
+def test_draw_rejects_foreign_fields():
+    with pytest.raises(ValidationError):
+        ACTION.validate_python(
+            {"kind": "draw", "target": "css:#m", "points": [[0.3, 0.4]], "value": "x"}
+        )
