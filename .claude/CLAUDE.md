@@ -142,8 +142,8 @@ Then follow the plugin-update steps below (`/canopy:update` etc.) if
 - `src/orchestrator/run_log.py` — improvement cycle run log tracking
 
 ### Plugin (Claude Code skills, commands, agents)
-- `plugins/canopy/skills/` — skill definitions (select-session, find-session, improve, brief, patterns, orchestrator, product-management, doc-regeneration, update, walkthrough, walkthrough-defect-creator, walkthrough-eval, website-builder, auth-preflight, doctor, project-status)
-- `plugins/canopy/commands/` — slash commands (pm-scout, pm-status, doc-regen, improve, brief, patterns, select-session, find-session, session-review, update, walkthrough, walkthrough-defect-creator, walkthrough-eval, website-builder, auth-preflight, project-status)
+- `plugins/canopy/skills/` — skill definitions (select-session, find-session, improve, brief, patterns, orchestrator, product-management, issue-triage, doc-regeneration, update, walkthrough, walkthrough-defect-creator, walkthrough-eval, website-builder, auth-preflight, doctor, project-status)
+- `plugins/canopy/commands/` — slash commands (pm-scout, pm-status, issue-triage, doc-regen, improve, brief, patterns, select-session, find-session, session-review, update, walkthrough, walkthrough-defect-creator, walkthrough-eval, website-builder, auth-preflight, project-status)
 - `plugins/canopy/agents/` — autonomous agents (pm-supervisor, session-review, walkthrough, website-builder)
 - `.claude-plugin/marketplace.json` — plugin marketplace manifest
 
