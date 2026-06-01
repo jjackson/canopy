@@ -43,6 +43,7 @@ ACTION_KINDS = (
     "click",      # click a visible text label or CSS selector (target)
     "click_menu", # click an item inside the currently-open dropdown (target=item text)
     "fill",       # focus a field (target=label or selector) and type value
+    "select",     # pick an option from a native <select> (target=select, value=option value/index/label)
     "type",       # type value into whatever is focused
     "press",      # press a key (value, e.g. "Enter")
     "hover",      # glide the cursor onto target and rest (no click)
@@ -67,20 +68,36 @@ def slow_move(page: Page, x: float, y: float, steps: int = 36) -> None:
 
 
 def _box_center(page: Page, target: str) -> dict | None:
-    """Viewport-center {x, y} of the first element matching ``target``.
+    """Viewport-center {x, y} of the best element matching ``target``.
 
-    ``target`` is a CSS selector if it starts with one of ``# . [`` or contains
-    no spaces and looks selector-ish; otherwise it's treated as visible text.
-    Scrolls the element to center first so the click lands on-screen (a click the
+    If ``target`` resolves as a CSS selector, the first match wins. Otherwise it's
+    treated as visible text and ranked so a click lands on the thing a human would
+    click — an actionable control (button / link / option / list item / menuitem),
+    exact text over substring, and the *smallest* (most specific) match over a big
+    wrapping container. This is what makes clicking a search result, a menu item,
+    or a list row reliable from a plain text target instead of needing a bespoke
+    CSS selector per scene. Scrolls the chosen element to center first (a click the
     viewer can't see is a recording bug, not just a functional one).
     """
     js = """(t) => {
         let el = null;
         try { el = document.querySelector(t); } catch (e) { el = null; }
         if (!el) {
-            const all = [...document.querySelectorAll('button, a, [role=button], summary, label, span, div, td, th, h1, h2, h3')];
-            el = all.find(e => e.innerText && e.innerText.trim() === t)
-              || all.find(e => e.innerText && e.innerText.trim().includes(t));
+            const txt = e => (e.innerText || e.textContent || '').trim();
+            const vis = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+            const area = e => { const r = e.getBoundingClientRect(); return r.width * r.height; };
+            const ACT = 'button, a, [role=button], [role=option], [role=menuitem], summary, li, td';
+            const TXT = 'label, span, div, th, h1, h2, h3, p';
+            // Ranked pools: actionable-exact, actionable-substring, text-exact, text-substring.
+            const pools = [
+                [...document.querySelectorAll(ACT)].filter(e => vis(e) && txt(e) === t),
+                [...document.querySelectorAll(ACT)].filter(e => vis(e) && txt(e).includes(t)),
+                [...document.querySelectorAll(TXT)].filter(e => vis(e) && txt(e) === t),
+                [...document.querySelectorAll(TXT)].filter(e => vis(e) && txt(e).includes(t)),
+            ];
+            for (const pool of pools) {
+                if (pool.length) { pool.sort((a, b) => area(a) - area(b)); el = pool[0]; break; }
+            }
         }
         if (!el) return null;
         el.scrollIntoView({behavior: 'instant', block: 'center'});
