@@ -11,6 +11,40 @@ recent, verifiable themes in the git log.
 
 ## [Unreleased]
 
+### Changed
+- **Recorder delegates target resolution + clicks to Playwright locators** (0.2.143) —
+  the previous resolver shipped a hand-rolled ``_box_center`` JS that scanned the
+  DOM ranking actionable-vs-text pools, a polling ``_glide_to`` deadline that
+  re-implemented ``Locator.wait_for(state="visible")``, and a
+  ``page.mouse.click(x, y)`` coordinate click that bypassed Playwright's
+  actionability checks (visible, stable, receives events, enabled, not
+  detached). Net effect: a less-reliable clone of a thing Playwright already
+  provides correctly. Now the prefix syntax maps directly to ``get_by_*``:
+  - ``css:#x`` → ``page.locator("#x")``
+  - ``testid:foo`` → ``page.get_by_test_id("foo")``
+  - ``aria:Foo`` → ``page.get_by_label("Foo", exact=False)``  (was a CSS
+    ``[aria-label*=...]`` substring match that missed ``aria-labelledby`` and
+    ``<label for>`` associations; now uses Playwright's accessible-name
+    semantics)
+  - ``role:button`` / ``role:button:Sign in`` → ``page.get_by_role(...)``
+  - ``text:Foo`` → ``page.get_by_text("Foo")``
+  Bare targets use a tightened heuristic — ``+ Bulk paste list`` used to read
+  as CSS (leading ``+``) and threw on the invalid selector, silently breaking
+  the whole microplans-10-wards scene-2 cascade. Now a leading combinator is
+  text unless followed by an identifier-shaped char. The auto path also falls
+  through from CSS-attempt → text-engine on miss, so a heuristic
+  mis-classification is recoverable. ``click_text`` / ``fill_field`` /
+  ``select_option`` / ``hover`` / ``scroll_to`` all call ``Locator.click``,
+  ``Locator.fill`` + ``Locator.type``, ``Locator.select_option``,
+  ``Locator.hover``, ``Locator.scroll_into_view_if_needed`` — full
+  actionability checks intact, cursor still glides visually via ``slow_move``.
+  E2E vs origin/main on microplans-10-wards: 245 s footage (was 240 s, +2 %
+  for the genuine actionability waits — silent failures no longer hide the
+  real time cost), 61/62 actions ok, same transient ``Creating 10 plan``
+  timeout that's a UI race not a recorder bug. ``tests/walkthrough/
+  test_targets.py`` rewrites the dispatch tests against a ``FakePage`` that
+  records which Playwright API each prefix routes to.
+
 ### Added
 - **Discriminated `Action` union — strict per-kind field validation** (0.2.142) —
   the flat `Action` Pydantic model accepted any of `target / value / seconds /

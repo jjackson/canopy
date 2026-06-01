@@ -1,74 +1,101 @@
-"""Target resolution for the walkthrough recorder.
+"""Target resolution — a thin author-facing layer over Playwright locators.
 
-Every recorder primitive (click, fill, select, scroll_to, wait_for, …) needs to
-turn the spec author's free-form ``target`` string into something concrete: a
-Playwright ``Locator`` for ``locator.click()`` / ``locator.fill()`` / etc., OR a
-viewport-centre coordinate so the synthetic cursor can glide to it.
+The walkthrough recorder needs to turn the spec author's free-form ``target``
+string ("Resolved wards", "#cfg-strategy", "testid:plan-picker") into something
+the cursor can glide to and the verb can act on. Two questions matter:
 
-Before this module each primitive grew its own resolver — its own selector
-ladder, its own text-fallback rules, its own selector-vs-text heuristic. Adding
-a new verb meant writing a fifth resolver. Worse, the heuristics disagreed:
-``wait_for`` ran ``page.wait_for_selector`` on a plain-text target and stacked a
-12-second hang per call before the text-match fallback fired (see the
-``microplans-10-wards`` recording, 248 s → 193 s once this consolidation landed).
+  1. **Where is the element?**
+  2. **How do we click / fill / read its box?**
 
-One public entry point:
+Playwright already answers both, well: ``Locator`` is the source of truth,
+``get_by_role / get_by_text / get_by_label / get_by_test_id / get_by_placeholder``
+are the recommended idioms (they use the browser's accessibility tree and
+auto-wait for visibility + actionability), and ``Locator.bounding_box()``
+gives us coordinates for the synthetic cursor. This module is the adapter
+between our author syntax and those APIs — nothing more.
 
-    resolve_target(page, target, *, timeout_ms) -> ResolvedTarget | None
+What changed vs the original 0.2.141 implementation: ``_box_center`` ran a
+hand-rolled DOM scan ranked actionable-vs-text and ``_glide_to`` polled it
+every 150ms until a deadline. Both were partial reimplementations of what
+Playwright's locator engine already does — and they bypassed the
+``Locator.click()`` actionability checks (visible, stable, receives events,
+not detached) by clicking at coordinates. The result was a less-reliable
+clone of a thing Playwright already provides correctly.
 
-Returns:
-- ``locator``: a Playwright ``Locator`` when the target unambiguously resolves
-  via the selector engine (CSS, testid, aria-label, role). ``None`` when the
-  target matched via visible-text ranking instead. Primitives that need to
-  call a Playwright API (``locator.fill``, ``locator.select_option``) get one
-  for free; primitives that only need to click at coordinates ignore it.
-- ``box``: ``{x, y}`` viewport-centre of the resolved element, always set —
-  this is what the cursor glides to.
-- ``kind``: which path resolved the target. Useful for telemetry (the report
-  layer wants to know whether a click landed via CSS or text-ranking).
+Now:
 
-Target syntax (the value of ``Action.target`` / etc.):
+  - Each prefix maps directly to a Playwright ``get_by_*`` call:
+        ``css:#x``        → ``page.locator("#x")``
+        ``testid:foo``    → ``page.get_by_test_id("foo")``
+        ``aria:Foo``      → ``page.get_by_label("Foo", exact=False)``
+        ``role:button``   → ``page.get_by_role("button")``
+        ``role:button:Sign in`` → ``page.get_by_role("button", name="Sign in", exact=True)``
+        ``text:Foo``      → ``page.get_by_text("Foo")``
+  - Bare targets use a heuristic: CSS-shaped → ``page.locator(...)``; English
+    → a small role-prefers-actionable cascade ending in ``get_by_text``.
+  - Auto-wait for visibility uses ``Locator.wait_for(state="visible", ...)``
+    — the same call Playwright tests use.
+  - ``resolve_target`` returns the ``Locator`` itself; primitives that need
+    Playwright API surface (``locator.click()``, ``locator.fill()``,
+    ``locator.select_option()``) get it directly. The cursor-coordinate box
+    comes from ``locator.bounding_box()``.
 
-    "css:#cfg-strategy"             explicit CSS selector
-    "testid:plan-picker-checkbox"   shorthand for [data-testid="..."]
-    "aria:Resolved wards"           shorthand for [aria-label*="..."]
-    "role:option"                   shorthand for [role="..."]
-    "text:Resolved wards"           force the visible-text path (skips heuristic)
-    "Resolved wards"                bare — heuristic picks (defaults to text here)
-    "#cfg-strategy"                 bare — heuristic picks (defaults to CSS here)
-
-The heuristic only kicks in for bare targets. Explicit prefixes are always
-honoured — useful when text happens to start with ``#`` or a CSS selector
-happens to be a single English word.
+Net code goes down (~150 lines deleted, ~80 added), reliability goes up
+(actionability checks are back), and the author syntax is unchanged — every
+existing spec records the same.
 """
 
 from __future__ import annotations
 
-import time
 from typing import NamedTuple
 
 from playwright.sync_api import Locator, Page
 
-# Recognised prefixes, in priority order. Order matters only for documentation —
-# at parse time we look for an exact prefix match.
+# Recognised target prefixes. Order matters for documentation — at parse time
+# we look for an exact prefix match.
 _PREFIXES = ("css", "text", "testid", "aria", "role")
 _PREFIX_SEPARATOR = ":"
 
+# Roles that map to user-actionable elements — used by the bare-target text
+# heuristic when an author writes "Save" expecting the Save button to win
+# over a `<span>Save</span>` heading on the same page. Order = preference,
+# but in practice each role probe is cheap (Playwright either has a match
+# immediately or doesn't).
+_ACTIONABLE_ROLES = (
+    "button", "link", "option", "menuitem", "tab", "switch",
+    "checkbox", "radio", "combobox", "treeitem",
+    # ``columnheader`` covers sortable table headers (the compare-page
+    # "Longest worker travel" / "Coverage" clicks); ``cell`` covers
+    # grid-style row clicks ("Burji", "Madobi" in a resolved-wards table).
+    "columnheader", "cell",
+)
+
 
 class ResolvedTarget(NamedTuple):
-    """The output of ``resolve_target`` — what the caller actually uses."""
+    """A Playwright ``Locator`` + the viewport-centre cursor coordinate.
 
-    locator: Locator | None
+    ``locator``: the Playwright handle every primitive uses to act
+        (``click()``, ``fill()``, ``select_option()``, ``scroll_into_view_if_needed()``,
+        etc.). NEVER ``None`` — if we couldn't resolve, the whole
+        ``ResolvedTarget`` is ``None``.
+    ``box``: ``{x, y}`` viewport centre of the locator's bounding box — what
+        the synthetic cursor glides to before the primitive acts.
+    ``kind``: ``"css"`` | ``"testid"`` | ``"aria"`` | ``"role"`` | ``"text"``.
+        Useful for telemetry; the report layer wants to know whether a click
+        landed via the selector engine or visible-text ranking.
+    """
+
+    locator: Locator
     box: dict
-    kind: str  # "css" | "testid" | "aria" | "role" | "text"
+    kind: str
 
 
 def parse_target(target: str) -> tuple[str, str]:
     """Split an optional ``kind:`` prefix off ``target``.
 
-    Returns ``(kind, value)`` where ``kind`` is one of the prefixes from
-    :data:`_PREFIXES`, or ``"auto"`` if no prefix was given. A bare target is
-    returned as ``("auto", target)`` so callers can route to the heuristic.
+    Returns ``(kind, value)`` where ``kind`` is one of the prefixes in
+    :data:`_PREFIXES`, or ``"auto"`` if no prefix was given. A bare target
+    is returned as ``("auto", target)`` so callers can route to the heuristic.
     """
     if not target:
         return "auto", ""
@@ -83,175 +110,204 @@ def looks_like_selector(s: str) -> bool:
     """Heuristic: is ``s`` a CSS selector or visible text?
 
     Returns True for strings whose first non-space char is a structural
-    selector character (``# . [ : > ~ +``) or that contain selector-only
-    punctuation alongside an identifier-looking lead. Returns False for
-    plain English text.
+    selector character followed by an identifier-shaped continuation
+    (``#cfg-strategy``, ``.btn``, ``[data-foo=bar]``, ``:focus``), or that
+    combine an identifier with selector punctuation (``input.psel``,
+    ``tr.is-unresolved select``).
 
-    Used for two things: (1) routing the ``"auto"`` branch in ``resolve_target``
-    when there's no explicit prefix, and (2) deciding whether ``wait_for`` can
-    skip ``page.wait_for_selector`` (which would otherwise sit through its
-    full timeout on a plain-text target before falling back).
+    Returns False for English text — including text that *starts* with a
+    CSS combinator like ``+ Bulk paste list``. ``+`` and ``~`` are valid
+    only INSIDE a selector (sibling combinators); as a leading char of a
+    bare target with a space after, they're a button label, not a query.
+    The old heuristic mis-classified those and routed authors' bare-text
+    targets through ``page.locator(...)`` which then threw on the invalid
+    selector.
+
+    Even with the tighter heuristic the resolver falls through to the
+    text-engine path on a CSS miss (see :func:`resolve_target`), so a
+    mis-classification is recoverable — but the tightening avoids the
+    extra round-trip when text was clearly the intent.
     """
     s = (s or "").strip()
     if not s:
         return False
-    if s[0] in "#.[:>~+":
+    # Leading structural chars are only selector-y when followed immediately
+    # by an identifier-shaped char (``#a``, ``.btn``, ``[x]``, ``:hover``).
+    # ``+ Bulk`` (combinator + space + label) is text.
+    if s[0] in "#.[:" and len(s) > 1 and (s[1].isalnum() or s[1] in "-_*["):
         return True
+    # ``>`` / ``~`` / ``+`` as leading chars are ALWAYS combinators — they
+    # need a left-hand side to be valid CSS. Bare-leading is text.
     if s[0].isalpha() and any(c in s for c in ">[.#:"):
         return True
     return False
 
 
-def to_css_selector(kind: str, value: str) -> str | None:
-    """If ``kind`` unambiguously maps to a CSS selector, return it. Else ``None``.
+def measure_box(loc: Locator) -> dict | None:
+    """Return ``{x, y}`` viewport centre of a Playwright ``Locator``, or ``None``.
 
-    Used by callers that need a single string to hand to Playwright's selector
-    engine. ``"auto"`` defers to the heuristic — returns the bare value when
-    it looks selector-shaped, otherwise ``None`` (signaling fall back to the
-    visible-text path).
+    Public because :func:`recorder.click_text` re-measures right before the
+    click to handle the case where a settle moved the target mid-glide. The
+    cursor lands on the element's current centre, not where it was when the
+    glide started.
     """
-    if kind == "css":
-        return value
-    if kind == "testid":
-        return f'[data-testid="{value}"]'
-    if kind == "aria":
-        return f'[aria-label*="{value}"]'
-    if kind == "role":
-        return f'[role="{value}"]'
-    if kind == "auto" and looks_like_selector(value):
-        return value
-    return None
-
-
-# JS that finds + scrolls + measures an element by ranked visible-text match.
-# Kept here (not on each primitive) so the ranking — actionable controls first,
-# exact text over substring, smallest match over wrapping containers — is the
-# same wherever a recorder primitive needs to glide to a text label.
-_FIND_BY_TEXT_JS = """(t) => {
-    const txt = e => (e.innerText || e.textContent || '').trim();
-    const vis = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-    const area = e => { const r = e.getBoundingClientRect(); return r.width * r.height; };
-    const ACT = 'button, a, [role=button], [role=option], [role=menuitem], summary, li, td';
-    const TXT = 'label, span, div, th, h1, h2, h3, p';
-    const pools = [
-        [...document.querySelectorAll(ACT)].filter(e => vis(e) && txt(e) === t),
-        [...document.querySelectorAll(ACT)].filter(e => vis(e) && txt(e).includes(t)),
-        [...document.querySelectorAll(TXT)].filter(e => vis(e) && txt(e) === t),
-        [...document.querySelectorAll(TXT)].filter(e => vis(e) && txt(e).includes(t)),
-    ];
-    let el = null;
-    for (const pool of pools) {
-        if (pool.length) { pool.sort((a, b) => area(a) - area(b)); el = pool[0]; break; }
-    }
-    if (!el) return null;
-    el.scrollIntoView({behavior: 'instant', block: 'center'});
-    const r = el.getBoundingClientRect();
-    if (r.width === 0 && r.height === 0) return null;
-    return {x: r.x + r.width / 2, y: r.y + r.height / 2};
-}"""
-
-
-def _measure_locator(loc: Locator) -> dict | None:
-    """Return ``{x, y}`` viewport-centre of a Playwright ``Locator``, or ``None``."""
     box = loc.bounding_box()
     if not box:
         return None
     return {"x": box["x"] + box["width"] / 2, "y": box["y"] + box["height"] / 2}
 
 
-def _resolve_via_css(page: Page, selector: str, *, timeout_ms: int) -> Locator | None:
-    """Wait for ``selector`` to become visible, return its first locator or ``None``."""
-    try:
-        loc = page.locator(selector).first
-        loc.wait_for(state="visible", timeout=timeout_ms)
-        return loc
-    except Exception:
-        return None
+# Internal alias for resolve_target's own calls — same function, less typing.
+_measure = measure_box
 
 
-def _resolve_via_text(page: Page, value: str, *, timeout_ms: int, poll_ms: int = 150) -> dict | None:
-    """Poll the page until visible-text ranking finds an element, return its box."""
-    deadline = time.time() + timeout_ms / 1000
-    while time.time() < deadline:
+def _locator_for_prefix(page: Page, kind: str, value: str) -> Locator | None:
+    """Map a parsed ``(kind, value)`` to the right Playwright locator API.
+
+    Returns ``None`` for unknown prefixes (which never happens once
+    ``parse_target`` has validated the kind) so callers can fall through
+    to the auto-heuristic without a separate signal.
+    """
+    if kind == "css":
+        return page.locator(value)
+    if kind == "testid":
+        return page.get_by_test_id(value)
+    if kind == "aria":
+        # ``get_by_label`` uses Playwright's accessible-name semantics —
+        # matches ``aria-label``, ``aria-labelledby``, ``<label for>``, and
+        # ``<label>`` wrapping. The old ``[aria-label*=...]`` CSS shorthand
+        # missed everything except the literal aria-label attribute.
+        return page.get_by_label(value, exact=False)
+    if kind == "role":
+        # ``role:button`` matches first button; ``role:button:Sign in``
+        # matches a button with that accessible name (exact). Authors who
+        # need substring-match name use the text path.
+        if _PREFIX_SEPARATOR in value:
+            role, name = value.split(_PREFIX_SEPARATOR, 1)
+            return page.get_by_role(role, name=name, exact=True)  # type: ignore[arg-type]
+        return page.get_by_role(value)  # type: ignore[arg-type]
+    if kind == "text":
+        return page.get_by_text(value)
+    return None
+
+
+def _resolve_via_text(page: Page, value: str, *, timeout_ms: int) -> Locator | None:
+    """Find an element by visible text.
+
+    Tries Playwright's text engine first (cheap, browser-native, picks the
+    smallest matching element — which is usually the actionable one
+    because a wrapping ``<div>`` has a bigger bounding box than its inner
+    ``<button>``). Falls back to role + accessible-name probes for the
+    rare case where the visible text and the accessible name diverge
+    (icon-only buttons that label themselves via ``aria-label``).
+
+    The ordering matters for speed: a 14-action scene that text-resolves
+    cleanly costs ~14×fast paths; flipping it to role-probes-first added
+    ~80 s of overhead on the microplans-10-wards recording for no
+    reliability win on these UIs.
+    """
+    # Half the budget on the cheap path. Exact first — Playwright's text
+    # engine ranks by smallest match, which beats a hand-rolled scan.
+    text_budget = max(500, timeout_ms // 2)
+    for getter in (
+        lambda: page.get_by_text(value, exact=True).first,
+        lambda: page.get_by_text(value).first,
+    ):
         try:
-            box = page.evaluate(_FIND_BY_TEXT_JS, value)
+            loc = getter()
+            loc.wait_for(state="visible", timeout=text_budget)
+            return loc
         except Exception:
-            box = None
-        if box:
-            return box
-        page.wait_for_timeout(poll_ms)
+            continue
+
+    # Role + accessible-name fallback. Each probe is short (we've already
+    # spent half the budget); we're covering the icon-only / aria-labeled
+    # case, not doing the primary lookup.
+    probe_budget = max(150, (timeout_ms - text_budget) // len(_ACTIONABLE_ROLES))
+    for role in _ACTIONABLE_ROLES:
+        loc = page.get_by_role(role, name=value, exact=True).first  # type: ignore[arg-type]
+        try:
+            loc.wait_for(state="visible", timeout=probe_budget)
+            return loc
+        except Exception:
+            continue
     return None
 
 
 def resolve_target(page: Page, target: str, *, timeout_ms: int = 6000) -> ResolvedTarget | None:
-    """Resolve a ``target`` string to a Playwright ``Locator`` + a cursor coordinate.
+    """Resolve a ``target`` string to a Playwright ``Locator`` + cursor coordinate.
 
     Routing:
-      - Explicit ``css:|testid:|aria:|role:`` — selector engine only. No text fallback.
-      - Explicit ``text:`` — visible-text ranking only. Skips selector engine.
-      - Bare target — heuristic: selector engine first if it looks selector-shaped,
-        otherwise visible-text ranking. Falls through to the other path on miss.
+      - Explicit ``css:|testid:|aria:|role:|text:`` — the matching
+        ``get_by_*`` (or raw ``locator(...)``) is the only path tried.
+        Explicit means explicit; no text-fallback if a CSS selector misses.
+      - Bare target — heuristic: selector-shaped → ``page.locator(value)``,
+        else the role-prefers-actionable cascade in :func:`_resolve_via_text`.
 
-    Returns ``None`` if neither path resolved within ``timeout_ms``.
+    Returns ``None`` if neither path resolved within ``timeout_ms``. The
+    returned ``Locator`` is auto-waited to visible so the caller can call
+    ``locator.click()`` / ``locator.fill()`` / etc. straight away.
     """
     if not target:
         return None
     kind, value = parse_target(target)
 
-    css = to_css_selector(kind, value)
-    if css is not None:
-        loc = _resolve_via_css(page, css, timeout_ms=timeout_ms)
-        if loc is not None:
-            box = _measure_locator(loc)
-            if box is not None:
-                return ResolvedTarget(locator=loc, box=box, kind=kind if kind != "auto" else "css")
-        # Explicit selector kinds (css/testid/aria/role) MUST resolve via the
-        # selector engine — no text-ranking fallback. The "auto" path keeps
-        # going so a heuristic miss can still land on visible text.
-        if kind != "auto":
+    if kind != "auto":
+        loc = _locator_for_prefix(page, kind, value)
+        if loc is None:
             return None
+        try:
+            loc = loc.first
+            loc.wait_for(state="visible", timeout=timeout_ms)
+        except Exception:
+            return None
+        box = _measure(loc)
+        if box is None:
+            return None
+        return ResolvedTarget(locator=loc, box=box, kind=kind)
 
-    if kind == "css":  # explicit css that didn't resolve — caller wanted exactly that
+    # auto — heuristic dispatch with FALL-THROUGH to text on CSS miss.
+    #
+    # The heuristic is fast but not infallible; a bare-leading combinator
+    # (``+ Foo``) used to read as CSS and throw, which silently killed the
+    # action. Now we try the selector engine first when the shape says so,
+    # and if it doesn't resolve in half the budget, we fall through to the
+    # visible-text path. Heuristic is helpful when right and recoverable
+    # when wrong.
+    if looks_like_selector(value):
+        try:
+            loc = page.locator(value).first
+            loc.wait_for(state="visible", timeout=timeout_ms // 2)
+            box = _measure(loc)
+            if box is not None:
+                return ResolvedTarget(locator=loc, box=box, kind="css")
+        except Exception:
+            pass  # selector parse error or no match — text below
+        text_budget = max(500, timeout_ms // 2)
+    else:
+        text_budget = timeout_ms
+
+    loc = _resolve_via_text(page, value, timeout_ms=text_budget)
+    if loc is None:
         return None
-
-    box = _resolve_via_text(page, value, timeout_ms=timeout_ms)
-    if box is not None:
-        return ResolvedTarget(locator=None, box=box, kind="text")
-    return None
+    box = _measure(loc)
+    if box is None:
+        return None
+    return ResolvedTarget(locator=loc, box=box, kind="text")
 
 
 def wait_for_target(page: Page, target: str, *, timeout_ms: int = 12000) -> bool:
-    """Wait for ``target`` to be present.
+    """Wait for ``target`` to appear, or pause for N ms if all-digits.
 
-    Selector targets are awaited via ``page.wait_for_selector`` (the selector
-    engine is faster and supports complex selectors). Text targets are awaited
-    via ``page.wait_for_function`` against ``document.body.innerText``.
-
-    The split matters: ``wait_for_selector`` on a plain-text target would sit
-    through its full timeout before Playwright gave up and raised, stacking
-    a per-call hang in front of every fallback. See :func:`looks_like_selector`.
+    All resolution paths flow through :func:`resolve_target` — that means
+    the same prefix syntax + the same role-prefers-actionable cascade as
+    everywhere else. No special-case selector branch (was a 12 s hang for
+    text targets before 0.2.141; the Playwright text engine handles it
+    correctly here).
     """
     if not target:
         return False
     if target.isdigit():
         page.wait_for_timeout(int(target))
         return True
-    kind, value = parse_target(target)
-    css = to_css_selector(kind, value)
-    if css is not None:
-        try:
-            page.wait_for_selector(css, timeout=timeout_ms)
-            return True
-        except Exception:
-            if kind != "auto":
-                return False
-            # Auto-heuristic was wrong — fall through to text match.
-    try:
-        page.wait_for_function(
-            "(t) => document.body && document.body.innerText.includes(t)",
-            arg=value,
-            timeout=timeout_ms,
-        )
-        return True
-    except Exception:
-        return False
+    return resolve_target(page, target, timeout_ms=timeout_ms) is not None

@@ -43,7 +43,7 @@ from playwright.sync_api import Page
 
 from .config import RecorderConfig
 from .results import ActionAssertError, ActionResult
-from .targets import resolve_target, wait_for_target
+from .targets import measure_box, resolve_target, wait_for_target
 
 # ACTION_KINDS lives in the DDD schema (single source of truth — keeps the
 # Pydantic Literal and the dispatcher vocabulary in sync). Imported lazily
@@ -94,116 +94,101 @@ def _glide_to(page: Page, target: str, *, config: RecorderConfig, dwell_ms: int 
 
 
 def click_text(page: Page, target: str, *, config: RecorderConfig | None = None) -> bool:
-    """Glide the cursor onto ``target`` (text or selector), pause, and click it.
+    """Glide the cursor onto ``target`` and click via ``Locator.click``.
 
-    The pre-click dwell + the overlay's click feedback (press-pulse + ring + a
-    lingering dot) make it unmistakable WHERE the click landed — we re-measure
-    the box right before clicking so the dot lands on the element, not a stale
-    spot from before a layout shift.
+    The cursor glide is visual: ``slow_move`` chunks the move so the overlay
+    animates, the pre-click dwell gives the viewer time to register WHERE
+    the click is about to land, and the overlay's click feedback (press-pulse
+    + ring + lingering dot) fires from the real ``mousedown``.
+
+    The click itself goes through ``Locator.click()`` — actionability checks
+    intact (visible, stable, receives events, enabled, not detached). This
+    matters: a video where the click silently misses an obscured element
+    used to look identical to a successful click; with ``Locator.click()``
+    the timeout fires loudly and the failure shows up in the run report.
     """
     cfg = config or RecorderConfig()
     rt = _glide_to(page, target, config=cfg, dwell_ms=cfg.click_dwell_ms)
     if rt is None:
         print(f"  ! click target not found: {target!r}")
         return False
-    # Re-resolve right before the click in case a settle or layout shift moved
-    # the target. The re-resolution uses the same heuristic so we don't end up
-    # clicking a different element than we glided to.
-    rt2 = resolve_target(page, target, timeout_ms=cfg.interaction_timeout_ms)
-    box = (rt2 or rt).box
+    # Re-measure right before the click in case a settle moved the element
+    # mid-glide; the cursor lands on its current centre, not where it was.
+    box = measure_box(rt.locator) or rt.box
     slow_move(page, box["x"], box["y"], steps=cfg.cursor_steps_short)
     page.wait_for_timeout(cfg.pre_click_dwell_ms)
-    page.mouse.click(box["x"], box["y"])
+    try:
+        rt.locator.click(timeout=cfg.interaction_timeout_ms)
+    except Exception as e:
+        print(f"  ! click failed (actionability): {target!r}: {e}")
+        return False
     page.wait_for_timeout(cfg.post_click_settle_ms)
     return True
 
 
 def click_menu_item(page: Page, item_text: str, *, config: RecorderConfig | None = None) -> bool:
-    """Click an item inside an open dropdown/popover, gliding the cursor onto it.
+    """Click an item inside an open dropdown / popover.
 
-    Same resolver as :func:`click_text`, shorter post-click settle — menus
-    are usually quicker to react than a top-level button click.
+    Same resolver as :func:`click_text`, shorter post-click settle (menus
+    react faster than top-level buttons). The verb is kept distinct so
+    spec authors signal "this click closes a menu" — useful for graders.
     """
     cfg = config or RecorderConfig()
     rt = _glide_to(page, item_text, config=cfg)
     if rt is None:
         print(f"  ! menu item not found: {item_text!r}")
         return False
-    page.mouse.click(rt.box["x"], rt.box["y"])
+    try:
+        rt.locator.click(timeout=cfg.menu_timeout_ms)
+    except Exception as e:
+        print(f"  ! menu click failed: {item_text!r}: {e}")
+        return False
     page.wait_for_timeout(cfg.menu_click_settle_ms)
     return True
 
 
 def fill_field(page: Page, target: str, value: str, *, config: RecorderConfig | None = None) -> bool:
-    """Glide to an input, click to focus, clear, then type ``value`` character-by-character.
+    """Glide to an input, click to focus, clear, then type character-by-character.
 
-    Tries the unified resolver first (CSS / testid / aria / role / text). When
-    the resolved target is a Playwright ``Locator``, uses ``locator.fill('')``
-    to clear and ``locator.type(value, delay=...)`` so the typing fires real
-    ``input`` events (which any reactive form depends on — see the
-    ``microplans-10-wards`` bulk-create button that stayed disabled because
-    a raw ``element.value =`` setter never fired ``input``).
+    Uses ``Locator.click()`` + ``Locator.fill("")`` + ``Locator.type(...)`` —
+    typing fires real ``input`` events (reactive form widgets that gate
+    buttons on debounced input depend on this; a raw ``element.value =``
+    setter wouldn't trigger them).
     """
     cfg = config or RecorderConfig()
     rt = _glide_to(page, target, config=cfg, dwell_ms=cfg.pre_fill_dwell_ms)
     if rt is None:
-        # Last-resort fallback for bare targets that resolved via text — try
-        # a couple of input-shaped CSS variants. Useful for old specs that
-        # write a placeholder string as the bare target (e.g.
-        # ``target: "ward-list"`` meaning "the textarea whose id or
-        # placeholder is ward-list").
-        for sel in (f"#{target}", f"input[placeholder*={target!r}]",
-                    f"textarea[placeholder*={target!r}]", f"[aria-label*={target!r}]"):
-            rt = resolve_target(page, "css:" + sel, timeout_ms=cfg.interaction_timeout_ms)
-            if rt is not None:
-                slow_move(page, rt.box["x"], rt.box["y"], steps=cfg.cursor_steps)
-                page.wait_for_timeout(cfg.pre_fill_dwell_ms)
-                break
-        else:
-            print(f"  ! fill target not found: {target!r}")
-            return False
-    if rt.locator is not None:
-        rt.locator.click()
+        print(f"  ! fill target not found: {target!r}")
+        return False
+    try:
+        rt.locator.click(timeout=cfg.interaction_timeout_ms)
         rt.locator.fill("")
         rt.locator.type(value, delay=cfg.typing_delay_ms)
-    else:
-        # Text-resolved target — fall back to coordinate click + keyboard type.
-        page.mouse.click(rt.box["x"], rt.box["y"])
-        page.keyboard.type(value, delay=cfg.typing_delay_ms)
+    except Exception as e:
+        print(f"  ! fill failed: {target!r}: {e}")
+        return False
     page.wait_for_timeout(cfg.post_fill_settle_ms)
     return True
 
 
 def select_option(page: Page, target: str, value: str, *, config: RecorderConfig | None = None) -> bool:
-    """Pick an option from a ``<select>`` element.
+    """Pick an option from a native ``<select>``.
 
-    Native HTML selects can't be opened+clicked via ``page.mouse.click`` reliably
-    across platforms — Playwright's ``locator.select_option`` is the canonical
-    way to drive them. We glide the synthetic cursor onto the select so the
-    viewer sees which control is being driven (the dropdown won't visually open
-    — that's a native-control limitation; the new value flips on the closed
-    widget).
+    Native HTML selects can't be reliably opened by clicking — across
+    platforms, the dropdown rendering is OS-controlled. ``Locator.select_option``
+    is the canonical way: it fires the right ``change`` events without
+    needing the visual open. The cursor still glides onto the select so the
+    viewer sees which control is changing; the closed widget flips to the
+    new value.
 
-    ``value`` is interpreted as the option's ``value`` attribute first, then a
-    digit-only string as the 0-based ``index``, then the visible text ``label``.
-    Returns False (with a printed warning) if none of those match.
+    ``value`` is interpreted as the option's ``value`` attribute first, then
+    a digit-only string as the 0-based ``index``, then the visible text
+    ``label``. Returns False if none match.
     """
     cfg = config or RecorderConfig()
     rt = _glide_to(page, target, config=cfg, dwell_ms=cfg.pre_select_dwell_ms)
     if rt is None:
-        # Old-spec fallback: a bare target that's actually an id of a <select>.
-        for sel in (f"select#{target}", f"#{target}",
-                    f"select[aria-label*={target!r}]", f"select[name={target!r}]"):
-            rt = resolve_target(page, "css:" + sel, timeout_ms=cfg.interaction_timeout_ms)
-            if rt is not None:
-                slow_move(page, rt.box["x"], rt.box["y"], steps=cfg.cursor_steps)
-                page.wait_for_timeout(cfg.pre_select_dwell_ms)
-                break
-        else:
-            print(f"  ! select target not found: {target!r}")
-            return False
-    if rt.locator is None:
-        print(f"  ! select target resolved by text, not a <select>: {target!r}")
+        print(f"  ! select target not found: {target!r}")
         return False
     val = str(value)
     attempts: list[dict] = [{"value": val}]
@@ -212,7 +197,7 @@ def select_option(page: Page, target: str, value: str, *, config: RecorderConfig
     attempts.append({"label": val})
     for attempt in attempts:
         try:
-            rt.locator.select_option(**attempt)
+            rt.locator.select_option(**attempt, timeout=cfg.interaction_timeout_ms)
             page.wait_for_timeout(cfg.post_select_settle_ms)
             return True
         except Exception:
@@ -222,31 +207,47 @@ def select_option(page: Page, target: str, value: str, *, config: RecorderConfig
 
 
 def hover(page: Page, target: str, *, seconds: float | None = None, config: RecorderConfig | None = None) -> bool:
-    """Glide the cursor onto ``target`` and rest. No click."""
+    """Glide the cursor onto ``target`` and rest. No click.
+
+    Uses ``Locator.hover()`` to fire real ``mouseenter`` / ``mouseover``
+    events — tooltips and hover-revealed controls depend on those. The
+    cursor glide is purely visual; the hover semantics come from Playwright.
+    """
     cfg = config or RecorderConfig()
     dwell_ms = int(seconds * 1000) if seconds is not None else cfg.glide_dwell_ms
     rt = _glide_to(page, target, config=cfg, dwell_ms=dwell_ms)
-    return rt is not None
+    if rt is None:
+        return False
+    try:
+        rt.locator.hover(timeout=cfg.interaction_timeout_ms)
+    except Exception:
+        # Tooltip-only hovers are not always actionable in Playwright's strict
+        # sense; the cursor already landed on the spot, so don't fail loud.
+        pass
+    return True
 
 
 def scroll_to(page: Page, target: str, *, config: RecorderConfig | None = None) -> bool:
     """Smooth-scroll the element matching ``target`` into view.
 
-    Uses the same target resolver as the other primitives — so the same
-    selector syntax works for ``scroll_to`` as for ``click``. After resolving
-    we run the in-page smooth scroll, then dwell so the motion is visible.
+    Resolves via the unified locator engine (same syntax as every other
+    primitive). For the actual scroll: ``Locator.scroll_into_view_if_needed``
+    guarantees the element ends up visible (handles nested scroll containers,
+    fixed headers, sticky elements — all the cases a window-level
+    ``scrollTo`` misses). We chase it with a brief in-page smooth-scroll
+    nudge so the motion is visible in the recording — the locator's
+    instant scroll alone reads as a teleport.
     """
     cfg = config or RecorderConfig()
     rt = resolve_target(page, target, timeout_ms=cfg.glide_timeout_ms)
     if rt is None:
         return False
-    # The resolver already scrolled the element to centre, but it used
-    # ``behavior: 'instant'``. Re-run a smooth scroll for the visible motion.
-    if rt.locator is not None:
-        try:
-            rt.locator.scroll_into_view_if_needed()
-        except Exception:
-            pass
+    try:
+        rt.locator.scroll_into_view_if_needed(timeout=cfg.glide_timeout_ms)
+    except Exception:
+        # If actionability strictness blocks the scroll, the smooth-scroll
+        # nudge below still tries; coordinate-based scroll is harmless.
+        pass
     page.evaluate(
         """([x, y]) => window.scrollTo({top: y + window.scrollY - window.innerHeight / 2, behavior: 'smooth'})""",
         [rt.box["x"], rt.box["y"]],
