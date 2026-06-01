@@ -174,6 +174,67 @@ def fill_field(page: Page, target: str, value: str, *, timeout_ms: int = 6000) -
     return True
 
 
+def select_option(page: Page, target: str, value: str, *, timeout_ms: int = 6000) -> bool:
+    """Pick an option from a ``<select>`` element.
+
+    Native HTML selects can't be opened+clicked via ``page.mouse.click`` reliably
+    across platforms — Playwright's ``locator.select_option`` is the canonical
+    way to drive them. This helper:
+
+      1. Resolves ``target`` to a ``<select>`` element. The ``target`` may be:
+         - A CSS selector (``select.pick-lga``, ``#country``)
+         - An id (``cfg-strategy``)
+         - An aria-label or name attribute
+      2. Glides the synthetic cursor onto the select so the viewer sees which
+         control is being driven (the dropdown won't visually open — that's a
+         native-control limitation; the new value flips on the closed widget).
+      3. Calls ``select_option`` with ``value`` interpreted as:
+         - The option's ``value`` attribute (first attempt)
+         - A digit-only string interpreted as the 0-based ``index`` (fallback)
+         - The option's visible text ``label`` (final fallback)
+
+    Returns True on success; logs + returns False on failure (one bad action
+    never aborts the render, per the execute_action contract).
+    """
+    selectors = [
+        target,
+        f"#{target}",
+        f"select#{target}",
+        f"select[aria-label*='{target}']",
+        f"select[name='{target}']",
+    ]
+    handle = None
+    for sel in selectors:
+        try:
+            loc = page.locator(sel).first
+            loc.wait_for(state="visible", timeout=1200)
+            handle = loc
+            break
+        except Exception:
+            continue
+    if handle is None:
+        print(f"  ! select target not found: {target!r}")
+        return False
+    box = handle.bounding_box()
+    if box:
+        slow_move(page, box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.wait_for_timeout(200)
+    val = str(value)
+    attempts = [{"value": val}]
+    if val.lstrip("-").isdigit():
+        attempts.append({"index": int(val)})
+    attempts.append({"label": val})
+    for attempt in attempts:
+        try:
+            handle.select_option(**attempt)
+            page.wait_for_timeout(300)
+            return True
+        except Exception:
+            continue
+    print(f"  ! select_option failed: {target!r} value={value!r}")
+    return False
+
+
 def scroll_to(page: Page, target: str) -> bool:
     """Smooth-scroll the element matching ``target`` into view."""
     return bool(
@@ -284,6 +345,8 @@ def execute_action(page: Page, action: dict[str, Any], *, base_url: str = "") ->
             click_menu_item(page, target or value or "")
         elif kind == "fill":
             fill_field(page, target or "", value or "")
+        elif kind == "select":
+            select_option(page, target or "", value or "")
         elif kind == "type":
             page.keyboard.type(value or "", delay=45)
         elif kind == "press":

@@ -586,9 +586,13 @@ reads as a slideshow.
 
 Declare `actions` per scene in the spec (see `ddd-spec` for authoring + the
 `Action` schema in `scripts/ddd/schemas/models.py`). Verbs: `goto`, `click`,
-`click_menu`, `fill`, `type`, `press`, `hover`, `scroll_to`, `scroll`,
-`wait_for`, `hold`. Each action is `{kind, target?, value?, seconds?, note?}`;
-`target` is visible text OR a CSS selector. Example:
+`click_menu`, `fill`, `select`, `type`, `press`, `hover`, `scroll_to`,
+`scroll`, `wait_for`, `hold`. Each action is
+`{kind, target?, value?, seconds?, note?}`; `target` is visible text OR a CSS
+selector. For `kind: select` (native `<select>` controls — which `click`
+can't reliably open across platforms), `value` is the option's `value`
+attribute / a digit-only string as the 0-based index / the visible label —
+recorder tries each in order. Example:
 
 ```yaml
 scenes:

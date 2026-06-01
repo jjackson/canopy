@@ -1,7 +1,7 @@
 {
   "$defs": {
     "Action": {
-      "description": "One scripted interaction the recorder performs with the synthetic cursor.\n\nA scene's ``actions`` turn its free-text ``show`` into something the video\nactually DOES \u2014 click, fill, open a menu, dwell, scroll \u2014 so the recording\ndemonstrates the feature being used instead of just panning a static page.\nThe recorder (scripts/walkthrough/_lib/recorder.py) maps each Action onto a\ncursor primitive; unknown kinds are skipped, never fatal.\n\nFields (all optional except ``kind``):\n  kind     \u2014 one of: goto, click, click_menu, fill, type, press, hover,\n             scroll_to, scroll, wait_for, hold\n  target   \u2014 text label or CSS selector to act on (click/hover/fill/scroll_to/wait_for)\n  value    \u2014 text to fill/type, key to press, url to goto, \"bottom\"/\"top\"/px for scroll\n  seconds  \u2014 dwell/hold duration\n  note     \u2014 human note: what this step demonstrates (shown in render logs)",
+      "description": "One scripted interaction the recorder performs with the synthetic cursor.\n\nA scene's ``actions`` turn its free-text ``show`` into something the video\nactually DOES \u2014 click, fill, open a menu, dwell, scroll \u2014 so the recording\ndemonstrates the feature being used instead of just panning a static page.\nThe recorder (scripts/walkthrough/_lib/recorder.py) maps each Action onto a\ncursor primitive; unknown kinds are skipped, never fatal.\n\nFields (all optional except ``kind``):\n  kind     \u2014 one of: goto, click, click_menu, fill, select, type, press, hover,\n             scroll_to, scroll, wait_for, hold\n  target   \u2014 text label or CSS selector to act on\n             (click/hover/fill/select/scroll_to/wait_for)\n  value    \u2014 text to fill/type, key to press, url to goto, \"bottom\"/\"top\"/px\n             for scroll, OR the ``<select>`` option's value attribute /\n             0-based index / visible label for ``select``\n  seconds  \u2014 dwell/hold duration\n  note     \u2014 human note: what this step demonstrates (shown in render logs)",
       "properties": {
         "kind": {
           "enum": [
@@ -9,6 +9,7 @@
             "click",
             "click_menu",
             "fill",
+            "select",
             "type",
             "press",
             "hover",
