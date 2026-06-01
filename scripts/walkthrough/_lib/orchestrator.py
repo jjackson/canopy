@@ -215,11 +215,18 @@ class Recorder:
             print(f"  · staying on {page.url}  — no nav for this scene")
 
         self.before_scene(scene)
+        # initial_hold_ms is a post-nav settle: it gives the freshly-loaded
+        # page a moment to paint before the cursor moves. Skip it when:
+        #   (a) the first action is wait_for — the wait_for IS the settle, or
+        #   (b) no navigation happened (url is None) — a stay-on-page scene
+        #       has no page-load transition to settle for, and the PREVIOUS
+        #       scene's final_hold_ms already provided any transition pause.
+        # Otherwise keep the original behavior (back-compat for static-scene
+        # paths and click-first scenes that need the page a moment to render).
         if leading_waitfor:
-            # Skip initial_hold_ms — the wait_for that's about to run is the
-            # settle. Print once per scene so authors can SEE the recorder is
-            # using the cheap path and not "doing nothing".
             print("  · deferring initial_hold_ms (first action is wait_for)")
+        elif url is None:
+            print("  · deferring initial_hold_ms (no nav for this scene)")
         else:
             page.wait_for_timeout(self.config.initial_hold_ms)
 
