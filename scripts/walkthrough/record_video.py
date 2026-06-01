@@ -114,11 +114,18 @@ def _goto_settle(page, url: str) -> None:
 
 
 def record_scene(page, scene, pace_config, *, base_url: str = "") -> float:
-    url = scene["url"]
+    url = scene.get("url")
     title = scene.get("title", "(scene)")
     actions = scene.get("actions") or []
-    print(f"  → {title}: {url}")
-    _goto_settle(page, url)
+    if url:
+        print(f"  → {title}: {url}")
+        _goto_settle(page, url)
+    else:
+        # Continue scene: no URL → stay on whatever page the previous scene's
+        # actions navigated to (e.g. the review page a "Create plan" click landed
+        # on). This is what lets a narrative CREATE an entity in one scene and
+        # carry it through later scenes whose URL can't be known ahead of time.
+        print(f"  → {title}: (continue on {page.url})")
     page.wait_for_timeout(int(pace_config["initial_hold"] * 1000))
 
     # Interactive scene: drive the declared actions with the synthetic cursor so
@@ -173,7 +180,7 @@ def main():
     spec_scenes = spec.get("scenes") or []
     scenes = []
     for slide in run.get("slides", []):
-        if slide.get("type") != "scene" or not slide.get("url"):
+        if slide.get("type") != "scene":
             continue
         idx = slide.get("scene_index", len(scenes) + 1)
         override = None
@@ -183,15 +190,19 @@ def main():
             # `actions` is the per-scene interaction script (cursor clicks/fills).
             # When present, the recorder drives them instead of a blind scroll-pan.
             actions = spec_scenes[idx - 1].get("actions")
+        # A scene needs SOMETHING to do: a URL to navigate to, or actions to run on
+        # the current page (a "continue" scene in a create-and-carry-through flow).
+        if not slide.get("url") and not actions:
+            continue
         scenes.append({
-            "url": slide["url"],
+            "url": slide.get("url"),
             "title": slide.get("title", ""),
             "video_hold_seconds": override,
             "actions": actions,
         })
 
     if not scenes:
-        sys.exit("ERROR: no scenes with URLs in run data")
+        sys.exit("ERROR: no scenes (need a url or actions) in run data")
 
     print(f"Recording {len(scenes)} scenes at pace={pace_name} ({viewport_w}x{viewport_h})")
 

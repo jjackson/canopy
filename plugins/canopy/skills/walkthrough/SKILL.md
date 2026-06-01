@@ -609,6 +609,14 @@ scenes:
 A bad/missing action target is logged and skipped — never fatal. The primitives
 live in `scripts/walkthrough/_lib/recorder.py` (`execute_action` dispatcher).
 
+**Create-and-carry-through flows.** A scene may omit its `url` to *continue on the
+page the previous scene's actions navigated to*. This is how a narrative can CREATE
+an entity in one scene (e.g. click "Create plan" → the app routes to the new
+record's page) and operate on it in later scenes whose URL can't be known ahead of
+time. Give scene 1 a `url` (the entry point); leave `url` empty on continue-scenes
+and drive them with `actions` (use a `goto` action to jump to a known static page
+like a workspace, and click-by-name to return to the created record).
+
 ### Pacing
 
 The default `fast` preset uses a short hold, a smooth eased scroll over
