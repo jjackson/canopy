@@ -574,6 +574,37 @@ are untouched.
 
 **Skip this section entirely if `record_video` is not set or is false.**
 
+### Interactive recording — scene `actions` (cursor + clicks)
+
+The recorder injects a **synthetic cursor** (`_lib/cursor_overlay.js`) on every
+context, so the mouse is visible and clicks draw a ripple. A scene with no
+`actions` falls back to a scroll-pan (a static page tour). A scene that declares
+`actions` is **driven** — the recorder glides the cursor and performs each step,
+so the video shows the feature being *used*, not just displayed. This is what
+lifts the `feature_use` score off the floor — a demo where nothing is clicked
+reads as a slideshow.
+
+Declare `actions` per scene in the spec (see `ddd-spec` for authoring + the
+`Action` schema in `scripts/ddd/schemas/models.py`). Verbs: `goto`, `click`,
+`click_menu`, `fill`, `type`, `press`, `hover`, `scroll_to`, `scroll`,
+`wait_for`, `hold`. Each action is `{kind, target?, value?, seconds?, note?}`;
+`target` is visible text OR a CSS selector. Example:
+
+```yaml
+scenes:
+  - persona: maya
+    title: "Maya tunes the plan"
+    show: "exclude an invalid work area and watch the metrics update"
+    actions:
+      - { kind: scroll_to, target: "PLAN METRICS" }
+      - { kind: click, target: "Exclude", note: "drop an invalid area" }
+      - { kind: wait_for, target: "Excluded 1" }
+      - { kind: hold, seconds: 1.5 }
+```
+
+A bad/missing action target is logged and skipped — never fatal. The primitives
+live in `scripts/walkthrough/_lib/recorder.py` (`execute_action` dispatcher).
+
 ### Pacing
 
 The default `fast` preset uses a short hold, a smooth eased scroll over

@@ -95,6 +95,73 @@
       ],
       "default": null,
       "title": "Last Actor At"
+    },
+    "scenes_run": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Scenes Run"
+    },
+    "scene_filter": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Scene Filter"
+    },
+    "auto_iterate_next_action": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Auto Iterate Next Action"
+    },
+    "auto_iterate_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Auto Iterate Reason"
+    },
+    "iteration_decks": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "title": "Iteration Decks",
+      "type": "object"
+    },
+    "iteration_clips": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "title": "Iteration Clips",
+      "type": "object"
     }
   },
   "required": [
