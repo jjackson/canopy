@@ -230,7 +230,19 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="walkthrough-video-") as td:
         video_dir = Path(td)
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            # SwiftShader so headless Chromium can render WebGL — Mapbox GL,
+            # three.js, deck.gl all fail to initialize without a GPU otherwise,
+            # leaving a blank canvas the cursor clicks into (a map `draw` then
+            # places no vertices). SwiftShader is Chromium's CPU GL backend; the
+            # explicit flag is required since Chrome dropped the auto-fallback.
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--enable-unsafe-swiftshader",
+                    "--use-angle=swiftshader",
+                    "--ignore-gpu-blocklist",
+                ],
+            )
             context = browser.new_context(
                 viewport={"width": viewport_w, "height": viewport_h},
                 record_video_dir=str(video_dir),

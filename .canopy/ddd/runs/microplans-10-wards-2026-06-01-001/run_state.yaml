@@ -1,0 +1,17 @@
+auto_iterate_next_action: null
+auto_iterate_reason: null
+feature: microplans-10-wards
+findings: []
+iteration: 0
+iteration_clips: {}
+iteration_decks: {}
+last_actor: null
+last_actor_at: null
+pending_review: null
+phase: phase0
+run_id: microplans-10-wards-2026-06-01-001
+scene_filter: null
+scenes_run: null
+schema_version: 1
+verdicts: {}
+why_brief: null
