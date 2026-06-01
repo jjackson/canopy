@@ -18,7 +18,10 @@ Usage:
         [--cookies /tmp/walkthrough-cookies.json] \\
         [--input /tmp/walkthrough-run-data.json] \\
         [--scene 2,4 | --scene 2-4 | --scene name-match] \\
-        [--skip-same-url]
+        [--skip-same-url] \\
+        [--report run-report.json] \\
+        [--snapshots screenshots/walkthroughs/<name>/] \\
+        [--snapshot-empty-scenes]
 
 ``--spec`` is the source of truth for scenes. ``--input`` is accepted for
 backward compatibility: a walkthrough-run-data.json from canopy:walkthrough
@@ -154,6 +157,12 @@ def build_scenes_from_spec(spec: dict, base_url: str, *, run_data: dict | None) 
             "title": s.get("title", f"Scene {i}"),
             "video_hold_seconds": s.get("video_hold_seconds"),
             "actions": actions,
+            # 1-based ORIGINAL spec index — preserved even when ``--input`` /
+            # ``--scene`` filters narrow the list (so ``scene_index=3`` on a
+            # partial run still means "spec scene 3", not "third in the
+            # filtered list"). Snapshots and ActionResult.scene_index both
+            # consume this.
+            "scene_index": i,
         })
     return scenes
 
@@ -176,6 +185,23 @@ def main() -> None:
     ap.add_argument(
         "--report",
         help="optional path to write the JSON RunReport (per-action results + summary)",
+    )
+    ap.add_argument(
+        "--snapshots",
+        help=(
+            "optional dir for per-scene screenshots + page-text JSON "
+            "(scene_<N>.png + scene_<N>_page_text.json — captured at each "
+            "scene's steady state). Used by canopy:walkthrough eval + DDD "
+            "concept judges."
+        ),
+    )
+    ap.add_argument(
+        "--snapshot-empty-scenes",
+        action="store_true",
+        help=(
+            "snapshot scenes with no actions too (default: skip — they would "
+            "duplicate the previous scene's steady-state frame)."
+        ),
     )
     args = ap.parse_args()
 
@@ -236,7 +262,12 @@ def main() -> None:
                         print(f"  ! auth nav warning: {e}", file=sys.stderr)
 
             recorder_cls = SkipSameUrlRecorder if args.skip_same_url else Recorder
-            recorder = recorder_cls(config=config, base_url=base_url)
+            recorder = recorder_cls(
+                config=config,
+                base_url=base_url,
+                snapshot_dir=Path(args.snapshots) if args.snapshots else None,
+                snapshot_empty_scenes=bool(args.snapshot_empty_scenes),
+            )
             total_seconds = recorder.run(page, scenes)
 
             context.close()  # flush video

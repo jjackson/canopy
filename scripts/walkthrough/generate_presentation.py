@@ -13,9 +13,19 @@ import os
 
 
 def _render_stars(score, max_score=5):
-    """Render Unicode star rating."""
-    filled = "\u2605" * score  # ★
-    empty = "\u2606" * (max_score - score)  # ☆
+    """Render Unicode star rating.
+
+    The judge schema defines ``ai_evaluation.score`` as a float (4.0, 4.5, etc.) —
+    multiplying ``str`` by float throws ``TypeError``, so we round to the nearest
+    int for the visual star count. The numeric tail (``{score}/{max_score}``)
+    still shows the underlying float so half-star precision isn't lost.
+    ``max_score`` is documented as int but coerced defensively in case a future
+    contributor emits a float (e.g. ``5.0``).
+    """
+    filled_n = int(round(float(score)))
+    max_n = int(round(float(max_score)))
+    filled = "\u2605" * filled_n  # ★
+    empty = "\u2606" * max(0, max_n - filled_n)  # ☆
     return f'<span class="stars">{filled}{empty}</span> ({score}/{max_score})'
 
 
