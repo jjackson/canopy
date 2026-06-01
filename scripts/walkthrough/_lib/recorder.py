@@ -289,11 +289,17 @@ def draw_polygon(
         if trt is not None:
             tbox = trt.locator.bounding_box()
             if tbox:
-                tx, ty = tbox["x"] + tbox["width"] / 2, tbox["y"] + tbox["height"] / 2
-                slow_move(page, tx, ty, steps=cfg.cursor_steps)
+                # Glide the visible cursor onto the tool so the video shows the reach...
+                slow_move(page, tbox["x"] + tbox["width"] / 2, tbox["y"] + tbox["height"] / 2, steps=cfg.cursor_steps)
                 page.wait_for_timeout(cfg.glide_dwell_ms)
-                page.mouse.click(tx, ty)
-                page.wait_for_timeout(cfg.glide_dwell_ms)
+            # ...but TOGGLE via the element's own click() handler. Mapbox-GL-Draw tool
+            # buttons don't enter draw mode on a synthetic mouse/Locator click (the
+            # mode stays simple_select); el.click() fires the handler that does.
+            try:
+                trt.locator.evaluate("el => el.click()")
+            except Exception:
+                pass
+            page.wait_for_timeout(cfg.glide_dwell_ms)
     rt = resolve_target(page, target, timeout_ms=cfg.glide_timeout_ms)
     if rt is None:
         return False
