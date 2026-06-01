@@ -11,6 +11,50 @@ recent, verifiable themes in the git log.
 
 ## [Unreleased]
 
+### Added
+- **Per-scene snapshots + `scene_index`-tagged action results** (0.2.146) —
+  three small recorder-framework gaps the DDD orchestrator hit running
+  ``microplans-10-wards`` are closed so the full DDD loop runs without
+  side-script workarounds.
+  - ``record_video.py --snapshots <dir>`` — captures one ``scene_<N>.png``
+    (full-page) + one ``scene_<N>_page_text.json`` (``document.body.innerText``
+    + url + title) per scene at the **steady-state moment** — between the
+    action loop and ``final_hold_ms``, after every post-action settle has
+    fired. That's the same surface ``canopy:walkthrough`` eval + ``ddd-
+    concept-eval`` need to dual-judge a recording; the DDD agent used to
+    write a side script (``/tmp/capture_scenes.py``) to fill the gap. New
+    ``Recorder.take_snapshot`` is an overridable hook so subclasses can
+    switch to viewport-only, write to S3, or grab extra artifacts (HAR,
+    ARIA tree) without re-implementing the steady-state gating.
+    ``--snapshot-empty-scenes`` toggles in narrative-only scenes (default:
+    skip — there's nothing the cursor could change between init and final).
+    Filenames use the **1-based ORIGINAL spec index** so a ``--scene 3``
+    partial run produces ``scene_3.png``, not ``scene_1.png`` — matches the
+    deck's scene numbering + the actionability-eval scene_index field.
+  - ``ActionResult.scene_index`` is now populated (was always ``None``).
+    The orchestrator's ``run_scene`` stamps the 1-based original spec index
+    onto each result via ``dataclasses.replace`` (the dataclass is frozen).
+    ``execute_action`` stays scene-agnostic — the dispatcher doesn't need
+    to know which scene it's serving — while every result in ``RunReport``
+    carries its source scene for downstream grouping. ``RunReport.to_json``
+    serialises the field so external tools see it.
+  - ``_render_stars`` in ``generate_presentation.py`` accepts float scores
+    (the judge schema's ``ai_evaluation.score`` is a float — 4.5, 5.0). The
+    star count rounds to the nearest int while the numeric tail
+    (``4.5/5``) keeps the underlying float so half-star precision isn't
+    lost. Defensive: ``max_score`` is coerced too in case a future
+    contributor emits ``5.0``. The previous ``"★" * score`` threw
+    ``TypeError`` whenever the judge produced a half-step score, blocking
+    deck generation on real DDD runs.
+  - 23 new tests under ``tests/walkthrough/`` —
+    ``test_record_video_snapshots.py`` (PNG + JSON contract, original-spec-
+    index naming, action-empty gating, lazy dir creation, fallback chain),
+    ``test_action_result_scene_index.py`` (multi-scene tagging, partial-
+    run index preservation, kwarg-over-dict override, JSON round-trip,
+    direct-dispatcher default), ``test_render_stars_accepts_float.py``
+    (4.5 + 5.0 don't raise, integer scores unchanged, float ``max_score``
+    tolerated). Existing ``Recorder`` / ``RunReport`` tests unchanged.
+
 ### Changed
 - **Recorder delegates target resolution + clicks to Playwright locators** (0.2.143) —
   the previous resolver shipped a hand-rolled ``_box_center`` JS that scanned the

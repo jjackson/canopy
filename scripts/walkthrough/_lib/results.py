@@ -50,6 +50,15 @@ class ActionResult:
     error_message: str | None = None
     """Free-form message for logs; not parsed by anything machine-readable."""
 
+    scene_index: int | None = None
+    """1-based original spec index of the scene this action belongs to.
+
+    Stamped by the orchestrator (``Recorder.run_scene``) so downstream tooling
+    can group action results by scene without re-parsing the spec. ``None``
+    means the action was executed outside any scene loop (e.g. a direct
+    ``execute_action`` test call).
+    """
+
 
 @dataclass
 class RunReport:

@@ -21,11 +21,25 @@ Override any subset to customise. ``record_video.py`` instantiates a base
 The orchestrator does NOT own the browser lifecycle — that's the CLI's job. A
 :class:`Recorder` takes a Playwright :class:`Page` in :meth:`run` and writes to
 its :class:`RunReport`. Easy to drive from a test that hands in a mocked Page.
+
+**Per-scene snapshots.** Pass ``snapshot_dir=Path(...)`` to capture a steady-state
+PNG + ``document.body.innerText`` JSON per scene. The capture moment is between
+the action loop and the scene's ``final_hold_ms`` — after all scripted actions
+have run and the post-action settle has fired, before the next scene navigates.
+That's the same frame the deck's screenshot strip lifts; downstream judges
+(``canopy:walkthrough`` eval, ``ddd-concept-eval``) read these files directly
+instead of re-driving the page. Action-empty scenes (the narrative-only back-
+half of a long spec) are skipped by default — they have nothing the cursor
+could change between init and final, so the snapshot would just duplicate the
+previous scene's. Pass ``snapshot_empty_scenes=True`` to override.
 """
 
 from __future__ import annotations
 
+import dataclasses
+import json
 import time
+from pathlib import Path
 from typing import Any
 
 from playwright.sync_api import Page
@@ -50,10 +64,21 @@ class Recorder:
         config: RecorderConfig | None = None,
         base_url: str = "",
         report: RunReport | None = None,
+        snapshot_dir: Path | None = None,
+        snapshot_empty_scenes: bool = False,
     ) -> None:
         self.config = config or RecorderConfig()
         self.base_url = (base_url or "").rstrip("/")
         self.report = report or RunReport()
+        # When set, ``take_snapshot`` fires at each scene's steady state and
+        # writes ``scene_<N>.png`` + ``scene_<N>_page_text.json``. The directory
+        # is created lazily on the first snapshot.
+        self.snapshot_dir: Path | None = Path(snapshot_dir) if snapshot_dir else None
+        self.snapshot_empty_scenes = snapshot_empty_scenes
+        # Records the indices snapshotted, in order. Useful in tests +
+        # downstream tooling that wants to enumerate captured scenes without
+        # rescanning the directory.
+        self.snapshots_taken: list[int] = []
 
     # ---- hooks (override these) -----------------------------------------
 
@@ -81,6 +106,53 @@ class Recorder:
     def after_action(self, scene: dict, action: dict, result: ActionResult) -> None:
         """Hook fired after each action runs (success or failure)."""
 
+    def take_snapshot(self, page: Page, scene: dict, scene_index: int) -> None:
+        """Capture a per-scene PNG + page-text JSON at this scene's steady state.
+
+        Called between the action loop and ``final_hold_ms`` — after the last
+        action's ``post_*_settle`` has fired, before the next scene navigates
+        away. Action-empty scenes (the narrative-only back half of a long
+        spec) are skipped unless ``snapshot_empty_scenes=True`` — there's
+        nothing to capture between init and final that a previous-scene
+        snapshot didn't already record.
+
+        Files are named ``scene_<scene_index>.png`` and
+        ``scene_<scene_index>_page_text.json`` so a ``--scene 3`` partial run
+        produces ``scene_3.*``, not ``scene_1.*`` — matches the deck +
+        actionability eval indexing.
+
+        Overridable: subclasses can switch to viewport-only screenshots,
+        write to S3, or grab additional artifacts (network HAR, ARIA tree)
+        without re-implementing the steady-state gating.
+        """
+        if self.snapshot_dir is None:
+            return
+        has_actions = bool(scene.get("actions") or [])
+        if not has_actions and not self.snapshot_empty_scenes:
+            return
+        self.snapshot_dir.mkdir(parents=True, exist_ok=True)
+        png_path = self.snapshot_dir / f"scene_{scene_index}.png"
+        text_path = self.snapshot_dir / f"scene_{scene_index}_page_text.json"
+        try:
+            page.screenshot(path=str(png_path), full_page=True)
+        except Exception as e:  # noqa: BLE001 — never let a snapshot kill the run
+            print(f"  ! snapshot screenshot failed for scene {scene_index}: {e}")
+            return
+        try:
+            inner_text = page.evaluate("() => document.body && document.body.innerText || ''")
+        except Exception as e:  # noqa: BLE001
+            print(f"  ! snapshot page-text failed for scene {scene_index}: {e}")
+            inner_text = ""
+        payload = {
+            "scene_index": scene_index,
+            "url": getattr(page, "url", "") or "",
+            "title": scene.get("title", f"Scene {scene_index}"),
+            "page_text": inner_text,
+        }
+        text_path.write_text(json.dumps(payload, indent=2))
+        self.snapshots_taken.append(scene_index)
+        print(f"  · snapshot scene_{scene_index}.png + scene_{scene_index}_page_text.json")
+
     # ---- implementation -------------------------------------------------
 
     def goto_and_settle(self, page: Page, url: str) -> None:
@@ -97,13 +169,21 @@ class Recorder:
             pass
         page.wait_for_timeout(self.config.goto_settle_ms)
 
-    def run_scene(self, page: Page, scene: dict) -> float:
+    def run_scene(self, page: Page, scene: dict, *, scene_index: int | None = None) -> float:
         """Record one scene. Returns elapsed seconds (floored by ``min_hold_ms``).
 
         Order: hook ``before_scene`` → resolve nav target → maybe navigate →
         ``initial_hold_ms`` → each action with ``before_action`` / ``after_action``
         → ``final_hold_ms`` → hook ``after_scene``.
+
+        ``scene_index`` is the 1-based ORIGINAL spec index of this scene (the
+        ``--scene 3`` partial-run case still gets ``scene_index=3``, not
+        ``scene_index=1``). It's stamped onto each ``ActionResult`` so a
+        downstream grader can group results by scene without re-parsing the
+        spec. Prefers an explicit kwarg; otherwise falls back to
+        ``scene["scene_index"]`` (set by ``build_scenes_from_spec``).
         """
+        idx = scene_index if scene_index is not None else scene.get("scene_index")
         url = self.goto_for_scene(scene, page.url)
         if url is not None:
             print(f"  · goto {url}")
@@ -119,9 +199,23 @@ class Recorder:
         for action in (scene.get("actions") or []):
             self.before_action(scene, action)
             result = execute_action(page, action, base_url=self.base_url, config=self.config)
+            # Stamp the 1-based original spec scene index onto the result. We
+            # ``dataclasses.replace`` because ActionResult is frozen — keeps
+            # ``execute_action`` scene-agnostic (it doesn't know or care which
+            # scene it's serving) while preserving "all results carry their
+            # scene" for the run report.
+            if idx is not None:
+                result = dataclasses.replace(result, scene_index=int(idx))
             self.report.record(result)
             scene_results.append(result)
             self.after_action(scene, action, result)
+
+        # Steady-state moment: actions are done, their post-action settle has
+        # fired, and we're about to hold + transition. This is the same frame
+        # the deck's screenshot strip lifts; capture it here so downstream
+        # judges read the same surface a viewer sees.
+        if idx is not None:
+            self.take_snapshot(page, scene, int(idx))
 
         page.wait_for_timeout(self.config.final_hold_ms)
         self.after_scene(scene, scene_results)
@@ -130,13 +224,20 @@ class Recorder:
         return max(elapsed_s, self.config.min_hold_ms / 1000)
 
     def run(self, page: Page, scenes: list[dict]) -> float:
-        """Record every scene in ``scenes``. Returns total elapsed seconds."""
+        """Record every scene in ``scenes``. Returns total elapsed seconds.
+
+        Each scene's ``scene_index`` (set by ``build_scenes_from_spec`` to the
+        1-based ORIGINAL spec index) is threaded into ``run_scene`` so action
+        results get stamped with the right index even on partial (``--scene 3``)
+        runs. Scenes without ``scene_index`` fall back to the loop's 1-based
+        position — fine for ad-hoc test callers that hand in raw scene dicts.
+        """
         total = 0.0
         n = len(scenes)
         for i, scene in enumerate(scenes, 1):
             title = scene.get("title", f"(scene {i})")
             print(f"\n=== Scene {i}/{n}: {title}")
-            total += self.run_scene(page, scene)
+            total += self.run_scene(page, scene, scene_index=scene.get("scene_index", i))
         return total
 
     def print_summary(self) -> None:
