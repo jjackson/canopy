@@ -6,7 +6,7 @@ All models are defined here.  Import them from this module or from
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -86,40 +86,181 @@ ACTION_KINDS: tuple[str, ...] = (
 )
 
 
-class Action(BaseModel):
-    """One scripted interaction the recorder performs with the synthetic cursor.
+class _ActionBase(BaseModel):
+    """Shared fields for every action verb.
 
-    A scene's ``actions`` turn its free-text ``show`` into something the video
-    actually DOES — click, fill, open a menu, dwell, scroll — so the recording
-    demonstrates the feature being used instead of just panning a static page.
-    The recorder (scripts/walkthrough/_lib/recorder.py) maps each Action onto a
-    cursor primitive; unknown kinds are skipped, never fatal.
-
-    Fields (all optional except ``kind``):
-      kind         — one of :data:`ACTION_KINDS`
-      target       — text label or CSS selector to act on. Supports prefix syntax:
-                     ``css:#sel``, ``testid:foo``, ``aria:Foo``, ``role:button``,
-                     ``text:Foo`` (force the visible-text path). Bare strings use
-                     a heuristic (CSS-shaped → selector engine; English → text).
-      value        — text to fill/type, key to press, url to goto, "bottom"/"top"/px
-                     for scroll, OR the ``<select>`` option's value attribute /
-                     0-based index / visible label for ``select``
-      seconds      — dwell/hold duration
-      note         — human note: what this step demonstrates (shown in render logs)
-      must_succeed — when True, the recorder raises (not just logs) if this
-                     action fails. Use for the "without this, the rest of the
-                     scene is nonsense" steps. Defaults to False (log + continue).
+    ``extra="forbid"`` is the whole point of the discriminated union — a spec
+    that puts ``target`` on a ``type`` action (or ``value`` on a ``click``)
+    used to silently no-op at runtime; now it fails validation with the
+    field name and the action it lives on. The dispatcher (``execute_action``)
+    still accepts the raw dict at runtime so legacy callers that bypass the
+    schema keep working.
     """
 
-    kind: Literal[
-        "goto", "click", "click_menu", "fill", "select", "type", "press",
-        "hover", "scroll_to", "scroll", "wait_for", "hold",
-    ]
-    target: str | None = None
-    value: str | None = None
-    seconds: float | None = None
+    model_config = ConfigDict(extra="forbid")
+
     note: str | None = None
+    """Human note: what this step demonstrates (shown in render logs)."""
+
     must_succeed: bool = False
+    """When True, the recorder raises (not just logs) if this action fails.
+
+    Use for the "without this, the rest of the scene is nonsense" steps —
+    the bulk-create button click whose state is the whole rest of the demo.
+    Defaults to False (log + continue, one bad action never aborts the render).
+    """
+
+
+class GotoAction(_ActionBase):
+    """Navigate to a URL. ``target`` is the URL (absolute or path-relative)."""
+
+    kind: Literal["goto"]
+    target: str
+
+
+class ClickAction(_ActionBase):
+    """Click a visible text label or CSS selector.
+
+    ``target`` supports the recorder's prefix syntax: ``css:#sel``,
+    ``testid:foo``, ``aria:Foo``, ``role:button``, ``text:Foo`` (force the
+    visible-text path). Bare strings use a heuristic — CSS-shaped → selector
+    engine; English → visible-text ranking.
+    """
+
+    kind: Literal["click"]
+    target: str
+
+
+class ClickMenuAction(_ActionBase):
+    """Click an item inside the currently-open dropdown / popover.
+
+    Same target syntax as :class:`ClickAction`. Distinct verb because menus
+    usually have shorter post-click settle than a top-level button.
+    """
+
+    kind: Literal["click_menu"]
+    target: str
+
+
+class FillAction(_ActionBase):
+    """Focus a field (``target``) and type ``value`` character-by-character.
+
+    Typing fires real ``input`` events — reactive form widgets that gate
+    buttons on debounced input (e.g. the bulk-create line counter) WILL
+    react to ``fill`` but won't react to a raw ``.value = ...`` setter.
+    """
+
+    kind: Literal["fill"]
+    target: str
+    value: str
+
+
+class SelectAction(_ActionBase):
+    """Pick an option from a native ``<select>``.
+
+    ``value`` is interpreted as the option's ``value`` attribute first, then
+    a digit-only string as the 0-based ``index``, then the visible text
+    label. The recorder glides the cursor onto the select so the viewer
+    sees which control is being driven (the dropdown won't visually open —
+    native-control limitation).
+    """
+
+    kind: Literal["select"]
+    target: str
+    value: str
+
+
+class TypeAction(_ActionBase):
+    """Type ``value`` into whatever element currently has focus.
+
+    No ``target`` — that's what :class:`FillAction` is for. Use ``type``
+    only after an explicit focus (or right after ``fill`` to extend the
+    text).
+    """
+
+    kind: Literal["type"]
+    value: str
+
+
+class PressAction(_ActionBase):
+    """Press a keyboard key. Defaults to Enter — the most common case."""
+
+    kind: Literal["press"]
+    value: str = "Enter"
+
+
+class HoverAction(_ActionBase):
+    """Glide the cursor onto ``target`` and rest. No click.
+
+    ``seconds`` overrides the default dwell — useful when the demo is
+    showing a tooltip or hover-revealed control that needs time to appear.
+    """
+
+    kind: Literal["hover"]
+    target: str
+    seconds: float | None = None
+
+
+class ScrollToAction(_ActionBase):
+    """Smooth-scroll the element matching ``target`` into view."""
+
+    kind: Literal["scroll_to"]
+    target: str
+
+
+class ScrollAction(_ActionBase):
+    """Scroll the page. ``value`` is ``"top"``, ``"bottom"``, or a pixel offset."""
+
+    kind: Literal["scroll"]
+    value: str = "bottom"
+
+
+class WaitForAction(_ActionBase):
+    """Wait for ``target`` (text or selector) to appear.
+
+    All-digits target is treated as a millisecond pause. Plain-text targets
+    skip the selector engine (which would otherwise sit through its full
+    timeout before falling back) — see the recorder's
+    ``_lib/targets.wait_for_target``.
+    """
+
+    kind: Literal["wait_for"]
+    target: str
+
+
+class HoldAction(_ActionBase):
+    """Dwell in place for ``seconds``.
+
+    The single-purpose pause: framing time after a layout, reading time
+    after a render, slack so the SSE stream finishes flushing.
+    """
+
+    kind: Literal["hold"]
+    seconds: float
+
+
+# Discriminated union: Pydantic picks the right subclass from ``kind`` alone.
+# Existing YAML specs (lists of dicts with ``kind: ...`` + the verb's fields)
+# validate against this without any spec edits — all real-world action shapes
+# I surveyed across 38 specs already match the strict per-verb classes.
+Action = Annotated[
+    Union[
+        GotoAction, ClickAction, ClickMenuAction, FillAction, SelectAction,
+        TypeAction, PressAction, HoverAction, ScrollToAction, ScrollAction,
+        WaitForAction, HoldAction,
+    ],
+    Field(discriminator="kind"),
+]
+
+
+# Tuple form of the action classes — used by the single-source guard test
+# that asserts ACTION_KINDS, the Pydantic kind Literals, and the dispatch
+# table never drift.
+ACTION_CLASSES: tuple[type[_ActionBase], ...] = (
+    GotoAction, ClickAction, ClickMenuAction, FillAction, SelectAction,
+    TypeAction, PressAction, HoverAction, ScrollToAction, ScrollAction,
+    WaitForAction, HoldAction,
+)
 
 
 class Scene(BaseModel):
@@ -136,6 +277,19 @@ class Scene(BaseModel):
     a scene with no ``actions`` falls back to the legacy scroll-pan. Declaring
     actions is what makes a rendered demo show the feature being operated (and is
     what lifts the ``feature_use`` score off the floor)."""
+    url: str | None = None
+    """Optional explicit starting URL for this scene (absolute or path-relative
+    to the spec's ``base_url``).
+
+    Resolution order in the recorder:
+      1. This ``url`` field — the cleanest authoring path; declarative.
+      2. The first ``goto`` in ``actions`` — implicit, but easy to read.
+      3. ``None`` — the recorder stays on the previous scene's ending URL.
+
+    The ``None`` default makes multi-scene narratives work without a hardcoded
+    URL map: "scene 2 clicks a link that navigates → scene 3 continues from
+    there" needs no URL on scene 3. Authors who want a hard reset between
+    scenes use either this ``url`` or an explicit ``goto`` action."""
     narrative: str = ""
     """Canonical per-scene narrative text — the story beat the reviewer reads.
     May be one OR MORE sentences (per gap-flexible-scene-length). When set, it

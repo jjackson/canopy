@@ -12,6 +12,32 @@ recent, verifiable themes in the git log.
 ## [Unreleased]
 
 ### Added
+- **Discriminated `Action` union — strict per-kind field validation** (0.2.142) —
+  the flat `Action` Pydantic model accepted any of `target / value / seconds /
+  note / must_succeed` for every verb, so a spec that wrote `{kind: type,
+  target: "Buy"}` (the spec author meant `click`, not `type`) used to validate
+  clean and silently no-op at recording time. Now `Action` is a Pydantic
+  discriminated union with one strict subclass per verb — `GotoAction(target)`,
+  `ClickAction(target)`, `FillAction(target, value)`, `SelectAction(target,
+  value)`, `TypeAction(value)`, `PressAction(value="Enter")`, `HoverAction(
+  target, seconds?)`, `ScrollToAction(target)`, `ScrollAction(value="bottom")`,
+  `WaitForAction(target)`, `HoldAction(seconds)`, `ClickMenuAction(target)` —
+  each with `extra="forbid"`. Wrong field on a verb is a loud `ValidationError`
+  naming the field and the action subclass. `note` and `must_succeed` are
+  shared on the base class so every kind keeps both. Surveyed 38 real specs
+  across canopy / connect-labs / ace-web / canopy-web — every action shape
+  already matches; zero migration required. Adds 20 new `tests/walkthrough/
+  test_action_discriminated_union.py` tests pinning per-kind field accept/
+  reject rules; existing `test_action_kinds_single_source.py` updated to
+  guard the new `ACTION_CLASSES` tuple. JSON Schema regenerated.
+- **Per-scene `url` field on the spec schema** (0.2.142) — `Scene.url:
+  str | None = None` promotes a scene's starting URL from "inferred from the
+  first `goto` action" to an explicit, declarative authoring affordance.
+  `record_video.py` already reads this field (added in 0.2.141 ahead of the
+  schema). Resolution order in the recorder is now (1) explicit `Scene.url`,
+  (2) first `goto` action, (3) captured slide URL from `--input`, (4) `None`
+  (stay on previous URL). Backward-compat: existing specs that don't set
+  `url` keep validating and recording identically.
 - **Recorder primitives refactor — extensible by hook, not by fork** (0.2.141) —
   the per-scene loop, target resolution, timing, and action results are now four
   small modules under `scripts/walkthrough/_lib/` instead of one 405-line file
