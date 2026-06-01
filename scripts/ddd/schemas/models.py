@@ -255,13 +255,17 @@ class DrawAction(_ActionBase):
     the drawing tool receives), then double-clicks the last vertex to close the
     polygon (Mapbox finishes a polygon on double-click).
 
-    Activate the drawing tool first — a normal ``click`` on its toolbar button (e.g.
-    ``css:.mapbox-gl-draw_polygon``) — then ``draw`` places the vertices.
+    Set ``tool`` to the draw-tool button (e.g. ``css:.mapbox-gl-draw_polygon``) and
+    ``draw`` activates it first with a coordinate mouse-click — which works on the
+    small map-control buttons that a normal ``click`` can't (Playwright's
+    actionability checks time out on them). Omit ``tool`` if the tool is already
+    active.
     """
 
     kind: Literal["draw"]
     target: str
     points: list[tuple[float, float]]
+    tool: str | None = None
 
 
 # Discriminated union: Pydantic picks the right subclass from ``kind`` alone.

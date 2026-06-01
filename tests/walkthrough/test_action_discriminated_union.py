@@ -210,3 +210,13 @@ def test_draw_rejects_foreign_fields():
         ACTION.validate_python(
             {"kind": "draw", "target": "css:#m", "points": [[0.3, 0.4]], "value": "x"}
         )
+
+
+def test_draw_accepts_optional_tool():
+    from scripts.ddd.schemas.models import DrawAction
+
+    a = ACTION.validate_python(
+        {"kind": "draw", "target": "css:#m", "points": [[0.3, 0.4], [0.6, 0.6]],
+         "tool": "css:.mapbox-gl-draw_polygon"}
+    )
+    assert isinstance(a, DrawAction) and a.tool == "css:.mapbox-gl-draw_polygon"
