@@ -66,6 +66,26 @@ class Feature(BaseModel):
     verify: str       # how to validate it's done (API assertion, UI state, test command)
 
 
+# Action verbs the recorder understands. Single source of truth — the recorder
+# imports this tuple, and the ``Action.kind`` Literal below is unpacked from
+# it so Pydantic validation and the dispatcher vocabulary can never drift.
+# Keep ordering loosely by frequency-of-use (navigation + click first).
+ACTION_KINDS: tuple[str, ...] = (
+    "goto",        # navigate to a url (target=url)
+    "click",       # click a visible text label or CSS selector (target)
+    "click_menu",  # click an item inside the currently-open dropdown (target=item text)
+    "fill",        # focus a field (target=label/selector) and type value
+    "select",      # pick from a native <select> (target=select, value=attr/index/label)
+    "type",        # type value into whatever is focused
+    "press",       # press a key (value, e.g. "Enter")
+    "hover",       # glide the cursor onto target and rest (no click)
+    "scroll_to",   # smooth-scroll target into view
+    "scroll",      # scroll the page (value: "bottom" | "top" | "<px>")
+    "wait_for",    # wait for target text/selector to appear, or value=ms
+    "hold",        # dwell in place for seconds (value or seconds)
+)
+
+
 class Action(BaseModel):
     """One scripted interaction the recorder performs with the synthetic cursor.
 
@@ -76,15 +96,19 @@ class Action(BaseModel):
     cursor primitive; unknown kinds are skipped, never fatal.
 
     Fields (all optional except ``kind``):
-      kind     — one of: goto, click, click_menu, fill, select, type, press, hover,
-                 scroll_to, scroll, wait_for, hold
-      target   — text label or CSS selector to act on
-                 (click/hover/fill/select/scroll_to/wait_for)
-      value    — text to fill/type, key to press, url to goto, "bottom"/"top"/px
-                 for scroll, OR the ``<select>`` option's value attribute /
-                 0-based index / visible label for ``select``
-      seconds  — dwell/hold duration
-      note     — human note: what this step demonstrates (shown in render logs)
+      kind         — one of :data:`ACTION_KINDS`
+      target       — text label or CSS selector to act on. Supports prefix syntax:
+                     ``css:#sel``, ``testid:foo``, ``aria:Foo``, ``role:button``,
+                     ``text:Foo`` (force the visible-text path). Bare strings use
+                     a heuristic (CSS-shaped → selector engine; English → text).
+      value        — text to fill/type, key to press, url to goto, "bottom"/"top"/px
+                     for scroll, OR the ``<select>`` option's value attribute /
+                     0-based index / visible label for ``select``
+      seconds      — dwell/hold duration
+      note         — human note: what this step demonstrates (shown in render logs)
+      must_succeed — when True, the recorder raises (not just logs) if this
+                     action fails. Use for the "without this, the rest of the
+                     scene is nonsense" steps. Defaults to False (log + continue).
     """
 
     kind: Literal[
@@ -95,6 +119,7 @@ class Action(BaseModel):
     value: str | None = None
     seconds: float | None = None
     note: str | None = None
+    must_succeed: bool = False
 
 
 class Scene(BaseModel):
