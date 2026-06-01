@@ -162,6 +162,18 @@
       "default": {},
       "title": "Iteration Clips",
       "type": "object"
+    },
+    "narrative_review_url": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Narrative Review Url"
     }
   },
   "required": [

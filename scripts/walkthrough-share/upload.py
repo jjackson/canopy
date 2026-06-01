@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Upload a walkthrough (.html or .mp4) to a canopy-web instance.
 
-Used by /canopy:walkthrough-share. Stdlib only — no external deps.
+Used by /canopy:walkthrough-share. Stdlib only for the core upload path —
+``--spec`` derivation imports pyyaml lazily (only when that flag is passed).
 
 Flow:
   1. Resolve config (api URL, PAT).
   2. For HTML: inline relative image/CSS refs as base64 data URIs.
-  3. POST /api/walkthroughs/ multipart with Authorization: Bearer <PAT>.
-  4. Print the view URL and (optionally) the share URL.
+  3. Assemble companion links (--narrative-url / --companion-url / --link /
+     --spec) into the typed `links` field the /w/<id> viewer renders.
+  4. POST /api/walkthroughs/ multipart with Authorization: Bearer <PAT>.
+  5. Print the view URL and (optionally) the share URL.
 
 Auth: canopy-web's PersonalToken (PAT) at ~/.claude/canopy/workbench-token.
 Mint with /canopy:canopy-web-pat-mint. Replaces the dead e2e-login flow.
@@ -208,6 +211,88 @@ def upload_multipart(
 
 
 # ---------------------------------------------------------------------------
+# Companion links (rendered on the /w/<id> viewer page)
+# ---------------------------------------------------------------------------
+
+# Default labels by companion kind, keyed on the kind of THIS artifact:
+# uploading a video, the companion is the still-frame deck; uploading a deck,
+# the companion is the video.
+_COMPANION_LABEL = {"video": "Still-frame walkthrough", "html": "Watch the video"}
+
+
+def _parse_link_arg(raw: str) -> dict:
+    """Parse a ``--link "Label::https://url"`` value into a reference link."""
+    label, sep, url = raw.partition("::")
+    if not sep or not label.strip() or not url.strip():
+        fail(f"--link must be 'Label::https://url' (got: {raw!r})")
+    return {"label": label.strip(), "url": url.strip(), "kind": "reference"}
+
+
+def links_from_spec(spec_path: Path) -> list[dict]:
+    """Derive reference links from a walkthrough spec's scene URLs.
+
+    Each scene with a ``url`` becomes one "Explore in the app" link
+    (label = scene title). Relative URLs are absolutized against
+    ``base_url``; duplicates are dropped so a page shown in several scenes
+    only links once. ``continue`` scenes (no url) are skipped.
+
+    Imports pyyaml lazily — only callers that pass ``--spec`` pay for it.
+    """
+    try:
+        import yaml
+    except ImportError:
+        fail("--spec needs pyyaml (pip install pyyaml) — or pass --link instead")
+    spec = yaml.safe_load(spec_path.read_text())  # type: ignore[name-defined]
+    base = (spec.get("base_url") or "").rstrip("/")
+    out: list[dict] = []
+    seen: set[str] = set()
+    for i, scene in enumerate(spec.get("scenes") or [], 1):
+        u = (scene.get("url") or "").strip()
+        if not u:
+            continue
+        full = u if u.startswith("http") else base + u
+        if full in seen:
+            continue
+        seen.add(full)
+        out.append(
+            {"label": scene.get("title") or f"Scene {i}", "url": full, "kind": "reference"}
+        )
+    return out
+
+
+def assemble_links(args, kind: str) -> list[dict]:
+    """Build the typed `links` list from the CLI flags, in display order.
+
+    Order: narrative first, then companion, then reference links (explicit
+    --link before --spec-derived). Reference URLs are de-duplicated across
+    both sources.
+    """
+    links: list[dict] = []
+    if args.narrative_url:
+        links.append(
+            {"label": args.narrative_label, "url": args.narrative_url, "kind": "narrative"}
+        )
+    if args.companion_url:
+        label = args.companion_label or _COMPANION_LABEL.get(kind, "Companion walkthrough")
+        links.append({"label": label, "url": args.companion_url, "kind": "companion"})
+
+    refs: list[dict] = [_parse_link_arg(r) for r in (args.link or [])]
+    if args.spec:
+        spec_path = Path(args.spec).expanduser().resolve()
+        if not spec_path.is_file():
+            fail(f"--spec file not found: {spec_path}")
+        refs.extend(links_from_spec(spec_path))
+
+    seen: set[str] = set()
+    for r in refs:
+        if r["url"] in seen:
+            continue
+        seen.add(r["url"])
+        links.append(r)
+    return links
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -229,6 +314,36 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--api-url", default=os.environ.get("CANOPY_WEB_API_URL", DEFAULT_API),
         help="canopy-web base URL (default: %(default)s)",
+    )
+    # Companion links shown on the /w/<id> viewer page.
+    p.add_argument(
+        "--narrative-url",
+        help="Link back to the design narrative / spec that generated this "
+        "walkthrough (rendered in the 'This walkthrough' panel).",
+    )
+    p.add_argument(
+        "--narrative-label", default="Back to the narrative",
+        help="Label for --narrative-url (default: %(default)s)",
+    )
+    p.add_argument(
+        "--companion-url",
+        help="Link to the sibling artifact — the still-frame deck for a video, "
+        "or the video for a deck.",
+    )
+    p.add_argument(
+        "--companion-label",
+        help="Label for --companion-url (default: by kind — "
+        "'Still-frame walkthrough' for a video, 'Watch the video' for a deck).",
+    )
+    p.add_argument(
+        "--link", action="append", metavar="LABEL::URL",
+        help="A 'Explore in the app' reference link, 'Label::https://url'. "
+        "Repeatable.",
+    )
+    p.add_argument(
+        "--spec",
+        help="Walkthrough spec YAML — derive 'Explore in the app' reference "
+        "links from each scene's url (label = scene title, deduped).",
     )
     args = p.parse_args(argv)
 
@@ -261,6 +376,11 @@ def main(argv: list[str] | None = None) -> int:
     }
     if args.project_slug:
         fields["project_slug"] = args.project_slug
+
+    links = assemble_links(args, kind)
+    if links:
+        fields["links"] = json.dumps(links)
+        print(f"attaching {len(links)} companion link(s)", file=sys.stderr)
 
     status, body = upload_multipart(
         f"{api}/api/walkthroughs/",
