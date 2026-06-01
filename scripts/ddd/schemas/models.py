@@ -66,6 +66,34 @@ class Feature(BaseModel):
     verify: str       # how to validate it's done (API assertion, UI state, test command)
 
 
+class Action(BaseModel):
+    """One scripted interaction the recorder performs with the synthetic cursor.
+
+    A scene's ``actions`` turn its free-text ``show`` into something the video
+    actually DOES — click, fill, open a menu, dwell, scroll — so the recording
+    demonstrates the feature being used instead of just panning a static page.
+    The recorder (scripts/walkthrough/_lib/recorder.py) maps each Action onto a
+    cursor primitive; unknown kinds are skipped, never fatal.
+
+    Fields (all optional except ``kind``):
+      kind     — one of: goto, click, click_menu, fill, type, press, hover,
+                 scroll_to, scroll, wait_for, hold
+      target   — text label or CSS selector to act on (click/hover/fill/scroll_to/wait_for)
+      value    — text to fill/type, key to press, url to goto, "bottom"/"top"/px for scroll
+      seconds  — dwell/hold duration
+      note     — human note: what this step demonstrates (shown in render logs)
+    """
+
+    kind: Literal[
+        "goto", "click", "click_menu", "fill", "type", "press",
+        "hover", "scroll_to", "scroll", "wait_for", "hold",
+    ]
+    target: str | None = None
+    value: str | None = None
+    seconds: float | None = None
+    note: str | None = None
+
+
 class Scene(BaseModel):
     persona: str
     title: str
@@ -75,6 +103,11 @@ class Scene(BaseModel):
     design_intent: str | None = None
     impressive_because: str | None = None
     features: list[Feature] = []
+    actions: list[Action] = []
+    """Scripted cursor interactions for the recorder — see ``Action``. Optional:
+    a scene with no ``actions`` falls back to the legacy scroll-pan. Declaring
+    actions is what makes a rendered demo show the feature being operated (and is
+    what lifts the ``feature_use`` score off the floor)."""
     narrative: str = ""
     """Canonical per-scene narrative text — the story beat the reviewer reads.
     May be one OR MORE sentences (per gap-flexible-scene-length). When set, it
