@@ -348,14 +348,33 @@ def scroll_page(page: Page, to: str = "bottom", *, max_duration_ms: int = 4000) 
     )
 
 
-def wait_for(page: Page, target: str, *, config: RecorderConfig | None = None) -> bool:
+def wait_for(
+    page: Page,
+    target: str,
+    *,
+    seconds: float | None = None,
+    config: RecorderConfig | None = None,
+) -> bool:
     """Wait for ``target`` (text or selector) to appear, or pause for N ms if ``target`` is all digits.
 
     Plain-text targets skip the selector engine entirely — see
     :func:`._lib.targets.wait_for_target` for the rationale.
+
+    ``seconds`` is a per-call timeout override (the spec's
+    ``{kind: wait_for, target: X, seconds: 120}``). It's converted to
+    milliseconds and forwarded as ``timeout_ms`` to
+    :func:`._lib.targets.wait_for_target`. ``None`` falls back to
+    ``RecorderConfig.wait_for_timeout_ms`` — back-compat with every call
+    site that doesn't pass it. Negative values are floored at 0 (the
+    underlying Playwright ``wait_for`` would raise on negatives; we
+    rather treat "negative timeout" as "don't wait").
     """
     cfg = config or RecorderConfig()
-    return wait_for_target(page, target, timeout_ms=cfg.wait_for_timeout_ms)
+    if seconds is not None:
+        timeout_ms = max(0, int(float(seconds) * 1000))
+    else:
+        timeout_ms = cfg.wait_for_timeout_ms
+    return wait_for_target(page, target, timeout_ms=timeout_ms)
 
 
 # --------------------------------------------------------------------------- #
@@ -436,7 +455,9 @@ def execute_action(
         elif kind == "scroll":
             scroll_page(page, value or "bottom")
         elif kind == "wait_for":
-            ok = wait_for(page, str(target or value or "1000"), config=cfg)
+            ok = wait_for(
+                page, str(target or value or "1000"), seconds=seconds, config=cfg
+            )
             if not ok:
                 error_kind = "timeout"
         elif kind == "hold":

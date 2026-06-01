@@ -12,6 +12,55 @@ recent, verifiable themes in the git log.
 ## [Unreleased]
 
 ### Added
+- **`wait_for` per-action `seconds:` timeout + `--skip-empty-scenes`** (0.2.148) —
+  two opt-in recorder knobs that together remove ~130s of dead-space from a
+  238s microplans-10-wards hero clip. Both ADDITIVE — every existing spec
+  records identically without changes.
+  - ``WaitForAction.seconds`` is now a per-action timeout override. The
+    recorder's default ``wait_for`` timeout is
+    ``RecorderConfig.wait_for_timeout_ms`` (12s). When an author knows a
+    particular condition might take longer (an SSE bulk-create stream that
+    runs 30-90s), the spec can say
+    ``{kind: wait_for, target: "Created 10 of 10 plans", seconds: 120}`` —
+    the recorder exits the wait the instant the text appears (typically
+    30-55s for the bulk-create case), instead of holding blindly. Before:
+    authors padded with ``wait_for`` (12s default) → fixed ``hold seconds:
+    90`` guarantee, paying the worst-case dead-air on every clip. Frame-
+    sampling the latest microplans-10-wards recording every 5s found a
+    fully-painted success card frozen from ~55s to ~155s — exactly the
+    `wait_for` + blind-hold pattern. Now spec authors say what they
+    actually mean: "wait up to N seconds, exit early on match." The schema
+    is strict: non-numeric ``seconds`` (e.g. ``"fast"``) fails Pydantic
+    validation; negative values floor at 0; ``None`` (default) preserves
+    the existing 12s recorder-config default.
+  - ``record_video.py --skip-empty-scenes`` — when set, scenes with
+    ``len(actions) == 0`` are dropped from the recording loop entirely.
+    The mp4 then skips them; the deck still shows them as title-card
+    slides built from spec.scenes independently, so the narrative
+    survives. Mirrors PR #105's ``--snapshot-empty-scenes`` (also default
+    False — back-compat). Same frame-sampling found a 30s static window
+    from 200s-240s where scenes 6-11 of microplans-10-wards (no actions)
+    held ``min_hold_ms`` on the previous scene's glossary URL — zero
+    informational content for 30 of the 238 seconds. The new flag drops
+    those frames; the deck-as-title-cards path keeps the narrative.
+    Filter runs AFTER ``build_scenes_from_spec`` so surviving scenes
+    retain their 1-based ORIGINAL spec ``scene_index`` (matches snapshot
+    + ActionResult tagging). Extracted as a tiny pure helper
+    (``filter_empty_scenes``) so the test suite pins the contract without
+    spinning a browser.
+  - 24 new tests under ``tests/walkthrough/`` —
+    ``test_waitfor_seconds_override.py`` (Pydantic accepts/rejects, the
+    primitive forwards to ``wait_for_target`` as int ms, the dispatcher
+    routes ``action["seconds"]`` through, custom ``RecorderConfig`` default
+    respected, fractional seconds coerce to int ms, negative floors to 0)
+    and ``test_skip_empty_scenes.py`` (``_is_empty_scene`` for empty /
+    missing / None ``actions``, ``filter_empty_scenes`` preserves order +
+    ``scene_index``, microplans-10-wards back-half shape, composition with
+    PR #105's per-scene snapshot gate, back-compat when flag is omitted).
+    JSON schemas regenerated via ``dump_json_schemas`` —
+    ``UnifiedSpec.json`` now includes ``WaitForAction.seconds`` (also
+    backfills the previously-missing ``DrawAction`` defs).
+
 - **Per-scene snapshots + `scene_index`-tagged action results** (0.2.146) —
   three small recorder-framework gaps the DDD orchestrator hit running
   ``microplans-10-wards`` are closed so the full DDD loop runs without

@@ -76,6 +76,74 @@
       "title": "ClickMenuAction",
       "type": "object"
     },
+    "DrawAction": {
+      "additionalProperties": false,
+      "description": "Draw a polygon on a map or canvas by clicking a sequence of points.\n\nThe recorder has no way to express map drawing through the other verbs \u2014\n``click`` resolves a DOM element's centre, but a Mapbox-GL-Draw polygon (or any\ncanvas drawing tool) needs clicks at *coordinates on the canvas*, not on a\nlabelled element. ``draw`` fills that gap.\n\n``target`` is the map/canvas element (e.g. ``css:#review-map``). ``points`` is a\nlist of ``[fx, fy]`` fractional positions (0-1) within that element's bounding\nbox \u2014 fractions, not pixels, so the polygon is independent of viewport size. The\nsynthetic cursor glides to each vertex and clicks (real Playwright pointer events\nthe drawing tool receives), then double-clicks the last vertex to close the\npolygon (Mapbox finishes a polygon on double-click).\n\nSet ``tool`` to the draw-tool button (e.g. ``css:.mapbox-gl-draw_polygon``) and\n``draw`` activates it first with a coordinate mouse-click \u2014 which works on the\nsmall map-control buttons that a normal ``click`` can't (Playwright's\nactionability checks time out on them). Omit ``tool`` if the tool is already\nactive.",
+      "properties": {
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "must_succeed": {
+          "default": false,
+          "title": "Must Succeed",
+          "type": "boolean"
+        },
+        "kind": {
+          "const": "draw",
+          "title": "Kind",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "points": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Points",
+          "type": "array"
+        },
+        "tool": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool"
+        }
+      },
+      "required": [
+        "kind",
+        "target",
+        "points"
+      ],
+      "title": "DrawAction",
+      "type": "object"
+    },
     "Feature": {
       "description": "A single buildable, verifiable capability within a scene (DDD v3).",
       "properties": {
@@ -401,6 +469,7 @@
               "mapping": {
                 "click": "#/$defs/ClickAction",
                 "click_menu": "#/$defs/ClickMenuAction",
+                "draw": "#/$defs/DrawAction",
                 "fill": "#/$defs/FillAction",
                 "goto": "#/$defs/GotoAction",
                 "hold": "#/$defs/HoldAction",
@@ -450,6 +519,9 @@
               },
               {
                 "$ref": "#/$defs/HoldAction"
+              },
+              {
+                "$ref": "#/$defs/DrawAction"
               }
             ]
           },
@@ -643,7 +715,7 @@
     },
     "WaitForAction": {
       "additionalProperties": false,
-      "description": "Wait for ``target`` (text or selector) to appear.\n\nAll-digits target is treated as a millisecond pause. Plain-text targets\nskip the selector engine (which would otherwise sit through its full\ntimeout before falling back) \u2014 see the recorder's\n``_lib/targets.wait_for_target``.",
+      "description": "Wait for ``target`` (text or selector) to appear.\n\nAll-digits target is treated as a millisecond pause. Plain-text targets\nskip the selector engine (which would otherwise sit through its full\ntimeout before falling back) \u2014 see the recorder's\n``_lib/targets.wait_for_target``.\n\n``seconds`` is a per-action timeout override. The recorder's default\n``wait_for`` timeout is ``RecorderConfig.wait_for_timeout_ms`` (12s);\nwhen an author knows a particular condition might take longer (an SSE\nbulk-create stream that runs 30-90s) the spec can say\n``seconds: 120`` to wait up to two minutes \u2014 and the recorder exits\nthe moment the target appears, instead of holding blindly. The\nalternative \u2014 padding with a fixed ``hold`` after a normal-timeout\n``wait_for`` \u2014 guarantees 100+ seconds of dead-air on a clip if the\ncondition resolves early. ``None`` preserves the default.",
       "properties": {
         "note": {
           "anyOf": [
@@ -670,6 +742,18 @@
         "target": {
           "title": "Target",
           "type": "string"
+        },
+        "seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seconds"
         }
       },
       "required": [
