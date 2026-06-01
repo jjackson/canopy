@@ -11,6 +11,61 @@ recent, verifiable themes in the git log.
 
 ## [Unreleased]
 
+### Fixed
+- **Scene-start dead-air: redundant goto + blind holds** (0.2.151) — frame-sampling
+  the latest `microplans-10-wards` recording found ~7s of preventable stillness at
+  the top of every scene. Three additive recorder fixes (every existing spec keeps
+  recording — they just record faster):
+  - **Redundant leading `goto` stripped in `build_scenes_from_spec`.** PR #100
+    introduced `Scene.url` as the declarative entry point — the orchestrator's
+    `run_scene` now navigates to `scene.url` before running actions. But existing
+    specs still lead with `{kind: goto, target: <same-url>}` (the pre-#100 entry
+    pattern), so the recorder navigated twice — a ~2.5s reload right after the
+    title card. When the first action is `goto` and its absolutized target matches
+    the resolved `scene.url`, it's now stripped from the action list with a printed
+    notice. Non-leading gotos and gotos to a different URL (intentional
+    reload-then-elsewhere) are preserved.
+  - **`initial_hold_ms` skipped when first action is `wait_for`.** `wait_for` IS
+    the settle (polls until a known page state appears) — the default 800-2500ms
+    blind hold on top of it is pure dead air. The orchestrator now inspects the
+    first action and skips `initial_hold_ms` when it's `wait_for`. Every other
+    first-action kind keeps the existing behavior (back-compat for static-scene
+    paths and click-first scenes that need the page a moment to render before the
+    cursor moves).
+  - **`goto_settle_ms` skipped when first action is `wait_for`.** Same logic for
+    `goto_and_settle`'s 600-2000ms blind tail — when a `wait_for` is about to run,
+    the recorder skips the trailing pause and lets the `wait_for` be the settle.
+    Threaded via a `skip_settle=` kwarg; default False keeps any external caller
+    bit-identical.
+  - Frame breakdown of scene 1 of the original clip (12s):
+    `1.25s` real labs page load (TLS + TTFB + DOM parse) — unavoidable.
+    `1.2s` `goto_settle_ms`, `1.5s` `initial_hold_ms`, `2.5s` redundant goto
+    reload, `2.0s` spec's `hold seconds: 2.0` over-framing — 7.2s preventable.
+    `1.5s` scroll glide, `1.0s` hold, `1.0s` `final_hold_ms` — legit. The
+    framework changes recover the four blind-hold seconds at the top of every
+    scene; the per-spec `hold seconds: 2.0` over-framing is now redundant with
+    the leading `wait_for` already settling the page.
+  - 13 new tests under `tests/walkthrough/` —
+    `test_redundant_goto_dropped.py` (six cases covering match-drops,
+    different-url-preserves, no-url-inferred-from-goto, non-leading goto,
+    absolute-matches-relative, action-empty no-crash) and
+    `test_initial_hold_skip_on_waitfor.py` (sentinel-config approach: scene-aware
+    timeouts assert which blind hold fired, covering `scroll_to`/`press`/`wait_for`
+    leads, empty-actions back-compat, `final_hold_ms` independence, no-url path).
+
+### Changed
+- **`ddd-spec` and `walkthrough` skill docs teach `url:`, not `goto`** (0.2.151) —
+  the framework fix above is necessary because the skills themselves taught the
+  bad pattern: every action-authoring example lead with `kind: scroll_to`, never
+  with `url:` or `wait_for`, and never called out the duplicate-goto trap. So
+  every spec authored from these skills shipped the bug. Now both skills lead the
+  scene-authoring example with `url:` + `wait_for`, add an explicit anti-pattern
+  callout for `url:` + leading-`goto` to the same path, recommend `wait_for
+  seconds: N` over `hold seconds: N` for long bulk operations, and document the
+  continue-scene pattern (omit `url:` to stay on the previous scene's ending
+  page). The SCHEMA is unchanged — old specs still validate; new specs are taught
+  the cleaner pattern.
+
 ### Added
 - **Companion links on the walkthrough viewer** (0.2.150) — an uploaded
   walkthrough can carry typed companion links the canopy-web `/w/<id>` viewer
