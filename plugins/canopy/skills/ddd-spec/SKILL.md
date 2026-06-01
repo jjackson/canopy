@@ -166,6 +166,26 @@ narrative first (Step 3) so the two stay in lockstep.
 - `title` — the story-beat title (see above).
 - `show` — concrete, imperative browser actions the walkthrough will execute
   (e.g. `"navigate to /audit/new, fill the 'observation' field, click Submit"`).
+- `actions` (optional but strongly recommended) — the **machine-executable** form
+  of `show`: a list of cursor interactions the video recorder performs so the demo
+  shows the feature being *used*, not just a page being panned. A scene with no
+  `actions` records as a static scroll — which scores ~1/5 on "demonstrates using
+  the features." Each action is `{kind, target?, value?, seconds?, note?}` where
+  `kind` ∈ {goto, click, click_menu, fill, type, press, hover, scroll_to, scroll,
+  wait_for, hold} and `target` is visible text or a CSS selector. Write `actions`
+  as the literal click-path that realizes `show`:
+  ```yaml
+      show: "exclude an invalid work area and watch the per-worker metrics update"
+      actions:
+        - { kind: scroll_to, target: "PLAN METRICS" }
+        - { kind: click, target: "Exclude", note: "drop an invalid area" }
+        - { kind: wait_for, target: "Excluded 1" }
+        - { kind: hold, seconds: 1.5 }
+  ```
+  Prefer real state-changing clicks (exclude → metrics move, submit → status flips)
+  over hovers — a visible state change is what earns `feature_use` 5. The recorder
+  (`scripts/walkthrough/_lib/recorder.py`) skips any action it can't resolve, so a
+  stale target degrades that one step, never the whole render.
 
 A spine item may span several beats, and a single beat may touch more than one
 spine item — decompose by the *story*, then attach `provenance` to whichever spine

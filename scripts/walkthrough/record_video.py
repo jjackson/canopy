@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 try:
@@ -44,6 +45,11 @@ except ImportError:
         "  pip install 'playwright>=1.40' && python -m playwright install chromium\n"
         "  (or install canopy's optional browser deps: pip install -e '<canopy>[browser]')"
     )
+
+# Interactive-recorder lib lives next to this script in _lib/. Add this script's
+# dir to the path so `python3 record_video.py` (invoked by path) can import it.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _lib.recorder import CURSOR_OVERLAY_JS, execute_action  # noqa: E402
 
 
 # Pacing presets. Goal: a "fast" walkthrough that doesn't feel sped-up.
@@ -95,13 +101,37 @@ def smooth_scroll(page, pace_config) -> float:
     return duration_ms / 1000.0
 
 
-def record_scene(page, scene, pace_config) -> float:
+def _goto_settle(page, url: str) -> None:
+    """Navigate without depending on networkidle (which hangs on apps with
+    long-poll / streaming endpoints — e.g. labs). domcontentloaded + a brief
+    settle is enough for the recorder; the page is visible, not necessarily idle."""
+    page.goto(url, wait_until="domcontentloaded", timeout=60000)
+    try:
+        page.wait_for_load_state("load", timeout=8000)
+    except Exception:
+        pass
+    page.wait_for_timeout(1200)
+
+
+def record_scene(page, scene, pace_config, *, base_url: str = "") -> float:
     url = scene["url"]
     title = scene.get("title", "(scene)")
+    actions = scene.get("actions") or []
     print(f"  → {title}: {url}")
-    page.goto(url, wait_until="networkidle", timeout=60000)
+    _goto_settle(page, url)
     page.wait_for_timeout(int(pace_config["initial_hold"] * 1000))
 
+    # Interactive scene: drive the declared actions with the synthetic cursor so
+    # the recording shows the feature being USED, not just the page displayed.
+    if actions:
+        start = time.monotonic()
+        for action in actions:
+            execute_action(page, action, base_url=base_url)
+        page.wait_for_timeout(int(pace_config["final_hold"] * 1000))
+        elapsed = time.monotonic() - start + pace_config["initial_hold"] + pace_config["final_hold"]
+        return max(elapsed, pace_config["min_hold"])
+
+    # Static scene (no actions declared): fall back to the scroll-pan.
     hold_override = scene.get("video_hold_seconds")
     if hold_override is not None:
         page.wait_for_timeout(int(float(hold_override) * 1000))
@@ -147,12 +177,17 @@ def main():
             continue
         idx = slide.get("scene_index", len(scenes) + 1)
         override = None
+        actions = None
         if 1 <= idx <= len(spec_scenes):
             override = spec_scenes[idx - 1].get("video_hold_seconds")
+            # `actions` is the per-scene interaction script (cursor clicks/fills).
+            # When present, the recorder drives them instead of a blind scroll-pan.
+            actions = spec_scenes[idx - 1].get("actions")
         scenes.append({
             "url": slide["url"],
             "title": slide.get("title", ""),
             "video_hold_seconds": override,
+            "actions": actions,
         })
 
     if not scenes:
@@ -170,6 +205,13 @@ def main():
                 record_video_dir=str(video_dir),
                 record_video_size={"width": viewport_w, "height": viewport_h},
             )
+            # Synthetic cursor + click ripple (headless Chromium draws no OS
+            # cursor). add_init_script runs at document-create on every nav, so
+            # the cursor survives the per-scene page changes.
+            context.add_init_script(CURSOR_OVERLAY_JS)
+            # Auto-accept window.confirm/alert dialogs (e.g. destructive
+            # "regenerate?" prompts) so a scripted click doesn't hang the render.
+            context.on("dialog", lambda d: d.accept())
 
             if args.cookies:
                 cookies = json.loads(Path(args.cookies).read_text())
@@ -191,8 +233,9 @@ def main():
                     except Exception as e:
                         print(f"  ! auth nav warning: {e}", file=sys.stderr)
 
+            base_url = (spec.get("base_url") or "").rstrip("/")
             for s in scenes:
-                total_seconds += record_scene(page, s, pace_config)
+                total_seconds += record_scene(page, s, pace_config, base_url=base_url)
 
             context.close()  # flush video
             browser.close()

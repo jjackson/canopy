@@ -1,5 +1,80 @@
 {
   "$defs": {
+    "Action": {
+      "description": "One scripted interaction the recorder performs with the synthetic cursor.\n\nA scene's ``actions`` turn its free-text ``show`` into something the video\nactually DOES \u2014 click, fill, open a menu, dwell, scroll \u2014 so the recording\ndemonstrates the feature being used instead of just panning a static page.\nThe recorder (scripts/walkthrough/_lib/recorder.py) maps each Action onto a\ncursor primitive; unknown kinds are skipped, never fatal.\n\nFields (all optional except ``kind``):\n  kind     \u2014 one of: goto, click, click_menu, fill, type, press, hover,\n             scroll_to, scroll, wait_for, hold\n  target   \u2014 text label or CSS selector to act on (click/hover/fill/scroll_to/wait_for)\n  value    \u2014 text to fill/type, key to press, url to goto, \"bottom\"/\"top\"/px for scroll\n  seconds  \u2014 dwell/hold duration\n  note     \u2014 human note: what this step demonstrates (shown in render logs)",
+      "properties": {
+        "kind": {
+          "enum": [
+            "goto",
+            "click",
+            "click_menu",
+            "fill",
+            "type",
+            "press",
+            "hover",
+            "scroll_to",
+            "scroll",
+            "wait_for",
+            "hold"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seconds"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Action",
+      "type": "object"
+    },
     "Feature": {
       "description": "A single buildable, verifiable capability within a scene (DDD v3).",
       "properties": {
@@ -109,6 +184,14 @@
             "$ref": "#/$defs/Feature"
           },
           "title": "Features",
+          "type": "array"
+        },
+        "actions": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Action"
+          },
+          "title": "Actions",
           "type": "array"
         },
         "narrative": {
