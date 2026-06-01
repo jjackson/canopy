@@ -186,19 +186,28 @@ def test_filter_composes_with_snapshot_gate(tmp_path):
 
 
 def test_recorder_records_all_scenes_when_filter_not_applied():
-    """Default (no --skip-empty-scenes) preserves pre-PR #107 behaviour: the
-    orchestrator iterates every scene, even the empty ones. The snapshot
-    gate from PR #105 still skips empty scenes' captures, but the recording
-    loop visits them (init-hold + final-hold runs)."""
+    """Default (no --skip-empty-scenes) preserves the pre-PR #107
+    iteration contract: the orchestrator visits every scene, including
+    the action-empty ones. PR #112 trimmed the no-nav initial_hold_ms
+    (a stay-on-page scene has no page-load transition to settle for) so
+    a same-URL scene now contributes ``final_hold_ms`` only — but it
+    STILL runs through the loop, the snapshot gate from PR #105 still
+    fires (skipped for empty scenes), and ``run`` returns elapsed time
+    for both."""
     page = _FakePage()
     rec = Recorder()  # no snapshot_dir → no snapshot files; clip behaviour unchanged
     scenes = [
+        # Both scenes omit ``url`` so they're no-nav stay-on-page scenes —
+        # initial_hold_ms is correctly skipped under PR #112.
         {"title": "a", "actions": [{"kind": "press", "value": "Enter"}], "scene_index": 1},
         {"title": "narrative", "actions": [], "scene_index": 2},
     ]
-    rec.run(page, scenes)
+    elapsed = rec.run(page, scenes)
 
-    # Both scenes' init+final holds fire — wait_for_timeout was called for both.
-    # Each scene contributes at least initial_hold_ms + final_hold_ms = 1500+1000ms.
-    total_hold_ms = sum(page.timeouts)
-    assert total_hold_ms >= (rec.config.initial_hold_ms + rec.config.final_hold_ms) * 2
+    # Both scenes' final_hold_ms (1000ms each) fires — proves the loop visits
+    # every scene, even when initial_hold_ms is correctly deferred.
+    assert page.timeouts.count(rec.config.final_hold_ms) == 2, (
+        f"final_hold_ms should fire once per scene; got timeouts={page.timeouts}"
+    )
+    # And run() returns total elapsed time covering both scenes.
+    assert elapsed > 0

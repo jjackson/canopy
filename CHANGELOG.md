@@ -11,6 +11,40 @@ recent, verifiable themes in the git log.
 
 ## [Unreleased]
 
+### Changed
+- **Scene-transition dead-air: cursor follows `scroll_to`, no-nav scenes skip
+  `initial_hold_ms`** (0.2.152) — frame-sampling `microplans-10-wards` v0.2.151
+  (https://canopy-web-ujpz2cuyxq-uc.a.run.app/w/0212e21b-238c-422d-8c32-62289f487f4c)
+  after PR #111 landed: scene 1 dropped from ~12s to ~5s, but viewers still saw
+  ~5s of "static workspace, nothing happening" between the page load (t=2s) and
+  the first visible motion (t=7s). Two structural causes PR #111 didn't address.
+  Both fixes are additive — existing specs record identically, just faster.
+  - **`scroll_to` glides the cursor onto the target.** Mirrors the
+    resolve → glide → act shape every other primitive (`click_text`,
+    `fill_field`, `select_option`, `hover`) already uses. A common pattern is
+    `scroll_to` defensively before a click; when the element is already in
+    view the page may not move at all but the cursor still visibly arrives
+    on what's about to be clicked, so the viewer never sees a frozen
+    `scroll_settle_ms` of nothing. After the smooth-scroll, the recorder
+    re-measures the locator (the smooth-scroll moved it) and short-glides
+    the cursor to follow it to its new viewport position — same re-measure
+    pattern `click_text` uses to land on a settled element.
+  - **`initial_hold_ms` skipped on no-nav scenes.** PR #111 skipped the hold
+    when the first action was `wait_for` (the wait_for IS the settle). This
+    extends the skip: when `goto_for_scene` returns `None` (stay-on-page
+    scene, either via `SkipSameUrlRecorder` or a scene authored without
+    `url:`), there's no page-load transition to settle for. The previous
+    scene's `final_hold_ms` already provided any transition pause. So the
+    full skip condition is now `url is not None and first_action != wait_for`.
+  - 11 new tests under `tests/walkthrough/` —
+    `test_scrollto_glides_cursor.py` (five cases covering pre-scroll glide
+    centre + steps, move-before-evaluate ordering, post-scroll re-measure
+    & re-glide with `cursor_steps_short`, detached-locator no-crash, and
+    unresolved-target back-compat) and `test_initial_hold_skip_no_nav.py`
+    (six cases pinning the new no-nav skip vs PR #111's existing wait_for
+    skip, including the stacked condition, empty-actions edge case, and a
+    "no nav means no goto at all" sanity check).
+
 ### Fixed
 - **Scene-start dead-air: redundant goto + blind holds** (0.2.151) — frame-sampling
   the latest `microplans-10-wards` recording found ~7s of preventable stillness at

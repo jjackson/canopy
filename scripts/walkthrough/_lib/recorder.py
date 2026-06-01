@@ -228,7 +228,7 @@ def hover(page: Page, target: str, *, seconds: float | None = None, config: Reco
 
 
 def scroll_to(page: Page, target: str, *, config: RecorderConfig | None = None) -> bool:
-    """Smooth-scroll the element matching ``target`` into view.
+    """Smooth-scroll the element matching ``target`` into view, with the cursor.
 
     Resolves via the unified locator engine (same syntax as every other
     primitive). For the actual scroll: ``Locator.scroll_into_view_if_needed``
@@ -237,11 +237,26 @@ def scroll_to(page: Page, target: str, *, config: RecorderConfig | None = None) 
     ``scrollTo`` misses). We chase it with a brief in-page smooth-scroll
     nudge so the motion is visible in the recording — the locator's
     instant scroll alone reads as a teleport.
+
+    The cursor glides onto the target BEFORE the scroll, mirroring the
+    click_text / fill_field pattern (resolve → glide → act). When the
+    target is already in view (the "no-op scroll" case — common because
+    spec authors ``scroll_to`` defensively), the page may not move at all
+    but the cursor still visibly arrives on what's about to be clicked,
+    so the viewer never sees a frozen ``scroll_settle_ms`` of nothing.
+    After the smooth-scroll, we re-measure the locator (its viewport
+    position changed) and glide the cursor again with ``cursor_steps_short``
+    so it follows the element to its new spot — the same re-measure pattern
+    ``click_text`` uses to land on a settled element.
     """
     cfg = config or RecorderConfig()
     rt = resolve_target(page, target, timeout_ms=cfg.glide_timeout_ms)
     if rt is None:
         return False
+    # Pre-scroll glide — cursor lands on the target at its current viewport
+    # position. Same shape every other primitive uses; keeps "boring" frames
+    # from accumulating when ``scroll_to`` is a no-op.
+    slow_move(page, rt.box["x"], rt.box["y"], steps=cfg.cursor_steps)
     try:
         rt.locator.scroll_into_view_if_needed(timeout=cfg.glide_timeout_ms)
     except Exception:
@@ -252,6 +267,13 @@ def scroll_to(page: Page, target: str, *, config: RecorderConfig | None = None) 
         """([x, y]) => window.scrollTo({top: y + window.scrollY - window.innerHeight / 2, behavior: 'smooth'})""",
         [rt.box["x"], rt.box["y"]],
     )
+    # The smooth-scroll moved the element under our cursor. Re-measure +
+    # short glide so the cursor follows it to its new viewport position —
+    # this is the analogue of click_text's re-measure-then-click, applied
+    # to "cursor must end on the scrolled-to element".
+    new_box = measure_box(rt.locator)
+    if new_box is not None:
+        slow_move(page, new_box["x"], new_box["y"], steps=cfg.cursor_steps_short)
     page.wait_for_timeout(cfg.scroll_settle_ms)
     return True
 
