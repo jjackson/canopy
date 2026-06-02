@@ -12,6 +12,28 @@ recent, verifiable themes in the git log.
 ## [Unreleased]
 
 ### Changed
+- **DDD concept-eval rubric grows a `visual_polish` dimension** (0.2.153) — the
+  prior 5-dim rubric (`concept_clarity`, `design_soundness`, `why_groundedness`,
+  `claim_reality_coherence`, `motion_friction`) had no place to land pure-visual
+  failures. `design_soundness`'s anchors and deduction rules were about
+  INTERACTION coherence — dead ends, contradictory affordances, unlabeled
+  actions — so demonstrably ugly UI (misaligned elements, garish color,
+  inconsistent button styles, bad typography, crowded layouts) shipped through
+  the judge with passing scores because the rubric never asked.
+  - New `visual_polish` dim (weight 0.15): Tough Judge anchors from 5
+    ("shippable as marketing material") → 1 ("unfinished or amateur"), with 7
+    deduction rules covering alignment, contrast, hierarchy, density, control
+    consistency, overflow, and semantic color usage. Counts toward the
+    weakest-link `overall_score` like every other gating dim.
+  - `design_soundness` weight trimmed 0.25 → 0.20; label clarified to "Design
+    Soundness (Interaction Coherence)" to make the scope split explicit.
+  - `claim_reality_coherence` weight trimmed 0.15 → 0.10 (still advisory).
+  - `motion_friction` weight trimmed 0.20 → 0.15. Weights still sum to 1.0.
+  - Routing: `visual_polish` findings → PRODUCT by default (visual fixes are
+    template/CSS changes); rare CONCEPT route when the rendered chrome reveals
+    an information-architecture problem.
+  - `tests/skills/test_ddd_concept_eval_structure.py` updated to expect 6 dims
+    including `visual_polish`. Full canopy suite green (1567 passed).
 - **Scene-transition dead-air: cursor follows `scroll_to`, no-nav scenes skip
   `initial_hold_ms`** (0.2.152) — frame-sampling `microplans-10-wards` v0.2.151
   (https://canopy-web-ujpz2cuyxq-uc.a.run.app/w/0212e21b-238c-422d-8c32-62289f487f4c)

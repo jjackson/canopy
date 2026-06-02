@@ -1,13 +1,26 @@
 # Concept-eval rubric for ddd-concept-eval (SP3.1)
-# Five weighted dimensions; weights sum to 1.0.
+# Six weighted dimensions; weights sum to 1.0.
 # overall_rule: lowest  (weakest-link scoring — one bad dim fails the eval)
 #   NOTE: overall_rule applies to NON-ADVISORY dimensions only.
 #   claim_reality_coherence has advisory: true and is EXCLUDED from the
 #   weakest-link overall_score computation (see SKILL.md Step 4).
 #
+# History:
+# - v0.2.153 split design_soundness (interaction coherence) into TWO dims by
+#   factoring out a new visual_polish dim. The 5-dim rubric mis-routed
+#   pure-visual failures (misalignment, garish colors, bad type, crowded
+#   layouts, inconsistent buttons) into design_soundness, whose anchors and
+#   deduction rules were about INTERACTION soundness — so ugly UI shipped
+#   with a passing concept-eval score. visual_polish (0.15) gives the
+#   visual-judge a place to land those findings; design_soundness keeps the
+#   interaction-coherence scope and drops to 0.20. motion_friction trimmed
+#   to 0.15 and claim_reality_coherence to 0.10 to keep totals at 1.00.
+#
 # ## Calibration status
 # Provisional rubric; calibrate via a defect-creator analog after 3 real runs
-# (deferred per spec). Not yet calibrated.
+# (deferred per spec). Not yet calibrated. visual_polish dim is brand-new and
+# untouched by the original calibration plan — expect the most score noise
+# here in the first few runs.
 
 overall_rule: lowest
 
@@ -58,9 +71,13 @@ dimensions:
       - "Opening scene fails to establish the problem being solved: max 2"
 
   - id: design_soundness
-    label: "Design Soundness"
-    weight: 0.25
+    label: "Design Soundness (Interaction Coherence)"
+    weight: 0.20
     default_score: 3
+    # SCOPE: interaction soundness, not visual polish.
+    # This dim asks "does the product's interaction model hold together?" —
+    # affordances, flow, action coherence, error handling. Pure visual quality
+    # (alignment, type, color, spacing, button styling) lives in visual_polish.
     anchor:
       "5": "Every interaction shown is coherent — inputs lead to outputs that match the concept; there are no dead ends, contradictory affordances, or unexplained leaps."
       "4": "Interactions are sound; one flow step feels slightly off (e.g. an unexpected modal, an unlabeled action) but doesn't break the idea."
@@ -70,6 +87,31 @@ dimensions:
     deduction_rules:
       - "A scene shows an error state without explaining it: max 2"
       - "A core action is clicked off-camera or skipped entirely with no narration: max 3"
+
+  - id: visual_polish
+    label: "Visual Polish"
+    weight: 0.15
+    default_score: 3
+    # SCOPE: rendered aesthetic quality of the captured screenshots — alignment,
+    # typographic hierarchy, color/contrast, whitespace rhythm, control
+    # consistency, density. Carved out of design_soundness in v0.2.153 because
+    # the prior 5-dim rubric had no place to land pure visual failures, so ugly
+    # UI shipped with passing concept-evals. Tough Judge methodology applies as
+    # everywhere else: start from 3, adversarial-list issues first, deduct.
+    anchor:
+      "5": "Every captured scene is shippable as marketing material — alignment is tight, typographic hierarchy is intentional, color usage is semantic and consistent, whitespace breathes, no chrome looks unfinished. A designer reviewing the screenshots would say 'this is well crafted'."
+      "4": "Visually polished overall; one scene has a minor issue (a label crowded against a chart edge, a single inconsistent button style, a slightly mismatched font weight) that doesn't read as a quality signal."
+      "3": "Functional but unremarkable — the UI does its job without distinction; a designer would have notes on alignment, type, or spacing in at least one scene. (DEFAULT)"
+      "2": "Multiple visual issues that a careful viewer would notice: misaligned elements across scenes, jarring color combinations, inconsistent button/control styles within a single page, cramped layouts."
+      "1": "The UI looks unfinished or amateur — unshippable as a public product surface. Inconsistent type, broken alignment, garish colors, chart overflow, or chrome that reads as 'placeholder'."
+    deduction_rules:
+      - "Misaligned UI elements visible in 2+ scenes: max 2"
+      - "Inconsistent button or control styles within a single scene: max 3"
+      - "Low-contrast text against background (likely WCAG AA failure): max 2"
+      - "Crowded layout with no whitespace rhythm, or content visibly clipped: max 3"
+      - "Chart / table / form content overflows the viewport or wraps awkwardly: max 3"
+      - "Typography hierarchy is flat or arbitrary (no visible H1/H2/body distinction): max 3"
+      - "Color usage is decorative rather than semantic (random brand-accent on non-action elements): max 3"
 
   - id: why_groundedness
     label: "Why Groundedness"
@@ -87,10 +129,12 @@ dimensions:
 
   - id: claim_reality_coherence
     label: "Claim–Reality Coherence"
-    weight: 0.15
+    weight: 0.10
     default_score: 3
     # This dimension is scored and surfaced but NEVER causes verdict=blocked.
     # advisory: true means it is excluded from the weakest-link overall_score.
+    # Weight trimmed from 0.15 → 0.10 in v0.2.153 to make room for visual_polish
+    # at 0.15; advisory status preserved (this dim shapes routing, not verdict).
     blocking: false
     advisory: true
     anchor:
@@ -105,8 +149,9 @@ dimensions:
 
   - id: motion_friction
     label: "Motion Friction"
-    weight: 0.20
+    weight: 0.15
     default_score: 3
+    # Weight trimmed from 0.20 → 0.15 in v0.2.153 to make room for visual_polish.
     anchor:
       "5": "The walkthrough flows naturally — transitions are smooth, no scene requires the viewer to mentally skip awkward moments; the product looks like a pleasure to use."
       "4": "Flow is mostly smooth; one scene has a noticeable hesitation, slow load, or clunky transition that a script revision could fix."
