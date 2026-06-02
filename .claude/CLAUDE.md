@@ -302,25 +302,54 @@ reported `UP_TO_DATE` forever after.
 
 **Mental checklist before EVERY canopy commit touching `plugins/canopy/`:**
 
-1. Did I run `uv run canopy version bump`?
-2. Are `VERSION` and `plugins/canopy/.claude-plugin/plugin.json` identical?
+1. Did I run `uv run canopy version bump`? (It updates all THREE version files
+   together — `VERSION`, `plugins/canopy/.claude-plugin/plugin.json`, and the two
+   fields in `.claude-plugin/marketplace.json`. Editing them by hand is how
+   marketplace.json drifted in the 0.2.157 bump — #120 changed only two files.)
+2. Do all three agree? `VERSION` == `plugin.json` version == every
+   `marketplace.json` version field. CI's version-check now fails on any mismatch.
 3. Did the pre-push hook pass?
 
 ## Git Hooks
 
-Two hooks ship in `scripts/hooks/`. Opt in (once per checkout) with:
+### Claude Code PreToolUse guard (auto-active, no opt-in) — the primary defense
+
+Because **100% of canopy commits are AI-generated through Claude Code**, the
+most reliable guard is a Claude Code `PreToolUse` hook, not a git hook. It is
+checked into `.claude/settings.json` and loads automatically — no
+`git config` step, works regardless of what emdash sets `core.hooksPath` to.
+
+- `hooks/pre_tool_use_version_bump_guard.py` — intercepts any `git push` Bash
+  call and runs the same `verify_bump_when_plugin_changed` check CI runs. If the
+  branch touched `plugins/canopy/` without advancing VERSION past `origin/main`,
+  it **denies the push** and hands the agent the exact fix (`canopy version
+  bump`). This catches both failure modes that historically reddened CI: (A)
+  forgot to bump, and (B) a parallel worktree already claimed your patch number.
+  Override with `CANOPY_ALLOW_PUSH_NO_BUMP=1`.
+- `hooks/pre_tool_use_plugin_cache_guard.py` — blocks local-patching of the
+  plugin cache (`CANOPY_ALLOW_CACHE_PATCH=1` to override).
+
+This is the only guard that fires in practice for AI-driven worktree flow — see
+the git hooks below for why.
+
+### Git hooks (opt-in, belt-and-suspenders) — dormant unless installed
+
+Two hooks ship in `scripts/hooks/`. They are **inert until you opt in** with:
 
 ```bash
 git config core.hooksPath scripts/hooks
 ```
 
+In emdash worktrees `core.hooksPath` typically points at the main checkout's
+default `.git/hooks` (which has no canopy hooks), and no human runs the opt-in —
+so these never fired, which is exactly why CI kept catching missing bumps. The
+Claude Code guard above supersedes them for the AI flow; keep these for humans.
+
 - `pre-commit` — when `VERSION` or `plugins/canopy/.claude-plugin/plugin.json` is staged,
   runs `canopy version verify` to refuse a half-bump (one file edited, the other not).
 - `pre-push` — refuses direct pushes to `main` AND runs `canopy version verify-bump`
   on the branch. Refuses the push if `plugins/canopy/` changed without VERSION
-  advancing past origin/main. This is the only fully local prevention for the missing-
-  bump failure mode — the CI check fails after the fact and the merge button doesn't
-  honor it on a private repo.
+  advancing past origin/main.
 
 Bypass either hook with `git push --no-verify` / `git commit --no-verify` — almost
 always the wrong call. The hooks are advisory by design (no server-side enforcement
@@ -328,7 +357,7 @@ available without GitHub Pro), so discipline is the failure mode they protect ag
 
 ### Update workflow (the ONLY way to update)
 1. Make changes to skills, commands, or agents in `plugins/canopy/`
-2. Bump the **patch version** in BOTH `plugins/canopy/.claude-plugin/plugin.json` AND `VERSION` (e.g. `0.2.6` → `0.2.7`). See the STOP block above — this is the #1 mistake. A GitHub Actions check will fail if they don't match, but it will NOT catch a missing bump.
+2. Bump the **patch version** with `uv run canopy version bump` — do NOT hand-edit. It advances `VERSION`, `plugins/canopy/.claude-plugin/plugin.json`, AND both `.claude-plugin/marketplace.json` fields together (e.g. `0.2.6` → `0.2.7`). Hand-editing only two of the three is the drift that #120 introduced. See the STOP block above — a missing/partial bump is the #1 mistake. CI's version-check fails if the three disagree, but will NOT catch a missing bump on `main`.
 3. Commit, push, PR, and auto-merge (see § Shipping Changes — the maintainer
    does NOT review; merge it yourself):
    ```bash
