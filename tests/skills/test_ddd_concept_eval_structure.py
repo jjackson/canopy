@@ -18,6 +18,7 @@ RUBRIC_PATH = SKILL_DIR / "rubric.yaml"
 EXPECTED_DIMS = {
     "concept_clarity",
     "design_soundness",
+    "visual_polish",          # carved out of design_soundness in v0.2.153
     "why_groundedness",
     "claim_reality_coherence",
     "motion_friction",
@@ -48,7 +49,7 @@ def test_command_file_exists() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_rubric_has_five_dimensions() -> None:
+def test_rubric_has_expected_dimensions() -> None:
     rubric = yaml.safe_load(RUBRIC_PATH.read_text())
     dims = {d["id"] for d in rubric["dimensions"]}
     assert dims == EXPECTED_DIMS, f"Expected dims {EXPECTED_DIMS}, got {dims}"

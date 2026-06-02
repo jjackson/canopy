@@ -1,10 +1,13 @@
 ---
 name: ddd-concept-eval
 description: |
-  LLM-as-judge eval for a rendered walkthrough. Scores five weighted dimensions
-  (concept_clarity .20, design_soundness .25, why_groundedness .20,
-  claim_reality_coherence .15, motion_friction .20) using the rubric bundled with
-  this skill. Gated by ddd-spec-qa — if QA fails, this eval is skipped.
+  LLM-as-judge eval for a rendered walkthrough. Scores six weighted dimensions
+  (concept_clarity .20, design_soundness .20, visual_polish .15, why_groundedness .20,
+  claim_reality_coherence .10 advisory, motion_friction .15) using the rubric bundled
+  with this skill. visual_polish was carved out of design_soundness in v0.2.153 so the
+  visual-judge has a place to land pure-aesthetic failures (misaligned elements,
+  inconsistent button styles, bad type, garish colors) that the prior interaction-
+  coherence anchors didn't catch. Gated by ddd-spec-qa — if QA fails, this eval is skipped.
   Per scene, dispatches canopy:visual-judge with the concept rubric and the scene's
   concept_claim / provenance / captured page text as anchors. Aggregates to a
   weakest-link overall_score. Collects design_findings[] tagged with PRODUCT /
@@ -122,6 +125,7 @@ fix_recommendation: <copy the fix_recommendation from visual-judge, or synthesiz
 Route assignment rules:
 - `concept_clarity` findings → CONCEPT
 - `design_soundness` findings → **PRODUCT** if the fix changes how the product is *presented* without changing what it does (e.g. interaction wording, affordance labelling, flow ordering); → **CONCEPT** if fixing it requires changing *what the product does* (e.g. a core interaction is incoherent because the underlying idea is wrong)
+- `visual_polish` findings → **PRODUCT** (almost always — visual fixes are CSS/template changes that don't change *what* the product does, only how it looks). Rare exception: if the rendered chrome reveals a CONCEPT-level information-architecture problem (e.g. the layout fights the user's mental model), route CONCEPT.
 - `why_groundedness` findings → RESEARCH (if provenance is missing) or CONCEPT (if the claim contradicts the why_brief)
 - `claim_reality_coherence` findings → always DEFER (non-blocking; note discrepancy for later triage)
 - `motion_friction` findings → PRODUCT
@@ -166,8 +170,9 @@ the loop and surfaces to the user.
 ### Step 4 — Aggregate overall score
 
 Compute `overall_score` across ALL scenes via `overall_rule: lowest` (the minimum
-dimension score across all scenes for the **four gating dimensions**:
-`concept_clarity`, `design_soundness`, `why_groundedness`, and `motion_friction`).
+dimension score across all scenes for the **five gating dimensions**:
+`concept_clarity`, `design_soundness`, `visual_polish`, `why_groundedness`, and
+`motion_friction`).
 
 `claim_reality_coherence` is EXCLUDED from the weakest-link overall_score, so it
 can never drive verdict to warn/fail/blocked. It is advisory: it informs the human
@@ -201,10 +206,11 @@ run_dir: <input>
 
 dimensions:
   concept_clarity:          { score: N, weight: 0.20, justification: "..." }
-  design_soundness:         { score: N, weight: 0.25, justification: "..." }
+  design_soundness:         { score: N, weight: 0.20, justification: "..." }
+  visual_polish:            { score: N, weight: 0.15, justification: "..." }
   why_groundedness:         { score: N, weight: 0.20, justification: "..." }
-  claim_reality_coherence:  { score: N, weight: 0.15, justification: "...", blocking: false }
-  motion_friction:          { score: N, weight: 0.20, justification: "..." }
+  claim_reality_coherence:  { score: N, weight: 0.10, justification: "...", blocking: false }
+  motion_friction:          { score: N, weight: 0.15, justification: "..." }
 
 overall_score: N
 overall_rule: lowest
@@ -244,6 +250,7 @@ Concept Eval — <spec name>
 
   concept_clarity:          N/5  — <one-line justification>
   design_soundness:         N/5  — <one-line justification>
+  visual_polish:            N/5  — <one-line justification>
   why_groundedness:         N/5  — <one-line justification>
   claim_reality_coherence:  N/5  — <one-line justification> [non-blocking]
   motion_friction:          N/5  — <one-line justification>
@@ -274,10 +281,11 @@ rubric_name: ddd-concept-eval
 ran_at: <ISO timestamp>
 dimensions:
   concept_clarity:          { score: <float>, weight: 0.20 }
-  design_soundness:         { score: <float>, weight: 0.25 }
+  design_soundness:         { score: <float>, weight: 0.20 }
+  visual_polish:            { score: <float>, weight: 0.15 }
   why_groundedness:         { score: <float>, weight: 0.20 }
-  claim_reality_coherence:  { score: <float>, weight: 0.15, blocking: false }
-  motion_friction:          { score: <float>, weight: 0.20 }
+  claim_reality_coherence:  { score: <float>, weight: 0.10, blocking: false }
+  motion_friction:          { score: <float>, weight: 0.15 }
 overall_score: <float>
 overall_rule: lowest
 verdict: pass | warn | fail | blocked
