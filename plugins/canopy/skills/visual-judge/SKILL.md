@@ -102,20 +102,26 @@ Caller-provided context that shapes the adversarial pass:
 
 ```yaml
 audience:
-  name: "skeptical CEO of a Fortune 500"
-  decision: "deciding whether to adopt your product"
+  name: "the CEO who is about to forward this into a high-stakes external thread"
+  decision: "whether to hit Send with their name on it, or fix something first"
 competitors: ["Linear", "Notion", "Slack", "Vercel", "Superhuman"]
 projector_test_phrasing: |
-  "Would you put this slide on a projector at an all-hands tomorrow,
-  to your most demanding stakeholder, without ANY verbal caveats?"
+  "I am the CEO, about to forward this — with my name on it — into a
+  high-stakes external thread (a board, a major customer, a funder).
+  Would I find ANYTHING I'd want fixed before I hit Send? Answer NO
+  only if I would send it untouched, with zero verbal caveats."
+domain_expert: "a domain expert who would nitpick the methodology"  # e.g. "an M&E statistician", "a security auditor"
 narrative_anchors:                 # optional; specific claims this judgment can verify
   - "the headline panel must show ≥3 named FLWs with archetype labels"
   - "Dinesh's coaching arc must be visually called out"
 domain: "turmeric market survey"   # informs brand-fit + content judgment
 ```
 
-When omitted, defaults are walkthrough-flavored (CEO/Linear/Notion/etc.,
-projector test as quoted above).
+When omitted, defaults are the high-stakes-send lens above (the CEO is
+about to forward it with their name on it; competitors Linear/Notion/etc.;
+projector test as quoted). The send lens is intentionally harsher than a
+generic "would you adopt this" — personal stakes and a binary Send/fix
+decision surface flaws a detached reviewer waves through.
 
 ## Process — Tough Judge methodology
 
@@ -123,43 +129,105 @@ You are the harshest reviewer this product will ever face. Your job is
 to find what's wrong, not feel good about what's right. If you're
 scoring generously, you're scoring wrong.
 
-**Calibration prior:** you are biased upward, especially if you built
-or modified the thing being judged. Don't mechanically deduct —
-**justify every 4 or 5 in one sentence a skeptical stranger would
-accept.** If the justification reads as "it works" or "it's clean,"
-the score isn't a 4 — that's a 3.
+### Independence requirement (read before scoring)
+
+**The judge must have NO stake in, and no context from, building the
+thing it judges.** A builder scoring their own artifact reliably scores
+1–2 points too high — they know what each element *means to*, forgive
+flaws they remember rationalizing, and read intent the viewer can't see.
+This is the single largest source of inflated scores.
+
+- **Callers MUST dispatch this skill as a fresh sub-agent** (e.g. the
+  Agent tool) whose context contains ONLY the inputs to this skill —
+  the screenshot, `page_text`, `rubric`, and `context`. It must NOT
+  inherit the build conversation, the design rationale, or the author's
+  framing of why a choice is fine.
+- **If you are scoring something you (or your current conversation)
+  helped build, you cannot give independence — apply a hard −1 to every
+  dimension** and mark the verdict `self_assessed: true (unreliable)`.
+  Say so explicitly. A self-assessed 5 is a 4 at best; a self-assessed
+  4 is a 3.
+
+**Calibration prior:** you are biased upward. Don't mechanically
+deduct — **justify every 4 or 5 in one sentence a skeptical stranger
+would accept.** If the justification reads as "it works" or "it's
+clean," the score isn't a 4 — that's a 3.
+
+**The CEO-send gate (the bar for a 5):** before any dimension can earn
+a 5, pass this test — *"I am the CEO. I am about to forward this, with
+my name on it, into a high-stakes external thread (a board, a major
+customer, a funder). Would I find ANYTHING I'd want fixed before I hit
+Send?"* If the honest answer is "I'd tweak one thing first," that
+dimension is a 4, not a 5. One needed caveat, one hedge, one "let me
+just explain that number" = not a 5.
 
 ### Phase 1: Adversarial listing (MANDATORY before any scoring)
 
 Read the screenshot (Read tool on `screenshot_path`) and the
-`page_text` if provided. Then write three lists, in this order:
+`page_text` if provided. Then write the following lists, in this order.
+Be specific throughout: quote exact text from `page_text`, name exact UI
+elements visible in the screenshot. Vague flaws ("a bit cluttered")
+don't count — if you can't point at it, you didn't find it.
 
-1. **Three most embarrassing things on this view** if you had to pause
-   and explain them to `<context.audience>`. Be specific. Quote exact
-   text from `page_text`, name exact UI elements visible in the
-   screenshot. If you can't find three, you haven't looked hard enough.
-   Common things to check:
-   - Demo data artifacts (`Untitled`, duplicate titles, `test-user`,
-     placeholder avatars)
-   - Empty states dominating the frame
-   - Error or warning banners visible
-   - Feature gaps the audience would immediately ask about
-   - Visual issues (low contrast, cramped spacing, inconsistent icon
-     sizes)
+1. **At least EIGHT things you'd want fixed before `<context.audience>`
+   hits Send** — scale up for a denser view (a dashboard with 20+
+   elements should yield 12+). Cover *at least one per major region of
+   the layout* (header/chrome, hero/KPI area, charts, map/media,
+   footer/panels) — a region with "nothing wrong" almost always means
+   you skimmed it. Rank them by how embarrassing they'd be on Send.
+   **Fewer than eight means you didn't look** — go back. Things to hunt:
+   - Demo/dev artifacts (`Untitled`, duplicate titles, `test-user`,
+     placeholder avatars, lorem text)
+   - **Internal app chrome** (nav bars, breadcrumbs, "Select context",
+     account menus, edit/admin affordances) — anything that makes it
+     read as an internal tool screenshot rather than a prepared
+     deliverable
+   - Empty states dominating the frame; error/warning banners
+   - **Inconsistencies** — the same quantity formatted two ways
+     (`2,300` vs `2300`), two different numbers both presented as "the"
+     headline, mismatched units, drifting capitalization
+   - **Jargon a non-expert in the audience can't parse** (acronyms,
+     stats notation `pp`/`CI`/`n=`, domain shorthand) presented without
+     a plain-language read
+   - Charts/figures with no axis labels, units, legend, or scale
+   - Low contrast, cramped spacing, inconsistent icon/type sizes,
+     flat hierarchy (housekeeping metrics sized like headline findings)
    - Claimed-but-not-shown behavior (narrative says "streaming" but
      nothing streams)
 
-2. **Three ways a competitor does this better.** Pick from
-   `<context.competitors>` (or the walkthrough default list:
+2. **Claim-scrutiny — does the artifact's implicit claim survive
+   `<context.domain_expert>`?** State, in one sentence, the claim a
+   viewer will infer from this view. Then attack it as the expert would.
+   Hard triggers (each one is a real flaw to list):
+   - A **self-disclaiming** element — a caveat/footnote/banner that
+     undercuts the headline it sits next to ("...not a causal estimate"
+     under a big causal-looking number). If the artifact argues against
+     its own hero, that's a top-rank flaw.
+   - A comparison or number that an expert would call **unsupported by
+     what's shown** (no baseline, no denominator, selective rigor —
+     e.g. a confidence interval on only the flattering metric).
+   - The displayed numbers matching the spec is NOT the bar. The bar is
+     **the claim a viewer draws matching what the data can honestly
+     support.**
+
+3. **At least three ways a competitor does this better.** Pick from
+   `<context.competitors>` (or the default list:
    Linear/Notion/Slack/Vercel/Height/Superhuman). Describe concretely
    what they do that this view doesn't. If you cannot name three,
    you are not thinking adversarially enough — look again.
 
-3. **The binary projector test.** Use `<context.projector_test_phrasing>`
-   verbatim, answer YES or NO. This answer is a hard gate on any
-   "demo readiness" / "shippable" dimension below.
+4. **The 5-second test.** Glance at the screenshot as a first-time
+   viewer for five seconds. What is the ONE thing this view is trying to
+   tell you — and did you get it, or get a *wrong* read, in five
+   seconds? Name the single biggest source of "wait, what am I looking
+   at?" Misreads here cap `concept_clarity` / `visual_hierarchy`.
 
-Output these three lists as a block. ONLY THEN proceed to scoring.
+5. **The binary send test.** Use `<context.projector_test_phrasing>`
+   verbatim, answer YES or NO. This answer is a hard gate on any
+   "demo readiness" / "shippable" dimension below, AND on whether any
+   dimension can reach 5 (see the CEO-send gate above).
+
+Output all five lists as a block. ONLY THEN proceed to scoring.
 
 ### Phase 2: Score each dimension, starting from `rubric.default_score`
 
@@ -184,14 +252,27 @@ Computed `overall`:
 
 Before emitting the verdict, check these sanity rules:
 
-- **If ANY of your top-3 embarrassing things is unfixed in the
-  screenshot, any "demo readiness" dimension cannot exceed 3.** No
+- **If the send test (Phase 1.5) is NO, NO dimension can reach 5.** The
+  CEO-send gate is the definition of a 5; a "fix one thing first" answer
+  caps every dimension at 4.
+- **If ANY of your Phase-1.1 flaws is unfixed in the screenshot, any
+  "demo readiness" / "shippable" dimension cannot exceed 3.** No
   exceptions.
-- **If the projector test is NO, any "demo readiness" dimension cannot
-  exceed 3.**
+- **If a claim-scrutiny trigger fired (Phase 1.2)** — a self-disclaiming
+  element, or a claim an expert calls unsupported by what's shown — then
+  `claim_reality_coherence` (and any "concept" dimension) cannot exceed
+  2. A view that argues against its own hero is not coherent.
+- **If internal app chrome is visible (Phase 1.1)**, any
+  "visual hierarchy" / "design" / "screenshot quality" dimension cannot
+  exceed 3 — it reads as a tool screenshot, not a deliverable.
+- **If the 5-second test (Phase 1.4) produced a wrong read or a "what am
+  I looking at?"**, `concept_clarity` / `visual_hierarchy` cannot exceed 3.
 - **If a competitor does it obviously better in all 3 named ways, the
   "app page quality" / "visual hierarchy" / equivalent dimension cannot
   exceed 3.**
+- **If this is a self-assessment** (you lacked build-independence — see
+  Independence requirement), apply −1 to every dimension after all other
+  rules, floor 1, and set `self_assessed: true` in the verdict.
 - **Every 4 or 5 needs a one-sentence justification a stranger would
   accept.** "It works" / "it's clean" is not a 4 — that's a 3. Revise
   down if you can't name what earns the step up.
@@ -227,15 +308,22 @@ screenshot_path: <input>
 
 # Phase 1 outputs
 adversarial:
-  embarrassing:
+  embarrassing:          # ≥8 (more for dense views), ranked, ≥1 per layout region
     - "verbatim quote / specific UI description"
     - "..."
-    - "..."
+    - "... (at least eight)"
+  claim_scrutiny:
+    inferred_claim: "<the claim a viewer draws from this view>"
+    survives_expert: YES | NO
+    triggers: ["self-disclaiming caveat under hero", "no baseline shown", "..."]
   competitors_better:
     - { product: "Linear", what: "specific thing they do" }
     - { product: "Notion", what: "..." }
     - { product: "Superhuman", what: "..." }
-  projector_test: YES | NO
+  five_second_read:
+    got_intended_message: YES | NO
+    actual_first_read: "<what a first-time viewer takes away in 5s>"
+  projector_test: YES | NO     # the CEO-send gate; NO ⇒ no dimension reaches 5
   projector_test_reason: <one-sentence>
 
 # Phase 2 outputs
@@ -253,6 +341,7 @@ sanity_floors_applied:
 
 verdict: pass | warn | fail | blocked
 blocking_reason: <when verdict==blocked> demo_readiness_low | narrative_falsified
+self_assessed: false   # true if the judge lacked build-independence (scores then unreliable, −1 applied)
 
 fix_recommendation: |
   Concrete fix description. [CODE | SPEC | DATA | INFRA] tag.
@@ -286,3 +375,4 @@ corpus, and the calibration doc.
 | Date | Change | Author |
 |---|---|---|
 | 2026-05-07 | Initial extraction from canopy:walkthrough Phase 1–4 inline scoring. Methodology preserved verbatim; per-rubric dimensions parameterized via the `rubric` input. canopy:walkthrough now dispatches this skill per scene; ACE polish-eval consumes it for visual dimensions. | canopy team |
+| 2026-06-02 | Harshness pass. Added (1) an **Independence requirement** — judge must run as a fresh sub-agent with no build context; self-assessment forces −1/dimension + `self_assessed` flag. (2) The **CEO-send gate** as the definition of a 5 (would the CEO forward it untouched, with their name on it?). (3) Raised the Phase-1 flaw floor from 3 to **≥8, ≥1 per layout region**, ranked. (4) A **claim-scrutiny** pass (self-disclaiming elements / unsupported claims cap claim_reality_coherence ≤2). (5) A **5-second first-impression** pass and an **internal-chrome / deliverable-readiness** check, each with sanity-floor caps. Motivated by an observed builder-as-judge inflation of ~2 points. | jjackson |

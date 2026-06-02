@@ -89,6 +89,18 @@ Build a lookup: `why_brief.spine[].id` → `{claim, rationale, evidence, status}
 
 ### Step 2 — Per-scene dispatch to canopy:visual-judge
 
+**Dispatch each scene's judge as a FRESH, INDEPENDENT sub-agent** (the
+Agent tool), NOT inline in this conversation. The orchestrator that ran
+the render — and especially any agent that helped *build* the feature —
+is biased upward by ~2 points on its own work (it reads in intent the
+viewer can't see and forgives flaws it remembers rationalizing). The
+judge's context must contain ONLY the screenshot, the page text, the
+rubric, and the context object below — none of the build history,
+design rationale, or "why that's actually fine" framing. If you cannot
+guarantee that independence, the judge will (per visual-judge's
+Independence requirement) mark the verdict `self_assessed: true` and
+apply −1 to every dimension — so make the dispatch genuinely fresh.
+
 For each scene in `unified_spec.yaml`:
 
 1. Identify the screenshot path: `<run_dir>/scene_<N>.png` (or the path recorded in the run manifest).
@@ -96,16 +108,21 @@ For each scene in `unified_spec.yaml`:
 3. Build the `context` object for canopy:visual-judge:
    - `narrative_anchors`: [`scene.concept_claim`, `scene.provenance`, the matching why_brief spine rationale (if resolvable)]
    - `domain`: `unified_spec.name`
-   - `audience.name`: "skeptical product reviewer who has read the why_brief"
-   - `audience.decision`: "deciding whether the concept holds water"
+   - `audience.name`: "the program lead about to forward this to the funder/board with their name on it"
+   - `audience.decision`: "whether to send it untouched, or fix something first"
+   - `domain_expert`: the harshest relevant expert for this domain (e.g. "an M&E statistician" for impact dashboards, "a clinician" for health content) — used by the claim-scrutiny pass
+   - `competitors`: best-in-class analogues for this artifact type (e.g. ["a Bloomberg terminal", "a Stripe dashboard", "an FT data graphic"] for a metrics dashboard)
+   - `projector_test_phrasing`: leave unset to use visual-judge's CEO-send default, or sharpen for the domain
    - Do NOT pass `blocking_rules` — claim_reality_coherence is non-blocking by spec.
-4. Dispatch `canopy:visual-judge` with:
+4. Dispatch `canopy:visual-judge` (as the fresh sub-agent above) with:
    - `screenshot_path`: the scene screenshot
    - `page_text`: the captured page text
    - `rubric`: the ddd-concept-eval rubric (from Step 1)
    - `context`: the context object from step 3
 
-Collect the per-scene verdict object. Extract all dimension scores.
+Collect the per-scene verdict object. Extract all dimension scores. If
+any verdict comes back `self_assessed: true`, surface that prominently
+in the report — those scores are not trustworthy as a convergence gate.
 
 ### Step 3 — Tag design_findings per scene
 
