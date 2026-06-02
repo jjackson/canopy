@@ -7,6 +7,11 @@
             "type": "command",
             "command": "python3 ${CLAUDE_PROJECT_DIR}/hooks/pre_tool_use_plugin_cache_guard.py",
             "description": "Block local-patching of ~/.claude/plugins/cache and installed_plugins.json (set CANOPY_ALLOW_CACHE_PATCH=1 to override)"
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PROJECT_DIR}/hooks/pre_tool_use_version_bump_guard.py",
+            "description": "Block `git push` of a plugins/canopy/ change with no VERSION bump past origin/main — the #1 cause of red `Version sync check` CI (set CANOPY_ALLOW_PUSH_NO_BUMP=1 to override)"
           }
         ]
       }
