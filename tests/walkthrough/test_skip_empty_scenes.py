@@ -153,7 +153,7 @@ class _FakePage:
         self.gotos.append(url)
         self.url = url
 
-    def screenshot(self, *, path, full_page=False):
+    def screenshot(self, *, path, full_page=False, timeout=None):
         Path(path).write_bytes(b"\x89PNG\r\n\x1a\n")
         self.screenshots.append(path)
 

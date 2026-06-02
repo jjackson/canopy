@@ -201,6 +201,11 @@ def build_scenes_from_spec(spec: dict, base_url: str, *, run_data: dict | None) 
             "title": s.get("title", f"Scene {i}"),
             "video_hold_seconds": s.get("video_hold_seconds"),
             "actions": actions,
+            # Optional per-scene viewport override (Scene.viewport in the
+            # Pydantic schema). Recorder.run_scene resizes BEFORE the goto if
+            # present, restores the spec-level size after the scene's
+            # final_hold_ms. None → no override → spec-level viewport.
+            "viewport": s.get("viewport"),
             # 1-based ORIGINAL spec index — preserved even when ``--input`` /
             # ``--scene`` filters narrow the list (so ``scene_index=3`` on a
             # partial run still means "spec scene 3", not "third in the
@@ -347,6 +352,9 @@ def main() -> None:
                 base_url=base_url,
                 snapshot_dir=Path(args.snapshots) if args.snapshots else None,
                 snapshot_empty_scenes=bool(args.snapshot_empty_scenes),
+                # Per-scene viewport overrides (Scene.viewport) are restored
+                # back to this size after each overridden scene's final hold.
+                default_viewport={"width": viewport_w, "height": viewport_h},
             )
             total_seconds = recorder.run(page, scenes)
 

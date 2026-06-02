@@ -540,6 +540,21 @@
           "default": null,
           "title": "Url"
         },
+        "viewport": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Viewport"
+        },
         "narrative": {
           "default": "",
           "title": "Narrative",

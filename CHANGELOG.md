@@ -11,6 +11,60 @@ recent, verifiable themes in the git log.
 
 ## [Unreleased]
 
+### Added
+- **Per-scene viewport override (`Scene.viewport`)** (0.2.154) — `video_viewport_width` /
+  `video_viewport_height` work at the spec top level but you couldn't bump one
+  dense scene without inflating the whole recording. DDD agent on
+  `microplans-10-wards-fullrun-2026-06-02-001` wanted scene 4 (Mapbox plan-review
+  with a wide inspector panel) at 1440×900 without bumping the other five scenes.
+  Now `Scene.viewport: { width: int, height: int }` (optional) does exactly
+  that: `Recorder.run_scene` calls `page.set_viewport_size` BEFORE the goto so
+  the freshly-loaded page lays out at the requested size from the first paint,
+  then restores the spec-level default after `final_hold_ms`. The mp4 frame
+  size stays fixed (Playwright's `record_video_size` is set at context creation
+  and cannot change mid-stream) — the recording canvas re-fits / letterboxes
+  the larger logical viewport into the spec-level frame. No-op fast-path when
+  the requested viewport matches the current. Authored example:
+  ```yaml
+  scenes:
+    - title: "Dana drills into the plan map"
+      url: "/microplans/program/133/plan/3536/review/"
+      viewport: { width: 1440, height: 900 }  # this scene needs more room
+      actions: ...
+  ```
+
+### Fixed
+- **Scene-transition gray-viewport window after WebGL/Mapbox scenes** (0.2.154) —
+  frame-sampling `microplans-10-wards-fullrun-2026-06-02-001/iter1_clip.mp4` from
+  t=102s to t=108s showed ~7s of solid gray while the recorder navigated from a
+  Mapbox-heavy plan-review page to the glossary page. Root cause: leaving a
+  WebGL-heavy page, residual GL-teardown telemetry + tile-fetch network activity
+  from the torn-down page stalls Playwright's lifecycle tracking, so the `load`
+  event signal can hang for the full `load_settle_timeout_ms` (8s) while
+  Chromium hasn't painted the new page's first frame yet — pure gray for the
+  viewer. The recorder's per-scene goto already knew (via `skip_settle=True`)
+  that the next action was `wait_for` and would do its own polling, so it
+  already skipped the trailing `goto_settle_ms` blind hold. Now `goto_and_settle`
+  also uses `wait_until="commit"` (return as soon as the navigation request is
+  committed) and skips the `wait_for_load_state("load")` block entirely on that
+  same path — the wait_for action that's about to fire IS the settle, much more
+  accurate than guessing at `load` event timing. Back-compat: `skip_settle=False`
+  preserves the original `domcontentloaded` + `load` + `goto_settle_ms` flow for
+  every non-wait_for first action.
+- **WebGL/Mapbox screenshot timeouts now settle + retry once** (0.2.154) — the
+  recurring SwiftShader-headless bug (`reference_browse_webgl_swiftshader`):
+  `Page.captureScreenshot` hangs on canvas-heavy pages in headless Chromium.
+  The DDD agent on `microplans-10-wards-fullrun-2026-06-02-001` worked around it
+  manually by re-capturing the failing scene in a separate `playwright.sync_api`
+  session with an explicit 8-10s sleep before `page.screenshot()`. That's now
+  built into `Recorder.take_snapshot`: first attempt uses `timeout=10000`; on
+  timeout, `wait_for_timeout(8000)` to give the GL context time to finish
+  whatever frame it was mid-render on, then one retry at `timeout=20000`. If
+  the retry also fails, the recorder writes the text dump regardless (so
+  visual-judge has at least one input per scene) and logs a one-line warning —
+  never raises, never aborts the multi-scene run. One settle + one retry is
+  the contract — no infinite retry loop.
+
 ### Changed
 - **DDD concept-eval rubric grows a `visual_polish` dimension** (0.2.153) — the
   prior 5-dim rubric (`concept_clarity`, `design_soundness`, `why_groundedness`,

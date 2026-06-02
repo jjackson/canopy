@@ -54,7 +54,7 @@ class FakePage:
         self.gotos.append(url)
         self.url = url
 
-    def screenshot(self, *, path: str, full_page: bool = False):
+    def screenshot(self, *, path: str, full_page: bool = False, timeout: int | None = None):
         # Create an empty file so the assert-on-existence path in callers works
         Path(path).write_bytes(b"\x89PNG\r\n\x1a\n")  # 8-byte PNG magic
         self.screenshots.append({"path": path, "full_page": full_page})
