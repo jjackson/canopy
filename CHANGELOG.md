@@ -11,6 +11,35 @@ recent, verifiable themes in the git log.
 
 ## [Unreleased]
 
+### Changed
+- **DDD authoring docs roundup — lock in PR #100–#114 best practices** (0.2.155) —
+  Six concrete authoring patterns shipped between #100 and #114 but never made it
+  into the skill docs, so the next agent doing DDD on a fresh feature would
+  reinvent traps already solved. Docs-only; no engine behavior changed; existing
+  specs continue to validate and record identically.
+  - `plugins/canopy/skills/ddd-spec/SKILL.md`: new **Authoring checklist** near
+    the top (scannable one-liners with pointers to the deeper sections); inside
+    Step 4 (scene-start authoring), four new in-place sections — **Target
+    resolution syntax** (prefix matrix: `css:`/`testid:`/`aria:`/`role:`/`text:`
+    with the routing call each maps to and "when to use" guidance), **`must_succeed:
+    true` for critical actions** (the form-submit / navigation that, if it silently
+    misses, makes every later scene grade against the wrong page state),
+    **Don't `wait_for` on a transient intermediate state** (the `Creating 10 plan`
+    race; wait only on TERMINAL states + cite the `microplans-10-wards` example),
+    and **Per-scene viewport override** (the `viewport: {width, height}` field
+    from #114 — including the mp4-frame-size constraint authors need to know about
+    so they don't expect higher-resolution video from it).
+  - `plugins/canopy/skills/walkthrough/SKILL.md`: mirror of the same four sections
+    in the interactive-recording area, so the walkthrough author hits the same
+    guidance without needing to read the DDD spec skill.
+  - `plugins/canopy/skills/ddd-run/SKILL.md`: new **Recording CLI flag matrix**
+    in Step 2 — the canonical default flag set the orchestrator should pass to
+    `record_video.py` (`--snapshots` always, `--report` always, `--skip-empty-scenes`
+    + `--skip-same-url` for typical specs, `--cookies` for session auth), with
+    per-flag "when to pass it" rationale. Also a "scan `run-report.json` for
+    failed `must_succeed` actions before letting the judges run" note tying back
+    to the spec-side `must_succeed: true` docs.
+
 ### Added
 - **Per-scene viewport override (`Scene.viewport`)** (0.2.154) — `video_viewport_width` /
   `video_viewport_height` work at the spec top level but you couldn't bump one

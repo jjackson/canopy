@@ -95,6 +95,46 @@ All output lands in the run directory (`<ddd_dir>/runs/<run_id>/`).
 > rooftop run — not here.  For dry runs and unit tests, the render step is
 > exercised separately.
 
+#### Recording CLI flag matrix
+
+The `canopy:walkthrough` skill drives `scripts/walkthrough/record_video.py`
+under the hood. Several CLI flags are author-controlled and matter for a DDD
+run specifically — the defaults are tuned for one-off `/canopy:walkthrough`
+calls, not for the dual-judge pipeline. When invoking the recorder, pass the
+flags below.
+
+| Flag | When to pass | Why |
+| --- | --- | --- |
+| `--cookies <path>` | Always when the spec's `auth: type: session` | Without this the recorder hits the login wall. |
+| `--snapshots <dir>` | **Always** for DDD runs | Concept-eval needs per-scene PNG + page_text JSON inputs. The visual-judge can't dual-judge without them. |
+| `--snapshot-empty-scenes` | Almost never | Empty scenes (narrative-only back-halves) have no meaningful state to snapshot. |
+| `--report <path>` | Always | The accumulator JSON tells you which actions silently failed (and which `must_succeed` ones aborted). |
+| `--skip-empty-scenes` | When the spec has narrative-only back-half scenes (no `actions`) | The mp4 doesn't waste `min_hold_ms` on identical static pages. Deck slides still cover them. |
+| `--skip-same-url` | When the spec uses continue-scene patterns (scenes that operate on the previous scene's URL) | Avoids re-navs that wipe JS state between scenes. |
+| `--input <run.json>` | Only for `--scene` partial runs (when reusing a previous walkthrough's capture set) | Without this, the spec is the only source of truth. |
+
+**DDD orchestrator default flag set** — what `/canopy:ddd-run` should pass to
+`record_video.py`:
+
+```bash
+python3 "$REC" \
+  --input "<run_dir>/walkthrough-run-data.json" \
+  --spec "<unified_spec>" \
+  --output "<run_dir>/iter${state.iteration}_clip.mp4" \
+  --cookies "<session-cookies>" \
+  --snapshots "<run_dir>/snapshots/" \
+  --report "<run_dir>/run-report.json" \
+  --skip-empty-scenes \
+  --skip-same-url
+```
+
+After the recorder exits, scan `<run_dir>/run-report.json` for non-zero
+`failed` counts before letting the judges run. A scene whose
+`must_succeed: true` action failed will surface here as an `ok: false`
+result with a clear `error_kind` — that's the orchestrator's signal to
+either retry the render or treat the scene as blocked, not to grade a
+half-rendered scene.
+
 ### Step 2b — Upload artifacts to canopy-web (auto, every iteration)
 
 Immediately after render, BEFORE the judges run, generate the per-iteration

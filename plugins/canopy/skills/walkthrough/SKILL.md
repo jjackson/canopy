@@ -639,6 +639,98 @@ exceed the default 12s (a 30-90s bulk import, a slow background job), use the
 NOT `{kind: hold, seconds: 90}` — `wait_for` exits the instant the success text
 appears; `hold` always burns the full 90s even if the job finished in 15.
 
+**Don't `wait_for` on a transient intermediate state.** When a button's label
+flickers through `"Creating N plans…"` → `"Created N of N plans"` faster than
+the resolver can poll, a `wait_for` on the intermediate text races (~50% miss
+rate) and the run report's "failed" column fills with false positives. Worse,
+the spec author can't tell whether the failure means "something broke" or
+"this transient text was too fast."
+
+Pattern: wait only on TERMINAL states — the success card that doesn't replace
+itself, the toast that stays for 5 seconds, the page heading that sticks. Use
+`seconds:` to extend the timeout for long-running terminal waits.
+
+```yaml
+# ✗ Anti-pattern — races on the intermediate flicker
+- { kind: click, target: "Create 10 plans" }
+- { kind: wait_for, target: "Creating 10 plan" }   # ← races, often "fails"
+- { kind: wait_for, target: "Created 10 of 10 plans" }
+
+# ✓ Pattern — wait only on the terminal success state
+- { kind: click, target: "Create 10 plans" }
+- { kind: wait_for, target: "Created 10 of 10 plans", seconds: 120 }
+```
+
+**Target resolution syntax — prefer prefixes over bare CSS.** Every action's
+`target` field can use a prefix to control how the recorder resolves it. Bare
+strings use a heuristic (CSS-shaped → selector engine; English → visible-text
+ranking via Playwright `get_by_role` / `get_by_text`), which is fine for most
+cases. When the heuristic gets it wrong, or you want to be explicit, use a
+prefix:
+
+| Prefix | Routes to | When to use |
+| --- | --- | --- |
+| `css:#cfg-strategy` | `page.locator(...)` | Explicit CSS selector. Use when bare target gets mis-heuristic'd. |
+| `testid:plan-picker` | `page.get_by_test_id(...)` | When the page exposes `data-testid` — the most refactor-resistant target type. |
+| `aria:Resolved wards` | `page.get_by_label(...)` (accessible-name semantics, NOT raw `aria-label`) | Picks up `aria-label`, `aria-labelledby`, `<label for>`, `<label>` wrapping. |
+| `role:button` or `role:button:Sign in` | `page.get_by_role(...)` (optional `name=...`, `exact=True`) | Playwright's recommended PRIMARY selector. |
+| `text:Resolved wards` | `page.get_by_text(...)` | Forces visible-text path. Use when the text starts with `#` / `.` etc. and would otherwise be heuristic-routed as a selector. |
+
+```yaml
+actions:
+  - { kind: click, target: "testid:bulk-paste-cta" }
+  - { kind: click, target: "role:button:Sign in" }
+  - { kind: wait_for, target: "Resolved wards" }   # bare text — heuristic routes correctly
+```
+
+Anti-pattern: don't write a fragile `:nth-of-type` CSS path when a `testid:`
+would survive a sidebar refactor. Same for `nth-child` chains pointing at
+unstable structural positions — those targets silently break the day someone
+reorders a list, and the failure mode is "this action was skipped" buried in
+the run report, not a loud failure.
+
+**`must_succeed: true` for critical actions.** Default behavior: a failed
+action prints a warning and the recording continues — one bad step never
+aborts the render. This is right for the common case, but it hides cascade
+failures: if scene 2's "Create" button click silently misses, every later
+scene records against the wrong page state and the report says "60/61 actions
+ok" while the whole demo is wrong.
+
+Opt in with `must_succeed: true` on actions whose failure makes the rest of
+the scene gibberish. Common candidates: the form-submit click that creates
+the entity later scenes operate on; the navigation that lands on the page
+later scenes screenshot.
+
+The recorder raises `ActionAssertError` instead of swallowing — the scene
+aborts loudly and the report flags it.
+
+```yaml
+actions:
+  - { kind: fill, target: "#ward-list", value: "Galinja\nMadobi" }
+  - { kind: click, target: "Create 10 plans", must_succeed: true }
+  - { kind: wait_for, target: "Created 10 of 10 plans", seconds: 120, must_succeed: true }
+```
+
+When NOT to use it: `scroll_to`, `hold`, `hover` — these are pacing/framing
+actions whose failure doesn't change product state. A skipped `scroll_to`
+costs a smoother camera pan, not a wrong demo.
+
+**Per-scene viewport override.** Most specs render at one viewport (the
+spec-level `video_viewport_width` / `video_viewport_height`, defaults
+1280×720). When one scene needs a wider canvas (a dense plan-review page with
+a map + side metrics + a table that wraps awkwardly at 1280), set
+`viewport: {width, height}` on that scene only — it appears in the spec
+example at the top of this file. The recorder calls `page.set_viewport_size()`
+before the scene's goto and restores the spec-level default after
+`final_hold_ms`. Important constraint: **the recorded mp4 frame size stays
+fixed at the spec-level resolution** — Playwright's `record_video_size` is
+set at context creation and cannot change mid-stream. Per-scene viewport
+changes the page LAYOUT (CSS pixels) only; the wider logical viewport is
+letterboxed into the fixed mp4 frame. This is genuinely useful — the layout
+breathes — but don't expect the dense scene to be sharper in the video. For
+per-scene resolution, use multiple render passes + ffmpeg concat (out of
+scope for normal authoring).
+
 **Create-and-carry-through flows.** A scene may omit its `url` to *continue on the
 page the previous scene's actions navigated to*. This is how a narrative can CREATE
 an entity in one scene (e.g. click "Create plan" → the app routes to the new
