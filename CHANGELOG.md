@@ -12,6 +12,33 @@ recent, verifiable themes in the git log.
 ## [Unreleased]
 
 ### Added
+- **CI gate: docs-sync between engine source paths and SKILL.md** (#117) —
+  Structural enforcement of the rule the #115 audit surfaced: engine PRs that
+  change user-facing authoring surface MUST update the teaching SKILL.md in
+  the same PR, or carry a deliberate opt-out marker. Of the 14 canopy PRs
+  shipped on 2026-06-01, only #108, #111, #113, and #115 explicitly touched
+  SKILL.md when they should have — #100, #101, #102, #105, #112, and #114 all
+  shipped new spec-author surface (`Scene.url`, `must_succeed`, prefix syntax,
+  snapshot flags, `scroll_to` cursor glide, `Scene.viewport`) without updating
+  the docs, costing a meta-audit PR (#115) and a follow-up (#116) to backfill.
+  The new gate (`.github/workflows/docs-sync.yml` runs the testable Python
+  script at `.github/scripts/docs_sync_check.py`) maps four trigger source
+  paths to their required teaching docs:
+  - `scripts/ddd/schemas/models.py` → `ddd-spec/SKILL.md` + `walkthrough/SKILL.md`
+  - `scripts/walkthrough/_lib/recorder.py` → `ddd-spec/SKILL.md` + `walkthrough/SKILL.md`
+  - `scripts/walkthrough/record_video.py` → `ddd-run/SKILL.md`
+  - `plugins/canopy/skills/ddd-concept-eval/rubric.yaml` → `ddd-concept-eval/SKILL.md`
+
+  When a PR touches a trigger key but skips any required value, the gate
+  fails with a structured message that names both the trigger and the
+  missing docs, cites the prior gap PRs as rationale, and teaches the
+  opt-out marker syntax. Opt-out: a line `Docs-not-needed: <reason>` in the
+  PR body — for genuine engine-internal changes (refactor, perf, bug fix
+  with no authoring contract change), the gate passes with a notice logging
+  the reason. 24 unit tests cover the pure-logic path plus a sanity check
+  that every trigger/required-doc path actually exists in the repo (renames
+  would otherwise silently disable the gate). No behavior change for PRs
+  that don't touch trigger paths — fast no-op silent pass.
 - **Pre-commit hook: auto-regen DDD JSON schemas from `models.py`** (#118) —
   The Pydantic models in `scripts/ddd/schemas/models.py` are the source of
   truth; the committed schemas at `scripts/ddd/schemas/json/*.json` are
