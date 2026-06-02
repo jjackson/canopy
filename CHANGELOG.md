@@ -33,6 +33,40 @@ recent, verifiable themes in the git log.
   config is just dormant).
 
 ### Changed
+- **DDD authoring docs — close 4 secondary gaps from #115's audit** (0.2.156) —
+  Follow-up to #115. The PR #115 audit pass closed six high-leverage authoring
+  gaps but explicitly scoped out four smaller ones for follow-up. They're all
+  real and worth closing now while the audit context is fresh. Docs-only across
+  two SKILL.md files; no engine behavior changed.
+  - `plugins/canopy/skills/ddd-spec/SKILL.md` + `plugins/canopy/skills/walkthrough/SKILL.md`:
+    **`Action.draw` generalized beyond Mapbox** — `tool`-field coordinate-click
+    pattern documented as applying to ANY tiny canvas-control surface
+    (Mapbox GL Draw, Leaflet.draw, MapLibre, custom React-Konva / SVG drawing
+    surfaces), not just Mapbox. The existing Mapbox-only example was misleading:
+    authors using Leaflet or custom canvas tools wouldn't discover from the
+    docs that the same `kind: draw` recipe applies to their surface.
+  - `plugins/canopy/skills/ddd-spec/SKILL.md` + `plugins/canopy/skills/walkthrough/SKILL.md`:
+    **`click_menu` verb explained** — the verb appeared in the action-verb list
+    with zero example. Now documents the "second click in an open-menu → pick-item
+    sequence" intent, the shorter `menu_click_settle_ms`, and the explicit "don't
+    use it for the click that OPENS the menu" anti-pattern. Authors were either
+    falling back to verbose two-`click` sequences or stumbling onto it from
+    `_lib/recorder.py` source.
+  - `plugins/canopy/skills/ddd-spec/SKILL.md` + `plugins/canopy/skills/walkthrough/SKILL.md`:
+    **`Action.note:` documented as a persistent artifact, not a comment** —
+    `note:` ships into the run report + recorder per-action log + judge
+    context, but the docs never said so. Authors were using it as throwaway
+    YAML-comment-style annotations ("click submit") that add noise without
+    signal. Now explicitly: notes ship; write them for disambiguation,
+    ordering rationale, or downstream-trigger context.
+  - `plugins/canopy/skills/walkthrough/SKILL.md`: **`scene_index` preservation
+    across `--scene` filter for hand-edited sidecar JSON** — the existing
+    `--scene` docs covered the rendered deck but didn't say that when authors
+    hand-edit `/tmp/walkthrough-run-data.json` to add or correct scores, the
+    `scene_index` field MUST stay as the original spec index, not flatten to
+    1-of-N within the filtered set. Flattening breaks all cross-run analytics
+    that key on the original index.
+
 - **DDD authoring docs roundup — lock in PR #100–#114 best practices** (0.2.155) —
   Six concrete authoring patterns shipped between #100 and #114 but never made it
   into the skill docs, so the next agent doing DDD on a fresh feature would
