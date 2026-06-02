@@ -200,13 +200,25 @@ narrative first (Step 3) so the two stay in lockstep.
   across platforms), `value` is the option's `value` attribute, OR a digit-only
   string interpreted as the 0-based `index`, OR the option's visible label —
   the recorder tries each in order. For **`kind: draw`** (drawing a polygon on a
-  map/canvas — Mapbox GL Draw etc., which no labelled-element click can express),
-  `target` is the map element and `points` is a list of `[fx, fy]` fractions (0-1)
-  within its box; the cursor clicks each vertex then double-clicks to close. Set
-  `tool` to the draw-tool button (e.g. `css:.mapbox-gl-draw_polygon`) and `draw`
-  activates it first with a coordinate mouse-click (a normal `click` times out on
-  Playwright's actionability for those tiny map-control buttons), e.g.
-  `{kind: draw, target: "css:#map", tool: "css:.mapbox-gl-draw_polygon", points: [[0.35,0.4],[0.6,0.4],[0.6,0.7],[0.35,0.7]]}`.
+  map/canvas — Mapbox GL Draw, Leaflet.draw, MapLibre, custom React-Konva /
+  SVG drawing surfaces — which no labelled-element click can express),
+  `target` is the map / canvas element and `points` is a list of `[fx, fy]`
+  fractions (0-1) within its box; the cursor clicks each vertex then
+  double-clicks to close. Set `tool` to the draw-tool button (e.g.
+  `css:.mapbox-gl-draw_polygon`) and `draw` activates it first with a
+  **coordinate mouse-click instead of `Locator.click()`**. Most canvas
+  drawing libraries render their tool palette as tiny absolutely-positioned
+  buttons that Playwright's actionability check rejects (the
+  receiving-events probe times out on a 24×24 control that overlaps the
+  canvas). Coordinate-clicking bypasses the check — we know the button is
+  there because the spec author named it. Pattern applies to Mapbox GL
+  Draw, Leaflet.draw, MapLibre, and any custom canvas / SVG drawing
+  surface whose tool palette is built from small overlay buttons, e.g.
+  ```yaml
+  - { kind: draw, target: "css:#map", tool: "css:.mapbox-gl-draw_polygon", points: [[0.35,0.4],[0.6,0.4],[0.6,0.7],[0.35,0.7]] }
+  - { kind: draw, target: "css:#leaflet-map", tool: "css:.leaflet-draw-draw-polygon", points: [[0.2,0.2],[0.8,0.2],[0.8,0.8],[0.2,0.8]] }
+  - { kind: draw, target: "css:#custom-canvas", tool: "testid:rectangle-tool", points: [[0.1,0.1],[0.9,0.9]] }
+  ```
   Write `actions` as the literal click-path
   that realizes `show`:
   ```yaml
@@ -324,6 +336,49 @@ narrative first (Step 3) so the two stay in lockstep.
   When NOT to use it: `scroll_to`, `hold`, `hover` — these are pacing/framing
   actions whose failure doesn't change product state. A skipped `scroll_to`
   costs a smoother camera pan, not a wrong demo.
+
+  **`click_menu` for the click that closes a dropdown.** `click_menu` clicks
+  an item inside the currently-open dropdown / popover. Same target
+  resolution as `click`, but the recorder uses a shorter
+  `menu_click_settle_ms` (~700ms) because menus react faster than top-level
+  buttons. Use it as the SECOND click in a two-click "open menu → pick
+  item" sequence — the spec verb signals intent ("this click closes a menu,
+  treat it as such") and gets the right pacing. The verb is also a hint
+  for graders reading the spec: this beat shows a menu interaction, not
+  two independent buttons.
+
+  ```yaml
+  # open the menu, then pick an item inside it
+  - { kind: click, target: "Sort by" }              # opens the menu
+  - { kind: click_menu, target: "Date created" }    # picks the item; menu closes
+  ```
+
+  When NOT to use it: don't use `click_menu` for the click that OPENS the
+  menu — that's a regular `click`. The verb is for the click that
+  closes/dismisses the menu, not the one that summons it.
+
+  **`note:` is a persistent annotation, not a YAML comment.** `note:` is a
+  human-readable annotation for one action. Unlike a YAML comment (`#`),
+  it persists into the artifact: shown in the recorder's per-action log,
+  included in the `--report` JSON, and read by judges as inline context
+  for what the step demonstrates. Treat it as documentation that ships —
+  not as a scratchpad comment.
+
+  ```yaml
+  # ✓ good — explains the WHY for future readers + the judges
+  - { kind: click, target: "Create 10 plans", note: "fire the bulk POST for all 10 wards" }
+  - { kind: select, target: "#lga-kanwa", value: "1", note: "pick Madobi LGA for Kanwa (Madobi is candidate 1, Zurmi is candidate 0)" }
+
+  # ✗ unhelpful — explains nothing the action itself wouldn't tell you
+  - { kind: click, target: "Submit", note: "click submit" }
+  ```
+
+  When to write a note: when the action's intent isn't obvious from the
+  verb + target alone — disambiguation choices (which of two near-identical
+  options was picked and why), ordering rationale (this click HAS to come
+  before that wait), what the click triggers downstream (the bulk POST,
+  the worker re-shuffle, the page redirect). A scratchpad-grade note ("click
+  submit") is worse than no note — it adds noise without adding signal.
 
   **Don't `wait_for` on a transient intermediate state.** When a button's
   label flickers through `"Creating N plans…"` → `"Created N of N plans"`

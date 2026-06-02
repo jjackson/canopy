@@ -71,6 +71,30 @@ say so once: "selector matched all N scenes — equivalent to a full run."
    honest (a scene-2 score from a partial run is directly comparable to
    a scene-2 score from a full run).
 
+   **Same rule for hand-edited sidecar JSON.** When you hand-edit
+   `/tmp/walkthrough-run-data.json` to add or correct per-scene scores,
+   **keep `scene_index` as the original spec index, not the position
+   within the filtered set.** A `--scene 3` partial run produces
+   `scene_index: 3` in the slide entry — that's what makes comparisons
+   against a full-spec run honest. Flattening it to 1-of-N (1, 2, 3
+   inside a 3-scene partial) breaks all the cross-run analytics that key
+   on the original index. Example shape (citing the sidecar JSON in the
+   Data Collection section):
+
+   ```json
+   {
+     "slides": [
+       { "type": "scene", "scene_index": 3, "scene_total": 5, "..." }
+     ],
+     "scenes_run": [3],
+     "scene_filter": "3"
+   }
+   ```
+
+   `scene_index: 3` ALWAYS reflects the spec position; `scenes_run: [3]`
+   and `scene_filter: "3"` tell consumers what was rendered. Don't
+   conflate them.
+
 2. **Tag the sidecar.** Add two fields to `/tmp/walkthrough-run-data.json`:
    - `scenes_run: [2]` — the list of scene_index values actually rendered
    - `scene_filter: "2"` — the raw selector string from `--scene`
@@ -590,12 +614,15 @@ reads as a slideshow.
 Declare `actions` per scene in the spec (see `ddd-spec` for authoring + the
 `Action` schema in `scripts/ddd/schemas/models.py`). Verbs: `goto`, `click`,
 `click_menu`, `fill`, `select`, `type`, `press`, `hover`, `scroll_to`,
-`scroll`, `wait_for`, `hold`. Each action is
+`scroll`, `wait_for`, `hold`, `draw`. Each action is
 `{kind, target?, value?, seconds?, note?}`; `target` is visible text OR a CSS
 selector. For `kind: select` (native `<select>` controls — which `click`
 can't reliably open across platforms), `value` is the option's `value`
 attribute / a digit-only string as the 0-based index / the visible label —
-recorder tries each in order. Example:
+recorder tries each in order. For `kind: draw` (drawing a polygon on a
+map / canvas — see the `draw` section below), `target` is the canvas
+element, `points` is a list of `[fx, fy]` fractions (0-1) within its box,
+and `tool` is the draw-tool button to activate first. Example:
 
 ```yaml
 scenes:
@@ -714,6 +741,72 @@ actions:
 When NOT to use it: `scroll_to`, `hold`, `hover` — these are pacing/framing
 actions whose failure doesn't change product state. A skipped `scroll_to`
 costs a smoother camera pan, not a wrong demo.
+
+**`click_menu` for the click that closes a dropdown.** `click_menu` clicks an
+item inside the currently-open dropdown / popover. Same target resolution as
+`click`, but the recorder uses a shorter `menu_click_settle_ms` (~700ms)
+because menus react faster than top-level buttons. Use it as the SECOND click
+in a two-click "open menu → pick item" sequence — the spec verb signals
+intent ("this click closes a menu, treat it as such") and gets the right
+pacing. The verb is also a hint for graders reading the spec: this beat
+shows a menu interaction, not two independent buttons.
+
+```yaml
+# open the menu, then pick an item inside it
+- { kind: click, target: "Sort by" }              # opens the menu
+- { kind: click_menu, target: "Date created" }    # picks the item; menu closes
+```
+
+When NOT to use it: don't use `click_menu` for the click that OPENS the menu
+— that's a regular `click`. The verb is for the click that closes/dismisses
+the menu, not the one that summons it.
+
+**`note:` is a persistent annotation, not a YAML comment.** `note:` is a
+human-readable annotation for one action. Unlike a YAML comment (`#`), it
+persists into the artifact: shown in the recorder's per-action log, included
+in the `--report` JSON, and read by judges as inline context for what the
+step demonstrates. Treat it as documentation that ships — not as a scratchpad
+comment.
+
+```yaml
+# ✓ good — explains the WHY for future readers + the judges
+- { kind: click, target: "Create 10 plans", note: "fire the bulk POST for all 10 wards" }
+- { kind: select, target: "#lga-kanwa", value: "1", note: "pick Madobi LGA for Kanwa (Madobi is candidate 1, Zurmi is candidate 0)" }
+
+# ✗ unhelpful — explains nothing the action itself wouldn't tell you
+- { kind: click, target: "Submit", note: "click submit" }
+```
+
+When to write a note: when the action's intent isn't obvious from the verb +
+target alone — disambiguation choices (which of two near-identical options
+was picked and why), ordering rationale (this click HAS to come before that
+wait), what the click triggers downstream (the bulk POST, the worker
+re-shuffle, the page redirect). A scratchpad-grade note ("click submit") is
+worse than no note — it adds noise without adding signal.
+
+**`kind: draw` for canvas / map drawing surfaces.** When the persona is
+sketching a polygon on a map (Mapbox GL Draw, Leaflet.draw, MapLibre) or any
+custom canvas / SVG drawing surface, no labelled-element click can express
+the gesture. `kind: draw` records it: `target` is the canvas element,
+`points` is a list of `[fx, fy]` fractions (0-1) within its box (the cursor
+clicks each vertex, then double-clicks to close), and `tool` is the
+draw-tool button to activate first.
+
+The `tool` field activates a draw tool via a **coordinate mouse-click
+instead of `Locator.click()`**. Most map / canvas drawing libraries render
+their tool palette as tiny absolutely-positioned buttons that Playwright's
+actionability check rejects (the receiving-events probe times out on a
+24×24 control that overlaps the canvas). Coordinate-clicking bypasses the
+check — we know the button is there because the spec author named it.
+Pattern applies to Mapbox GL Draw, Leaflet.draw, MapLibre, and any custom
+canvas / SVG drawing surface whose tool palette is built from small overlay
+buttons.
+
+```yaml
+- { kind: draw, target: "css:#map", tool: "css:.mapbox-gl-draw_polygon", points: [[0.35,0.4],[0.6,0.4],[0.6,0.7],[0.35,0.7]] }
+- { kind: draw, target: "css:#leaflet-map", tool: "css:.leaflet-draw-draw-polygon", points: [[0.2,0.2],[0.8,0.2],[0.8,0.8],[0.2,0.8]] }
+- { kind: draw, target: "css:#custom-canvas", tool: "testid:rectangle-tool", points: [[0.1,0.1],[0.9,0.9]] }
+```
 
 **Per-scene viewport override.** Most specs render at one viewport (the
 spec-level `video_viewport_width` / `video_viewport_height`, defaults
