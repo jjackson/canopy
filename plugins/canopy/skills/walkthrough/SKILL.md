@@ -179,6 +179,9 @@ scenes:
     impressive_because: "Data loads in real-time, charts are interactive"
     ai_quality: "KPI descriptions should be specific to the program, not generic"  # optional
     video_hold_seconds: 8         # optional — dwell this long instead of scroll-paced timing
+    viewport: { width: 1440, height: 900 }  # optional — per-scene viewport override
+                                            # (this scene only; other scenes stay at the
+                                            # spec-level video_viewport_width/height)
 ```
 
 ## Setup

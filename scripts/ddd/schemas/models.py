@@ -330,6 +330,32 @@ class Scene(BaseModel):
     URL map: "scene 2 clicks a link that navigates → scene 3 continues from
     there" needs no URL on scene 3. Authors who want a hard reset between
     scenes use either this ``url`` or an explicit ``goto`` action."""
+    viewport: dict[str, int] | None = None
+    """Optional per-scene viewport override (``{"width": int, "height": int}``).
+
+    Default ``None`` → the scene renders at the spec-level
+    ``video_viewport_width`` × ``video_viewport_height``. Set this on a single
+    dense scene that needs more room (a Mapbox-heavy plan-review with a wide
+    inspector panel, for example) without inflating the whole recording — the
+    other scenes keep their original size and the spec author doesn't bump
+    five scenes to fix one.
+
+    Recording-canvas note: the mp4's frame size is fixed at context creation
+    (``record_video_size``) — Playwright cannot change it mid-stream. A
+    per-scene viewport override changes the LAYOUT viewport (and the page's
+    CSS pixel dimensions) for that scene only, with the frame letterboxed /
+    re-fitted into the spec-level canvas. After the scene's ``final_hold_ms``
+    the recorder restores the spec-level viewport so subsequent scenes are
+    unaffected.
+
+    Authoring example::
+
+        scenes:
+          - title: "Dana drills into the plan map"
+            url: "/microplans/program/133/plan/3536/review/"
+            viewport: { width: 1440, height: 900 }  # this scene needs more room
+            actions: ...
+    """
     narrative: str = ""
     """Canonical per-scene narrative text — the story beat the reviewer reads.
     May be one OR MORE sentences (per gap-flexible-scene-length). When set, it

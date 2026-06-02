@@ -66,6 +66,7 @@ class Recorder:
         report: RunReport | None = None,
         snapshot_dir: Path | None = None,
         snapshot_empty_scenes: bool = False,
+        default_viewport: dict[str, int] | None = None,
     ) -> None:
         self.config = config or RecorderConfig()
         self.base_url = (base_url or "").rstrip("/")
@@ -79,6 +80,17 @@ class Recorder:
         # downstream tooling that wants to enumerate captured scenes without
         # rescanning the directory.
         self.snapshots_taken: list[int] = []
+        # Spec-level viewport — restored after any per-scene viewport override.
+        # None → no restore (tests / callers that don't track viewport at all).
+        self.default_viewport: dict[str, int] | None = (
+            dict(default_viewport) if default_viewport else None
+        )
+        # Tracks the currently-applied viewport so we only call
+        # ``page.set_viewport_size`` when it actually changes — avoids
+        # gratuitous resize events on every scene.
+        self._current_viewport: dict[str, int] | None = (
+            dict(default_viewport) if default_viewport else None
+        )
 
     # ---- hooks (override these) -----------------------------------------
 
@@ -133,11 +145,7 @@ class Recorder:
         self.snapshot_dir.mkdir(parents=True, exist_ok=True)
         png_path = self.snapshot_dir / f"scene_{scene_index}.png"
         text_path = self.snapshot_dir / f"scene_{scene_index}_page_text.json"
-        try:
-            page.screenshot(path=str(png_path), full_page=True)
-        except Exception as e:  # noqa: BLE001 — never let a snapshot kill the run
-            print(f"  ! snapshot screenshot failed for scene {scene_index}: {e}")
-            return
+        png_ok = self._screenshot_with_settle_retry(page, png_path, scene_index)
         try:
             inner_text = page.evaluate("() => document.body && document.body.innerText || ''")
         except Exception as e:  # noqa: BLE001
@@ -149,9 +157,54 @@ class Recorder:
             "title": scene.get("title", f"Scene {scene_index}"),
             "page_text": inner_text,
         }
+        # Always write the text dump so downstream judges have at least one
+        # input per scene — even when the screenshot path failed (WebGL/Mapbox
+        # pages hang ``Page.captureScreenshot`` in headless and the retry
+        # exhausted). The text dump is what feeds visual-judge's anchor text;
+        # losing the PNG degrades the eval but losing the text removes the
+        # scene from the input entirely.
         text_path.write_text(json.dumps(payload, indent=2))
-        self.snapshots_taken.append(scene_index)
-        print(f"  · snapshot scene_{scene_index}.png + scene_{scene_index}_page_text.json")
+        if png_ok:
+            self.snapshots_taken.append(scene_index)
+            print(f"  · snapshot scene_{scene_index}.png + scene_{scene_index}_page_text.json")
+        else:
+            print(f"  · snapshot scene_{scene_index}_page_text.json (PNG failed after retry)")
+
+    def _screenshot_with_settle_retry(self, page: Page, png_path: Path, scene_index: int) -> bool:
+        """Take a full-page screenshot, settling and retrying once on timeout.
+
+        WebGL / Mapbox / Canvas-heavy pages can hang ``Page.captureScreenshot``
+        in headless Chromium — the recurring SwiftShader-headless bug. The DDD
+        agent's manual workaround was to re-capture the failing scene in a
+        separate ``playwright.sync_api`` session with an explicit 8-10s sleep
+        before retrying ``page.screenshot()``. That's now built in.
+
+        Strategy:
+          1. Try ``page.screenshot(full_page=True, timeout=10s)``.
+          2. On exception, settle 8s (give the WebGL canvas time to finish
+             whatever frame it was mid-render on) and retry once with a 20s
+             timeout.
+          3. If the retry also fails, log a one-line warning and return False
+             so the caller can still write the text dump (visual-judge anchor)
+             and not silently lose the scene's input.
+
+        One settle + one retry is enough — never retry forever.
+        """
+        try:
+            page.screenshot(path=str(png_path), full_page=True, timeout=10000)
+            return True
+        except Exception as e:  # noqa: BLE001 — Playwright's TimeoutError isn't always exposed
+            print(f"  ! scene {scene_index}: screenshot failed ({e}); settling 8s and retrying...")
+        try:
+            page.wait_for_timeout(8000)
+        except Exception:  # noqa: BLE001 — even the settle is best-effort
+            pass
+        try:
+            page.screenshot(path=str(png_path), full_page=True, timeout=20000)
+            return True
+        except Exception as e2:  # noqa: BLE001
+            print(f"  ! scene {scene_index}: screenshot failed after retry: {e2}")
+            return False
 
     # ---- implementation -------------------------------------------------
 
@@ -162,20 +215,73 @@ class Recorder:
         (labs uses both). ``domcontentloaded`` + a brief settle is enough for
         recording — the page is *visible*, not necessarily *idle*.
 
-        ``skip_settle=True`` omits the ``goto_settle_ms`` blind pause at the
-        end. ``run_scene`` passes True when the first action is ``wait_for``
-        — the wait_for IS the settle (it polls until the page state is
-        right), so the extra 1200ms of blind hold is pure dead air on top.
-        Backward-compatible default (False) keeps the original behavior for
-        any external caller.
+        ``skip_settle=True`` (caller knows the next action is ``wait_for``)
+        uses the fastest possible navigation gate — ``wait_until="commit"``
+        — and skips BOTH the ``load`` event wait AND the ``goto_settle_ms``
+        blind hold. Rationale: after leaving a WebGL/Mapbox-heavy page, the
+        torn-down GL context's residual telemetry and tile-fetch network
+        activity can stall Playwright's lifecycle tracking; the ``load``
+        event signal can hang for the full ``load_settle_timeout_ms``
+        (8s default) while the viewport sits blank because Chromium hasn't
+        painted the new page's first frame yet. The ``wait_for`` action
+        that's about to fire will do its own polling for the target text /
+        selector — much more accurate than guessing at ``load`` event
+        timing.
+
+        Backward-compatible default (``skip_settle=False``) keeps the
+        original ``domcontentloaded`` + ``load`` + ``goto_settle_ms`` flow
+        for any external caller and every non-``wait_for`` first action.
         """
+        if skip_settle:
+            # Fastest possible gate: return as soon as the navigation request
+            # is committed. The wait_for action will poll until the target
+            # appears — that's the real settle.
+            print("  · using wait_until=commit (first action is wait_for; navigation gate deferred to it)")
+            page.goto(url, wait_until="commit", timeout=self.config.goto_timeout_ms)
+            return
         page.goto(url, wait_until="domcontentloaded", timeout=self.config.goto_timeout_ms)
         try:
             page.wait_for_load_state("load", timeout=self.config.load_settle_timeout_ms)
         except Exception:
             pass
-        if not skip_settle:
-            page.wait_for_timeout(self.config.goto_settle_ms)
+        page.wait_for_timeout(self.config.goto_settle_ms)
+
+    def _apply_viewport(self, page: Page, viewport: dict[str, int] | None) -> None:
+        """Resize the page viewport to ``viewport`` if different from current.
+
+        Per-scene viewport override hook. The mp4's frame size is fixed at
+        Playwright context creation (``record_video_size``); we cannot change
+        that mid-stream. What we CAN change is the page's logical viewport —
+        ``page.set_viewport_size`` adjusts the CSS pixel dimensions the page
+        renders into, and the recording canvas re-fits / letterboxes the
+        result into the fixed mp4 frame. A wider per-scene viewport gives the
+        layout more horizontal room (a Mapbox + inspector panel scene that
+        was crowded at 1280px gets the breathing room of 1440px) without
+        bumping the whole spec's recording size.
+
+        Skips the call when the requested viewport matches what's already
+        applied (no-op fast path so unchanged scenes don't fire a gratuitous
+        resize event mid-scene).
+        """
+        if viewport is None:
+            # Restore-to-default path. If we don't know the default, do nothing.
+            target = self.default_viewport
+        else:
+            target = {"width": int(viewport["width"]), "height": int(viewport["height"])}
+        if target is None:
+            return
+        if self._current_viewport == target:
+            return
+        try:
+            page.set_viewport_size(target)
+        except Exception as e:  # noqa: BLE001 — never let a viewport tweak kill the run
+            print(f"  ! viewport resize to {target} failed: {e}")
+            return
+        self._current_viewport = dict(target)
+        if viewport is not None:
+            print(f"  · viewport override → {target['width']}x{target['height']}")
+        else:
+            print(f"  · viewport restored → {target['width']}x{target['height']}")
 
     def run_scene(self, page: Page, scene: dict, *, scene_index: int | None = None) -> float:
         """Record one scene. Returns elapsed seconds (floored by ``min_hold_ms``).
@@ -192,6 +298,12 @@ class Recorder:
         ``scene["scene_index"]`` (set by ``build_scenes_from_spec``).
         """
         idx = scene_index if scene_index is not None else scene.get("scene_index")
+        # Per-scene viewport override: apply BEFORE the goto so the freshly-
+        # loaded page lays out at the requested size from the first paint.
+        # Restored AFTER final_hold_ms below (so the next scene starts at the
+        # spec-level default).
+        scene_viewport = scene.get("viewport")
+        self._apply_viewport(page, scene_viewport)
         url = self.goto_for_scene(scene, page.url)
         # Inspect the first action ONCE: a leading ``wait_for`` is itself a
         # settle (it polls until a known page state appears), so the
@@ -255,6 +367,12 @@ class Recorder:
 
         page.wait_for_timeout(self.config.final_hold_ms)
         self.after_scene(scene, scene_results)
+
+        # Restore the spec-level viewport so the next scene starts at the
+        # default. No-op when scene had no override or when
+        # default_viewport is None (tests/callers that don't care).
+        if scene_viewport is not None:
+            self._apply_viewport(page, None)
 
         elapsed_s = time.monotonic() - start + (self.config.initial_hold_ms + self.config.final_hold_ms) / 1000
         return max(elapsed_s, self.config.min_hold_ms / 1000)
