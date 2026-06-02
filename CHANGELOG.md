@@ -39,6 +39,25 @@ recent, verifiable themes in the git log.
   that every trigger/required-doc path actually exists in the repo (renames
   would otherwise silently disable the gate). No behavior change for PRs
   that don't touch trigger paths — fast no-op silent pass.
+- **Pre-commit hook: auto-regen DDD JSON schemas from `models.py`** (#118) —
+  The Pydantic models in `scripts/ddd/schemas/models.py` are the source of
+  truth; the committed schemas at `scripts/ddd/schemas/json/*.json` are
+  downstream artifacts consumed by `scripts/ddd/validate.py` and external
+  tools. They're supposed to stay in lockstep, but the gap between "edit
+  models.py and commit" and "CI catches the drift" is wide enough to bite
+  real work: `DrawAction` (added in #104) was missing from `UnifiedSpec.json`
+  for two days until someone re-ran the regen by hand during #108. The new
+  hook (`.pre-commit-config.yaml`, repo-local) fires only when `models.py`
+  is staged, runs `dump_json_schemas`, and uses pre-commit's standard
+  modify-then-fail pattern: if the regenerated JSON differs from what's
+  committed, pre-commit blocks the commit with "files were modified by this
+  hook" and the developer runs `git add scripts/ddd/schemas/json/` to fold
+  the regen into the same commit. The existing
+  `tests/ddd/test_validate.py::test_committed_json_schemas_match_generated`
+  test still catches anyone who skipped `pre-commit install` or pushed via
+  the GitHub web UI — belt and braces. No new Python dependencies; no
+  behavior change for developers who haven't run `pre-commit install` (the
+  config is just dormant).
 
 ### Changed
 - **DDD authoring docs roundup — lock in PR #100–#114 best practices** (0.2.155) —
