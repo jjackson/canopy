@@ -306,6 +306,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--title", help="Walkthrough title (defaults to filename stem)")
     p.add_argument("--description", default="", help="Optional description")
     p.add_argument("--project", dest="project_slug", help="Optional project slug")
+    p.add_argument("--run-id", dest="run_id", help="DDD run_id this artifact belongs to")
+    p.add_argument("--feature", help="Narrative slug (defaults from run_id server-side)")
+    p.add_argument(
+        "--role",
+        choices=["hero_video", "deck", "docs", "clip"],
+        help="Artifact role within the DDD run",
+    )
     p.add_argument(
         "--public",
         action="store_true",
@@ -376,6 +383,14 @@ def main(argv: list[str] | None = None) -> int:
     }
     if args.project_slug:
         fields["project_slug"] = args.project_slug
+    # DDD-run grouping (optional). The server fills `feature` from `run_id`
+    # when omitted, and derives `role` from `kind` when blank.
+    if args.run_id:
+        fields["run_id"] = args.run_id
+    if args.feature:
+        fields["feature"] = args.feature
+    if args.role:
+        fields["role"] = args.role
 
     links = assemble_links(args, kind)
     if links:

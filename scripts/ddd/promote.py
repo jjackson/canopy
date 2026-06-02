@@ -580,6 +580,9 @@ def publish_artifact(
     title: str,
     base_url: str | None = None,
     token: str | None = None,
+    run_id: str | None = None,
+    feature: str | None = None,
+    role: str | None = None,
     _post=None,
 ) -> str:
     """Upload *content* to canopy-web and return the hosted URL.
@@ -626,6 +629,13 @@ def publish_artifact(
         "description": "",
         "visibility": "link",
     }
+    # DDD-run grouping so the promoted artifacts package under their run.
+    if run_id:
+        fields["run_id"] = run_id
+    if feature:
+        fields["feature"] = feature
+    if role:
+        fields["role"] = role
 
     post_fn = _post if _post is not None else _default_post
     body = post_fn(
@@ -762,6 +772,9 @@ def promote(
         title=f"{spec.name} — hero video",
         base_url=base_url,
         token=token,
+        run_id=run_id,
+        feature=run_state.feature,
+        role="hero_video",
     )
 
     # 4. Build docs HTML
@@ -796,6 +809,9 @@ def promote(
         title=f"{spec.name} — documentation",
         base_url=base_url,
         token=token,
+        run_id=run_id,
+        feature=run_state.feature,
+        role="docs",
     )
 
     # 7. Update run state

@@ -389,10 +389,16 @@ class TestPromote:
         """Return a fake _upload callable that records calls and returns fake URLs."""
         counter = {"n": 0}
 
-        def fake_upload(content, *, kind, title, base_url=None, token=None):
+        def fake_upload(
+            content, *, kind, title, base_url=None, token=None,
+            run_id=None, feature=None, role=None,
+        ):
             counter["n"] += 1
             url = f"https://canopy.test/w/fake-{kind}-{counter['n']}"
-            calls_store.append({"kind": kind, "title": title, "content_len": len(content), "url": url})
+            calls_store.append({
+                "kind": kind, "title": title, "content_len": len(content), "url": url,
+                "run_id": run_id, "feature": feature, "role": role,
+            })
             return url
 
         return fake_upload
@@ -519,12 +525,22 @@ class TestPromote:
         video_upload = next(c for c in upload_calls if c["kind"] == "video")
         html_upload = next(c for c in upload_calls if c["kind"] == "html")
 
+        # DDD-run grouping: promoted artifacts carry run_id/feature + their role.
+        assert video_upload["role"] == "hero_video"
+        assert html_upload["role"] == "docs"
+        assert video_upload["run_id"] == tmp_run["run_id"]
+        assert html_upload["run_id"] == tmp_run["run_id"]
+        assert video_upload["feature"] and html_upload["feature"]
+
         # The HTML content (bytes) should contain the video URL
         # upload content_len > 0 is checked; to check URL we need to capture bytes
         # Re-run with a more detailed mock to capture the HTML bytes
         html_bytes_store: list[bytes] = []
 
-        def capturing_upload(content, *, kind, title, base_url=None, token=None):
+        def capturing_upload(
+            content, *, kind, title, base_url=None, token=None,
+            run_id=None, feature=None, role=None,
+        ):
             if kind == "html":
                 html_bytes_store.append(content if isinstance(content, bytes) else content.encode("utf-8"))
                 return "https://canopy.test/w/html-99"
