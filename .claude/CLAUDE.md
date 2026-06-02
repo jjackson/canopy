@@ -308,19 +308,44 @@ reported `UP_TO_DATE` forever after.
 
 ## Git Hooks
 
-Two hooks ship in `scripts/hooks/`. Opt in (once per checkout) with:
+### Claude Code PreToolUse guard (auto-active, no opt-in) — the primary defense
+
+Because **100% of canopy commits are AI-generated through Claude Code**, the
+most reliable guard is a Claude Code `PreToolUse` hook, not a git hook. It is
+checked into `.claude/settings.json` and loads automatically — no
+`git config` step, works regardless of what emdash sets `core.hooksPath` to.
+
+- `hooks/pre_tool_use_version_bump_guard.py` — intercepts any `git push` Bash
+  call and runs the same `verify_bump_when_plugin_changed` check CI runs. If the
+  branch touched `plugins/canopy/` without advancing VERSION past `origin/main`,
+  it **denies the push** and hands the agent the exact fix (`canopy version
+  bump`). This catches both failure modes that historically reddened CI: (A)
+  forgot to bump, and (B) a parallel worktree already claimed your patch number.
+  Override with `CANOPY_ALLOW_PUSH_NO_BUMP=1`.
+- `hooks/pre_tool_use_plugin_cache_guard.py` — blocks local-patching of the
+  plugin cache (`CANOPY_ALLOW_CACHE_PATCH=1` to override).
+
+This is the only guard that fires in practice for AI-driven worktree flow — see
+the git hooks below for why.
+
+### Git hooks (opt-in, belt-and-suspenders) — dormant unless installed
+
+Two hooks ship in `scripts/hooks/`. They are **inert until you opt in** with:
 
 ```bash
 git config core.hooksPath scripts/hooks
 ```
 
+In emdash worktrees `core.hooksPath` typically points at the main checkout's
+default `.git/hooks` (which has no canopy hooks), and no human runs the opt-in —
+so these never fired, which is exactly why CI kept catching missing bumps. The
+Claude Code guard above supersedes them for the AI flow; keep these for humans.
+
 - `pre-commit` — when `VERSION` or `plugins/canopy/.claude-plugin/plugin.json` is staged,
   runs `canopy version verify` to refuse a half-bump (one file edited, the other not).
 - `pre-push` — refuses direct pushes to `main` AND runs `canopy version verify-bump`
   on the branch. Refuses the push if `plugins/canopy/` changed without VERSION
-  advancing past origin/main. This is the only fully local prevention for the missing-
-  bump failure mode — the CI check fails after the fact and the merge button doesn't
-  honor it on a private repo.
+  advancing past origin/main.
 
 Bypass either hook with `git push --no-verify` / `git commit --no-verify` — almost
 always the wrong call. The hooks are advisory by design (no server-side enforcement
