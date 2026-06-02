@@ -302,8 +302,12 @@ reported `UP_TO_DATE` forever after.
 
 **Mental checklist before EVERY canopy commit touching `plugins/canopy/`:**
 
-1. Did I run `uv run canopy version bump`?
-2. Are `VERSION` and `plugins/canopy/.claude-plugin/plugin.json` identical?
+1. Did I run `uv run canopy version bump`? (It updates all THREE version files
+   together — `VERSION`, `plugins/canopy/.claude-plugin/plugin.json`, and the two
+   fields in `.claude-plugin/marketplace.json`. Editing them by hand is how
+   marketplace.json drifted in the 0.2.157 bump — #120 changed only two files.)
+2. Do all three agree? `VERSION` == `plugin.json` version == every
+   `marketplace.json` version field. CI's version-check now fails on any mismatch.
 3. Did the pre-push hook pass?
 
 ## Git Hooks
@@ -353,7 +357,7 @@ available without GitHub Pro), so discipline is the failure mode they protect ag
 
 ### Update workflow (the ONLY way to update)
 1. Make changes to skills, commands, or agents in `plugins/canopy/`
-2. Bump the **patch version** in BOTH `plugins/canopy/.claude-plugin/plugin.json` AND `VERSION` (e.g. `0.2.6` → `0.2.7`). See the STOP block above — this is the #1 mistake. A GitHub Actions check will fail if they don't match, but it will NOT catch a missing bump.
+2. Bump the **patch version** with `uv run canopy version bump` — do NOT hand-edit. It advances `VERSION`, `plugins/canopy/.claude-plugin/plugin.json`, AND both `.claude-plugin/marketplace.json` fields together (e.g. `0.2.6` → `0.2.7`). Hand-editing only two of the three is the drift that #120 introduced. See the STOP block above — a missing/partial bump is the #1 mistake. CI's version-check fails if the three disagree, but will NOT catch a missing bump on `main`.
 3. Commit, push, PR, and auto-merge (see § Shipping Changes — the maintainer
    does NOT review; merge it yourself):
    ```bash
