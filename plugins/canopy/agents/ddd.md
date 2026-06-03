@@ -8,7 +8,7 @@ description: >
   the narrative buildable?), then the narrative-agreement gate (ddd-narrative-review
   — approve/redraft) to get the user's explicit sign-off on the story before building
   anything, renders and dual-judges it, routes design findings to specialist fixers,
-  and converges toward promotion.
+  and converges, then uploads the run package to canopy-web.
   Two pause gates only: concept_change and external_release. Everything else
   runs autonomously and is reported in a non-blocking digest.
   Use when asked to "run ddd", "demo-driven-development", "ddd loop", or
@@ -330,7 +330,7 @@ Findings arrive from **two distinct sources** with different route vocabularies.
 | Gap type | Destination | Action |
 |----------|-------------|--------|
 | `RESEARCH` | Autonomous investigation | Spawn a subagent to ground the claim in evidence. Update `evidence.json` and re-run the relevant Phase 0 step. |
-| `CAPABILITY` | Create product-build task | Record a product-build task in context.md and the learning store. Tag for SP7 promotion. Not a blocker — log and proceed. |
+| `CAPABILITY` | Create product-build task | Record a product-build task in context.md and the learning store. Tag for the upload step. Not a blocker — log and proceed. |
 | `DECISION` | `concept_change` pause | Surface to the user immediately (see Phase 0 Step 4). Do not proceed to the spec until all DECISION gaps are resolved. |
 
 ---
@@ -343,43 +343,44 @@ After routing all findings and re-rendering changed scenes, **read
 
 ### `stop_done` (converged, full-spec)
 
-Both judges passed on the full spec. **Automatically promote — do NOT stop at
+Both judges passed on the full spec. **Automatically upload — do NOT stop at
 "converged" and leave the user to publish by hand.** A converged full-spec run
-must always reach the promote/gate step automatically; the most common failure
+must always reach the upload/gate step automatically; the most common failure
 mode is a run that converges and then silently never produces the published
-artifact.
+package.
 
-Invoke `/canopy:ddd-promote <run_id>` with the converged iteration's hero
+Invoke `/canopy:ddd-upload <run_id>` with the converged iteration's hero
 video — the local clip `ddd-run` recorded at
 `<run_dir>/iter${state.iteration}_clip.mp4` (if no clip was recorded this
 iteration, fall back to the most recent `iter*_clip.mp4` in the run dir).
-`ddd-promote` (SP7):
+`ddd-upload`:
 
 1. Uploads the hero video to canopy-web (this happens **before** the gate, so
-   the video is uploaded even if the docs page is held).
-2. Builds the self-contained docs page (hero video + capabilities + why + how).
+   the video is uploaded even if the deck is held).
+2. Builds the self-contained docs page / deck (hero video + capabilities + why + how).
 3. Runs the **`external_release`** gate — the single intentional pause before
-   the public docs page is published. Present the deck link + run summary as
+   the public package is published. Present the package link + run summary as
    the review context.
 
 Outcomes:
 
-- **`publish`** → `ddd-promote` uploads the HTML, sets `phase = "promoted"`,
-  and returns the hosted docs URL. Surface the **docs page URL** and the
-  **hero video URL** in the final digest.
-- **`hold`** → the docs page is not published (the video is still uploaded);
+- **`publish`** → `ddd-upload` uploads the deck HTML, sets `phase = "uploaded"`,
+  and returns the run **package** URL (`/ddd/<feature>/<run_id>`). Surface that
+  **package URL** in the final digest — it's the navigable view (video, deck,
+  narrative, links), NOT a loose artifact link.
+- **`hold`** → the deck is not published (the video is still uploaded);
   phase stays `converged`. Tell the user the run converged and is one
-  `/canopy:ddd-promote <run_id>` away from publishing whenever they're ready.
+  `/canopy:ddd-upload <run_id>` away from publishing whenever they're ready.
 
-The external_release gate governs only the *public docs-page publish*, not
-whether promotion runs: promotion ALWAYS runs on convergence.
+The external_release gate governs only the *public package publish*, not
+whether the upload runs: the upload ALWAYS runs on convergence.
 
 ### `stop_partial` (converged on filtered scope)
 
 Both judges passed on the filtered scope, but `scene_filter` is set so
-this is not a promotable run. Tell the user the filtered scenes are
+this is not an uploadable run. Tell the user the filtered scenes are
 ready, and offer to drop `--scene` and re-fire on the full spec when
-they're ready to attempt promotion. Do **not** auto-launch the full-spec
+they're ready to upload. Do **not** auto-launch the full-spec
 run — render budget is much larger and the user should opt in.
 
 ### `continue` (mechanical fixes only)

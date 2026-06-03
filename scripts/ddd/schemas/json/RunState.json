@@ -21,6 +21,7 @@
         "render",
         "judged",
         "converged",
+        "uploaded",
         "promoted"
       ],
       "title": "Phase",

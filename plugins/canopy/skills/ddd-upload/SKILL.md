@@ -1,12 +1,14 @@
 ---
-name: ddd-promote
+name: ddd-upload
 description: |
-  Promote a converged DDD run (SP7) to a published documentation page:
+  Upload a converged DDD run's artifacts to canopy-web as ONE navigable package:
   upload the hero video, build a self-contained HTML docs page (hero video +
   capabilities + why + how for a prospective feature user), run the
-  external_release review gate, then publish the page to canopy-web.
-  Phase transitions from "converged" → "promoted" on publish; no-op on hold.
-  Use when asked to "promote this run", "publish the docs page", or "run SP7".
+  external_release review gate, then publish to canopy-web — where the video,
+  deck, narrative, and links group under the run and are navigable at
+  /ddd/<feature>/<run_id>. Returns the run PACKAGE URL, not a loose artifact link.
+  Phase transitions from "converged" → "uploaded" on publish; no-op on hold.
+  Use when asked to "upload this run", "publish the run", or "upload the run package".
 ---
 
 ## Preamble (run first)
@@ -18,10 +20,31 @@ if [ -n "$_CANOPY_UPD" ]; then echo "$_CANOPY_UPD"; fi
 
 If output shows `UPGRADE_AVAILABLE <old> <new>`: tell the user "canopy **v{new}** is available (you're on v{old}). Run `/canopy:update` to upgrade." Then continue — do not block on the upgrade.
 
-# DDD Promote — SP7
+# DDD Upload
 
-Terminal step of the DDD loop: once a run has converged, PROMOTE it to the
-published documentation artifact for prospective users of the feature.
+Terminal step of the DDD loop: once a run has converged, UPLOAD its artifacts to
+canopy-web so they package together under the run. The result is a single
+navigable view — **`/ddd/<feature>/<run_id>`** — that links the run's hero
+video, docs/deck, narrative, and companion links. The skill returns **that
+package URL**, not a loose `/w/<artifact-id>` single-artifact link.
+
+## How packaging works (why you get one navigable view, not loose links)
+
+canopy-web groups artifacts by the `run_id`/`feature`/`role` fields sent on
+every upload, and assembles them into a run package:
+
+- **video** ← the hero video upload (`role=hero_video`)
+- **deck** ← the docs HTML page this skill builds (`role=docs`)
+- **narrative** ← the `ReviewRequest` posted under the **same `run_id`** by the
+  earlier `ddd-narrative-review` gate. For the narrative to appear in the
+  package, that gate must have run for this run_id (the orchestrator's normal
+  flow ensures it). If you uploaded a run that never went through narrative
+  review, the package's narrative slot will be empty — re-run the narrative gate
+  for that run_id to populate it.
+- **links** ← companion links unioned across the run's artifacts.
+
+The package + previous-runs navigation live at `/ddd/<feature>` (narrative
+landing) and `/ddd/<feature>/<run_id>` (the run package).
 
 ## Inputs
 
@@ -33,7 +56,7 @@ published documentation artifact for prospective users of the feature.
 - **`video_path`** — local filesystem path to the hero video `.mp4` produced by
   the converged walkthrough render step.
 
-## What the docs page contains
+## What the docs page (deck) contains
 
 The generated HTML is a **self-contained, no-external-deps documentation page**
 aimed at a **prospective user of the feature** — not an internal reviewer, not a
@@ -52,7 +75,7 @@ All user-supplied text is HTML-escaped (no XSS).
 
 > **Remotion glossy render is explicitly deferred.**  The current docs page is
 > plain HTML — no Remotion, no ace-web, no MP4 generation from slides.  That
-> upgrade is planned but out of scope for SP7.
+> upgrade is planned but out of scope here.
 
 ## Procedure
 
@@ -63,19 +86,19 @@ converged run came from `/canopy:ddd-run --scene <selector>`), STOP and
 tell the user:
 
 > "Run `<run_id>` was a partial render — it covered scenes <scenes_run>
-> out of <spec_total>. Promotion requires a full-spec run so the
-> published docs page reflects the whole feature, not just one scene.
+> out of <spec_total>. Uploading requires a full-spec run so the
+> published package reflects the whole feature, not just one scene.
 > Re-run `/canopy:ddd-run <new_run_id> <unified_spec> <why_brief>`
-> WITHOUT `--scene`, then promote that."
+> WITHOUT `--scene`, then upload that."
 
 Do NOT attempt to assemble a docs page from a partial run, even if the
 filtered scope converged — the "What you can do" section is built per
 scene, and a partial run would publish a docs page missing capabilities
 the spec promises.
 
-### Step 1 — Run the promotion script
+### Step 1 — Run the upload script
 
-Run the promotion script (it lives in the canopy repo):
+Run the upload script (it lives in the canopy repo):
 
 ```bash
 # scripts/ddd ships in the canopy repo, not the plugin cache — resolve it:
@@ -83,17 +106,18 @@ DDD_REPO="$HOME/emdash-projects/canopy"; [ -d "$DDD_REPO/scripts/ddd" ] || DDD_R
 if [ ! -d "$DDD_REPO/scripts/ddd" ]; then echo "ERROR: scripts/ddd not found — run /canopy:update to sync the canopy checkout"; exit 1; fi
 # pass the video_path as an absolute path (resolved before the cd):
 VIDEO_ABS="$(realpath <video_path>)"
-(cd "$DDD_REPO" && uv run python -m scripts.ddd.promote <run_id> --video "$VIDEO_ABS")
+(cd "$DDD_REPO" && uv run python -m scripts.ddd.upload <run_id> --video "$VIDEO_ABS")
 ```
 
 The script orchestrates all steps internally:
 
 1. Loads `run_state.yaml` + `unified_spec.yaml` + `why_brief.yaml` from the run dir.
-2. Uploads the hero video to canopy-web → `video_url`.
+2. Uploads the hero video to canopy-web (`role=hero_video`) → `video_url`.
 3. Builds the docs HTML via `build_docs_page(spec, why_brief, video_url)`.
 4. Opens the **external_release** review gate (see below).
-5. On `"publish"`: uploads the HTML → `docs_url`, sets `phase = "promoted"`, saves.
-6. On `"hold"`: returns without publishing; phase stays unchanged.
+5. On `"publish"`: uploads the HTML (`role=docs`), sets `phase = "uploaded"`,
+   saves, and returns the run **package** URL `/ddd/<feature>/<run_id>`.
+6. On `"hold"`: returns without publishing the deck; phase stays unchanged.
 
 ### Step 2 — External release gate
 
@@ -103,7 +127,7 @@ The gate presents a `ReviewRequest` with:
 gate: "external_release"
 decisions:
   - id: publish
-    prompt: "Publish this docs page for users?"
+    prompt: "Publish this run package for users?"
     options: [publish, hold]
     recommended: publish
     class: external_release
@@ -115,15 +139,15 @@ The review is posted to canopy-web and the script waits for human resolution.
 
 | Decision | Effect |
 |----------|--------|
-| `publish` | HTML is uploaded, `phase = "promoted"`, docs URL is returned |
-| `hold`    | No HTML upload, phase unchanged, script exits with empty string |
+| `publish` | Deck HTML is uploaded, `phase = "uploaded"`, **package URL** is returned |
+| `hold`    | No deck upload, phase unchanged, script exits with empty string |
 
 If the human chose `hold`, tell the user:
 
 ```
-Promotion held — the docs page was not published.
+Upload held — the run package was not published.
 Review the hero video and the docs HTML preview, make any corrections, then
-re-run /canopy:ddd-promote when ready.
+re-run /canopy:ddd-upload when ready.
 ```
 
 ### Step 3 — Report
@@ -131,23 +155,23 @@ re-run /canopy:ddd-promote when ready.
 On successful publish:
 
 ```
-DDD Promote — <run_id>
+DDD Upload — <run_id>
 ══════════════════════════════════════
   Run dir: <run_dir>
 
-  Hero video:    <video_url>
-  Docs page:     <docs_url>
+  Package:  <package_url>     ← /ddd/<feature>/<run_id> (navigable: video · deck · narrative · links)
 
-  phase → promoted
+  phase → uploaded
 ```
 
-Tell the user: "Feature documentation published. Share `<docs_url>` with
-prospective users."
+Tell the user: "Run uploaded. Share `<package_url>` — it's the navigable
+package (video, deck, narrative, and links) for this run."
 
 ## Output artefacts
 
 | Artefact | Notes |
 |----------|-------|
-| `run_state.yaml` (phase=promoted) | Written on successful publish only |
-| Docs page on canopy-web | Self-contained HTML; link-visible by default |
-| Hero video on canopy-web | Uploaded first; URL embedded in the docs page |
+| `run_state.yaml` (phase=uploaded) | Written on successful publish only |
+| Run package on canopy-web | `/ddd/<feature>/<run_id>` — groups video + deck + narrative + links |
+| Docs page (deck) on canopy-web | Self-contained HTML; grouped under the run via `role=docs` |
+| Hero video on canopy-web | Uploaded first (`role=hero_video`); embedded in the deck and the package |

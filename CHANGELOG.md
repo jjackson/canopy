@@ -11,6 +11,20 @@ recent, verifiable themes in the git log.
 
 ## [Unreleased]
 
+### Changed
+- **DDD `ddd-promote` → `ddd-upload`; convergence returns the run PACKAGE URL,
+  not a loose artifact link.** The terminal DDD step was named "promote" but it
+  has no promotion semantics — it just uploads a converged run's artifacts to
+  canopy-web. Renamed the skill/command/script (`scripts.ddd.promote` →
+  `scripts.ddd.upload`, `promote()` → `upload_run()`) and the run phase
+  (`promoted` → `uploaded`, with `promoted` kept as a read alias for existing
+  run_state files). More importantly, `upload_run()` now returns the navigable
+  **run package** URL `/ddd/<feature>/<run_id>` — the canopy-web view (PR #77)
+  that groups the run's video + deck + narrative + links — instead of the loose
+  `/w/<artifact-id>` docs-page link it returned before. Fixes the symptom where
+  every converged run handed back a single isolated artifact rather than the
+  navigable package.
+
 ### Added
 - **CI gate: docs-sync between engine source paths and SKILL.md** (#117) —
   Structural enforcement of the rule the #115 audit surfaced: engine PRs that

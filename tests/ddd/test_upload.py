@@ -1,4 +1,4 @@
-"""Tests for scripts/ddd/promote.py (SP7).
+"""Tests for scripts/ddd/upload.py.
 
 All HTTP calls, file uploads, and review gates are mocked — no network, no
 real sleeping, no canopy-web dependency.
@@ -12,7 +12,7 @@ import pytest
 import yaml
 
 from scripts.ddd.schemas.models import RunState, Scene, UnifiedSpec, WhyBrief, SpineItem, Persona
-from scripts.ddd.promote import build_docs_page, publish_artifact, promote
+from scripts.ddd.upload import build_docs_page, publish_artifact, upload_run
 
 
 # ---------------------------------------------------------------------------
@@ -334,7 +334,7 @@ class TestPublishArtifact:
 
 
 # ---------------------------------------------------------------------------
-# promote — orchestration tests
+# upload_run — orchestration tests
 # ---------------------------------------------------------------------------
 
 
@@ -347,7 +347,9 @@ def _write_run_fixtures(tmp_ddd: Path, run_id: str):
     why = _make_why_brief()
 
     # run_state.yaml
-    state = RunState(run_id=run_id, feature="Smart Routing", phase="converged")
+    # feature is a slug in real use (matches the run_id prefix); the package URL
+    # is built from it, so keep it URL-safe here.
+    state = RunState(run_id=run_id, feature="smart-routing", phase="converged")
     (run_dir / "run_state.yaml").write_text(
         yaml.dump(state.model_dump(), default_flow_style=False, allow_unicode=True)
     )
@@ -365,12 +367,12 @@ def _write_run_fixtures(tmp_ddd: Path, run_id: str):
     return run_dir
 
 
-class TestPromote:
+class TestUploadRun:
     @pytest.fixture()
     def tmp_run(self, tmp_path, monkeypatch):
         """Set up a tmp DDD dir, a run, and a dummy video file."""
         import scripts.ddd.runstate as rs
-        import scripts.ddd.promote as pm
+        import scripts.ddd.upload as pm
 
         # Point _resolve_ddd_dir to tmp_path
         monkeypatch.setattr(rs, "_resolve_ddd_dir", lambda: tmp_path)
@@ -414,13 +416,15 @@ class TestPromote:
         fake_gate.calls = gate_calls
         return fake_gate
 
-    def test_publish_returns_docs_url(self, tmp_run, monkeypatch):
+    def test_publish_returns_package_url(self, tmp_run, monkeypatch):
+        """On publish we return the navigable run PACKAGE URL
+        (/ddd/<feature>/<run_id>), NOT a loose /w/<artifact-id> link."""
         monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
         upload_calls: list[dict] = []
         uploader = self._make_uploader(upload_calls)
         gate = self._make_gate("publish")
 
-        url = promote(
+        url = upload_run(
             tmp_run["run_id"],
             video_path=tmp_run["video_path"],
             base_url="https://canopy.test",
@@ -428,19 +432,20 @@ class TestPromote:
             _gate=gate,
         )
 
-        assert url.startswith("https://canopy.test/w/")
+        assert url == "https://canopy.test/ddd/smart-routing/smart-routing-2026-01-01-001"
+        assert "/w/" not in url, "must return the package URL, not a loose artifact link"
         # Both video and html must have been uploaded
         kinds = [c["kind"] for c in upload_calls]
         assert "video" in kinds
         assert "html" in kinds
 
-    def test_publish_sets_phase_promoted(self, tmp_run, monkeypatch):
+    def test_publish_sets_phase_uploaded(self, tmp_run, monkeypatch):
         monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
         upload_calls: list[dict] = []
         uploader = self._make_uploader(upload_calls)
         gate = self._make_gate("publish")
 
-        promote(
+        upload_run(
             tmp_run["run_id"],
             video_path=tmp_run["video_path"],
             base_url="https://canopy.test",
@@ -451,7 +456,7 @@ class TestPromote:
         # Reload from disk and check phase
         import scripts.ddd.runstate as rs
         state = rs.load(tmp_run["run_id"])
-        assert state.phase == "promoted"
+        assert state.phase == "uploaded"
 
     def test_hold_does_not_upload_html(self, tmp_run, monkeypatch):
         monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
@@ -459,7 +464,7 @@ class TestPromote:
         uploader = self._make_uploader(upload_calls)
         gate = self._make_gate("hold")
 
-        result = promote(
+        result = upload_run(
             tmp_run["run_id"],
             video_path=tmp_run["video_path"],
             base_url="https://canopy.test",
@@ -478,7 +483,7 @@ class TestPromote:
         uploader = self._make_uploader(upload_calls)
         gate = self._make_gate("hold")
 
-        promote(
+        upload_run(
             tmp_run["run_id"],
             video_path=tmp_run["video_path"],
             base_url="https://canopy.test",
@@ -496,7 +501,7 @@ class TestPromote:
         uploader = self._make_uploader(upload_calls)
         gate = self._make_gate("publish")
 
-        promote(
+        upload_run(
             tmp_run["run_id"],
             video_path=tmp_run["video_path"],
             base_url="https://canopy.test",
@@ -514,7 +519,7 @@ class TestPromote:
         uploader = self._make_uploader(upload_calls)
         gate = self._make_gate("publish")
 
-        promote(
+        upload_run(
             tmp_run["run_id"],
             video_path=tmp_run["video_path"],
             base_url="https://canopy.test",
@@ -525,7 +530,7 @@ class TestPromote:
         video_upload = next(c for c in upload_calls if c["kind"] == "video")
         html_upload = next(c for c in upload_calls if c["kind"] == "html")
 
-        # DDD-run grouping: promoted artifacts carry run_id/feature + their role.
+        # DDD-run grouping: the run's artifacts carry run_id/feature + their role.
         assert video_upload["role"] == "hero_video"
         assert html_upload["role"] == "docs"
         assert video_upload["run_id"] == tmp_run["run_id"]
@@ -546,7 +551,7 @@ class TestPromote:
                 return "https://canopy.test/w/html-99"
             return "https://canopy.test/w/video-88"
 
-        promote(
+        upload_run(
             tmp_run["run_id"],
             video_path=tmp_run["video_path"],
             base_url="https://canopy.test",
@@ -571,7 +576,7 @@ class TestPromote:
             gate_called.append(True)
             return "hold"
 
-        url = promote(
+        url = upload_run(
             tmp_run["run_id"],
             video_path=tmp_run["video_path"],
             base_url="https://canopy.test",
@@ -581,7 +586,7 @@ class TestPromote:
         )
 
         assert not gate_called, "Gate must not be called when auto_approve_for_test=True"
-        assert url  # Should return docs URL
+        assert url  # Should return the package URL
 
     def test_gate_run_id_matches(self, tmp_run, monkeypatch):
         monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
@@ -589,7 +594,7 @@ class TestPromote:
         uploader = self._make_uploader(upload_calls)
         gate = self._make_gate("publish")
 
-        promote(
+        upload_run(
             tmp_run["run_id"],
             video_path=tmp_run["video_path"],
             base_url="https://canopy.test",
