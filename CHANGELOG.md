@@ -26,6 +26,14 @@ recent, verifiable themes in the git log.
   navigable package.
 
 ### Added
+- **`/canopy:ddd` infers the narrative when none is passed.** Saying "do DDD
+  with the orchestrator" (no explicit `<feature>`) no longer errors or prompts
+  for setup — a new `scripts.ddd.resolve_narrative` resolver ranks narratives by
+  the newest `.canopy/ddd/runs/*` run, the newest `docs/walkthroughs/*.yaml`
+  spec, and a match against the current git branch, then resumes the in-flight
+  run (or starts a fresh one) and just proceeds. It only pauses to ask when
+  several narratives were touched at once (`confidence: ambiguous`) or there's
+  nothing to infer from. Wired into the DDD agent's Bootstrap as step 4.
 - **CI gate: docs-sync between engine source paths and SKILL.md** (#117) —
   Structural enforcement of the rule the #115 audit surfaced: engine PRs that
   change user-facing authoring surface MUST update the teaching SKILL.md in
