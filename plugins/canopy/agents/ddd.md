@@ -343,10 +343,36 @@ After routing all findings and re-rendering changed scenes, **read
 
 ### `stop_done` (converged, full-spec)
 
-Both judges passed on the full spec. This triggers the **`external_release`**
-pause gate — emit a `ReviewRequest` (gate: external_release) before
-publishing the walkthrough deck or video to any external audience. Present
-the deck link + run summary as the review context.
+Both judges passed on the full spec. **Automatically promote — do NOT stop at
+"converged" and leave the user to publish by hand.** A converged full-spec run
+must always reach the promote/gate step automatically; the most common failure
+mode is a run that converges and then silently never produces the published
+artifact.
+
+Invoke `/canopy:ddd-promote <run_id>` with the converged iteration's hero
+video — the local clip `ddd-run` recorded at
+`<run_dir>/iter${state.iteration}_clip.mp4` (if no clip was recorded this
+iteration, fall back to the most recent `iter*_clip.mp4` in the run dir).
+`ddd-promote` (SP7):
+
+1. Uploads the hero video to canopy-web (this happens **before** the gate, so
+   the video is uploaded even if the docs page is held).
+2. Builds the self-contained docs page (hero video + capabilities + why + how).
+3. Runs the **`external_release`** gate — the single intentional pause before
+   the public docs page is published. Present the deck link + run summary as
+   the review context.
+
+Outcomes:
+
+- **`publish`** → `ddd-promote` uploads the HTML, sets `phase = "promoted"`,
+  and returns the hosted docs URL. Surface the **docs page URL** and the
+  **hero video URL** in the final digest.
+- **`hold`** → the docs page is not published (the video is still uploaded);
+  phase stays `converged`. Tell the user the run converged and is one
+  `/canopy:ddd-promote <run_id>` away from publishing whenever they're ready.
+
+The external_release gate governs only the *public docs-page publish*, not
+whether promotion runs: promotion ALWAYS runs on convergence.
 
 ### `stop_partial` (converged on filtered scope)
 
