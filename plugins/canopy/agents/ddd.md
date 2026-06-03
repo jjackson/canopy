@@ -159,6 +159,7 @@ bootstrap pattern exactly.
    ```bash
    PLUGIN_PATH=$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude/plugins/installed_plugins.json'))); print(d['plugins']['canopy@canopy'][0]['installPath'])")
    DDD_DIR=$(bash "$PLUGIN_PATH/scripts/ddd/resolve_ddd_dir.sh")
+   REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)   # target repo — for spec + branch signals
    # scripts/ddd ships in the canopy repo, not the plugin cache — resolve it:
    DDD_REPO="$HOME/emdash-projects/canopy"; [ -d "$DDD_REPO/scripts/ddd" ] || DDD_REPO="$HOME/.claude/plugins/marketplaces/canopy"
    if [ ! -d "$DDD_REPO/scripts/ddd" ]; then echo "ERROR: scripts/ddd not found — run /canopy:update to sync the canopy checkout"; exit 1; fi
@@ -173,9 +174,37 @@ bootstrap pattern exactly.
 
 3. Read `$DDD_DIR/learnings.md` (may not exist yet — that is fine).
 
-4. Start or resume a run (run from `$DDD_REPO` so `scripts.ddd` is importable):
-   - **New run:** `(cd "$DDD_REPO" && uv run python -c "from scripts.ddd.runstate import new_run; print(new_run('<feature>'))")`
-   - **Resume:** `(cd "$DDD_REPO" && uv run python -c "from scripts.ddd.runstate import load; state = load('<run_id>'); print(state.phase)")`
+4. **Resolve which narrative to run.** If the invocation passed an explicit
+   `<feature>` or `--resume <run_id>`, use it. Otherwise — the common case when
+   the user just says "run DDD" / "do DDD with the orchestrator" — **DO NOT ask
+   or error first.** Infer the obvious narrative from recent local context:
+
+   ```bash
+   (cd "$DDD_REPO" && uv run python -m scripts.ddd.resolve_narrative \
+     --ddd-dir "$DDD_DIR" --repo-root "$REPO_ROOT")
+   # if a feature/run_id WAS passed, forward it: --feature <slug> | --run-id <id>
+   ```
+
+   The script prints JSON — `{decision, feature, run_id, phase, spec_path,
+   confidence, reason, candidates[]}` — ranking narratives by the newest
+   `.canopy/ddd/runs/*` run, the newest `docs/walkthroughs/*.yaml` spec, and a
+   match against the current git branch. Act on it:
+
+   - **`confidence: high`** → announce the pick in one line ("Picking up
+     **<feature>** — <reason>; resuming run `<run_id>`" or "…; starting a fresh
+     run") and proceed. No gate, no question.
+   - **`confidence: ambiguous`** (several narratives touched at once) → ask the
+     user which one via `AskUserQuestion`, listing `candidates[]` with the top
+     one pre-selected as `recommended`. This is the ONLY case that pauses here.
+   - **`decision: ask` / `confidence: none`** (no runs or specs found) → fall
+     back to `context.md`'s active feature; if that is also empty, ask the user
+     what to build. Only here do you prompt for setup.
+
+   Carry the resolved `decision`, `feature`, and `run_id` into the next step.
+
+5. Start or resume the run (run from `$DDD_REPO` so `scripts.ddd` is importable):
+   - **New run** (`decision: new`): `(cd "$DDD_REPO" && uv run python -c "from scripts.ddd.runstate import new_run; print(new_run('<feature>'))")`
+   - **Resume** (`decision: resume`): `(cd "$DDD_REPO" && uv run python -c "from scripts.ddd.runstate import load; state = load('<run_id>'); print(state.phase)")`
 
 ---
 

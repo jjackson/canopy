@@ -11,8 +11,12 @@ concept verdict and stakeholder-ready walkthrough.
 
 ## Arguments
 
-- `<feature>` — feature slug (e.g. `rooftop-sampling`). If omitted, reads from
-  `.canopy/ddd/context.md` or asks.
+- `<feature>` — feature slug (e.g. `rooftop-sampling`). **If omitted, the
+  orchestrator infers the obvious narrative** from recent local context (the
+  newest `.canopy/ddd/runs/*` run, the newest `docs/walkthroughs/*.yaml` spec,
+  and the current git branch) and proceeds — resuming the in-flight run if there
+  is one. It only asks when several narratives were touched at once, or when
+  there's nothing to infer from. So "do DDD with the orchestrator" just works.
 - `--resume <run_id>` — resume an existing run instead of starting a new one.
 
 ## Process
