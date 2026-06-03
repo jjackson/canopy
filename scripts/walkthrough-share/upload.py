@@ -314,6 +314,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Artifact role within the DDD run",
     )
     p.add_argument(
+        "--narrative-review-id",
+        dest="narrative_review_id",
+        help="ReviewRequest id of the narrative version this run rendered",
+    )
+    p.add_argument(
         "--public",
         action="store_true",
         help="Set visibility=link and print the share URL",
@@ -391,6 +396,8 @@ def main(argv: list[str] | None = None) -> int:
         fields["feature"] = args.feature
     if args.role:
         fields["role"] = args.role
+    if args.narrative_review_id:
+        fields["narrative_review_id"] = args.narrative_review_id
 
     links = assemble_links(args, kind)
     if links:
