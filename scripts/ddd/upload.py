@@ -81,6 +81,21 @@ def run_package_url(feature: str, run_id: str, base_url: str | None = None) -> s
     return f"{api}/ddd/{feat}/{rid}"
 
 
+_REVIEW_ID_RE = re.compile(
+    r"/review/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+)
+
+
+def _review_id_from_url(url: str | None) -> str | None:
+    """Extract the ReviewRequest UUID from a narrative-review URL
+    (``.../review/<uuid>/?t=...``), or None."""
+    if not url:
+        return None
+    m = _REVIEW_ID_RE.search(url)
+    return m.group(1) if m else None
+
+
 def _resolve_token(token: str | None) -> str:
     if token:
         return token
@@ -602,6 +617,7 @@ def publish_artifact(
     run_id: str | None = None,
     feature: str | None = None,
     role: str | None = None,
+    narrative_review_id: str | None = None,
     _post=None,
 ) -> str:
     """Upload *content* to canopy-web and return the hosted URL.
@@ -655,6 +671,9 @@ def publish_artifact(
         fields["feature"] = feature
     if role:
         fields["role"] = role
+    # Link this run's artifacts to the narrative version they rendered.
+    if narrative_review_id:
+        fields["narrative_review_id"] = narrative_review_id
 
     post_fn = _post if _post is not None else _default_post
     body = post_fn(
@@ -774,6 +793,12 @@ def upload_run(
 
     # 1. Load run state
     run_state = load_state(run_id)
+    # The narrative VERSION this run rendered — derived from the review URL the
+    # narrative-agreement gate stamped on run_state. Lets canopy-web attach the
+    # run to its exact story version.
+    narrative_review_id = _review_id_from_url(
+        getattr(run_state, "narrative_review_url", None)
+    )
     ddd_dir = _resolve_ddd_dir()
     run_dir = ddd_dir / "runs" / run_id
 
@@ -798,6 +823,7 @@ def upload_run(
         run_id=run_id,
         feature=run_state.feature,
         role="hero_video",
+        narrative_review_id=narrative_review_id,
     )
 
     # 4. Build docs HTML
@@ -837,6 +863,7 @@ def upload_run(
         run_id=run_id,
         feature=run_state.feature,
         role="docs",
+        narrative_review_id=narrative_review_id,
     )
 
     # 7. Update run state

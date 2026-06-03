@@ -393,7 +393,7 @@ class TestUploadRun:
 
         def fake_upload(
             content, *, kind, title, base_url=None, token=None,
-            run_id=None, feature=None, role=None,
+            run_id=None, feature=None, role=None, narrative_review_id=None,
         ):
             counter["n"] += 1
             url = f"https://canopy.test/w/fake-{kind}-{counter['n']}"
@@ -544,7 +544,7 @@ class TestUploadRun:
 
         def capturing_upload(
             content, *, kind, title, base_url=None, token=None,
-            run_id=None, feature=None, role=None,
+            run_id=None, feature=None, role=None, narrative_review_id=None,
         ):
             if kind == "html":
                 html_bytes_store.append(content if isinstance(content, bytes) else content.encode("utf-8"))
@@ -603,3 +603,18 @@ class TestUploadRun:
         )
 
         assert gate.calls[0]["run_id"] == tmp_run["run_id"]
+
+
+class TestReviewIdFromUrl:
+    def test_extracts_uuid_from_review_url(self):
+        from scripts.ddd.upload import _review_id_from_url
+
+        uid = "09b3bd2a-1c51-4e8a-9430-ad991289539e"
+        assert _review_id_from_url(f"https://canopy.test/review/{uid}/?t=abc") == uid
+        assert _review_id_from_url(f"/review/{uid}/") == uid
+
+    def test_none_and_unmatched(self):
+        from scripts.ddd.upload import _review_id_from_url
+
+        assert _review_id_from_url(None) is None
+        assert _review_id_from_url("https://canopy.test/w/not-a-review") is None
