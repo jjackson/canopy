@@ -374,7 +374,7 @@ class UnifiedSpec(BaseModel):
     personas: dict[str, Persona]
     scenes: list[Scene]
     tagline: str = ""
-    """One plain-language sentence: what this is + who it's for. The promoted docs
+    """One plain-language sentence: what this is + who it's for. The uploaded docs
     page leads with it so a newcomer understands the feature before pressing play.
     The build-audience narrative/concept_claims are NOT a substitute (they carry
     internal jargon); this is the user-facing hook."""
@@ -480,8 +480,10 @@ class RunState(BaseModel):
     schema_version: int = 1
     run_id: str
     feature: str
+    # "promoted" is a legacy alias for "uploaded" — accepted on read so older
+    # on-disk run_state.yaml files still validate; new runs write "uploaded".
     phase: Literal[
-        "phase0", "spec", "render", "judged", "converged", "promoted"
+        "phase0", "spec", "render", "judged", "converged", "uploaded", "promoted"
     ] = "phase0"
     iteration: int = 0
     why_brief: str | None = None
@@ -494,7 +496,7 @@ class RunState(BaseModel):
     # complete list of spec indices and scene_filter to None. A partial run
     # (--scene <selector> on /canopy:ddd-run or /canopy:walkthrough) sets
     # scenes_run to the rendered subset and scene_filter to the raw selector.
-    # /canopy:ddd-promote refuses any run with scene_filter != None.
+    # /canopy:ddd-upload refuses any run with scene_filter != None.
     scenes_run: list[int] | None = None
     scene_filter: str | None = None
     # Auto-iterate signal (0.2.131). Computed by /canopy:ddd-run Step 5 after

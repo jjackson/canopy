@@ -42,9 +42,9 @@ gate → render → judge (concept + user-artifact in parallel) → assemble →
   dual-judge rubric still applies — only the render step is filtered.
   When set, `run_state.yaml` carries `scenes_run` (the original 1-based
   spec indices actually rendered) and `scene_filter` (the raw selector)
-  so convergence reports and promotion checks can tell partial runs from
-  full ones. **Promotion (`/canopy:ddd-promote`) requires a full run** —
-  a partial run cannot promote a feature.
+  so convergence reports and upload checks can tell partial runs from
+  full ones. **Upload (`/canopy:ddd-upload`) requires a full run** —
+  a partial run cannot be uploaded as a feature package.
 
 ## Procedure
 
@@ -366,9 +366,9 @@ save(state)
 converged = compute_convergence(concept_verdict, user_verdict)
 ```
 
-**Promotion gate.** `state.scene_filter is not None` means this is a
-partial run — `/canopy:ddd-promote` MUST refuse to promote it. A
-feature is only promotable when convergence has been demonstrated
+**Upload gate.** `state.scene_filter is not None` means this is a
+partial run — `/canopy:ddd-upload` MUST refuse to upload it. A
+feature is only uploadable when convergence has been demonstrated
 against the full spec.
 
 ### Step 5 — Report + auto_iterate signal

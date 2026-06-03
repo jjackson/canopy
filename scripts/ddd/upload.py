@@ -1,8 +1,10 @@
-"""DDD promotion step — SP7.
+"""DDD run upload step.
 
-Builds a self-contained documentation HTML page (hero video + capabilities +
-why + how) from a converged run's unified_spec and why_brief, then publishes it
-via canopy-web after passing the external_release review gate.
+Uploads a converged run's artifacts to canopy-web so they package together
+under the run — the hero video, a self-contained documentation HTML page (hero
+video + capabilities + why + how) built from the run's unified_spec and
+why_brief, and (via the earlier narrative-review gate) the narrative — all
+grouped on ``run_id`` and navigable at ``/ddd/<feature>/<run_id>``.
 
 Public API
 ----------
@@ -10,11 +12,12 @@ build_docs_page(spec, why_brief, video_url) -> str
     Return a self-contained HTML string for the docs page.
 
 publish_artifact(content, *, kind, title, base_url, token, _post) -> str
-    Upload HTML or video to canopy-web and return the hosted URL.
+    Upload one HTML or video artifact to canopy-web and return its hosted URL.
 
-promote(run_id, *, video_path, base_url, token, _upload, _gate, auto_approve_for_test) -> str
+upload_run(run_id, *, video_path, base_url, token, _upload, _gate, auto_approve_for_test) -> str
     Orchestrate: load state + spec + why_brief → upload video → build docs →
-    external_release gate → upload HTML → save phase=promoted → return docs_url.
+    external_release gate → upload HTML → save phase=uploaded → return the run
+    **package** URL (``/ddd/<feature>/<run_id>``), NOT a loose artifact URL.
 
 Notes
 -----
@@ -34,6 +37,7 @@ import mimetypes
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Callable
@@ -60,6 +64,21 @@ def _resolve_base_url(base_url: str | None) -> str:
     if from_env:
         return from_env.rstrip("/")
     return DEFAULT_API
+
+
+def run_package_url(feature: str, run_id: str, base_url: str | None = None) -> str:
+    """Return the canopy-web **run package** URL for a DDD run.
+
+    canopy-web routes the navigable package (video + deck + narrative + links)
+    at ``/ddd/<narrative>/<runId>``, where the narrative slug is the ``feature``
+    the plugin sends (a slug in real use). This is the link a human should get
+    — NOT a loose ``/w/<artifact-id>`` single-artifact URL. Path segments are
+    URL-quoted defensively in case a feature carries unsafe characters.
+    """
+    api = _resolve_base_url(base_url)
+    feat = urllib.parse.quote(feature or run_id, safe="")
+    rid = urllib.parse.quote(run_id, safe="")
+    return f"{api}/ddd/{feat}/{rid}"
 
 
 def _resolve_token(token: str | None) -> str:
@@ -533,7 +552,7 @@ def _default_post(
     Raises ``RuntimeError`` on non-201 responses.
     """
     boundary = (
-        "----canorypromote"
+        "----canopyupload"
         + base64.urlsafe_b64encode(os.urandom(9)).decode("ascii")
     )
     crlf = b"\r\n"
@@ -629,7 +648,7 @@ def publish_artifact(
         "description": "",
         "visibility": "link",
     }
-    # DDD-run grouping so the promoted artifacts package under their run.
+    # DDD-run grouping so the run's artifacts package together under their run.
     if run_id:
         fields["run_id"] = run_id
     if feature:
@@ -690,11 +709,11 @@ def _default_gate(review_request: ReviewRequest, base_url: str | None, token: st
 
 
 # ---------------------------------------------------------------------------
-# promote
+# upload_run
 # ---------------------------------------------------------------------------
 
 
-def promote(
+def upload_run(
     run_id: str,
     *,
     video_path: str,
@@ -704,7 +723,7 @@ def promote(
     _gate: Callable = None,  # type: ignore[assignment]
     auto_approve_for_test: bool = False,
 ) -> str:
-    """Promote a converged run to a published documentation page.
+    """Upload a converged run's artifacts to canopy-web as a navigable package.
 
     Orchestration
     -------------
@@ -717,7 +736,10 @@ def promote(
     6. If the human chose ``"hold"``: return ``""`` without uploading HTML.
        Phase stays unchanged.
     7. If ``"publish"``: upload the HTML via ``_upload(..., kind="html")``,
-       set ``run_state.phase = "promoted"``, save, return *docs_url*.
+       set ``run_state.phase = "uploaded"``, save, and return the run
+       **package** URL (``/ddd/<feature>/<run_id>``) — the navigable view that
+       groups the video, deck, narrative, and links, NOT the loose docs-page
+       artifact URL.
 
     Parameters
     ----------
@@ -744,7 +766,8 @@ def promote(
     Returns
     -------
     str
-        The hosted docs URL on publish, or ``""`` if the gate returned ``"hold"``.
+        The run **package** URL (``/ddd/<feature>/<run_id>``) on publish, or
+        ``""`` if the gate returned ``"hold"``.
     """
     upload_fn = _upload if _upload is not None else publish_artifact
     gate_fn = _gate if _gate is not None else _default_gate
@@ -802,8 +825,10 @@ def promote(
             # Human chose to hold — do not publish
             return ""
 
-    # 6. Upload the docs HTML
-    docs_url = upload_fn(
+    # 6. Upload the docs HTML. The returned loose /w/ artifact URL is grouped
+    #    server-side under the run via run_id/feature/role — we don't hand it to
+    #    the user directly; the package URL (below) is the navigable entry point.
+    upload_fn(
         html_content,
         kind="html",
         title=f"{spec.name} — documentation",
@@ -815,10 +840,13 @@ def promote(
     )
 
     # 7. Update run state
-    run_state.phase = "promoted"
+    run_state.phase = "uploaded"
     save_state(run_state)
 
-    return docs_url
+    # 8. Return the run PACKAGE URL — the navigable /ddd/<feature>/<run_id> view
+    #    that canopy-web assembles from the run's video + deck + narrative +
+    #    links, NOT the loose docs artifact URL.
+    return run_package_url(run_state.feature, run_id, base_url)
 
 
 # ---------------------------------------------------------------------------
@@ -830,19 +858,19 @@ def main(argv=None):
     import argparse
 
     parser = argparse.ArgumentParser(
-        prog="scripts.ddd.promote",
-        description="Promote a converged DDD run to a published docs page.",
+        prog="scripts.ddd.upload",
+        description="Upload a converged DDD run's artifacts to canopy-web as a navigable package.",
     )
     parser.add_argument("run_id", help="Run identifier (e.g. my-feature-2026-01-01-001)")
     parser.add_argument("--video", required=True, dest="video_path", help="Path to hero video .mp4")
     parser.add_argument("--base-url", default=None, help="canopy-web API base URL")
     args = parser.parse_args(argv)
 
-    docs_url = promote(args.run_id, video_path=args.video_path, base_url=args.base_url)
-    if docs_url:
-        print(f"Published: {docs_url}")
+    package_url = upload_run(args.run_id, video_path=args.video_path, base_url=args.base_url)
+    if package_url:
+        print(f"Uploaded: {package_url}")
     else:
-        print("Promotion held — docs page was not published.")
+        print("Upload held — the run package was not published.")
 
 
 if __name__ == "__main__":

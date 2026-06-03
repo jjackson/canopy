@@ -1,4 +1,4 @@
-"""Structural invariants for the ddd-promote skill (SP7).
+"""Structural invariants for the ddd-upload skill.
 
 Pins the load-bearing strings and shape of SKILL.md and the command file.
 Does NOT exercise runtime behaviour — drift here is a bug.
@@ -8,7 +8,7 @@ Checked invariants:
     2.  Preamble (update check) present.
     3.  ## Inputs section names run_id and video_path.
     4.  ## Procedure section present.
-    5.  Script invocation: references python -m scripts.ddd.promote.
+    5.  Script invocation: references python -m scripts.ddd.upload.
     6.  Docs page structure described: hero video on top.
     7.  Docs page sections: "What you can do", "Why it works this way", "How to use it".
     8.  Docs page audience described as prospective user / feature user.
@@ -21,7 +21,7 @@ from __future__ import annotations
 from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).parent.parent.parent / "plugins" / "canopy"
-SKILL_DIR = PLUGIN_ROOT / "skills" / "ddd-promote"
+SKILL_DIR = PLUGIN_ROOT / "skills" / "ddd-upload"
 COMMANDS = PLUGIN_ROOT / "commands"
 
 
@@ -31,11 +31,11 @@ COMMANDS = PLUGIN_ROOT / "commands"
 
 
 def test_skill_md_exists() -> None:
-    assert (SKILL_DIR / "SKILL.md").exists(), "SKILL.md missing for ddd-promote"
+    assert (SKILL_DIR / "SKILL.md").exists(), "SKILL.md missing for ddd-upload"
 
 
 def test_command_file_exists() -> None:
-    assert (COMMANDS / "ddd-promote.md").exists(), "command file missing for ddd-promote"
+    assert (COMMANDS / "ddd-upload.md").exists(), "command file missing for ddd-upload"
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +46,7 @@ def test_command_file_exists() -> None:
 def test_skill_name_in_frontmatter() -> None:
     content = (SKILL_DIR / "SKILL.md").read_text()
     fm = content.split("---", 2)[1]
-    assert "name: ddd-promote" in fm, "SKILL.md frontmatter must declare 'name: ddd-promote'"
+    assert "name: ddd-upload" in fm, "SKILL.md frontmatter must declare 'name: ddd-upload'"
 
 
 def test_skill_has_preamble_update_check() -> None:
@@ -85,11 +85,11 @@ def test_skill_has_procedure_section() -> None:
     assert "## Procedure" in content
 
 
-def test_skill_references_promote_script() -> None:
-    """Procedure must invoke python -m scripts.ddd.promote."""
+def test_skill_references_upload_script() -> None:
+    """Procedure must invoke python -m scripts.ddd.upload."""
     content = (SKILL_DIR / "SKILL.md").read_text()
-    assert "scripts.ddd.promote" in content, (
-        "Procedure must reference python -m scripts.ddd.promote"
+    assert "scripts.ddd.upload" in content, (
+        "Procedure must reference python -m scripts.ddd.upload"
     )
 
 
@@ -218,30 +218,30 @@ def test_skill_remotion_marked_as_deferred_or_future() -> None:
 
 
 def test_command_has_description() -> None:
-    content = (COMMANDS / "ddd-promote.md").read_text()
+    content = (COMMANDS / "ddd-upload.md").read_text()
     fm = content.split("---", 2)[1]
     assert "description:" in fm, "Command file must have a description in frontmatter"
 
 
 def test_command_has_allowed_tools() -> None:
-    content = (COMMANDS / "ddd-promote.md").read_text()
+    content = (COMMANDS / "ddd-upload.md").read_text()
     assert "allowed-tools" in content, "Command file must declare allowed-tools"
 
 
 def test_command_allowed_tools_includes_bash() -> None:
-    content = (COMMANDS / "ddd-promote.md").read_text()
-    assert "Bash" in content, "Command allowed-tools must include Bash to run the promote script"
+    content = (COMMANDS / "ddd-upload.md").read_text()
+    assert "Bash" in content, "Command allowed-tools must include Bash to run the upload script"
 
 
 def test_command_description_mentions_external_release() -> None:
-    content = (COMMANDS / "ddd-promote.md").read_text()
+    content = (COMMANDS / "ddd-upload.md").read_text()
     assert "external_release" in content or "gate" in content.lower(), (
         "Command description must mention the external_release gate"
     )
 
 
-def test_command_description_mentions_promoted_phase() -> None:
-    content = (COMMANDS / "ddd-promote.md").read_text()
-    assert "promoted" in content, (
-        "Command description must mention the promoted phase transition"
+def test_command_description_mentions_uploaded_phase() -> None:
+    content = (COMMANDS / "ddd-upload.md").read_text()
+    assert "uploaded" in content, (
+        "Command description must mention the uploaded phase transition"
     )
