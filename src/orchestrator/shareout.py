@@ -277,6 +277,7 @@ def build_post_payload(authoring: dict, source: str) -> dict:
             "summary": b.get("summary", ""),
             "content": b["content"],
             "links": b.get("links", []),
+            "all_prs": b.get("all_prs", []),
             "author": author,
             "source": source,
         }
@@ -288,6 +289,39 @@ def build_post_payload(authoring: dict, source: str) -> dict:
     for proj in authoring.get("projects", []):
         items.append(_item(proj["project_slug"], proj))
     return {"shareouts": items}
+
+
+def _slim_prs(prs: list) -> list:
+    """Reduce gather()'s PR dicts to the {number,title,url,state} shape the
+    /shareouts API stores in all_prs."""
+    return [
+        {
+            "number": p.get("number"),
+            "title": p.get("title", ""),
+            "url": p.get("url", ""),
+            "state": p.get("state", ""),
+        }
+        for p in prs
+    ]
+
+
+def fill_all_prs_from_corpus(authoring: dict, corpus: dict) -> dict:
+    """Populate each project's `all_prs` from the gathered corpus so the
+    author doesn't hand-copy PR lists. Matches a project by repo basename ==
+    project_slug (e.g. corpus key 'jjackson/ace' → slug 'ace'). Only fills
+    items that don't already carry all_prs. Mutates and returns `authoring`.
+    """
+    by_slug = {
+        repo.split("/")[-1]: data.get("prs", [])
+        for repo, data in (corpus.get("projects") or {}).items()
+    }
+    for proj in authoring.get("projects", []):
+        if proj.get("all_prs"):
+            continue
+        prs = by_slug.get(proj.get("project_slug"))
+        if prs:
+            proj["all_prs"] = _slim_prs(prs)
+    return authoring
 
 
 def resolve_pat() -> str | None:

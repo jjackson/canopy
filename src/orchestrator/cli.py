@@ -490,9 +490,11 @@ def shareout_gather(from_date, to_date, days, project, author, json_out):
 
 @shareout_group.command("post")
 @click.argument("authoring_json", type=click.Path(exists=True))
+@click.option("--corpus", "corpus_json", default=None, type=click.Path(exists=True),
+              help="gather corpus JSON — auto-fills each project's all_prs (full PR list)")
 @click.option("--api-url", default=None,
               help="canopy-web base URL (default: $CANOPY_WEB_API_URL or prod)")
-def shareout_post(authoring_json, api_url):
+def shareout_post(authoring_json, corpus_json, api_url):
     """Post an authored briefings doc to the canopy-web /shareouts feed."""
     import datetime as dt
     import json as json_mod
@@ -508,6 +510,9 @@ def shareout_post(authoring_json, api_url):
         )
 
     authoring = json_mod.loads(Path(authoring_json).read_text())
+    if corpus_json:
+        corpus = json_mod.loads(Path(corpus_json).read_text())
+        shareout_mod.fill_all_prs_from_corpus(authoring, corpus)
     source = f"canopy:shareout@{dt.datetime.now(dt.timezone.utc).isoformat()}"
     payload = shareout_mod.build_post_payload(authoring, source=source)
 
