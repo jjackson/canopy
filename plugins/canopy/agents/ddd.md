@@ -247,11 +247,26 @@ After eval, check gaps of type `DECISION` in `why_brief.yaml`:
 
 ## Spec
 
-**Step 5 — Spec:**
-Invoke `ddd-spec` with:
-- `why_brief_path`: `<run_dir>/why_brief.yaml`
-- `feature`: the feature slug
-- `base_url`: from context.md
+**Step 5 — Spec (lock-aware):**
+
+First check whether the narrative is already **locked** (an approved narrative is
+durable input — never regenerate it; doing so silently discards the human's
+signed-off story arc and every scene's curated `show`/`design_intent`/`actions`):
+
+```bash
+test -f "docs/walkthroughs/<feature>.yaml" && \
+  (cd "$DDD_REPO" && uv run python -m scripts.ddd.narrative locked "$REPO_ROOT/docs/walkthroughs/<feature>.yaml") || echo unlocked
+```
+
+- **`locked`** → **SKIP `ddd-spec` entirely.** The narrative is approved input;
+  reuse `docs/walkthroughs/<feature>.yaml` verbatim and go straight to Step 6
+  (Spec QA, which still validates structure) → Render. This is the common case on
+  a resume that re-enters at `render`. Only a `redraft` from Step 6c (which clears
+  the lock) or a manual `narrative unlock` re-opens authoring.
+- **`unlocked`** (or no spec yet) → invoke `ddd-spec` with:
+  - `why_brief_path`: `<run_dir>/why_brief.yaml`
+  - `feature`: the feature slug
+  - `base_url`: from context.md
 
 Output: `docs/walkthroughs/<feature>.yaml`
 
@@ -305,14 +320,19 @@ included so the user can see whether the narrative is machine-verifiable.
 This is a **blocking `concept_change` pause** — do NOT proceed to Render + Judge
 until the user approves.
 
-The gate has two outcomes:
+The gate has two outcomes. `ddd-narrative-review`'s `apply_narrative_edits`
+**persists the lock state into the spec file** (`narrative_locked: true` on
+approve; cleared on redraft) — so the decision is durable across runs, not just
+this one:
 
 | Decision  | Effect |
 |-----------|--------|
-| `approve` | Narrative is locked in — proceed to Render + Judge (Step 7). |
-| `redraft` | Narrative needs restructuring — **loop back to Step 5 (`ddd-spec`)** to re-draft from the spine. |
+| `approve` | Narrative is **locked** (`narrative_locked: true` written to the spec) — it is now durable input. Proceed to Render + Judge (Step 7). Future runs reuse it verbatim; Step 5 skips re-authoring. |
+| `redraft` | Lock is **cleared** — **loop back to Step 5 (`ddd-spec`)** to re-draft from the spine. With the lock cleared, Step 5's lock check returns `unlocked` and authoring runs. |
 
-Do NOT render, build, or judge until the narrative is approved.
+Do NOT render, build, or judge until the narrative is approved. Once approved,
+the lock is what lets you re-iterate the *product* (render → judge → converge →
+upload) again and again without ever regenerating the *narrative*.
 
 ---
 
