@@ -59,7 +59,8 @@ Each project briefing:
   - **What changed** — concrete, the shipped thing(s).
   - **Why** — the problem it solves / the decision behind it (mine the prompts for intent).
   - **How you can leverage it** — what a teammate can now do, reuse, or build on; gotchas.
-- **links**: the PRs (`{"label": "PR #83 — title", "url": "..."}`), most relevant first.
+- **links**: the *highlight* PRs (`{"label": "PR #83 — title", "url": "..."}`), 2–4 most
+  relevant first. The full PR list is attached automatically in step 3 (don't hand-copy it).
 
 Then write **one roll-up** across all projects: the 2–4 threads that tie the period
 together, what's worth a teammate's attention first. Keep it short.
@@ -89,12 +90,14 @@ Write an authoring doc to a temp file in this shape:
 
 ```bash
 cd ~/emdash-projects/canopy
-uv run canopy shareout post /tmp/shareout-authoring.json
+uv run canopy shareout post /tmp/shareout-authoring.json --corpus /tmp/shareout-corpus.json
 ```
 
-It stamps a unique `source` and posts. Re-posting the same period **replaces** the
-prior rows for that period+source (idempotent), so iterating is safe. Print the
-returned `View: …/shareouts` URL to the user.
+`--corpus` auto-fills each project's full PR list (`all_prs`, rendered as a collapsed
+"All N PRs" expander on the feed) by matching repo basename → project_slug — so you
+only author the highlight `links`, not every PR. It stamps a unique `source` and posts.
+Re-posting the same period **replaces** the prior rows for that period+source
+(idempotent), so iterating is safe. Print the returned `View: …/shareouts` URL.
 
 ## Rules
 

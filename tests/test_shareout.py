@@ -198,5 +198,51 @@ class TestBuildPostPayload:
         assert payload["shareouts"][0]["project_slug"] == "canopy"
 
 
+class TestFillAllPrsFromCorpus:
+    def _corpus(self):
+        return {
+            "period": {"start": "2026-06-03", "end": "2026-06-03"},
+            "projects": {
+                "jjackson/ace": {"prs": [
+                    {"number": 685, "title": "auto-capture", "url": "u685", "state": "MERGED", "body": "x"},
+                ]},
+                "jjackson/canopy": {"prs": [
+                    {"number": 124, "title": "auto-promote", "url": "u124", "state": "MERGED"},
+                ]},
+            },
+        }
+
+    def test_fills_by_repo_basename_match(self):
+        authoring = {
+            "period_start": "2026-06-03", "period_end": "2026-06-03",
+            "projects": [
+                {"project_slug": "ace", "title": "t", "content": "c"},
+                {"project_slug": "canopy", "title": "t", "content": "c"},
+            ],
+        }
+        shareout.fill_all_prs_from_corpus(authoring, self._corpus())
+        ace = authoring["projects"][0]["all_prs"]
+        assert ace == [{"number": 685, "title": "auto-capture", "url": "u685", "state": "MERGED"}]
+        assert authoring["projects"][1]["all_prs"][0]["number"] == 124
+
+    def test_does_not_overwrite_existing_all_prs(self):
+        authoring = {
+            "period_start": "2026-06-03", "period_end": "2026-06-03",
+            "projects": [{"project_slug": "ace", "title": "t", "content": "c",
+                          "all_prs": [{"number": 1, "title": "kept", "url": "u", "state": "OPEN"}]}],
+        }
+        shareout.fill_all_prs_from_corpus(authoring, self._corpus())
+        assert authoring["projects"][0]["all_prs"][0]["title"] == "kept"
+
+    def test_build_payload_passes_all_prs(self):
+        authoring = {
+            "period_start": "2026-06-03", "period_end": "2026-06-03", "author": "j",
+            "projects": [{"project_slug": "ace", "title": "t", "content": "c",
+                          "all_prs": [{"number": 685, "title": "x", "url": "u", "state": "MERGED"}]}],
+        }
+        payload = shareout.build_post_payload(authoring, source="src")
+        assert payload["shareouts"][0]["all_prs"][0]["number"] == 685
+
+
 def test_feed_url():
     assert shareout.feed_url("https://x.app/") == "https://x.app/shareouts"
