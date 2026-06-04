@@ -80,6 +80,50 @@ def resolve_range(
     return yesterday, yesterday
 
 
+def fetch_latest_period_end(api_url: str, token: str, timeout: int = 15) -> dt.date | None:
+    """Return the most recent existing shareout's period_end (the feed is
+    ordered newest-period-first), or None when there are none / on any error."""
+    url = f"{api_url.rstrip('/')}/api/shareouts/?limit=1"
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    try:
+        resp = urllib.request.urlopen(req, timeout=timeout)
+        data = json.loads(resp.read().decode("utf-8") or "{}")
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError, json.JSONDecodeError):
+        return None
+    items = data.get("items") or []
+    if not items:
+        return None
+    pe = items[0].get("period_end")
+    try:
+        return dt.date.fromisoformat(pe) if pe else None
+    except (ValueError, TypeError):
+        return None
+
+
+def resolve_default_range(
+    latest_end: dt.date | None, today: dt.date | None = None
+) -> tuple[dt.date, dt.date]:
+    """The no-argument default: cover from the end of the last shareout up to
+    *now*.
+
+    - latest_end given  -> (latest_end + 1 day) .. today (the gap since the last
+      shareout, including today's partial day). If the last shareout already
+      reaches today, the window collapses to today..today.
+    - latest_end None   -> yesterday..yesterday (no prior shareout to continue
+      from; matches the original single-day default).
+
+    `today` is injectable for testing.
+    """
+    today = today or dt.date.today()
+    yesterday = today - dt.timedelta(days=1)
+    if latest_end is None:
+        return yesterday, yesterday
+    start = latest_end + dt.timedelta(days=1)
+    if start > today:
+        start = today
+    return start, today
+
+
 def _ts_date(ts: str | None) -> dt.date | None:
     """Date portion (UTC) of an ISO timestamp string, or None."""
     if not ts or len(ts) < 10:

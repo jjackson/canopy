@@ -454,11 +454,20 @@ def shareout_group():
 @click.option("--project", default=None,
               help="Filter to sessions whose resolved repo ends with /<name>")
 @click.option("--author", default="@me", help="GitHub PR author (default: @me)")
+@click.option("--api-url", default=None,
+              help="canopy-web base URL (used to find the last shareout for the default window)")
 @click.option("--json-out", "json_out", default=None,
               help="Write corpus JSON to this path instead of stdout")
-def shareout_gather(from_date, to_date, days, project, author, json_out):
-    """Gather sessions + the author's PRs per project for a date range."""
+def shareout_gather(from_date, to_date, days, project, author, api_url, json_out):
+    """Gather sessions + the author's PRs per project for a date range.
+
+    With no --from/--to/--days, the window runs from the end of the most recent
+    existing shareout up to today (the gap since the last one). If no shareout
+    exists yet — or canopy-web is unreachable — it falls back to yesterday.
+    """
+    import datetime as dt
     import json as json_mod
+    import os
 
     from orchestrator import shareout as shareout_mod
     from orchestrator.repo_map import load_repo_map
@@ -469,7 +478,14 @@ def shareout_gather(from_date, to_date, days, project, author, json_out):
     repo_map = load_repo_map(state_dir / "repo-map.json")
     labels = load_labels(state_dir / "labels.yaml")
 
-    start, end = shareout_mod.resolve_range(from_date, to_date, days)
+    if not (from_date or to_date or days):
+        # Incremental default: continue from where the last shareout left off.
+        api = api_url or os.environ.get("CANOPY_WEB_API_URL", shareout_mod.DEFAULT_API)
+        token = shareout_mod.resolve_pat()
+        latest_end = shareout_mod.fetch_latest_period_end(api, token) if token else None
+        start, end = shareout_mod.resolve_default_range(latest_end)
+    else:
+        start, end = shareout_mod.resolve_range(from_date, to_date, days)
     corpus = shareout_mod.gather(
         projects_dir=projects_dir,
         repo_map=repo_map,

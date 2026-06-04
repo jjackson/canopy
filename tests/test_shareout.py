@@ -198,6 +198,46 @@ class TestBuildPostPayload:
         assert payload["shareouts"][0]["project_slug"] == "canopy"
 
 
+class TestResolveDefaultRange:
+    def test_no_prior_shareout_falls_back_to_yesterday(self):
+        assert shareout.resolve_default_range(None, today=TODAY) == (YESTERDAY, YESTERDAY)
+
+    def test_continues_from_day_after_last_shareout(self):
+        # last shareout ended 2026-05-31 → cover 2026-06-01 .. today (06-04)
+        assert shareout.resolve_default_range(dt.date(2026, 5, 31), today=TODAY) == (
+            dt.date(2026, 6, 1),
+            TODAY,
+        )
+
+    def test_last_shareout_was_yesterday_covers_today(self):
+        assert shareout.resolve_default_range(YESTERDAY, today=TODAY) == (TODAY, TODAY)
+
+    def test_last_shareout_already_reaches_today_collapses_to_today(self):
+        # already current (or somehow ahead) → today..today, never an inverted range
+        assert shareout.resolve_default_range(TODAY, today=TODAY) == (TODAY, TODAY)
+        assert shareout.resolve_default_range(dt.date(2026, 6, 9), today=TODAY) == (TODAY, TODAY)
+
+
+class TestFetchLatestPeriodEnd:
+    def test_parses_period_end_from_items(self, monkeypatch):
+        import io
+        payload = json.dumps({"items": [{"period_end": "2026-06-03"}], "total": 1}).encode()
+        monkeypatch.setattr(shareout.urllib.request, "urlopen", lambda *a, **k: io.BytesIO(payload))
+        assert shareout.fetch_latest_period_end("https://x", "tok") == dt.date(2026, 6, 3)
+
+    def test_empty_feed_returns_none(self, monkeypatch):
+        import io
+        monkeypatch.setattr(shareout.urllib.request, "urlopen",
+                            lambda *a, **k: io.BytesIO(b'{"items": [], "total": 0}'))
+        assert shareout.fetch_latest_period_end("https://x", "tok") is None
+
+    def test_network_error_returns_none(self, monkeypatch):
+        def boom(*a, **k):
+            raise OSError("unreachable")
+        monkeypatch.setattr(shareout.urllib.request, "urlopen", boom)
+        assert shareout.fetch_latest_period_end("https://x", "tok") is None
+
+
 class TestFillAllPrsFromCorpus:
     def _corpus(self):
         return {
