@@ -110,8 +110,13 @@ For each scene in `unified_spec.yaml`:
      real, shipping web app driven through a flow. The surrounding product
      chrome (nav, sidebar, account menu, the app's own buttons) is EXPECTED
      and grounds the demo as a real product; visual-judge must NOT deduct for
-     it or cap a dimension because "it looks like a tool." Test/placeholder
-     DATA (a raw program slug, `test-user`, `Untitled`, lorem) is still a flaw.
+     it or cap a dimension because "it looks like a tool." Fixture/placeholder
+     DATA that signals an unfinished build (`test-user`, `Untitled`, lorem) is
+     still a flaw — but a real entity's real system-assigned name (even an ugly
+     auto-generated slug) is real production data the live product genuinely
+     shows, so it is grounding, NOT a flaw. Do not coach the judge to penalize a
+     real record's real name; when unsure whether a slug is fixture or real,
+     treat it as real and do not deduct.
    - `narrative_anchors`: [`scene.concept_claim`, `scene.provenance`, the matching why_brief spine rationale (if resolvable)]
    - `domain`: `unified_spec.name`
    - `audience.name`: "the program lead about to forward this to the funder/board with their name on it"
