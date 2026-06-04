@@ -101,6 +101,7 @@ dimensions are independent).
 Caller-provided context that shapes the adversarial pass:
 
 ```yaml
+artifact_kind: product_walkthrough   # or: standalone_deliverable (default)
 audience:
   name: "the CEO who is about to forward this into a high-stakes external thread"
   decision: "whether to hit Send with their name on it, or fix something first"
@@ -122,6 +123,32 @@ about to forward it with their name on it; competitors Linear/Notion/etc.;
 projector test as quoted). The send lens is intentionally harsher than a
 generic "would you adopt this" — personal stakes and a binary Send/fix
 decision surface flaws a detached reviewer waves through.
+
+**`artifact_kind` — what is being judged (read this; it changes the chrome rule):**
+
+- **`product_walkthrough`** — the screenshot is a frame of a *real, shipping
+  web application* being driven through a flow (a DDD/walkthrough capture, a
+  demo of a live product). Here the **surrounding product chrome — the nav
+  bar, sidebar, breadcrumbs, account menu, the app's own buttons — is
+  EXPECTED and GROUNDING, not a flaw.** It is the evidence that this is a real
+  working product and not a mockup or a slide. **Do NOT deduct for product
+  chrome, and do NOT cap any dimension because "it looks like a tool
+  screenshot" — it IS the tool, on purpose.** What you still penalize here is
+  *fake or broken* content inside that real frame: placeholder/test DATA
+  (`test-user`, `ACE-IT-1777407074899-renamed`, `Untitled`, lorem, a raw
+  primary-key slug where a human name belongs), inconsistent/misformatted
+  numbers, a self-contradicting verdict, illegible charts, an empty state
+  dominating the frame. The bar is "is this a polished, coherent, honest
+  view *of a real product*", not "is this a chrome-free standalone graphic."
+
+- **`standalone_deliverable`** (default) — the artifact is meant to stand on
+  its own when forwarded: a slide, an exported figure, a report page. Here
+  app chrome IS a leak (it reveals an unfinished export), and the chrome rules
+  below apply at full strength.
+
+When `artifact_kind` is omitted, treat it as `standalone_deliverable`
+(preserves the strict default). Callers judging a live-product demo should
+pass `product_walkthrough`.
 
 ## Process — Tough Judge methodology
 
@@ -176,12 +203,17 @@ don't count — if you can't point at it, you didn't find it.
    footer/panels) — a region with "nothing wrong" almost always means
    you skimmed it. Rank them by how embarrassing they'd be on Send.
    **Fewer than eight means you didn't look** — go back. Things to hunt:
-   - Demo/dev artifacts (`Untitled`, duplicate titles, `test-user`,
-     placeholder avatars, lorem text)
+   - **Test/placeholder DATA** (`Untitled`, duplicate titles, `test-user`,
+     placeholder avatars, lorem text, a raw primary-key slug like
+     `ACE-IT-1777407074899-renamed` where a human name belongs) — these are
+     ALWAYS flaws, in any `artifact_kind`.
    - **Internal app chrome** (nav bars, breadcrumbs, "Select context",
-     account menus, edit/admin affordances) — anything that makes it
-     read as an internal tool screenshot rather than a prepared
-     deliverable
+     account menus, edit/admin affordances). **Conditional on
+     `artifact_kind`:** for a `standalone_deliverable` this is a leak — list
+     it. For a **`product_walkthrough` it is NOT a flaw — it grounds the
+     demo as a real shipping product; do not list it, and do not let it cap
+     any dimension** (see Phase 3). Real product chrome that is broken,
+     inconsistent, or mislabeled is still fair game in either mode.
    - Empty states dominating the frame; error/warning banners
    - **Inconsistencies** — the same quantity formatted two ways
      (`2,300` vs `2300`), two different numbers both presented as "the"
@@ -262,9 +294,13 @@ Before emitting the verdict, check these sanity rules:
   element, or a claim an expert calls unsupported by what's shown — then
   `claim_reality_coherence` (and any "concept" dimension) cannot exceed
   2. A view that argues against its own hero is not coherent.
-- **If internal app chrome is visible (Phase 1.1)**, any
-  "visual hierarchy" / "design" / "screenshot quality" dimension cannot
-  exceed 3 — it reads as a tool screenshot, not a deliverable.
+- **If internal app chrome is visible AND `context.artifact_kind` is
+  `standalone_deliverable`** (the default), any "visual hierarchy" /
+  "design" / "screenshot quality" dimension cannot exceed 3 — it reads as a
+  tool screenshot, not a deliverable. **This cap does NOT apply when
+  `artifact_kind` is `product_walkthrough`** — there the surrounding product
+  chrome is expected and grounding, so it never caps a score. (Test/placeholder
+  DATA artifacts — a raw slug, `test-user`, lorem — still cap, in either mode.)
 - **If the 5-second test (Phase 1.4) produced a wrong read or a "what am
   I looking at?"**, `concept_clarity` / `visual_hierarchy` cannot exceed 3.
 - **If a competitor does it obviously better in all 3 named ways, the
@@ -376,3 +412,4 @@ corpus, and the calibration doc.
 |---|---|---|
 | 2026-05-07 | Initial extraction from canopy:walkthrough Phase 1–4 inline scoring. Methodology preserved verbatim; per-rubric dimensions parameterized via the `rubric` input. canopy:walkthrough now dispatches this skill per scene; ACE polish-eval consumes it for visual dimensions. | canopy team |
 | 2026-06-02 | Harshness pass. Added (1) an **Independence requirement** — judge must run as a fresh sub-agent with no build context; self-assessment forces −1/dimension + `self_assessed` flag. (2) The **CEO-send gate** as the definition of a 5 (would the CEO forward it untouched, with their name on it?). (3) Raised the Phase-1 flaw floor from 3 to **≥8, ≥1 per layout region**, ranked. (4) A **claim-scrutiny** pass (self-disclaiming elements / unsupported claims cap claim_reality_coherence ≤2). (5) A **5-second first-impression** pass and an **internal-chrome / deliverable-readiness** check, each with sanity-floor caps. Motivated by an observed builder-as-judge inflation of ~2 points. | jjackson |
+| 2026-06-03 | **`artifact_kind` context field.** Distinguishes `product_walkthrough` (a frame of a real, shipping web app being driven through a flow) from `standalone_deliverable` (a slide/figure/report meant to stand alone, the default). For a `product_walkthrough` the surrounding product chrome — nav bar, sidebar, breadcrumbs, account menu, the app's own buttons — is EXPECTED and grounding, NOT a flaw: it is the evidence the demo is a real product and not a mockup. The "internal app chrome → max 3" sanity floor no longer fires in walkthrough mode. Test/placeholder DATA (raw primary-key slugs, `test-user`, `Untitled`, lorem) still caps in either mode. Motivated by walkthrough judges wrongly penalizing real-website nav that is the point of a live-product demo. | jjackson |

@@ -106,6 +106,12 @@ For each scene in `unified_spec.yaml`:
 1. Identify the screenshot path: `<run_dir>/scene_<N>.png` (or the path recorded in the run manifest).
 2. Load the captured page text: `<run_dir>/scene_<N>_page_text.json`.
 3. Build the `context` object for canopy:visual-judge:
+   - `artifact_kind`: **`product_walkthrough`** — a DDD scene is a frame of a
+     real, shipping web app driven through a flow. The surrounding product
+     chrome (nav, sidebar, account menu, the app's own buttons) is EXPECTED
+     and grounds the demo as a real product; visual-judge must NOT deduct for
+     it or cap a dimension because "it looks like a tool." Test/placeholder
+     DATA (a raw program slug, `test-user`, `Untitled`, lorem) is still a flaw.
    - `narrative_anchors`: [`scene.concept_claim`, `scene.provenance`, the matching why_brief spine rationale (if resolvable)]
    - `domain`: `unified_spec.name`
    - `audience.name`: "the program lead about to forward this to the funder/board with their name on it"
