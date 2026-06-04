@@ -140,12 +140,21 @@ def _bash_mentions_guarded_path(command: str) -> tuple[bool, str | None]:
     # list and track "current command" — the first token after a shell
     # separator (``;``, ``&&``, ``||``, ``|``) is treated as a fresh command.
     separators = {";", "&&", "||", "|"}
+    # An env-assignment prefix (`FOO=bar cmd`) or `env`/`export` must not be
+    # mistaken for the command itself — otherwise `FOO=1 rsync … cache/` would
+    # slip through (the assignment becomes "current_cmd", so the real rsync is
+    # never checked). Skip them when resolving the command. shlex may glue a
+    # trailing separator onto an assignment token (`FOO=1;`); the regex still
+    # matches, and the next real token becomes the command.
+    assign_re = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
     current_cmd: str | None = None
     for tok in tokens:
         if tok in separators:
             current_cmd = None
             continue
         if current_cmd is None:
+            if assign_re.match(tok) or os.path.basename(tok.rstrip(";")) in ("env", "export"):
+                continue  # env-var prefix / env / export — not the command
             current_cmd = os.path.basename(tok)
             continue
         # tok is an argument to current_cmd
@@ -155,6 +164,43 @@ def _bash_mentions_guarded_path(command: str) -> tuple[bool, str | None]:
     # Special case: ``sed -i ... <guarded>`` is covered above (sed is in the
     # mutating set). ``rm -rf <guarded>`` likewise.
     return False, None
+
+
+def _is_sanctioned_update(command: str) -> bool:
+    """True for the canonical ``/canopy:update`` install step.
+
+    That step copies the marketplace checkout into the version-keyed plugin
+    cache::
+
+        rsync -a ~/.claude/plugins/marketplaces/<p>/plugins/<p>/ \
+                 ~/.claude/plugins/cache/<p>/<p>/<version>/
+
+    It is the ONLY sanctioned writer of the cache, so the guard must not block
+    it (doing so wedges the very update flow the guard tells you to use). The
+    anti-pattern the guard exists to stop — hand-copying a *dev build* into the
+    cache, or editing cache files in place — does NOT match this signature: it
+    copies from a worktree/build dir (never ``plugins/marketplaces/``), or
+    mutates files directly. We require a copy op (rsync/cp/install) reading
+    from ``plugins/marketplaces/`` and writing to ``plugins/cache/``, and never
+    exempt deletions.
+    """
+    if "plugins/marketplaces/" not in command or "plugins/cache/" not in command:
+        return False
+    if re.search(r"\brm\b", command):  # never exempt deletions
+        return False
+    return bool(re.search(r"\b(?:rsync|cp|install)\b", command))
+
+
+def _has_inline_override(command: str) -> bool:
+    """Honour ``CANOPY_ALLOW_CACHE_PATCH=1`` set inline on the command.
+
+    The hook evaluates the command string *before* it runs, in its own process
+    — so a var exported in a separate shell (or prefixed on the same command
+    line) is invisible to ``os.environ`` here. Without this, the documented
+    escape hatch is unusable for the common ``CANOPY_ALLOW_CACHE_PATCH=1 <cmd>``
+    / ``export CANOPY_ALLOW_CACHE_PATCH=1; <cmd>`` forms. Accept either.
+    """
+    return bool(re.search(r"CANOPY_ALLOW_CACHE_PATCH=1\b", command))
 
 
 def _block(reason: str) -> None:
@@ -216,11 +262,16 @@ def evaluate(hook_data: dict) -> tuple[str, str | None]:
         return "allow", None
 
     detail: str | None = None
+    command = ""
 
     if tool_name == "Bash":
         command = tool_input.get("command", "") or ""
         matched, offending = _bash_mentions_guarded_path(command)
         if matched:
+            # The sanctioned /canopy:update install copies marketplaces → cache.
+            # That's the prescribed flow, not local patching — never block it.
+            if _is_sanctioned_update(command):
+                return "allow", None
             detail = (
                 f"Bash command mutates the plugin cache — offending path "
                 f"`{offending}` in command: {command!r}"
@@ -236,7 +287,7 @@ def evaluate(hook_data: dict) -> tuple[str, str | None]:
     if detail is None:
         return "allow", None
 
-    if os.environ.get("CANOPY_ALLOW_CACHE_PATCH") == "1":
+    if os.environ.get("CANOPY_ALLOW_CACHE_PATCH") == "1" or _has_inline_override(command):
         return "override", detail
     return "block", detail
 
