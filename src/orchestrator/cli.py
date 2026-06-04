@@ -492,9 +492,13 @@ def shareout_gather(from_date, to_date, days, project, author, json_out):
 @click.argument("authoring_json", type=click.Path(exists=True))
 @click.option("--corpus", "corpus_json", default=None, type=click.Path(exists=True),
               help="gather corpus JSON — auto-fills each project's all_prs (full PR list)")
+@click.option("--source", "source_override", default=None,
+              help="Override the source tag. Reuse a prior run's source to REPLACE its "
+                   "rows (idempotency is keyed on project+period+source) instead of "
+                   "appending a fresh timestamped set.")
 @click.option("--api-url", default=None,
               help="canopy-web base URL (default: $CANOPY_WEB_API_URL or prod)")
-def shareout_post(authoring_json, corpus_json, api_url):
+def shareout_post(authoring_json, corpus_json, source_override, api_url):
     """Post an authored briefings doc to the canopy-web /shareouts feed."""
     import datetime as dt
     import json as json_mod
@@ -513,7 +517,7 @@ def shareout_post(authoring_json, corpus_json, api_url):
     if corpus_json:
         corpus = json_mod.loads(Path(corpus_json).read_text())
         shareout_mod.fill_all_prs_from_corpus(authoring, corpus)
-    source = f"canopy:shareout@{dt.datetime.now(dt.timezone.utc).isoformat()}"
+    source = source_override or f"canopy:shareout@{dt.datetime.now(dt.timezone.utc).isoformat()}"
     payload = shareout_mod.build_post_payload(authoring, source=source)
 
     status, body = shareout_mod.post(payload, api, token)

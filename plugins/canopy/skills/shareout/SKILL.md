@@ -95,9 +95,15 @@ uv run canopy shareout post /tmp/shareout-authoring.json --corpus /tmp/shareout-
 
 `--corpus` auto-fills each project's full PR list (`all_prs`, rendered as a collapsed
 "All N PRs" expander on the feed) by matching repo basename → project_slug — so you
-only author the highlight `links`, not every PR. It stamps a unique `source` and posts.
-Re-posting the same period **replaces** the prior rows for that period+source
-(idempotent), so iterating is safe. Print the returned `View: …/shareouts` URL.
+only author the highlight `links`, not every PR. Print the returned `View: …/shareouts` URL.
+
+**Idempotency / re-running:** by default each run stamps a fresh timestamped `source`,
+so posting again **appends** a new set (different days never collide — they're different
+periods). To **replace** a prior run for the *same* period (e.g. fixing a same-day typo),
+first read that run's `source` from the GET endpoint
+(`/api/shareouts/?date_from=<d>&date_to=<d>`) and pass it back via `--source "<that value>"`
+— rows are keyed on `project+period+source`, so reusing the source overwrites in place
+instead of duplicating.
 
 ## Rules
 
