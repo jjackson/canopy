@@ -55,10 +55,13 @@ room. Ground every claim in the corpus (prompts + PR titles/bodies) — do not i
 Each project briefing:
 - **title**: a plain, specific headline (what shipped). Not marketing.
 - **summary**: one-sentence TL;DR for the feed card.
-- **content**: markdown with these beats:
-  - **What changed** — concrete, the shipped thing(s).
-  - **Why** — the problem it solves / the decision behind it (mine the prompts for intent).
-  - **How you can leverage it** — what a teammate can now do, reuse, or build on; gotchas.
+- **content**: markdown, **three `## ` sections, each a short bulleted list** (not
+  prose paragraphs — the feed renders each `## ` heading as a labeled, divider-separated
+  block, so bullets read far more clearly than walls of text):
+  - `## What shipped` — bullets, each a concrete shipped thing; bold the lead term, cite the PR (`- **X** — … (#123)`).
+  - `## Why it matters` — 1–3 bullets: the problem / the decision (mine the prompts for intent).
+  - `## How to leverage it` — bullets: what a teammate can now do, reuse, or build on; gotchas.
+  Keep bullets to a line or two. Avoid multi-sentence paragraphs.
 - **links**: the *highlight* PRs (`{"label": "PR #83 — title", "url": "..."}`), 2–4 most
   relevant first. The full PR list is attached automatically in step 3 (don't hand-copy it).
 
@@ -74,7 +77,7 @@ Write an authoring doc to a temp file in this shape:
   "author": "<your name, e.g. jjackson>",
   "rollup": { "title": "...", "summary": "...", "content": "## ...", "links": [] },
   "projects": [
-    { "project_slug": "canopy", "title": "...", "summary": "...", "content": "## What\n...\n\n## Why\n...\n\n## How you can leverage it\n...", "links": [{"label": "PR #83 — ...", "url": "..."}] }
+    { "project_slug": "canopy", "title": "...", "summary": "...", "content": "## What shipped\n- **X** — … (#83)\n- …\n\n## Why it matters\n- …\n\n## How to leverage it\n- …", "links": [{"label": "PR #83 — ...", "url": "..."}] }
   ]
 }
 ```
