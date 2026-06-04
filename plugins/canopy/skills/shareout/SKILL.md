@@ -1,6 +1,6 @@
 ---
 name: shareout
-description: Generate a teammate-facing work briefing for a date range (default yesterday) — review your Claude Code sessions + your PRs per project, synthesize what shipped / why it matters / how teammates can leverage it, and post to the canopy-web /shareouts feed. Use when asked to "shareout", "what did I do yesterday", "briefing for the team", or "write up my week".
+description: Generate a teammate-facing work briefing for a date range (default = since the last shareout) — review your Claude Code sessions + your PRs per project, synthesize what shipped / why it matters / how teammates can leverage it, and post to the canopy-web /shareouts feed. Use when asked to "shareout", "what did I do yesterday", "briefing for the team", or "write up my week".
 ---
 
 ## Preamble (run first)
@@ -23,8 +23,10 @@ Only stop to ask if the range is genuinely ambiguous.
 
 ## Inputs
 
-- Default range: **yesterday** (single day). The user may pass a range in natural
-  language — map it to `--from/--to` (YYYY-MM-DD) or `--days N`.
+- Default range (no args): **from the end of the most recent existing shareout up to
+  today** — i.e. the gap since the last one. If no shareout exists yet (or canopy-web
+  is unreachable), it falls back to yesterday. The user may override with a range in
+  natural language — map it to `--from/--to` (YYYY-MM-DD) or `--days N`.
 - `--days N` = the last N full days ending yesterday.
 - `--project <name>` = limit to one repo (matches resolved repo ending `/<name>`).
 
