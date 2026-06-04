@@ -9,6 +9,11 @@ bump — see `.claude/CLAUDE.md`). The project does not tag releases. Pre-histor
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.169] - 2026-06-04
+
+### Changed
+- **visual-judge / ddd-concept-eval: real-but-ugly production data is grounding, not a flaw — only fixtures cap.** v0.2.167's `artifact_kind: product_walkthrough` correctly stopped penalizing real product chrome, but its DATA clause still listed "a raw program slug" as an always-flaw and hardcoded a real program's real name (`ACE-IT-1777407074899-renamed`) as the textbook bad example — so a live product got capped to 2/fail for showing the genuine (if ugly) name of a real record. That conflated two different things. The methodology now distinguishes **fixture/placeholder data that signals an unfinished build** (`test-user`, `Untitled`, lorem, duplicate titles — still a flaw in any mode) from **real-but-ugly production data** (a real entity's real system-assigned identifier, even an auto-generated slug — what the live product actually shows, so under `product_walkthrough` it is grounding like the chrome). When a judge can't tell fixture from real, it now defaults to real and does not deduct. Removes the hardcoded slug example from both skills. Matches the connect-labs precedent (PR #380 → #383): if a judge dings real-but-ugly env data, calibrate the rubric — don't hack a display name for the judge.
+
 ## [0.2.167] - 2026-06-04
 
 ### Changed
