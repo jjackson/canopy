@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.171
+
+- ddd: lock the narrative on approve — an approved UnifiedSpec is durable input; ddd-spec/orchestrator skip regeneration, so you can re-iterate render→judge→converge→upload without rewriting the story (redraft clears the lock). (#137)
+
+
 All notable changes to canopy are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
