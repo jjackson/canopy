@@ -226,6 +226,86 @@ def test_override_env_zero_does_not_allow(hook, monkeypatch):
     assert action == "block"
 
 
+def test_inline_override_prefix_allows(hook, monkeypatch):
+    """CANOPY_ALLOW_CACHE_PATCH=1 prefixed on the command is honoured (the hook
+    can't see a var exported in a separate shell)."""
+    monkeypatch.delenv("CANOPY_ALLOW_CACHE_PATCH", raising=False)
+    action, _ = hook.evaluate(
+        _bash_payload(
+            "CANOPY_ALLOW_CACHE_PATCH=1 cp x ~/.claude/plugins/cache/ace/ace/0.1.9/y"
+        )
+    )
+    assert action == "override"
+
+
+def test_inline_override_export_allows(hook, monkeypatch):
+    monkeypatch.delenv("CANOPY_ALLOW_CACHE_PATCH", raising=False)
+    action, _ = hook.evaluate(
+        _bash_payload(
+            "export CANOPY_ALLOW_CACHE_PATCH=1; cp x ~/.claude/plugins/cache/a/a/1/y"
+        )
+    )
+    assert action == "override"
+
+
+# ---------------------------------------------------------------------------
+# Sanctioned /canopy:update install — must NOT be blocked
+# ---------------------------------------------------------------------------
+
+
+def test_allows_canopy_update_rsync(hook, monkeypatch):
+    """The /canopy:update Step 2 rsync (marketplaces → cache) is the prescribed
+    flow and must be allowed even with no override set."""
+    monkeypatch.delenv("CANOPY_ALLOW_CACHE_PATCH", raising=False)
+    cmd = (
+        "cd ~/.claude/plugins/marketplaces/canopy && "
+        "rsync -a ~/.claude/plugins/marketplaces/canopy/plugins/canopy/ "
+        "~/.claude/plugins/cache/canopy/canopy/0.2.168/"
+    )
+    action, _ = hook.evaluate(_bash_payload(cmd))
+    assert action == "allow"
+
+
+def test_allows_canopy_update_full_step2(hook, monkeypatch):
+    """The full Step-2 chain (pull + mkdir + rsync + python rewrite of
+    installed_plugins.json) is allowed end-to-end."""
+    monkeypatch.delenv("CANOPY_ALLOW_CACHE_PATCH", raising=False)
+    cmd = (
+        "NEW_VERSION=0.2.168 && cd ~/.claude/plugins/marketplaces/canopy && "
+        "git pull origin main && "
+        "mkdir -p ~/.claude/plugins/cache/canopy/canopy/$NEW_VERSION && "
+        "rsync -a ~/.claude/plugins/marketplaces/canopy/plugins/canopy/ "
+        "~/.claude/plugins/cache/canopy/canopy/$NEW_VERSION/ && "
+        "python3 -c \"import json; ...installed_plugins.json...\""
+    )
+    action, _ = hook.evaluate(_bash_payload(cmd))
+    assert action == "allow"
+
+
+def test_still_blocks_dev_build_into_cache(hook, monkeypatch):
+    """A copy from a dev worktree/build dir (NOT marketplaces) into the cache is
+    still local patching and must block."""
+    monkeypatch.delenv("CANOPY_ALLOW_CACHE_PATCH", raising=False)
+    action, _ = hook.evaluate(
+        _bash_payload(
+            "rsync -a ./plugins/canopy/ ~/.claude/plugins/cache/canopy/canopy/0.2.168/"
+        )
+    )
+    assert action == "block"
+
+
+def test_still_blocks_rm_even_with_marketplaces_mention(hook, monkeypatch):
+    """A deletion in the cache is never exempted, even if marketplaces appears."""
+    monkeypatch.delenv("CANOPY_ALLOW_CACHE_PATCH", raising=False)
+    action, _ = hook.evaluate(
+        _bash_payload(
+            "rm -rf ~/.claude/plugins/cache/canopy/canopy/0.2.168/ "
+            "# from ~/.claude/plugins/marketplaces/canopy"
+        )
+    )
+    assert action == "block"
+
+
 # ---------------------------------------------------------------------------
 # end-to-end main(): smoke test the JSON contract
 # ---------------------------------------------------------------------------
