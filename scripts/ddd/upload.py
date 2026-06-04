@@ -36,6 +36,7 @@ import json
 import mimetypes
 import os
 import re
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -793,6 +794,20 @@ def upload_run(
 
     # 1. Load run state
     run_state = load_state(run_id)
+
+    # Uploaded runs are immutable — there is no "continuing" an uploaded run.
+    # If this run already uploaded, return its existing package URL without
+    # re-uploading. Re-rendering means a NEW run (resolve_narrative treats
+    # uploaded/promoted as terminal and starts fresh), not a re-upload of this
+    # one — that's what kept piling duplicate artifacts onto a single run_id.
+    if run_state.phase in ("uploaded", "promoted"):
+        print(
+            f"run {run_id} is already {run_state.phase} — returning its existing "
+            f"package URL without re-uploading. Start a new run to render again.",
+            file=sys.stderr,
+        )
+        return run_package_url(run_state.feature, run_id, base_url)
+
     # The narrative VERSION this run rendered — derived from the review URL the
     # narrative-agreement gate stamped on run_state. Lets canopy-web attach the
     # run to its exact story version.
