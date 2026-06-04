@@ -8,10 +8,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
 import yaml
 
-from scripts.ddd.schemas.models import Decision, Persona, ReviewRequest, Scene, UnifiedSpec
+from scripts.ddd.schemas.models import Persona, ReviewRequest, Scene, UnifiedSpec
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +78,12 @@ def _write_spec(tmp_path: Path, spec: UnifiedSpec) -> Path:
 # ---------------------------------------------------------------------------
 
 
-from scripts.ddd.narrative import apply_narrative_edits, build_narrative_review_request
+from scripts.ddd.narrative import (
+    apply_narrative_edits,
+    build_narrative_review_request,
+    is_narrative_locked,
+    set_narrative_lock,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1366,3 +1370,70 @@ class TestPersonasAndWhyBrief:
         assert reloaded["spine"][0]["rationale"] == "old rat"  # untouched
         assert reloaded["gaps"][0]["proposed_action"] == "new action"
         assert reloaded["gaps"][0]["detail"] == "old detail"  # untouched
+
+
+# ---------------------------------------------------------------------------
+# Narrative lock — approve makes the narrative durable input; redraft clears it
+# ---------------------------------------------------------------------------
+
+
+class TestNarrativeLock:
+    def _approve(self, decision="approve"):
+        return {"decisions": {"narrative-verdict": decision}, "edited_scenes": []}
+
+    def test_approve_locks_the_spec(self, tmp_path):
+        spec_path = _write_spec(tmp_path, _make_spec())
+        assert is_narrative_locked(spec_path) is False
+        result = apply_narrative_edits(str(spec_path), self._approve("approve"))
+        assert result["narrative_locked"] is True
+        reloaded = yaml.safe_load(spec_path.read_text())
+        assert reloaded["narrative_locked"] is True
+        assert reloaded.get("narrative_locked_at")  # timestamp stamped
+        assert is_narrative_locked(spec_path) is True
+
+    def test_redraft_clears_the_lock(self, tmp_path):
+        spec_path = _write_spec(tmp_path, _make_spec())
+        apply_narrative_edits(str(spec_path), self._approve("approve"))
+        assert is_narrative_locked(spec_path) is True
+        result = apply_narrative_edits(str(spec_path), self._approve("redraft"))
+        assert result["narrative_locked"] is False
+        assert is_narrative_locked(spec_path) is False
+        reloaded = yaml.safe_load(spec_path.read_text())
+        assert "narrative_locked_at" not in reloaded
+
+    def test_approve_persists_lock_even_with_no_edits_legacy_shape(self, tmp_path):
+        # Legacy shape (no edited_scenes, no narration_edits) must still write the lock.
+        spec_path = _write_spec(tmp_path, _make_spec())
+        result = apply_narrative_edits(
+            str(spec_path), {"decisions": {"narrative-verdict": "agree"}}
+        )
+        assert result["decision"] == "approve"  # 'agree' normalises to 'approve'
+        assert result["narrative_locked"] is True
+        assert is_narrative_locked(spec_path) is True
+
+    def test_lock_preserves_full_spec_scenes_verbatim(self, tmp_path):
+        # The whole spec (scenes incl. show/design_intent) survives a lock round-trip.
+        spec = _make_spec()
+        spec.scenes[0].design_intent = "A dense KPI strip with monospace numerals."
+        spec_path = _write_spec(tmp_path, spec)
+        apply_narrative_edits(str(spec_path), self._approve("approve"))
+        reloaded = UnifiedSpec.model_validate(yaml.safe_load(spec_path.read_text()))
+        assert reloaded.narrative_locked is True
+        assert reloaded.scenes[0].design_intent == "A dense KPI strip with monospace numerals."
+        assert reloaded.scenes[0].show == spec.scenes[0].show
+        assert [s.title for s in reloaded.scenes] == [s.title for s in spec.scenes]
+
+    def test_is_narrative_locked_missing_file(self, tmp_path):
+        assert is_narrative_locked(tmp_path / "nope.yaml") is False
+
+    def test_set_narrative_lock_explicit(self, tmp_path):
+        spec_path = _write_spec(tmp_path, _make_spec())
+        r1 = set_narrative_lock(spec_path, True)
+        assert r1 == {"narrative_locked": True, "changed": True}
+        assert is_narrative_locked(spec_path) is True
+        # idempotent: locking again is a no-op
+        r2 = set_narrative_lock(spec_path, True)
+        assert r2 == {"narrative_locked": True, "changed": False}
+        r3 = set_narrative_lock(spec_path, False)
+        assert r3 == {"narrative_locked": False, "changed": True}
+        assert is_narrative_locked(spec_path) is False
