@@ -9,6 +9,11 @@ bump — see `.claude/CLAUDE.md`). The project does not tag releases. Pre-histor
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.167] - 2026-06-04
+
+### Changed
+- **visual-judge / ddd-concept-eval: `artifact_kind` makes real product chrome grounding, not a deduction.** A new `context.artifact_kind` field distinguishes `product_walkthrough` (a frame of a real, shipping web app driven through a flow) from `standalone_deliverable` (a slide/figure, the default). In walkthrough mode the surrounding product chrome — nav, sidebar, breadcrumbs, account menu, the app's own buttons — is EXPECTED and grounds the demo as a real product, so it no longer fires the "internal app chrome → max 3" sanity floor and is not listed as a flaw. Test/placeholder DATA (raw primary-key slugs, `test-user`, `Untitled`, lorem) still caps in either mode. `ddd-concept-eval` now passes `artifact_kind: product_walkthrough` for every DDD scene. Motivated by walkthrough judges wrongly penalizing the real-website nav that is the whole point of a live-product demo.
+
 ## [Unreleased]
 
 ### Changed
