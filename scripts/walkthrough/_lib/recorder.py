@@ -190,20 +190,104 @@ def select_option(page: Page, target: str, value: str, *, config: RecorderConfig
     if rt is None:
         print(f"  ! select target not found: {target!r}")
         return False
+    # Render a synthetic dropdown so the VIEWER sees the options + which one is
+    # picked. Native OS select popups can't be screen-recorded, so without this
+    # the closed widget just silently flips value (the user can't tell a choice
+    # was made). The cursor then glides down onto the chosen option.
+    reveal_open = _reveal_select(page, rt, value, cfg)
     val = str(value)
     attempts: list[dict] = [{"value": val}]
     if val.lstrip("-").isdigit():
         attempts.append({"index": int(val)})
     attempts.append({"label": val})
+    ok = False
+    # ``.first`` keeps a multi-match target (e.g. one selector matching several
+    # rows' <select>s) from throwing strict-mode — commit to the first match,
+    # the same one the cursor glided to.
+    sel_loc = rt.locator.first
     for attempt in attempts:
         try:
-            rt.locator.select_option(**attempt, timeout=cfg.interaction_timeout_ms)
-            page.wait_for_timeout(cfg.post_select_settle_ms)
-            return True
+            sel_loc.select_option(**attempt, timeout=cfg.interaction_timeout_ms)
+            ok = True
+            break
         except Exception:
             continue
+    if reveal_open:
+        _close_select(page)
+    if ok:
+        page.wait_for_timeout(cfg.post_select_settle_ms)
+        return True
     print(f"  ! select_option failed: {target!r} value={value!r}")
     return False
+
+
+# Synthetic dropdown: build a styled options list over a native <select>, glide
+# the cursor onto the chosen option, hold, then let the caller commit + close.
+_SELECT_REVEAL_JS = r"""
+(sel, value) => {
+  try {
+    if (!sel || sel.tagName !== 'SELECT') return null;
+    const r = sel.getBoundingClientRect();
+    const opts = Array.from(sel.options).map((o) => ({ value: o.value, text: (o.textContent || '').trim() }));
+    if (!opts.length) return null;
+    let ci = opts.findIndex((o) => o.value === String(value));
+    if (ci < 0 && /^-?\d+$/.test(String(value))) ci = parseInt(value, 10);
+    if (ci < 0) ci = opts.findIndex((o) => o.text === String(value));
+    if (ci < 0) ci = sel.selectedIndex < 0 ? 0 : sel.selectedIndex;
+    const W = Math.max(r.width, 180);
+    const wrap = document.createElement('div');
+    wrap.setAttribute('data-wt-select', '1');
+    wrap.style.cssText = 'position:fixed;left:' + Math.round(r.left) + 'px;top:' + Math.round(r.bottom + 4)
+      + 'px;width:' + Math.round(W) + 'px;z-index:2147483646;background:#fff;border:1px solid #d1d5db;'
+      + 'border-radius:8px;box-shadow:0 12px 28px rgba(0,0,0,.20);overflow:hidden;'
+      + "font:13px -apple-system,'Segoe UI',Roboto,sans-serif;color:#111827";
+    opts.forEach((o, i) => {
+      const on = i === ci;
+      const row = document.createElement('div');
+      row.style.cssText = 'padding:8px 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
+        + (i ? 'border-top:1px solid #f3f4f6;' : '') + (on ? 'background:#eff6ff;color:#1d4ed8;font-weight:600;' : '');
+      row.textContent = (on ? '✓ ' : '   ') + o.text;
+      wrap.appendChild(row);
+    });
+    document.body.appendChild(wrap);
+    const rows = wrap.children;
+    let mid = { x: Math.round(r.left + W / 2), y: Math.round(r.bottom + 18) };
+    if (rows[ci]) {
+      const rr = rows[ci].getBoundingClientRect();
+      mid = { x: Math.round(rr.left + Math.min(rr.width / 2, 90)), y: Math.round(rr.top + rr.height / 2) };
+    }
+    return mid;
+  } catch (e) { return null; }
+}
+"""
+
+
+def _reveal_select(page: Page, rt, value, cfg: RecorderConfig) -> bool:
+    """Open a synthetic dropdown over the native ``<select>`` and glide the
+    cursor onto the chosen option. Returns True if the overlay was shown (so
+    the caller knows to close it after committing). Best-effort — never blocks
+    the actual selection."""
+    if not getattr(cfg, "select_reveal", True):
+        return False
+    try:
+        mid = rt.locator.first.evaluate(_SELECT_REVEAL_JS, str(value))
+    except Exception:
+        return False
+    if not mid:
+        return False
+    try:
+        slow_move(page, float(mid["x"]), float(mid["y"]), steps=cfg.cursor_steps)
+        page.wait_for_timeout(int(getattr(cfg, "select_reveal_dwell_ms", 700)))
+    except Exception:
+        pass
+    return True
+
+
+def _close_select(page: Page) -> None:
+    try:
+        page.evaluate("() => document.querySelectorAll('[data-wt-select]').forEach((e) => e.remove())")
+    except Exception:
+        pass
 
 
 def hover(page: Page, target: str, *, seconds: float | None = None, config: RecorderConfig | None = None) -> bool:
