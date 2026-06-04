@@ -439,6 +439,32 @@ class TestUploadRun:
         assert "video" in kinds
         assert "html" in kinds
 
+    def test_already_uploaded_is_noop(self, tmp_run, monkeypatch):
+        """An uploaded run is immutable — re-calling upload_run returns the
+        existing package URL without re-uploading or re-running the gate."""
+        monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
+        from scripts.ddd.runstate import load, save
+
+        state = load(tmp_run["run_id"])
+        state.phase = "uploaded"
+        save(state)
+
+        upload_calls: list[dict] = []
+        uploader = self._make_uploader(upload_calls)
+        gate = self._make_gate("publish")
+
+        url = upload_run(
+            tmp_run["run_id"],
+            video_path=tmp_run["video_path"],
+            base_url="https://canopy.test",
+            _upload=uploader,
+            _gate=gate,
+        )
+
+        assert url == "https://canopy.test/ddd/smart-routing/smart-routing-2026-01-01-001"
+        assert upload_calls == [], "must not re-upload an already-uploaded run"
+        assert gate.calls == [], "must not re-run the gate for an uploaded run"
+
     def test_publish_sets_phase_uploaded(self, tmp_run, monkeypatch):
         monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
         upload_calls: list[dict] = []
@@ -539,7 +565,15 @@ class TestUploadRun:
 
         # The HTML content (bytes) should contain the video URL
         # upload content_len > 0 is checked; to check URL we need to capture bytes
-        # Re-run with a more detailed mock to capture the HTML bytes
+        # Re-run with a more detailed mock to capture the HTML bytes. The first
+        # call flipped phase→uploaded (now immutable), so reset it for this
+        # capture re-run, which is a test mechanism, not real re-upload.
+        from scripts.ddd.runstate import load, save
+
+        st = load(tmp_run["run_id"])
+        st.phase = "converged"
+        save(st)
+
         html_bytes_store: list[bytes] = []
 
         def capturing_upload(
