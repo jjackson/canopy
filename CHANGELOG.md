@@ -1,10 +1,5 @@
 # Changelog
 
-## 0.2.171
-
-- ddd: lock the narrative on approve — an approved UnifiedSpec is durable input; ddd-spec/orchestrator skip regeneration, so you can re-iterate render→judge→converge→upload without rewriting the story (redraft clears the lock). (#137)
-
-
 All notable changes to canopy are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
@@ -13,6 +8,11 @@ which are kept in lockstep (every change under `plugins/canopy/` requires a patc
 bump — see `.claude/CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
+
+## [0.2.171] - 2026-06-04
+
+### Added
+- **ddd: lock the narrative on approve — an approved narrative is durable input, not regenerable text.** `UnifiedSpec` gains `narrative_locked` (+ `narrative_locked_at`), stored in the spec file so it travels with the narrative artifact (the whole spec: narrative paragraph + every scene's narrative/show/design_intent/features/actions). The narrative-agreement gate sets the lock on `approve` and clears it on `redraft`; `ddd-spec` and the orchestrator skip regeneration when locked. So you approve the story once, then re-iterate render→judge→converge→upload as many times as you like without ever rewriting it — `redraft` is the single explicit door back to authoring. New CLI: `python -m scripts.ddd.narrative locked|lock|unlock <spec>`. (#137)
 
 ## [0.2.169] - 2026-06-04
 
