@@ -442,6 +442,83 @@ def brief(model, budget):
     ))
 
 
+@main.group("shareout")
+def shareout_group():
+    """Team work-briefing commands — gather a date range and post to canopy-web."""
+
+
+@shareout_group.command("gather")
+@click.option("--from", "from_date", default=None, help="Start date YYYY-MM-DD")
+@click.option("--to", "to_date", default=None, help="End date YYYY-MM-DD")
+@click.option("--days", default=None, type=int, help="Last N full days ending yesterday")
+@click.option("--project", default=None,
+              help="Filter to sessions whose resolved repo ends with /<name>")
+@click.option("--author", default="@me", help="GitHub PR author (default: @me)")
+@click.option("--json-out", "json_out", default=None,
+              help="Write corpus JSON to this path instead of stdout")
+def shareout_gather(from_date, to_date, days, project, author, json_out):
+    """Gather sessions + the author's PRs per project for a date range."""
+    import json as json_mod
+
+    from orchestrator import shareout as shareout_mod
+    from orchestrator.repo_map import load_repo_map
+    from orchestrator.labels import load_labels
+
+    projects_dir = Path.home() / ".claude" / "projects"
+    state_dir = ensure_canopy_dir()
+    repo_map = load_repo_map(state_dir / "repo-map.json")
+    labels = load_labels(state_dir / "labels.yaml")
+
+    start, end = shareout_mod.resolve_range(from_date, to_date, days)
+    corpus = shareout_mod.gather(
+        projects_dir=projects_dir,
+        repo_map=repo_map,
+        labels=labels,
+        start=start,
+        end=end,
+        author=author,
+        project_filter=project,
+    )
+    out = json_mod.dumps(corpus, indent=2, default=str)
+    if json_out:
+        Path(json_out).write_text(out)
+        click.echo(f"Wrote corpus for {start}..{end} "
+                   f"({len(corpus['projects'])} projects) to {json_out}")
+    else:
+        click.echo(out)
+
+
+@shareout_group.command("post")
+@click.argument("authoring_json", type=click.Path(exists=True))
+@click.option("--api-url", default=None,
+              help="canopy-web base URL (default: $CANOPY_WEB_API_URL or prod)")
+def shareout_post(authoring_json, api_url):
+    """Post an authored briefings doc to the canopy-web /shareouts feed."""
+    import datetime as dt
+    import json as json_mod
+    import os
+
+    from orchestrator import shareout as shareout_mod
+
+    api = api_url or os.environ.get("CANOPY_WEB_API_URL", shareout_mod.DEFAULT_API)
+    token = shareout_mod.resolve_pat()
+    if not token:
+        raise click.ClickException(
+            "no canopy-web PAT — run /canopy:canopy-web-pat-mint or set CANOPY_WEB_PAT"
+        )
+
+    authoring = json_mod.loads(Path(authoring_json).read_text())
+    source = f"canopy:shareout@{dt.datetime.now(dt.timezone.utc).isoformat()}"
+    payload = shareout_mod.build_post_payload(authoring, source=source)
+
+    status, body = shareout_mod.post(payload, api, token)
+    if status not in (200, 201):
+        raise click.ClickException(f"post failed ({status}): {body}")
+    click.echo(f"Posted {body.get('created', 0)} briefing(s) "
+               f"(replaced {body.get('replaced', 0)}, skipped {body.get('skipped', 0)}).")
+    click.echo(f"View: {shareout_mod.feed_url(api)}")
+
+
 @main.group("test-audit")
 def test_audit():
     """Test-audit tools: build a corpus for the agent to judge, then apply verdicts."""
