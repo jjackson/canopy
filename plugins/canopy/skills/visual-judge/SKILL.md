@@ -134,12 +134,20 @@ decision surface flaws a detached reviewer waves through.
   working product and not a mockup or a slide. **Do NOT deduct for product
   chrome, and do NOT cap any dimension because "it looks like a tool
   screenshot" — it IS the tool, on purpose.** What you still penalize here is
-  *fake or broken* content inside that real frame: placeholder/test DATA
-  (`test-user`, `ACE-IT-1777407074899-renamed`, `Untitled`, lorem, a raw
-  primary-key slug where a human name belongs), inconsistent/misformatted
-  numbers, a self-contradicting verdict, illegible charts, an empty state
-  dominating the frame. The bar is "is this a polished, coherent, honest
-  view *of a real product*", not "is this a chrome-free standalone graphic."
+  *fake or broken* content inside that real frame: **fixture/placeholder DATA
+  that signals an unfinished build** (`test-user`, `Untitled`, lorem, a
+  duplicate title, a placeholder avatar), inconsistent/misformatted numbers, a
+  self-contradicting verdict, illegible charts, an empty state dominating the
+  frame. **But distinguish placeholder data from real-but-ugly PRODUCTION
+  data:** a real record's real system-assigned identifier — even an ugly
+  auto-generated slug — is what the live product genuinely shows, so under
+  `product_walkthrough` it is GROUNDING like the chrome, not a flaw. Penalize a
+  slug only when it reads as a *fixture* (`test-user`, `Untitled`), not when it
+  is the real (if ugly) name of a real entity in the running system. When you
+  can't tell, treat it as real production data and do not deduct — penalizing
+  the product for being real is the failure mode this mode exists to prevent.
+  The bar is "is this a polished, coherent, honest view *of a real product*",
+  not "is this a chrome-free standalone graphic."
 
 - **`standalone_deliverable`** (default) — the artifact is meant to stand on
   its own when forwarded: a slide, an exported figure, a report page. Here
@@ -203,10 +211,15 @@ don't count — if you can't point at it, you didn't find it.
    footer/panels) — a region with "nothing wrong" almost always means
    you skimmed it. Rank them by how embarrassing they'd be on Send.
    **Fewer than eight means you didn't look** — go back. Things to hunt:
-   - **Test/placeholder DATA** (`Untitled`, duplicate titles, `test-user`,
-     placeholder avatars, lorem text, a raw primary-key slug like
-     `ACE-IT-1777407074899-renamed` where a human name belongs) — these are
-     ALWAYS flaws, in any `artifact_kind`.
+   - **Fixture/placeholder DATA that signals an unfinished build** (`Untitled`,
+     duplicate titles, `test-user`, placeholder avatars, lorem text) — these
+     are flaws in any `artifact_kind`. **But do NOT conflate this with
+     real-but-ugly PRODUCTION data:** a real entity's real system-assigned name
+     — even an ugly auto-generated slug — is what the live product actually
+     shows. Under `product_walkthrough` that is grounding, not a flaw (you'd be
+     penalizing the product for being real). Flag a slug only when it reads as a
+     fixture, not when it is the genuine name of a real record in the running
+     system; when unsure, treat it as real and don't deduct.
    - **Internal app chrome** (nav bars, breadcrumbs, "Select context",
      account menus, edit/admin affordances). **Conditional on
      `artifact_kind`:** for a `standalone_deliverable` this is a leak — list
