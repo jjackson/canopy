@@ -270,6 +270,31 @@ test -f "docs/walkthroughs/<feature>.yaml" && \
 
 Output: `docs/walkthroughs/<feature>.yaml`
 
+**Narrative-presence guard (lock-safe — prevents "no narrative" uploads):**
+A `locked` narrative skips `ddd-spec`, but the lock lives in the *spec file*,
+not on canopy-web — so a NEW run, or a run whose `feature` slug was **renamed**
+since the narrative was first posted (e.g. `did-monitoring` → `verified-monitoring`),
+can reach render/upload with no narrative version on the server under its current
+slug. That is exactly what makes a published package show as **"no narrative"**.
+After the lock check, verify the run's narrative is registered:
+
+```bash
+(cd "$DDD_REPO" && uv run python -m scripts.ddd.narrative status "<run_id>")
+```
+
+If it **exits non-zero** (`ok: false` — no stamp and no narrative on canopy-web
+for the run's `feature`):
+- **Locked narrative** → the human already approved this story; re-register it
+  under the current slug WITHOUT re-gating by posting it:
+  `(cd "$DDD_REPO" && uv run python -m scripts.ddd.narrative post "$REPO_ROOT/docs/walkthroughs/<feature>.yaml" "<run_id>")`
+  (this stamps `run_state.narrative_review_id` and files the review under the
+  run's explicit `feature`). Then re-run `status` to confirm `ok: true`.
+- **Unlocked / no approval yet** → do NOT auto-post; run the full Step 6c
+  narrative-agreement gate so the human approves the (possibly renamed) story.
+
+Never proceed to upload while `status` reports `ok: false` — `ddd-upload` will
+refuse it anyway (`NarrativeMissingError`), so resolve it here.
+
 **Step 6 — Spec QA (gate):**
 Invoke `ddd-spec-qa` with `spec_path` = `docs/walkthroughs/<feature>.yaml`.
 

@@ -35,12 +35,11 @@ every upload, and assembles them into a run package:
 
 - **video** ← the hero video upload (`role=hero_video`)
 - **deck** ← the docs HTML page this skill builds (`role=docs`)
-- **narrative** ← the `ReviewRequest` posted under the **same `run_id`** by the
-  earlier `ddd-narrative-review` gate. For the narrative to appear in the
-  package, that gate must have run for this run_id (the orchestrator's normal
-  flow ensures it). If you uploaded a run that never went through narrative
-  review, the package's narrative slot will be empty — re-run the narrative gate
-  for that run_id to populate it.
+- **narrative** ← the `ReviewRequest` posted by the earlier
+  `ddd-narrative-review` gate, which stamps `run_state.narrative_review_id`.
+  The upload **refuses to publish** a run that has no narrative (see Step 0.5),
+  so the package's narrative slot is never empty — a run reaches publish only
+  after its narrative gate has run.
 - **links** ← companion links unioned across the run's artifacts.
 
 The package + previous-runs navigation live at `/ddd/<feature>` (narrative
@@ -95,6 +94,31 @@ Do NOT attempt to assemble a docs page from a partial run, even if the
 filtered scope converged — the "What you can do" section is built per
 scene, and a partial run would publish a docs page missing capabilities
 the spec promises.
+
+### Step 0.5 — Pre-flight: refuse runs with no narrative
+
+A run must have a narrative before it can be published — otherwise the package
+renders as **"no narrative"** in canopy-web. Check it deterministically:
+
+```bash
+(cd "$DDD_REPO" && uv run python -m scripts.ddd.narrative status "<run_id>")
+```
+
+This prints a status JSON and **exits non-zero when the run has no narrative**
+(neither a stamped `narrative_review_id` nor a narrative version on canopy-web
+for the run's `feature`). If it exits non-zero, STOP and tell the user:
+
+> "Run `<run_id>` has no narrative on canopy-web (its `feature` is
+> `<feature>`). Publishing would show as 'no narrative'. Run
+> `/canopy:ddd-narrative-review <run_id>` first — that posts and locks the
+> narrative and stamps the run — then re-run the upload. This usually means the
+> feature slug was renamed mid-flow and the narrative was posted under the old
+> slug."
+
+This is belt-and-suspenders: the upload script (`scripts.ddd.upload`) enforces
+the same guard and raises `NarrativeMissingError` rather than publish a
+narrative-less run. The escape hatch `DDD_ALLOW_NO_NARRATIVE=1` exists for
+emergencies only — do not set it to work around a genuinely missing narrative.
 
 ### Step 1 — Run the upload script
 

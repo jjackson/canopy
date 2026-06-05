@@ -68,19 +68,18 @@ SPEC_ABS="$(realpath <spec_path>)"
 ```
 
 This returns JSON: `{"id": "<review_id>", "url": "<review_url>", "share_token": "<token>"}`.
-Capture the `url`.
+Capture the `url` to present to the user.
 
-Stamp the review URL onto `run_state.yaml` so `ddd-run`'s upload step can pass
-it as the video's `narrative` companion link (the "Back to the narrative" link
-on the `/w/<id>` viewer). Prefer the token-bearing URL so a non-owner viewer
-can open it:
-
-```python
-from scripts.ddd.runstate import load, save
-state = load("<run_id>")
-state.narrative_review_url = "<review_url>?t=<token>"  # or the server's `url` if already tokenized
-save(state)
-```
+**`post` stamps `run_state.yaml` for you — do NOT stamp it by hand.** The
+command writes both `narrative_review_id` (the raw review UUID) and a
+token-bearing `narrative_review_url` onto the run, and sends the run's explicit
+`feature` slug with the review so it files under the right narrative even if the
+slug was renamed. Those stamps are what `ddd-upload` reads to (a) attach this
+run's artifacts to the exact narrative version and (b) prove a narrative review
+ran — without them, upload refuses to publish (the run would show as "no
+narrative"). If `post` prints a `WARNING` that it could not find `run_state`,
+the run dir is missing or the `run_id` is wrong — fix that and re-run, do not
+proceed.
 
 ### Step 3 — Present the URL + inline storyboard
 

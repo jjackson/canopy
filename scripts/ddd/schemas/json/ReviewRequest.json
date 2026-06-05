@@ -118,6 +118,11 @@
       "title": "Run Id",
       "type": "string"
     },
+    "feature": {
+      "default": "",
+      "title": "Feature",
+      "type": "string"
+    },
     "gate": {
       "title": "Gate",
       "type": "string"

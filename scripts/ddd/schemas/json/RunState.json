@@ -175,6 +175,18 @@
       ],
       "default": null,
       "title": "Narrative Review Url"
+    },
+    "narrative_review_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Narrative Review Id"
     }
   },
   "required": [

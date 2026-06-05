@@ -122,6 +122,56 @@ def get_review(
     return _json_request("GET", f"{api}/api/reviews/{review_id}/", tok)
 
 
+def get_narrative(
+    slug: str,
+    *,
+    base_url: str | None = None,
+    token: str | None = None,
+) -> dict | None:
+    """GET ``/api/ddd/narratives/<slug>/`` — the narrative's versions + runs.
+
+    Returns the narrative-detail dict, or ``None`` if no narrative exists for
+    ``slug`` (HTTP 404). Any other HTTP error propagates.
+    """
+    import urllib.parse
+
+    api = _resolve_base_url(base_url)
+    tok = _resolve_token(token)
+    quoted = urllib.parse.quote(slug, safe="")
+    try:
+        return _json_request("GET", f"{api}/api/ddd/narratives/{quoted}/", tok)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        raise
+
+
+def narrative_version_exists(
+    slug: str,
+    *,
+    base_url: str | None = None,
+    token: str | None = None,
+) -> bool:
+    """Return True iff canopy-web has at least one *narrative version* for ``slug``.
+
+    A narrative version is a story-bearing ``concept_change`` review — i.e. the
+    ``ddd-narrative-review`` gate ran for this narrative. canopy-web surfaces it
+    as a non-null ``current_version`` on the narrative detail. When this is
+    False, a run under ``slug`` would render as **"no narrative"** in the UI, so
+    ``ddd-upload`` refuses to publish it.
+    """
+    detail = get_narrative(slug, base_url=base_url, token=token)
+    if not detail:
+        return False
+    if detail.get("current_version"):
+        return True
+    # Defensive: a version row carrying a real version number also counts, even
+    # if current_version resolution lagged.
+    return any(
+        (v or {}).get("version") is not None for v in (detail.get("versions") or [])
+    )
+
+
 def await_resolution(
     review_id: str,
     *,

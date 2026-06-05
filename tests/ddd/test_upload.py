@@ -349,7 +349,16 @@ def _write_run_fixtures(tmp_ddd: Path, run_id: str):
     # run_state.yaml
     # feature is a slug in real use (matches the run_id prefix); the package URL
     # is built from it, so keep it URL-safe here.
-    state = RunState(run_id=run_id, feature="smart-routing", phase="converged")
+    # A converged run that went through the narrative-agreement gate carries a
+    # stamped narrative_review_id — that's what lets the upload guard pass
+    # without a network check. Tests that exercise the guard's unstamped paths
+    # clear this explicitly.
+    state = RunState(
+        run_id=run_id,
+        feature="smart-routing",
+        phase="converged",
+        narrative_review_id="11111111-1111-1111-1111-111111111111",
+    )
     (run_dir / "run_state.yaml").write_text(
         yaml.dump(state.model_dump(), default_flow_style=False, allow_unicode=True)
     )
@@ -400,6 +409,7 @@ class TestUploadRun:
             calls_store.append({
                 "kind": kind, "title": title, "content_len": len(content), "url": url,
                 "run_id": run_id, "feature": feature, "role": role,
+                "narrative_review_id": narrative_review_id,
             })
             return url
 
@@ -637,6 +647,111 @@ class TestUploadRun:
         )
 
         assert gate.calls[0]["run_id"] == tmp_run["run_id"]
+
+    # ------------------------------------------------------------------
+    # Narrative guard — refuse to publish a run that has no narrative.
+    # ------------------------------------------------------------------
+    def _clear_narrative_stamp(self, run_id):
+        from scripts.ddd.runstate import load, save
+
+        st = load(run_id)
+        st.narrative_review_id = None
+        st.narrative_review_url = None
+        save(st)
+
+    def test_refuses_when_unstamped_and_no_server_narrative(self, tmp_run, monkeypatch):
+        """The core guard: an unstamped run whose feature has no narrative on
+        canopy-web must NOT publish — it would render as 'no narrative'."""
+        from scripts.ddd.upload import NarrativeMissingError
+
+        monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
+        monkeypatch.delenv("DDD_ALLOW_NO_NARRATIVE", raising=False)
+        self._clear_narrative_stamp(tmp_run["run_id"])
+
+        upload_calls: list[dict] = []
+        uploader = self._make_uploader(upload_calls)
+        gate = self._make_gate("publish")
+
+        with pytest.raises(NarrativeMissingError):
+            upload_run(
+                tmp_run["run_id"],
+                video_path=tmp_run["video_path"],
+                base_url="https://canopy.test",
+                _upload=uploader,
+                _gate=gate,
+                _narrative_check=lambda *a, **k: False,
+            )
+
+        assert upload_calls == [], "must not upload anything when refusing"
+        assert gate.calls == [], "must refuse before the external_release gate"
+
+        # Phase must stay converged — a refused upload is not an upload.
+        import scripts.ddd.runstate as rs
+        assert rs.load(tmp_run["run_id"]).phase == "converged"
+
+    def test_allows_when_unstamped_but_server_has_narrative(self, tmp_run, monkeypatch):
+        """An unstamped run still publishes if canopy-web already has a
+        narrative version for its feature (e.g. a legacy run, stamp lost)."""
+        monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
+        self._clear_narrative_stamp(tmp_run["run_id"])
+
+        upload_calls: list[dict] = []
+        url = upload_run(
+            tmp_run["run_id"],
+            video_path=tmp_run["video_path"],
+            base_url="https://canopy.test",
+            _upload=self._make_uploader(upload_calls),
+            _gate=self._make_gate("publish"),
+            _narrative_check=lambda *a, **k: True,
+        )
+
+        assert url.endswith(f"/ddd/smart-routing/{tmp_run['run_id']}")
+        assert any(c["kind"] == "html" for c in upload_calls)
+
+    def test_stamped_run_skips_server_check(self, tmp_run, monkeypatch):
+        """A stamped narrative_review_id is sufficient proof — the network check
+        must not run, and the stamp flows through to the uploaded artifacts."""
+        monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
+
+        def boom(*a, **k):
+            raise AssertionError("narrative_check must not run when stamped")
+
+        upload_calls: list[dict] = []
+        url = upload_run(
+            tmp_run["run_id"],
+            video_path=tmp_run["video_path"],
+            base_url="https://canopy.test",
+            _upload=self._make_uploader(upload_calls),
+            _gate=self._make_gate("publish"),
+            _narrative_check=boom,
+        )
+
+        assert url
+        stamp = "11111111-1111-1111-1111-111111111111"
+        assert upload_calls and all(
+            c["narrative_review_id"] == stamp for c in upload_calls
+        ), "the stamped review id must be sent on every artifact"
+
+    def test_env_override_bypasses_guard(self, tmp_run, monkeypatch):
+        """DDD_ALLOW_NO_NARRATIVE=1 is the emergency escape hatch — it skips the
+        check entirely (not even called) and publishes."""
+        monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
+        monkeypatch.setenv("DDD_ALLOW_NO_NARRATIVE", "1")
+        self._clear_narrative_stamp(tmp_run["run_id"])
+
+        def boom(*a, **k):
+            raise AssertionError("override must skip the check entirely")
+
+        upload_calls: list[dict] = []
+        url = upload_run(
+            tmp_run["run_id"],
+            video_path=tmp_run["video_path"],
+            base_url="https://canopy.test",
+            _upload=self._make_uploader(upload_calls),
+            _gate=self._make_gate("publish"),
+            _narrative_check=boom,
+        )
+        assert url
 
 
 class TestReviewIdFromUrl:
