@@ -290,5 +290,39 @@ class TestFillAllPrsFromCorpus:
         assert payload["shareouts"][0]["all_prs"][0]["number"] == 685
 
 
+class TestPrInWindow:
+    def _pr(self, created=None, merged=None):
+        return {"createdAt": created, "mergedAt": merged}
+
+    def test_merged_in_window(self):
+        pr = self._pr(created="2026-06-01T00:00:00Z", merged="2026-06-04T12:00:00Z")
+        assert shareout._pr_in_window(pr, _dt(2026, 6, 4), _dt(2026, 6, 5))
+
+    def test_merged_before_window_excluded(self):
+        # merged on the prior day — must NOT show in this window even though it
+        # was created earlier and would match a coarse date filter
+        pr = self._pr(created="2026-06-01T00:00:00Z", merged="2026-06-03T14:00:00Z")
+        assert not shareout._pr_in_window(pr, _dt(2026, 6, 3, 23, 59, 59), NOW)
+
+    def test_unmerged_anchors_on_created(self):
+        pr = self._pr(created="2026-06-04T09:00:00Z", merged=None)
+        assert shareout._pr_in_window(pr, _dt(2026, 6, 4), _dt(2026, 6, 5))
+        pr_old = self._pr(created="2026-06-02T09:00:00Z", merged=None)
+        assert not shareout._pr_in_window(pr_old, _dt(2026, 6, 4), _dt(2026, 6, 5))
+
+    def test_boundary_belongs_to_previous_window(self):
+        # a PR merged exactly at the shared boundary is in the prior window
+        # (..end], not this one ((start..) — no double-count across chained runs
+        boundary = _dt(2026, 6, 3, 23, 59, 59)
+        pr = self._pr(merged="2026-06-03T23:59:59Z")
+        assert shareout._pr_in_window(pr, _dt(2026, 6, 3), boundary)          # prior: ..end]
+        assert not shareout._pr_in_window(pr, boundary, NOW)                  # next: (start..
+
+    def test_updated_does_not_resurface(self):
+        # old merged PR with no mergedAt change still anchors on merge time
+        pr = self._pr(created="2026-05-30T00:00:00Z", merged="2026-05-31T00:00:00Z")
+        assert not shareout._pr_in_window(pr, _dt(2026, 6, 4), NOW)
+
+
 def test_feed_url():
     assert shareout.feed_url("https://x.app/") == "https://x.app/shareouts"
