@@ -1515,3 +1515,131 @@ class TestStampRunState:
         # No run_state on disk — must warn, not crash (the post already succeeded).
         _stamp_run_state("ghost-2026-01-01-001", {"id": "r", "url": "https://c/review/r/"})
         assert "WARNING" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Narrative sync (hydrate web → disk) — pull decision + merge
+# ---------------------------------------------------------------------------
+
+class TestNarrativeSync:
+    def test_content_hash_ignores_render_recipe(self):
+        """Editing the disk-only recipe (show/actions/url) must NOT change the
+        narrative hash — only narrative fields count."""
+        from scripts.ddd.narrative import narrative_content_hash
+
+        base = {
+            "name": "f", "narrative": "story", "personas": {"a": {"name": "A"}},
+            "build_order": ["s1"],
+            "scenes": [{"title": "S1", "persona": "a", "provenance": "S1",
+                        "concept_claim": "claim", "features": [], "show": "click x"}],
+        }
+        recipe_edit = {**base, "scenes": [{**base["scenes"][0], "show": "click DIFFERENT",
+                                           "actions": [{"goto": "/x"}], "url": "/y"}]}
+        assert narrative_content_hash(base) == narrative_content_hash(recipe_edit)
+        narrative_edit = {**base, "scenes": [{**base["scenes"][0], "concept_claim": "NEW claim"}]}
+        assert narrative_content_hash(base) != narrative_content_hash(narrative_edit)
+
+    def test_decide_no_web(self):
+        from scripts.ddd.narrative import decide_narrative_sync
+        a, _ = decide_narrative_sync(local_present=True, local_changed=False,
+                                     local_synced_version=1, web_version=None)
+        assert a == "no_web"
+
+    def test_decide_no_local_pulls(self):
+        from scripts.ddd.narrative import decide_narrative_sync
+        a, _ = decide_narrative_sync(local_present=False, local_changed=False,
+                                     local_synced_version=None, web_version=2)
+        assert a == "pull"
+
+    def test_decide_in_sync_noop(self):
+        from scripts.ddd.narrative import decide_narrative_sync
+        a, _ = decide_narrative_sync(local_present=True, local_changed=False,
+                                     local_synced_version=3, web_version=3)
+        assert a == "noop"
+
+    def test_decide_web_advanced_clean_pulls(self):
+        from scripts.ddd.narrative import decide_narrative_sync
+        a, _ = decide_narrative_sync(local_present=True, local_changed=False,
+                                     local_synced_version=2, web_version=4)
+        assert a == "pull"
+
+    def test_decide_local_newer_refuses_with_push_advice(self):
+        """The user's rule: local edited but web NOT advanced → refuse, push."""
+        from scripts.ddd.narrative import decide_narrative_sync
+        a, reason = decide_narrative_sync(local_present=True, local_changed=True,
+                                          local_synced_version=3, web_version=3)
+        assert a == "refuse_local_newer"
+        assert "push" in reason.lower()
+
+    def test_decide_both_diverged_conflict(self):
+        from scripts.ddd.narrative import decide_narrative_sync
+        a, _ = decide_narrative_sync(local_present=True, local_changed=True,
+                                     local_synced_version=2, web_version=5)
+        assert a == "refuse_conflict"
+
+    def test_decide_unsynced_local_with_content_refuses(self):
+        from scripts.ddd.narrative import decide_narrative_sync
+        a, _ = decide_narrative_sync(local_present=True, local_changed=True,
+                                     local_synced_version=None, web_version=1)
+        assert a == "refuse_local_newer"
+
+    def test_reconstruct_why_brief_maps_legacy_feature(self):
+        from scripts.ddd.narrative import reconstruct_why_brief
+        wb = reconstruct_why_brief({"why_brief": {"feature": "verified-monitoring",
+                                                  "problem": "p", "spine": [], "gaps": []}})
+        assert wb["narrative_slug"] == "verified-monitoring"
+        assert "feature" not in wb
+
+    def test_web_parts_maps_narration_text_to_concept_claim(self):
+        from scripts.ddd.narrative import web_narrative_to_spec_parts
+        rj = {
+            "narrative_slug": "vm", "narrative": "overview",
+            "personas": {"a": {"name": "A"}}, "build_order": ["s1"],
+            "narration": [{"title": "Scene One", "persona": "a", "provenance": "S1",
+                           "text": "the claim", "features": [{"id": "f1"}]}],
+        }
+        parts = web_narrative_to_spec_parts(rj)
+        assert parts["name"] == "vm"
+        assert parts["narrative"] == "overview"
+        assert parts["scenes"][0]["concept_claim"] == "the claim"
+        assert parts["scenes"][0]["features"] == [{"id": "f1"}]
+
+    def test_merge_preserves_local_recipe_on_matched_scene(self):
+        from scripts.ddd.narrative import merge_narrative_into_spec
+        local = {
+            "name": "vm", "narrative": "old overview", "base_url": "https://x",
+            "auth": {"k": "v"}, "personas": {"a": {"name": "A"}},
+            "build_order": ["s1"],
+            "scenes": [{"title": "Scene One", "persona": "a", "provenance": "S1",
+                        "concept_claim": "old", "features": [],
+                        "show": "click the thing", "actions": [{"goto": "/a"}], "url": "/a"}],
+        }
+        parts = {
+            "name": "vm", "narrative": "NEW overview", "personas": {"a": {"name": "A"}},
+            "build_order": ["s1"],
+            "scenes": [{"title": "Scene One", "persona": "a", "provenance": "S1",
+                        "concept_claim": "NEW claim", "features": []}],
+        }
+        merged = merge_narrative_into_spec(local, parts)
+        s = merged["scenes"][0]
+        # narrative fields updated from web
+        assert merged["narrative"] == "NEW overview"
+        assert s["concept_claim"] == "NEW claim"
+        # render recipe preserved from local
+        assert s["show"] == "click the thing"
+        assert s["actions"] == [{"goto": "/a"}]
+        assert s["url"] == "/a"
+        assert merged["base_url"] == "https://x"
+        assert merged["auth"] == {"k": "v"}
+
+    def test_merge_fresh_spec_when_no_local(self):
+        from scripts.ddd.narrative import merge_narrative_into_spec
+        parts = {
+            "name": "vm", "narrative": "overview", "personas": {"a": {"name": "A"}},
+            "build_order": [],
+            "scenes": [{"title": "S1", "persona": "a", "provenance": "S1",
+                        "concept_claim": "c", "features": []}],
+        }
+        spec = merge_narrative_into_spec(None, parts)
+        assert spec["name"] == "vm"
+        assert spec["scenes"][0]["show"] == ""  # recipe left for authoring
