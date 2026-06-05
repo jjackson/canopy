@@ -108,8 +108,8 @@
       "title": "Schema Version",
       "type": "integer"
     },
-    "feature": {
-      "title": "Feature",
+    "narrative_slug": {
+      "title": "Narrative Slug",
       "type": "string"
     },
     "problem": {
@@ -132,7 +132,7 @@
     }
   },
   "required": [
-    "feature",
+    "narrative_slug",
     "problem",
     "spine",
     "gaps"

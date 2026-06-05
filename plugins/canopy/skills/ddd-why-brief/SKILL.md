@@ -87,7 +87,7 @@ Write the draft to `<run_dir>/why_brief.yaml`.  The schema is:
 
 ```yaml
 schema_version: 1
-feature: <feature_name>
+narrative_slug: <feature_name>
 problem: <problem statement>
 spine:
   - id: S1

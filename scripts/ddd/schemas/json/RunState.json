@@ -9,8 +9,8 @@
       "title": "Run Id",
       "type": "string"
     },
-    "feature": {
-      "title": "Feature",
+    "narrative_slug": {
+      "title": "Narrative Slug",
       "type": "string"
     },
     "phase": {
@@ -191,7 +191,7 @@
   },
   "required": [
     "run_id",
-    "feature"
+    "narrative_slug"
   ],
   "title": "RunState",
   "type": "object"

@@ -84,7 +84,7 @@ rule-based check passes.
 
 ## Inputs
 
-- `spec_path` — path to the unified spec YAML (e.g. `docs/walkthroughs/<feature>.yaml`).
+- `spec_path` — path to the unified spec YAML (e.g. `docs/walkthroughs/<narrative-slug>.yaml`).
 
 ## Procedure
 

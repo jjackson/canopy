@@ -45,7 +45,7 @@ tell?"*  That is the defect this gate fixes.
 ## Inputs
 
 - **`spec_path`** — absolute path to the unified spec YAML
-  (`docs/walkthroughs/<feature>.yaml`).
+  (`docs/walkthroughs/<narrative-slug>.yaml`).
 - **`run_id`** — the DDD run identifier from `scripts.ddd.runstate`.
 
 ## Procedure
@@ -73,8 +73,8 @@ Capture the `url` to present to the user.
 **`post` stamps `run_state.yaml` for you — do NOT stamp it by hand.** The
 command writes both `narrative_review_id` (the raw review UUID) and a
 token-bearing `narrative_review_url` onto the run, and sends the run's explicit
-`feature` slug with the review so it files under the right narrative even if the
-slug was renamed. Those stamps are what `ddd-upload` reads to (a) attach this
+`narrative_slug` with the review so it files under the right narrative even if
+the slug was renamed. Those stamps are what `ddd-upload` reads to (a) attach this
 run's artifacts to the exact narrative version and (b) prove a narrative review
 ran — without them, upload refuses to publish (the run would show as "no
 narrative"). If `post` prints a `WARNING` that it could not find `run_state`,
@@ -94,7 +94,7 @@ Before waiting for the user's response, present:
    at a glance.  Format it as:
 
    ```
-   Narrative storyboard — <feature>
+   Narrative storyboard — <narrative-slug>
    ══════════════════════════════════════
    Actionability score: N/5 (<pass | warn | fail>)
 
@@ -148,7 +148,7 @@ A `redraft` means the story is not yet right and rendering would be waste.
 Print a brief summary:
 
 ```
-DDD Narrative Gate — <feature>
+DDD Narrative Gate — <narrative-slug>
 ══════════════════════════════════════
   Decision:          <approve | redraft>
   Scenes edited:     <N>

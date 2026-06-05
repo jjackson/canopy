@@ -21,7 +21,7 @@ from scripts.ddd.schemas.models import Decision, ReviewRequest
 
 def _make_review_request() -> ReviewRequest:
     return ReviewRequest(
-        run_id="my-feature-2026-01-01-001",
+        run_id="my-narrative_slug-2026-01-01-001",
         gate="pre-demo",
         video={"url": "https://example.com/video.mp4", "duration_s": 120},
         decisions=[

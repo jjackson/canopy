@@ -11,7 +11,7 @@ Structural gate: validate why_brief.yaml before running the LLM eval.
 ## Arguments
 
 - `<why_brief_path>` — path to `why_brief.yaml`.
-  If not supplied, looks for `.canopy/ddd/<feature>/why_brief.yaml` for the most recent run.
+  If not supplied, looks for `.canopy/ddd/<narrative-slug>/why_brief.yaml` for the most recent run.
 
 ## Process
 

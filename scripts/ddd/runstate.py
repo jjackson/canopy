@@ -2,7 +2,7 @@
 
 Public API
 ----------
-new_run(feature: str) -> str
+new_run(narrative_slug: str) -> str
     Creates a new run directory + run_state.yaml, returns the run_id.
 
 load(run_id: str) -> RunState
@@ -64,10 +64,10 @@ def _resolve_ddd_dir() -> Path:
 # ---------------------------------------------------------------------------
 
 
-def _next_run_id(runs_dir: Path, feature: str) -> str:
-    """Return the next available run_id of the form <feature>-<YYYY-MM-DD>-NNN."""
+def _next_run_id(runs_dir: Path, narrative_slug: str) -> str:
+    """Return the next available run_id of the form <narrative_slug>-<YYYY-MM-DD>-NNN."""
     today = date.today().strftime("%Y-%m-%d")
-    prefix = f"{feature}-{today}-"
+    prefix = f"{narrative_slug}-{today}-"
 
     existing = [d.name for d in runs_dir.iterdir() if d.is_dir() and d.name.startswith(prefix)]
     nums = []
@@ -85,17 +85,17 @@ def _next_run_id(runs_dir: Path, feature: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def new_run(feature: str) -> str:
+def new_run(narrative_slug: str) -> str:
     """Create a new run under <ddd_dir>/runs/ and return the run_id."""
     ddd_dir = _resolve_ddd_dir()
     runs_dir = ddd_dir / "runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
 
-    run_id = _next_run_id(runs_dir, feature)
+    run_id = _next_run_id(runs_dir, narrative_slug)
     run_dir = runs_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    state = RunState(run_id=run_id, feature=feature)
+    state = RunState(run_id=run_id, narrative_slug=narrative_slug)
     _write_state(run_dir, state)
 
     return run_id

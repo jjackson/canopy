@@ -6,7 +6,7 @@ description: |
   capabilities + why + how for a prospective feature user), run the
   external_release review gate, then publish to canopy-web — where the video,
   deck, narrative, and links group under the run and are navigable at
-  /ddd/<feature>/<run_id>. Returns the run PACKAGE URL, not a loose artifact link.
+  /ddd/<narrative-slug>/<run_id>. Returns the run PACKAGE URL, not a loose artifact link.
   Phase transitions from "converged" → "uploaded" on publish; no-op on hold.
   Use when asked to "upload this run", "publish the run", or "upload the run package".
 ---
@@ -24,13 +24,13 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: tell the user "canopy **v{new}*
 
 Terminal step of the DDD loop: once a run has converged, UPLOAD its artifacts to
 canopy-web so they package together under the run. The result is a single
-navigable view — **`/ddd/<feature>/<run_id>`** — that links the run's hero
+navigable view — **`/ddd/<narrative-slug>/<run_id>`** — that links the run's hero
 video, docs/deck, narrative, and companion links. The skill returns **that
 package URL**, not a loose `/w/<artifact-id>` single-artifact link.
 
 ## How packaging works (why you get one navigable view, not loose links)
 
-canopy-web groups artifacts by the `run_id`/`feature`/`role` fields sent on
+canopy-web groups artifacts by the `run_id`/`narrative_slug`/`role` fields sent on
 every upload, and assembles them into a run package:
 
 - **video** ← the hero video upload (`role=hero_video`)
@@ -42,8 +42,8 @@ every upload, and assembles them into a run package:
   after its narrative gate has run.
 - **links** ← companion links unioned across the run's artifacts.
 
-The package + previous-runs navigation live at `/ddd/<feature>` (narrative
-landing) and `/ddd/<feature>/<run_id>` (the run package).
+The package + previous-runs navigation live at `/ddd/<narrative-slug>` (narrative
+landing) and `/ddd/<narrative-slug>/<run_id>` (the run package).
 
 ## Inputs
 
@@ -106,10 +106,10 @@ renders as **"no narrative"** in canopy-web. Check it deterministically:
 
 This prints a status JSON and **exits non-zero when the run has no narrative**
 (neither a stamped `narrative_review_id` nor a narrative version on canopy-web
-for the run's `feature`). If it exits non-zero, STOP and tell the user:
+for the run's `narrative_slug`). If it exits non-zero, STOP and tell the user:
 
-> "Run `<run_id>` has no narrative on canopy-web (its `feature` is
-> `<feature>`). Publishing would show as 'no narrative'. Run
+> "Run `<run_id>` has no narrative on canopy-web (its `narrative_slug` is
+> `<narrative-slug>`). Publishing would show as 'no narrative'. Run
 > `/canopy:ddd-narrative-review <run_id>` first — that posts and locks the
 > narrative and stamps the run — then re-run the upload. This usually means the
 > feature slug was renamed mid-flow and the narrative was posted under the old
@@ -140,7 +140,7 @@ The script orchestrates all steps internally:
 3. Builds the docs HTML via `build_docs_page(spec, why_brief, video_url)`.
 4. Opens the **external_release** review gate (see below).
 5. On `"publish"`: uploads the HTML (`role=docs`), sets `phase = "uploaded"`,
-   saves, and returns the run **package** URL `/ddd/<feature>/<run_id>`.
+   saves, and returns the run **package** URL `/ddd/<narrative-slug>/<run_id>`.
 6. On `"hold"`: returns without publishing the deck; phase stays unchanged.
 
 ### Step 2 — External release gate
@@ -183,7 +183,7 @@ DDD Upload — <run_id>
 ══════════════════════════════════════
   Run dir: <run_dir>
 
-  Package:  <package_url>     ← /ddd/<feature>/<run_id> (navigable: video · deck · narrative · links)
+  Package:  <package_url>     ← /ddd/<narrative-slug>/<run_id> (navigable: video · deck · narrative · links)
 
   phase → uploaded
 ```
@@ -196,6 +196,6 @@ package (video, deck, narrative, and links) for this run."
 | Artefact | Notes |
 |----------|-------|
 | `run_state.yaml` (phase=uploaded) | Written on successful publish only |
-| Run package on canopy-web | `/ddd/<feature>/<run_id>` — groups video + deck + narrative + links |
+| Run package on canopy-web | `/ddd/<narrative-slug>/<run_id>` — groups video + deck + narrative + links |
 | Docs page (deck) on canopy-web | Self-contained HTML; grouped under the run via `role=docs` |
 | Hero video on canopy-web | Uploaded first (`role=hero_video`); embedded in the deck and the package |
