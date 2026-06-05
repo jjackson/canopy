@@ -22,7 +22,7 @@ def test_valid_why_brief_returns_true(tmp_path):
 
     data = {
         "schema_version": 1,
-        "feature": "Sampling",
+        "narrative_slug": "Sampling",
         "problem": "no systematic sampling",
         "spine": [
             {
@@ -57,7 +57,7 @@ def test_grounded_spine_without_evidence_fails(tmp_path):
 
     data = {
         "schema_version": 1,
-        "feature": "F",
+        "narrative_slug": "F",
         "problem": "P",
         "spine": [
             {
@@ -81,7 +81,7 @@ def test_grounded_spine_only_assumed_evidence_fails(tmp_path):
 
     data = {
         "schema_version": 1,
-        "feature": "F",
+        "narrative_slug": "F",
         "problem": "P",
         "spine": [
             {
@@ -105,7 +105,7 @@ def test_grounded_spine_with_documented_evidence_passes(tmp_path):
 
     data = {
         "schema_version": 1,
-        "feature": "F",
+        "narrative_slug": "F",
         "problem": "P",
         "spine": [
             {
@@ -134,7 +134,7 @@ def test_scene_provenance_mismatch_fails(tmp_path):
     # Write why_brief
     wb_data = {
         "schema_version": 1,
-        "feature": "F",
+        "narrative_slug": "F",
         "problem": "P",
         "spine": [{"id": "S1", "claim": "C", "rationale": "R", "status": "gap"}],
         "gaps": [],
@@ -175,7 +175,7 @@ def test_gap_claim_ref_missing_fails(tmp_path):
 
     data = {
         "schema_version": 1,
-        "feature": "F",
+        "narrative_slug": "F",
         "problem": "P",
         "spine": [{"id": "S1", "claim": "C", "rationale": "R"}],
         "gaps": [
@@ -203,7 +203,7 @@ def test_duplicate_spine_id_fails(tmp_path):
 
     data = {
         "schema_version": 1,
-        "feature": "F",
+        "narrative_slug": "F",
         "problem": "P",
         "spine": [
             {"id": "S1", "claim": "C1", "rationale": "R1"},
@@ -349,7 +349,7 @@ def test_genuine_programming_error_surfaces(monkeypatch, tmp_path):
 
     data = {
         "schema_version": 1,
-        "feature": "F",
+        "narrative_slug": "F",
         "problem": "P",
         "spine": [{"id": "S1", "claim": "C", "rationale": "R"}],
         "gaps": [],

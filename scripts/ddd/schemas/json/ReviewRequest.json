@@ -118,9 +118,9 @@
       "title": "Run Id",
       "type": "string"
     },
-    "feature": {
+    "narrative_slug": {
       "default": "",
-      "title": "Feature",
+      "title": "Narrative Slug",
       "type": "string"
     },
     "gate": {

@@ -1,20 +1,20 @@
 """Resolve the "obvious" DDD narrative to work on.
 
-When `/canopy:ddd` is invoked with no explicit feature/run_id, the orchestrator
+When `/canopy:ddd` is invoked with no explicit narrative_slug/run_id, the orchestrator
 should pick up whatever narrative was most recently being worked on instead of
 erroring or asking. This module scans deterministic local signals — the target
 repo's `.canopy/ddd/runs/*/run_state.yaml`, its `docs/walkthroughs/*.yaml`
 specs, and the current git branch + recent commit subjects — ranks the
 candidate narratives, and prints a JSON resolution the agent acts on:
 
-    {"decision": "resume", "feature": "...", "run_id": "...", ...}   # in-flight run
-    {"decision": "new",    "feature": "...", "spec_path": "...", ...} # fresh run on latest spec
+    {"decision": "resume", "narrative_slug": "...", "run_id": "...", ...}   # in-flight run
+    {"decision": "new",    "narrative_slug": "...", "spec_path": "...", ...} # fresh run on latest spec
     {"decision": "ask",    "candidates": [...], ...}                  # genuinely ambiguous / nothing
 
 The agent uses `confidence`: on "high" it announces the pick and proceeds; on
 "ambiguous"/"none" it confirms with the user (top candidate pre-selected).
 
-Pure scan + rank — no network, no side effects. `feature`/`run_id` passed
+Pure scan + rank — no network, no side effects. `narrative_slug`/`run_id` passed
 explicitly short-circuit the scan.
 """
 from __future__ import annotations
@@ -60,51 +60,51 @@ def _slug_tokens(slug: str) -> list[str]:
 
 
 def _scan_runs(ddd_dir: Path) -> dict[str, dict[str, Any]]:
-    """Map feature slug → newest run summary, from runs/*/run_state.yaml."""
-    by_feature: dict[str, dict[str, Any]] = {}
+    """Map narrative_slug slug → newest run summary, from runs/*/run_state.yaml."""
+    by_narrative_slug: dict[str, dict[str, Any]] = {}
     runs_dir = ddd_dir / "runs"
     if not runs_dir.is_dir():
-        return by_feature
+        return by_narrative_slug
     for state_file in runs_dir.glob("*/run_state.yaml"):
         try:
             raw = yaml.safe_load(state_file.read_text()) or {}
         except (yaml.YAMLError, OSError):
             continue
-        feature = (raw.get("feature") or "").strip()
+        narrative_slug = (raw.get("narrative_slug") or "").strip()
         run_id = (raw.get("run_id") or state_file.parent.name).strip()
-        if not feature:
+        if not narrative_slug:
             continue
         mtime = state_file.stat().st_mtime
-        prev = by_feature.get(feature)
+        prev = by_narrative_slug.get(narrative_slug)
         if prev is None or mtime > prev["run_mtime"]:
-            by_feature[feature] = {
+            by_narrative_slug[narrative_slug] = {
                 "latest_run_id": run_id,
                 "phase": (raw.get("phase") or "").strip() or None,
                 "run_mtime": mtime,
             }
-    return by_feature
+    return by_narrative_slug
 
 
 def _scan_specs(repo_root: Path) -> dict[str, dict[str, Any]]:
-    """Map feature slug → spec summary, from docs/walkthroughs/*.yaml."""
-    by_feature: dict[str, dict[str, Any]] = {}
+    """Map narrative_slug slug → spec summary, from docs/walkthroughs/*.yaml."""
+    by_narrative_slug: dict[str, dict[str, Any]] = {}
     specs_dir = repo_root / "docs" / "walkthroughs"
     if not specs_dir.is_dir():
-        return by_feature
+        return by_narrative_slug
     for spec_file in specs_dir.glob("*.yaml"):
         slug = spec_file.stem
-        by_feature[slug] = {
+        by_narrative_slug[slug] = {
             "spec_path": str(spec_file),
             "spec_mtime": spec_file.stat().st_mtime,
         }
-    return by_feature
+    return by_narrative_slug
 
 
 def resolve(
     ddd_dir: Path,
     repo_root: Path,
     *,
-    feature: str | None = None,
+    narrative_slug: str | None = None,
     run_id: str | None = None,
     now: float | None = None,
 ) -> dict[str, Any]:
@@ -115,7 +115,7 @@ def resolve(
     if run_id:
         return {
             "decision": "resume",
-            "feature": feature,
+            "narrative_slug": narrative_slug,
             "run_id": run_id,
             "confidence": "high",
             "reason": f"explicit --resume {run_id}",
@@ -125,25 +125,25 @@ def resolve(
     runs = _scan_runs(ddd_dir)
     specs = _scan_specs(repo_root)
 
-    # Explicit feature → resume its newest non-terminal run, else start fresh.
-    if feature:
-        r = runs.get(feature)
+    # Explicit narrative_slug → resume its newest non-terminal run, else start fresh.
+    if narrative_slug:
+        r = runs.get(narrative_slug)
         if r and r["phase"] not in TERMINAL_PHASES:
             return {
                 "decision": "resume",
-                "feature": feature,
+                "narrative_slug": narrative_slug,
                 "run_id": r["latest_run_id"],
                 "phase": r["phase"],
                 "confidence": "high",
-                "reason": f"explicit feature '{feature}', resuming in-progress run (phase={r['phase']})",
+                "reason": f"explicit narrative_slug '{narrative_slug}', resuming in-progress run (phase={r['phase']})",
                 "candidates": [],
             }
         return {
             "decision": "new",
-            "feature": feature,
-            "spec_path": specs.get(feature, {}).get("spec_path"),
+            "narrative_slug": narrative_slug,
+            "spec_path": specs.get(narrative_slug, {}).get("spec_path"),
             "confidence": "high",
-            "reason": f"explicit feature '{feature}', no in-progress run — start fresh",
+            "reason": f"explicit narrative_slug '{narrative_slug}', no in-progress run — start fresh",
             "candidates": [],
         }
 
@@ -167,7 +167,7 @@ def resolve(
         )
         tokens = _slug_tokens(slug)
         candidates.append({
-            "feature": slug,
+            "narrative_slug": slug,
             "latest_run_id": r.get("latest_run_id"),
             "phase": r.get("phase"),
             "spec_path": s.get("spec_path"),
@@ -180,7 +180,7 @@ def resolve(
     if not candidates:
         return {
             "decision": "ask",
-            "feature": None,
+            "narrative_slug": None,
             "confidence": "none",
             "reason": "no DDD runs or docs/walkthroughs specs found in this repo",
             "candidates": [],
@@ -197,7 +197,7 @@ def resolve(
     ]
     if branch_recent:
         top = branch_recent[0]
-        reason = f"git branch '{branch}' matches narrative '{top['feature']}'"
+        reason = f"git branch '{branch}' matches narrative '{top['narrative_slug']}'"
         confidence = "high"
     else:
         top = candidates[0]
@@ -217,7 +217,7 @@ def resolve(
 
     return {
         "decision": decision,
-        "feature": top["feature"],
+        "narrative_slug": top["narrative_slug"],
         "run_id": top["latest_run_id"] if resume else None,
         "phase": top["phase"],
         "spec_path": top["spec_path"],
@@ -225,7 +225,7 @@ def resolve(
         "reason": reason,
         "candidates": [
             {
-                "feature": c["feature"],
+                "narrative_slug": c["narrative_slug"],
                 "latest_run_id": c["latest_run_id"],
                 "phase": c["phase"],
                 "spec_path": c["spec_path"],
@@ -245,14 +245,14 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--ddd-dir", required=True, help="The repo's .canopy/ddd directory")
     parser.add_argument("--repo-root", required=True, help="Target repo root (for specs + git context)")
-    parser.add_argument("--feature", default=None, help="Explicit feature slug (short-circuits the scan)")
+    parser.add_argument("--narrative-slug", default=None, help="Explicit narrative slug (short-circuits the scan)")
     parser.add_argument("--run-id", default=None, help="Explicit run_id to resume (short-circuits the scan)")
     args = parser.parse_args(argv)
 
     result = resolve(
         Path(args.ddd_dir),
         Path(args.repo_root),
-        feature=args.feature,
+        narrative_slug=args.narrative_slug,
         run_id=args.run_id,
     )
     print(json.dumps(result, indent=2))

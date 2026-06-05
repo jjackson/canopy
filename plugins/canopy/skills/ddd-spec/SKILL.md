@@ -1,7 +1,7 @@
 ---
 name: ddd-spec
 description: |
-  Author a unified spec (docs/walkthroughs/<feature>.yaml) from a validated
+  Author a unified spec (docs/walkthroughs/<narrative-slug>.yaml) from a validated
   why_brief.yaml. Write ONE cohesive multi-persona demo narrative first, then
   decompose it into ordered story-beat scenes (each carrying concept_claim,
   provenance, design_intent, and verifiable features). The output is
@@ -28,7 +28,7 @@ discard their edits (the whole spec: narrative paragraph + every scene's
 narrative/show/design_intent/features/actions).
 
 ```bash
-test -f "docs/walkthroughs/<feature>.yaml" && \
+test -f "docs/walkthroughs/<narrative-slug>.yaml" && \
   (cd ~/emdash-projects/canopy && uv run python -m scripts.ddd.narrative locked "<abs-spec-path>") || echo unlocked
 ```
 
@@ -42,7 +42,7 @@ test -f "docs/walkthroughs/<feature>.yaml" && \
 
 # DDD Unified Spec
 
-Author a `docs/walkthroughs/<feature>.yaml` that is simultaneously:
+Author a `docs/walkthroughs/<narrative-slug>.yaml` that is simultaneously:
 1. The **design doc** — every scene asserts a testable concept_claim backed by a
    spine item (provenance).
 2. A **runnable canopy walkthrough spec** — keys `name`, `narrative`, `base_url`,
@@ -55,7 +55,7 @@ FROM the grounded `why_brief.yaml` produced by Phase 0 (ddd-why-brief + ddd-why-
 ## Inputs
 
 - **`why_brief_path`** — path to the validated `why_brief.yaml`.
-- **`feature`** — short slug used in the output filename and `name` field.
+- **`narrative_slug`** — short slug used in the output filename and `name` field.
 - **`base_url`** — the URL of the live environment to walk through.
 - **`run_dir`** — directory to write the spec (default: `docs/walkthroughs/`).
 
@@ -84,7 +84,7 @@ cat <why_brief_path>
 ```
 
 Parse the why_brief.  Note:
-- `feature` — becomes the spec `name` and filename slug.
+- `narrative_slug` — becomes the spec `name` and filename slug.
 - `problem` — seeds the spec `narrative`.
 - `spine` — each `SpineItem` becomes one or more scenes; the item's `id` becomes
   the scene `provenance`.
@@ -613,8 +613,8 @@ scenes:                       # ordered story beats, numbered from 1 by position
         verify: <runnable validation — API assertion, UI state check, or test command>
 ```
 
-Write the draft to `docs/walkthroughs/<feature>.yaml` (create the directory if it
-doesn't exist).  The output file path is `<run_dir>/<feature>.yaml`.
+Write the draft to `docs/walkthroughs/<narrative-slug>.yaml` (create the directory if it
+doesn't exist).  The output file path is `<run_dir>/<narrative-slug>.yaml`.
 
 ### Step 6 — Validate and loop
 
@@ -626,7 +626,7 @@ and reuse it for both commands in this step):
 DDD_REPO="$HOME/emdash-projects/canopy"; [ -d "$DDD_REPO/scripts/ddd" ] || DDD_REPO="$HOME/.claude/plugins/marketplaces/canopy"
 if [ ! -d "$DDD_REPO/scripts/ddd" ]; then echo "ERROR: scripts/ddd not found — run /canopy:update to sync the canopy checkout"; exit 1; fi
 # pass the file arg as an absolute path (resolved before the cd):
-SPEC_ABS="$(realpath docs/walkthroughs/<feature>.yaml)"
+SPEC_ABS="$(realpath docs/walkthroughs/<narrative-slug>.yaml)"
 (cd "$DDD_REPO" && uv run python -m scripts.ddd.validate unified_spec "$SPEC_ABS")
 ```
 
@@ -673,7 +673,7 @@ The unified spec must remain playable by `/canopy:walkthrough`.
 After both validators pass, print:
 
 ```
-DDD Unified Spec — <feature>
+DDD Unified Spec — <narrative-slug>
 ══════════════════════════════════════
 
   Spine items: N → M scenes
@@ -683,7 +683,7 @@ DDD Unified Spec — <feature>
     [Scene 1] <persona> — <story-beat title> — <concept_claim (first 50 chars)>... (N features)
     [Scene 2] <persona> — <story-beat title> — ... (N features)
 
-  Output: docs/walkthroughs/<feature>.yaml
+  Output: docs/walkthroughs/<narrative-slug>.yaml
   Validator (structural): PASS
   Validator (spec_qa):    PASS
 

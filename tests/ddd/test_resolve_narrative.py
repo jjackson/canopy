@@ -10,10 +10,10 @@ import yaml
 from scripts.ddd.resolve_narrative import resolve
 
 
-def _write_run(ddd_dir: Path, run_id: str, feature: str, phase: str, mtime: float) -> None:
+def _write_run(ddd_dir: Path, run_id: str, narrative_slug: str, phase: str, mtime: float) -> None:
     run_dir = ddd_dir / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    state = {"run_id": run_id, "feature": feature, "phase": phase}
+    state = {"run_id": run_id, "narrative_slug": narrative_slug, "phase": phase}
     f = run_dir / "run_state.yaml"
     f.write_text(yaml.safe_dump(state))
     os.utime(f, (mtime, mtime))
@@ -41,16 +41,16 @@ class TestExplicit:
     def test_explicit_feature_resumes_in_progress_run(self, tmp_path):
         ddd = tmp_path / ".canopy" / "ddd"
         _write_run(ddd, "alpha-2026-01-01-001", "alpha", "judged", mtime=1000)
-        out = resolve(ddd, tmp_path, feature="alpha")
+        out = resolve(ddd, tmp_path, narrative_slug="alpha")
         assert out["decision"] == "resume"
         assert out["run_id"] == "alpha-2026-01-01-001"
 
     def test_explicit_feature_terminal_run_starts_new(self, tmp_path):
         ddd = tmp_path / ".canopy" / "ddd"
         _write_run(ddd, "alpha-2026-01-01-001", "alpha", "uploaded", mtime=1000)
-        out = resolve(ddd, tmp_path, feature="alpha")
+        out = resolve(ddd, tmp_path, narrative_slug="alpha")
         assert out["decision"] == "new"
-        assert out["feature"] == "alpha"
+        assert out["narrative_slug"] == "alpha"
 
 
 class TestInference:
@@ -63,7 +63,7 @@ class TestInference:
         _write_run(ddd, "new-2026-02-01-001", "newer", "render", mtime=now - 5_000)
         out = resolve(ddd, tmp_path, now=now)
         assert out["decision"] == "resume"
-        assert out["feature"] == "newer"
+        assert out["narrative_slug"] == "newer"
         assert out["run_id"] == "new-2026-02-01-001"
         assert out["confidence"] == "high"
 
@@ -73,16 +73,16 @@ class TestInference:
         _write_run(ddd, "done-2026-02-01-001", "done", "uploaded", mtime=9000)
         out = resolve(ddd, tmp_path, now=10_000.0)
         assert out["decision"] == "new"
-        assert out["feature"] == "done"
+        assert out["narrative_slug"] == "done"
 
     def test_spec_only_starts_new_run(self, tmp_path):
         ddd = tmp_path / ".canopy" / "ddd"
         _init_git_repo(tmp_path)
-        _write_spec(tmp_path, "fresh-feature", mtime=9000)
+        _write_spec(tmp_path, "fresh-narrative_slug", mtime=9000)
         out = resolve(ddd, tmp_path, now=10_000.0)
         assert out["decision"] == "new"
-        assert out["feature"] == "fresh-feature"
-        assert out["spec_path"].endswith("fresh-feature.yaml")
+        assert out["narrative_slug"] == "fresh-narrative_slug"
+        assert out["spec_path"].endswith("fresh-narrative_slug.yaml")
 
     def test_close_activity_is_ambiguous(self, tmp_path):
         ddd = tmp_path / ".canopy" / "ddd"
@@ -110,7 +110,7 @@ class TestInference:
         _write_run(ddd, "rooftop-survey-2026-01-01-001", "rooftop-survey", "judged", mtime=now - 3600)
         _write_run(ddd, "other-2026-02-01-001", "other", "render", mtime=now - 60)
         out = resolve(ddd, tmp_path, now=now)
-        assert out["feature"] == "rooftop-survey"
+        assert out["narrative_slug"] == "rooftop-survey"
         assert out["confidence"] == "high"
         assert "branch" in out["reason"].lower()
 
@@ -123,4 +123,4 @@ class TestInference:
         _write_run(ddd, "rooftop-survey-2026-01-01-001", "rooftop-survey", "judged", mtime=now - 30 * 24 * 3600)
         _write_run(ddd, "other-2026-02-01-001", "other", "render", mtime=now - 60)
         out = resolve(ddd, tmp_path, now=now)
-        assert out["feature"] == "other"
+        assert out["narrative_slug"] == "other"

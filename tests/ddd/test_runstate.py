@@ -38,7 +38,7 @@ def test_new_run_creates_run_state(tmp_path, monkeypatch):
 
     raw = yaml.safe_load(state_file.read_text())
     assert raw["phase"] == "phase0"
-    assert raw["feature"] == "sampling-engine"
+    assert raw["narrative_slug"] == "sampling-engine"
     assert raw["schema_version"] == 1
 
 
@@ -47,9 +47,9 @@ def test_new_run_id_format(tmp_path, monkeypatch):
 
     from scripts.ddd.runstate import new_run
 
-    run_id = new_run("my-feature")
-    # Expected pattern: <feature>-<YYYY-MM-DD>-NNN
-    assert re.match(r"^my-feature-\d{4}-\d{2}-\d{2}-\d{3}$", run_id), (
+    run_id = new_run("my-narrative_slug")
+    # Expected pattern: <narrative_slug>-<YYYY-MM-DD>-NNN
+    assert re.match(r"^my-narrative_slug-\d{4}-\d{2}-\d{2}-\d{3}$", run_id), (
         f"run_id '{run_id}' does not match expected pattern"
     )
 
@@ -77,7 +77,7 @@ def test_save_load_round_trips(tmp_path, monkeypatch):
     from scripts.ddd.runstate import new_run, load, save
     from scripts.ddd.schemas.models import RunState
 
-    run_id = new_run("round-trip-feature")
+    run_id = new_run("round-trip-narrative_slug")
     state = load(run_id)
 
     assert isinstance(state, RunState)

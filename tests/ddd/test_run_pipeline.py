@@ -43,8 +43,8 @@ def _stub_verdict(
     )
 
 
-def _stub_state(feature: str = "test-feature") -> RunState:
-    return RunState(run_id=f"{feature}-2026-01-01-001", feature=feature)
+def _stub_state(narrative_slug: str = "test-narrative_slug") -> RunState:
+    return RunState(run_id=f"{narrative_slug}-2026-01-01-001", narrative_slug=narrative_slug)
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +137,7 @@ class TestAssembleRunState:
     def test_preserves_run_id_and_feature(self) -> None:
         from scripts.ddd.run_pipeline import assemble_run_state
 
-        state = _stub_state("my-feature")
+        state = _stub_state("my-narrative_slug")
         result = assemble_run_state(
             state,
             _stub_verdict(4.0),
@@ -145,7 +145,7 @@ class TestAssembleRunState:
             findings=[],
         )
         assert result.run_id == state.run_id
-        assert result.feature == "my-feature"
+        assert result.narrative_slug == "my-narrative_slug"
 
     def test_custom_paths(self) -> None:
         from scripts.ddd.run_pipeline import assemble_run_state

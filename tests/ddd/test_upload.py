@@ -54,7 +54,7 @@ def _make_spec() -> UnifiedSpec:
 
 def _make_why_brief() -> WhyBrief:
     return WhyBrief(
-        feature="Smart Routing",
+        narrative_slug="Smart Routing",
         problem="Field workers spend 40% of their day navigating inefficiently.",
         spine=[
             SpineItem(
@@ -347,7 +347,7 @@ def _write_run_fixtures(tmp_ddd: Path, run_id: str):
     why = _make_why_brief()
 
     # run_state.yaml
-    # feature is a slug in real use (matches the run_id prefix); the package URL
+    # narrative_slug is a slug in real use (matches the run_id prefix); the package URL
     # is built from it, so keep it URL-safe here.
     # A converged run that went through the narrative-agreement gate carries a
     # stamped narrative_review_id — that's what lets the upload guard pass
@@ -355,7 +355,7 @@ def _write_run_fixtures(tmp_ddd: Path, run_id: str):
     # clear this explicitly.
     state = RunState(
         run_id=run_id,
-        feature="smart-routing",
+        narrative_slug="smart-routing",
         phase="converged",
         narrative_review_id="11111111-1111-1111-1111-111111111111",
     )
@@ -402,13 +402,13 @@ class TestUploadRun:
 
         def fake_upload(
             content, *, kind, title, base_url=None, token=None,
-            run_id=None, feature=None, role=None, narrative_review_id=None,
+            run_id=None, narrative_slug=None, role=None, narrative_review_id=None,
         ):
             counter["n"] += 1
             url = f"https://canopy.test/w/fake-{kind}-{counter['n']}"
             calls_store.append({
                 "kind": kind, "title": title, "content_len": len(content), "url": url,
-                "run_id": run_id, "feature": feature, "role": role,
+                "run_id": run_id, "narrative_slug": narrative_slug, "role": role,
                 "narrative_review_id": narrative_review_id,
             })
             return url
@@ -428,7 +428,7 @@ class TestUploadRun:
 
     def test_publish_returns_package_url(self, tmp_run, monkeypatch):
         """On publish we return the navigable run PACKAGE URL
-        (/ddd/<feature>/<run_id>), NOT a loose /w/<artifact-id> link."""
+        (/ddd/<narrative_slug>/<run_id>), NOT a loose /w/<artifact-id> link."""
         monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
         upload_calls: list[dict] = []
         uploader = self._make_uploader(upload_calls)
@@ -566,12 +566,12 @@ class TestUploadRun:
         video_upload = next(c for c in upload_calls if c["kind"] == "video")
         html_upload = next(c for c in upload_calls if c["kind"] == "html")
 
-        # DDD-run grouping: the run's artifacts carry run_id/feature + their role.
+        # DDD-run grouping: the run's artifacts carry run_id/narrative_slug + their role.
         assert video_upload["role"] == "hero_video"
         assert html_upload["role"] == "docs"
         assert video_upload["run_id"] == tmp_run["run_id"]
         assert html_upload["run_id"] == tmp_run["run_id"]
-        assert video_upload["feature"] and html_upload["feature"]
+        assert video_upload["narrative_slug"] and html_upload["narrative_slug"]
 
         # The HTML content (bytes) should contain the video URL
         # upload content_len > 0 is checked; to check URL we need to capture bytes
@@ -588,7 +588,7 @@ class TestUploadRun:
 
         def capturing_upload(
             content, *, kind, title, base_url=None, token=None,
-            run_id=None, feature=None, role=None, narrative_review_id=None,
+            run_id=None, narrative_slug=None, role=None, narrative_review_id=None,
         ):
             if kind == "html":
                 html_bytes_store.append(content if isinstance(content, bytes) else content.encode("utf-8"))
@@ -660,7 +660,7 @@ class TestUploadRun:
         save(st)
 
     def test_refuses_when_unstamped_and_no_server_narrative(self, tmp_run, monkeypatch):
-        """The core guard: an unstamped run whose feature has no narrative on
+        """The core guard: an unstamped run whose narrative_slug has no narrative on
         canopy-web must NOT publish — it would render as 'no narrative'."""
         from scripts.ddd.upload import NarrativeMissingError
 
@@ -691,7 +691,7 @@ class TestUploadRun:
 
     def test_allows_when_unstamped_but_server_has_narrative(self, tmp_run, monkeypatch):
         """An unstamped run still publishes if canopy-web already has a
-        narrative version for its feature (e.g. a legacy run, stamp lost)."""
+        narrative version for its narrative_slug (e.g. a legacy run, stamp lost)."""
         monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
         self._clear_narrative_stamp(tmp_run["run_id"])
 

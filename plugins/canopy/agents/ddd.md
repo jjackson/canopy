@@ -175,23 +175,23 @@ bootstrap pattern exactly.
 3. Read `$DDD_DIR/learnings.md` (may not exist yet — that is fine).
 
 4. **Resolve which narrative to run.** If the invocation passed an explicit
-   `<feature>` or `--resume <run_id>`, use it. Otherwise — the common case when
+   `<narrative-slug>` or `--resume <run_id>`, use it. Otherwise — the common case when
    the user just says "run DDD" / "do DDD with the orchestrator" — **DO NOT ask
    or error first.** Infer the obvious narrative from recent local context:
 
    ```bash
    (cd "$DDD_REPO" && uv run python -m scripts.ddd.resolve_narrative \
      --ddd-dir "$DDD_DIR" --repo-root "$REPO_ROOT")
-   # if a feature/run_id WAS passed, forward it: --feature <slug> | --run-id <id>
+   # if a narrative-slug/run_id WAS passed, forward it: --narrative-slug <slug> | --run-id <id>
    ```
 
-   The script prints JSON — `{decision, feature, run_id, phase, spec_path,
+   The script prints JSON — `{decision, narrative_slug, run_id, phase, spec_path,
    confidence, reason, candidates[]}` — ranking narratives by the newest
    `.canopy/ddd/runs/*` run, the newest `docs/walkthroughs/*.yaml` spec, and a
    match against the current git branch. Act on it:
 
    - **`confidence: high`** → announce the pick in one line ("Picking up
-     **<feature>** — <reason>; resuming run `<run_id>`" or "…; starting a fresh
+     **<narrative-slug>** — <reason>; resuming run `<run_id>`" or "…; starting a fresh
      run") and proceed. No gate, no question.
    - **`confidence: ambiguous`** (several narratives touched at once) → ask the
      user which one via `AskUserQuestion`, listing `candidates[]` with the top
@@ -200,10 +200,10 @@ bootstrap pattern exactly.
      back to `context.md`'s active feature; if that is also empty, ask the user
      what to build. Only here do you prompt for setup.
 
-   Carry the resolved `decision`, `feature`, and `run_id` into the next step.
+   Carry the resolved `decision`, `narrative_slug`, and `run_id` into the next step.
 
 5. Start or resume the run (run from `$DDD_REPO` so `scripts.ddd` is importable):
-   - **New run** (`decision: new`): `(cd "$DDD_REPO" && uv run python -c "from scripts.ddd.runstate import new_run; print(new_run('<feature>'))")`
+   - **New run** (`decision: new`): `(cd "$DDD_REPO" && uv run python -c "from scripts.ddd.runstate import new_run; print(new_run('<narrative-slug>'))")`
    - **Resume** (`decision: resume`): `(cd "$DDD_REPO" && uv run python -c "from scripts.ddd.runstate import load; state = load('<run_id>'); print(state.phase)")`
 
 ---
@@ -214,7 +214,7 @@ Invoke in order. Each skill reads the previous skill's output from the run direc
 
 **Step 1 — Evidence audit:**
 Invoke `ddd-evidence-audit` (via Skill tool or `/canopy:ddd-evidence-audit`) with:
-- `feature_name`: the feature slug
+- `narrative_slug`: the narrative slug
 - `source_pointers`: pointers gathered from context.md, CLAUDE.md, memory
 - `run_dir`: `$DDD_DIR/runs/<run_id>/`
 
@@ -254,25 +254,25 @@ durable input — never regenerate it; doing so silently discards the human's
 signed-off story arc and every scene's curated `show`/`design_intent`/`actions`):
 
 ```bash
-test -f "docs/walkthroughs/<feature>.yaml" && \
-  (cd "$DDD_REPO" && uv run python -m scripts.ddd.narrative locked "$REPO_ROOT/docs/walkthroughs/<feature>.yaml") || echo unlocked
+test -f "docs/walkthroughs/<narrative-slug>.yaml" && \
+  (cd "$DDD_REPO" && uv run python -m scripts.ddd.narrative locked "$REPO_ROOT/docs/walkthroughs/<narrative-slug>.yaml") || echo unlocked
 ```
 
 - **`locked`** → **SKIP `ddd-spec` entirely.** The narrative is approved input;
-  reuse `docs/walkthroughs/<feature>.yaml` verbatim and go straight to Step 6
+  reuse `docs/walkthroughs/<narrative-slug>.yaml` verbatim and go straight to Step 6
   (Spec QA, which still validates structure) → Render. This is the common case on
   a resume that re-enters at `render`. Only a `redraft` from Step 6c (which clears
   the lock) or a manual `narrative unlock` re-opens authoring.
 - **`unlocked`** (or no spec yet) → invoke `ddd-spec` with:
   - `why_brief_path`: `<run_dir>/why_brief.yaml`
-  - `feature`: the feature slug
+  - `narrative_slug`: the narrative slug
   - `base_url`: from context.md
 
-Output: `docs/walkthroughs/<feature>.yaml`
+Output: `docs/walkthroughs/<narrative-slug>.yaml`
 
 **Narrative-presence guard (lock-safe — prevents "no narrative" uploads):**
 A `locked` narrative skips `ddd-spec`, but the lock lives in the *spec file*,
-not on canopy-web — so a NEW run, or a run whose `feature` slug was **renamed**
+not on canopy-web — so a NEW run, or a run whose `narrative_slug` was **renamed**
 since the narrative was first posted (e.g. `did-monitoring` → `verified-monitoring`),
 can reach render/upload with no narrative version on the server under its current
 slug. That is exactly what makes a published package show as **"no narrative"**.
@@ -283,12 +283,12 @@ After the lock check, verify the run's narrative is registered:
 ```
 
 If it **exits non-zero** (`ok: false` — no stamp and no narrative on canopy-web
-for the run's `feature`):
+for the run's `narrative_slug`):
 - **Locked narrative** → the human already approved this story; re-register it
   under the current slug WITHOUT re-gating by posting it:
-  `(cd "$DDD_REPO" && uv run python -m scripts.ddd.narrative post "$REPO_ROOT/docs/walkthroughs/<feature>.yaml" "<run_id>")`
+  `(cd "$DDD_REPO" && uv run python -m scripts.ddd.narrative post "$REPO_ROOT/docs/walkthroughs/<narrative-slug>.yaml" "<run_id>")`
   (this stamps `run_state.narrative_review_id` and files the review under the
-  run's explicit `feature`). Then re-run `status` to confirm `ok: true`.
+  run's explicit `narrative_slug`). Then re-run `status` to confirm `ok: true`.
 - **Unlocked / no approval yet** → do NOT auto-post; run the full Step 6c
   narrative-agreement gate so the human approves the (possibly renamed) story.
 
@@ -296,14 +296,14 @@ Never proceed to upload while `status` reports `ok: false` — `ddd-upload` will
 refuse it anyway (`NarrativeMissingError`), so resolve it here.
 
 **Step 6 — Spec QA (gate):**
-Invoke `ddd-spec-qa` with `spec_path` = `docs/walkthroughs/<feature>.yaml`.
+Invoke `ddd-spec-qa` with `spec_path` = `docs/walkthroughs/<narrative-slug>.yaml`.
 
 - If `verdict: pass` → proceed to Step 6a (Narrative coherence).
-- If `verdict: fail` → fix the spec (edit `docs/walkthroughs/<feature>.yaml`
+- If `verdict: fail` → fix the spec (edit `docs/walkthroughs/<narrative-slug>.yaml`
   per the blocking_reason), re-run `ddd-spec-qa`. Loop until pass.
 
 **Step 6a — Narrative coherence (gate — do NOT skip):**
-Invoke `ddd-narrative-coherence` with `spec_path` = `docs/walkthroughs/<feature>.yaml`.
+Invoke `ddd-narrative-coherence` with `spec_path` = `docs/walkthroughs/<narrative-slug>.yaml`.
 
 This is a **rule-based gate** between structural QA (Step 6) and the cold-derive
 actionability eval (Step 6b). It catches **outcome leakage** — per-scene `show`
@@ -322,7 +322,7 @@ INPUTS she enters; it cannot pre-commit to system-generated VALUES.
 
 **Step 6b — Actionability eval (gate — do NOT skip):**
 Invoke `/ddd-narrative-actionability-eval` with `unified_spec_path` =
-`docs/walkthroughs/<feature>.yaml`.
+`docs/walkthroughs/<narrative-slug>.yaml`.
 
 This is a **machine gate**: the LLM-as-judge checks whether a cold reader can
 independently derive the declared `features[]` from the narration alone.
@@ -335,7 +335,7 @@ independently derive the declared `features[]` from the narration alone.
 
 **Step 6c — Narrative-agreement gate (concept_change):**
 Invoke `/ddd-narrative-review` with:
-- `spec_path`: `docs/walkthroughs/<feature>.yaml`
+- `spec_path`: `docs/walkthroughs/<narrative-slug>.yaml`
 - `run_id`: current run ID
 
 This presents the narrative (the demo's story arc — one `concept_claim` story
@@ -366,7 +366,7 @@ upload) again and again without ever regenerating the *narrative*.
 **Step 7 — Run:**
 Invoke `ddd-run` with:
 - `run_id`: current run ID
-- `unified_spec`: `docs/walkthroughs/<feature>.yaml`
+- `unified_spec`: `docs/walkthroughs/<narrative-slug>.yaml`
 - `why_brief`: `<run_dir>/why_brief.yaml`
 
 `ddd-run` orchestrates:
@@ -439,7 +439,7 @@ iteration, fall back to the most recent `iter*_clip.mp4` in the run dir).
 Outcomes:
 
 - **`publish`** → `ddd-upload` uploads the deck HTML, sets `phase = "uploaded"`,
-  and returns the run **package** URL (`/ddd/<feature>/<run_id>`). Surface that
+  and returns the run **package** URL (`/ddd/<narrative-slug>/<run_id>`). Surface that
   **package URL** in the final digest — it's the navigable view (video, deck,
   narrative, links), NOT a loose artifact link.
 - **`hold`** → the deck is not published (the video is still uploaded);
@@ -578,7 +578,7 @@ After every complete iteration:
 After every autonomous run (scheduled or triggered by a supervisor), send a
 digest using the PM-loop autonomous email format:
 
-**Subject:** `DDD: <feature> — N things need you` (or "nothing needs you" if
+**Subject:** `DDD: <narrative-slug> — N things need you` (or "nothing needs you" if
 no gates fired).
 
 **Body (reuse PM-loop email-format.md template):**

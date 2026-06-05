@@ -39,7 +39,7 @@ class Gap(BaseModel):
 
 class WhyBrief(BaseModel):
     schema_version: int = 1
-    feature: str
+    narrative_slug: str
     problem: str
     spine: list[SpineItem]
     gaps: list[Gap]
@@ -456,13 +456,13 @@ class NarrationItem(BaseModel):
 class ReviewRequest(BaseModel):
     schema_version: int = 1
     run_id: str
-    feature: str = ""
-    """The narrative slug this review belongs to — the explicit source of truth
-    canopy-web files the review under (``request_json.feature``). Sending it
-    decouples narrative identity from ``run_id`` slug-parsing, so a run whose
-    ``run_id`` slug differs from its feature (e.g. after a mid-flow rename) still
-    groups with the right narrative. Defaults to "" → canopy-web falls back to
-    ``feature_from_run_id(run_id)``."""
+    narrative_slug: str = ""
+    """The narrative this review belongs to — the explicit source of truth
+    canopy-web files the review under (``request_json.narrative_slug``). Sending
+    it decouples narrative identity from ``run_id`` slug-parsing, so a run whose
+    ``run_id`` slug differs from its narrative_slug (e.g. after a mid-flow
+    rename) still groups with the right narrative. Defaults to "" → canopy-web
+    falls back to ``narrative_slug_from_run_id(run_id)``."""
     gate: str
     video: dict
     decisions: list[Decision]
@@ -495,7 +495,7 @@ class ReviewRequest(BaseModel):
 class RunState(BaseModel):
     schema_version: int = 1
     run_id: str
-    feature: str
+    narrative_slug: str
     # "promoted" is a legacy alias for "uploaded" — accepted on read so older
     # on-disk run_state.yaml files still validate; new runs write "uploaded".
     phase: Literal[

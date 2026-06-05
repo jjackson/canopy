@@ -11,7 +11,7 @@ Transform an evidence inventory into a validated why_brief.yaml.
 ## Arguments
 
 - `<run_dir>` — directory containing `evidence.json` and where `why_brief.yaml` will be written.
-  If not supplied, defaults to `.canopy/ddd/<feature>/` for the most recent ddd-evidence-audit run.
+  If not supplied, defaults to `.canopy/ddd/<narrative-slug>/` for the most recent ddd-evidence-audit run.
 
 ## Process
 

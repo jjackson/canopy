@@ -10,7 +10,7 @@ Structural gate: validate a unified spec before running the concept judge.
 
 ## Arguments
 
-- `<spec_path>` — path to the unified spec YAML (e.g. `docs/walkthroughs/<feature>.yaml`).
+- `<spec_path>` — path to the unified spec YAML (e.g. `docs/walkthroughs/<narrative-slug>.yaml`).
   If not supplied, looks for the most recent spec in `docs/walkthroughs/`.
   The why_brief (if declared) is resolved automatically from the spec's `why_brief`
   field — no separate path argument is needed.

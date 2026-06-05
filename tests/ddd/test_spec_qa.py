@@ -39,7 +39,7 @@ def _why_brief_data(spine_ids: list[str] | None = None) -> dict:
     ]
     return {
         "schema_version": 1,
-        "feature": "Test Feature",
+        "narrative_slug": "Test Feature",
         "problem": "A real problem exists for users",
         "spine": spine,
         "gaps": [],

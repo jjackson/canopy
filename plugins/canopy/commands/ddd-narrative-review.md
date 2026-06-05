@@ -11,7 +11,7 @@ This is the missing gate between ddd-spec-qa and ddd-run.
 
 ## Arguments
 
-- `<spec_path>` — path to the unified spec YAML (`docs/walkthroughs/<feature>.yaml`).
+- `<spec_path>` — path to the unified spec YAML (`docs/walkthroughs/<narrative-slug>.yaml`).
 - `<run_id>` — the DDD run identifier from `scripts.ddd.runstate`.
 
 ## Process

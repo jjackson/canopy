@@ -1,6 +1,6 @@
 ---
 description: Full demo-driven-development (DDD) v2 orchestrator — bootstraps from .canopy/ddd/context.md + learnings.md, runs Phase 0 (evidence-audit → why-brief → why-qa → why-eval), drafts + QA-gates a unified spec (ddd-spec → ddd-spec-qa), renders and dual-judges it (ddd-run → ddd-concept-eval + visual-judge), routes PRODUCT / CONCEPT / RESEARCH / CAPABILITY findings to fixers, and converges toward promotion. Two pause gates only: concept_change and external_release.
-argument-hint: [<feature>] [--resume <run_id>]
+argument-hint: [<narrative-slug>] [--resume <run_id>]
 allowed-tools: [Read, Write, Edit, Bash, Glob, Grep, Skill, Agent, AskUserQuestion]
 ---
 
@@ -11,7 +11,7 @@ concept verdict and stakeholder-ready walkthrough.
 
 ## Arguments
 
-- `<feature>` — feature slug (e.g. `rooftop-sampling`). **If omitted, the
+- `<narrative-slug>` — feature slug (e.g. `rooftop-sampling`). **If omitted, the
   orchestrator infers the obvious narrative** from recent local context (the
   newest `.canopy/ddd/runs/*` run, the newest `docs/walkthroughs/*.yaml` spec,
   and the current git branch) and proceeds — resuming the in-flight run if there

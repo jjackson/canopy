@@ -50,12 +50,12 @@ def assemble_run_state(
     Parameters
     ----------
     state:
-        The run's RunState.  Must already have a valid run_id and feature.
+        The run's RunState.  Must already have a valid run_id and narrative_slug.
     concept_verdict:
         The Verdict produced by the ddd-concept-eval judge.
     user_verdict:
         The Verdict produced by the user-artifact judge (canopy:visual-judge
-        with audience="feature user").
+        with audience="narrative_slug user").
     findings:
         Merged list of design_finding dicts (from design_findings.json).
     concept_path:

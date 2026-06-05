@@ -107,27 +107,28 @@ class TestBuildNarrativeReviewRequest:
         result = build_narrative_review_request(spec, "my-run-42")
         assert result.run_id == "my-run-42"
 
-    def test_feature_defaults_to_run_id_slug(self):
-        """With no explicit feature, the narrative slug is the run_id with the
-        date stamp stripped — matching canopy-web's feature_from_run_id."""
+    def test_narrative_slug_defaults_to_run_id_slug(self):
+        """With no explicit narrative_slug, it's the run_id with the date stamp
+        stripped — matching canopy-web's narrative_slug_from_run_id."""
         spec = _make_spec()
         result = build_narrative_review_request(spec, "verified-monitoring-2026-06-04-001")
-        assert result.feature == "verified-monitoring"
+        assert result.narrative_slug == "verified-monitoring"
 
-    def test_explicit_feature_overrides_run_id_slug(self):
-        """The explicit feature wins — this is what survives a slug rename, so
-        the review files under the renamed narrative, not the old run_id slug."""
+    def test_explicit_narrative_slug_overrides_run_id_slug(self):
+        """The explicit narrative_slug wins — this is what survives a slug
+        rename, so the review files under the renamed narrative, not the old
+        run_id slug."""
         spec = _make_spec()
         result = build_narrative_review_request(
-            spec, "did-monitoring-2026-06-01-001", feature="verified-monitoring"
+            spec, "did-monitoring-2026-06-01-001", narrative_slug="verified-monitoring"
         )
-        assert result.feature == "verified-monitoring"
+        assert result.narrative_slug == "verified-monitoring"
 
-    def test_feature_serialised_into_payload(self):
-        """The cross-repo contract: canopy-web reads request_json.feature."""
+    def test_narrative_slug_serialised_into_payload(self):
+        """The cross-repo contract: canopy-web reads request_json.narrative_slug."""
         spec = _make_spec()
-        result = build_narrative_review_request(spec, "run-001", feature="my-feature")
-        assert result.model_dump(by_alias=True)["feature"] == "my-feature"
+        result = build_narrative_review_request(spec, "run-001", narrative_slug="my-narrative")
+        assert result.model_dump(by_alias=True)["narrative_slug"] == "my-narrative"
 
     def test_video_is_empty_dict(self):
         """No cut yet — this is a pre-render narrative review."""
@@ -1482,11 +1483,11 @@ class TestStampRunState:
         )
         assert out == "https://c/review/abc/?t=existing"
 
-    def test_feature_from_run_id(self):
-        from scripts.ddd.narrative import _feature_from_run_id
+    def test_narrative_slug_from_run_id(self):
+        from scripts.ddd.narrative import _narrative_slug_from_run_id
 
-        assert _feature_from_run_id("verified-monitoring-2026-06-04-001") == "verified-monitoring"
-        assert _feature_from_run_id("nostampslug") == "nostampslug"
+        assert _narrative_slug_from_run_id("verified-monitoring-2026-06-04-001") == "verified-monitoring"
+        assert _narrative_slug_from_run_id("nostampslug") == "nostampslug"
 
     def test_stamp_writes_id_and_url(self, tmp_path, monkeypatch):
         import scripts.ddd.runstate as rs
@@ -1495,7 +1496,7 @@ class TestStampRunState:
 
         monkeypatch.setattr(rs, "_resolve_ddd_dir", lambda: tmp_path)
         run_id = "verified-monitoring-2026-06-04-001"
-        rs.save(RunState(run_id=run_id, feature="verified-monitoring", phase="converged"))
+        rs.save(RunState(run_id=run_id, narrative_slug="verified-monitoring", phase="converged"))
 
         _stamp_run_state(
             run_id,

@@ -11,7 +11,7 @@ def test_why_brief_round_trip():
     from scripts.ddd.schemas.models import WhyBrief, SpineItem, Gap
 
     wb = WhyBrief(
-        feature="Rooftop Survey Sampling",
+        narrative_slug="Rooftop Survey Sampling",
         problem="We lack a systematic way to sample rooftops.",
         spine=[
             SpineItem(id="S1", claim="Sampling is needed", rationale="without it we miss units"),
@@ -28,7 +28,7 @@ def test_why_brief_round_trip():
     )
     d = wb.model_dump()
     assert d["schema_version"] == 1
-    assert d["feature"] == "Rooftop Survey Sampling"
+    assert d["narrative_slug"] == "Rooftop Survey Sampling"
     assert d["spine"][0]["id"] == "S1"
     assert d["gaps"][0]["type"] == "RESEARCH"
 

@@ -4,7 +4,7 @@ Uploads a converged run's artifacts to canopy-web so they package together
 under the run — the hero video, a self-contained documentation HTML page (hero
 video + capabilities + why + how) built from the run's unified_spec and
 why_brief, and (via the earlier narrative-review gate) the narrative — all
-grouped on ``run_id`` and navigable at ``/ddd/<feature>/<run_id>``.
+grouped on ``run_id`` and navigable at ``/ddd/<narrative_slug>/<run_id>``.
 
 Public API
 ----------
@@ -17,7 +17,7 @@ publish_artifact(content, *, kind, title, base_url, token, _post) -> str
 upload_run(run_id, *, video_path, base_url, token, _upload, _gate, auto_approve_for_test) -> str
     Orchestrate: load state + spec + why_brief → upload video → build docs →
     external_release gate → upload HTML → save phase=uploaded → return the run
-    **package** URL (``/ddd/<feature>/<run_id>``), NOT a loose artifact URL.
+    **package** URL (``/ddd/<narrative_slug>/<run_id>``), NOT a loose artifact URL.
 
 Notes
 -----
@@ -84,17 +84,17 @@ def _resolve_base_url(base_url: str | None) -> str:
     return DEFAULT_API
 
 
-def run_package_url(feature: str, run_id: str, base_url: str | None = None) -> str:
+def run_package_url(narrative_slug: str, run_id: str, base_url: str | None = None) -> str:
     """Return the canopy-web **run package** URL for a DDD run.
 
     canopy-web routes the navigable package (video + deck + narrative + links)
-    at ``/ddd/<narrative>/<runId>``, where the narrative slug is the ``feature``
+    at ``/ddd/<narrative>/<runId>``, where the narrative slug is the ``narrative_slug``
     the plugin sends (a slug in real use). This is the link a human should get
     — NOT a loose ``/w/<artifact-id>`` single-artifact URL. Path segments are
-    URL-quoted defensively in case a feature carries unsafe characters.
+    URL-quoted defensively in case a narrative_slug carries unsafe characters.
     """
     api = _resolve_base_url(base_url)
-    feat = urllib.parse.quote(feature or run_id, safe="")
+    feat = urllib.parse.quote(narrative_slug or run_id, safe="")
     rid = urllib.parse.quote(run_id, safe="")
     return f"{api}/ddd/{feat}/{rid}"
 
@@ -128,7 +128,7 @@ def _resolve_narrative_review_id(run_state: RunState) -> str | None:
 
 
 def _default_narrative_check(
-    feature: str,
+    narrative_slug: str,
     run_id: str,
     *,
     base_url: str | None = None,
@@ -136,13 +136,13 @@ def _default_narrative_check(
 ) -> bool:
     """Real narrative-existence probe used by ``upload_run`` in production.
 
-    Returns True iff canopy-web has a narrative version for ``feature``. Kept as
+    Returns True iff canopy-web has a narrative version for ``narrative_slug``. Kept as
     a thin wrapper (local import) so ``upload.py`` has no import-time dependency
     on the review client and tests can inject a fake without the network.
     """
     from scripts.ddd import review as rv
 
-    return rv.narrative_version_exists(feature, base_url=base_url, token=token)
+    return rv.narrative_version_exists(narrative_slug, base_url=base_url, token=token)
 
 
 def _resolve_token(token: str | None) -> str:
@@ -449,7 +449,7 @@ def build_docs_page(spec: UnifiedSpec, why_brief: WhyBrief, video_url: str, post
     """
     # Humanize the slug for display ("demo-driven-development" -> "Demo Driven Development");
     # keep the raw slug only for the <title>/internal use.
-    _raw_name = spec.name or why_brief.feature
+    _raw_name = spec.name or why_brief.narrative_slug
     feature_name = html.escape(_raw_name.replace("-", " ").replace("_", " ").strip().title())
     esc_video_url = html.escape(video_url, quote=True)
     esc_poster = html.escape(poster_url, quote=True) if poster_url else ""
@@ -664,7 +664,7 @@ def publish_artifact(
     base_url: str | None = None,
     token: str | None = None,
     run_id: str | None = None,
-    feature: str | None = None,
+    narrative_slug: str | None = None,
     role: str | None = None,
     narrative_review_id: str | None = None,
     _post=None,
@@ -716,8 +716,8 @@ def publish_artifact(
     # DDD-run grouping so the run's artifacts package together under their run.
     if run_id:
         fields["run_id"] = run_id
-    if feature:
-        fields["feature"] = feature
+    if narrative_slug:
+        fields["narrative_slug"] = narrative_slug
     if role:
         fields["role"] = role
     # Link this run's artifacts to the narrative version they rendered.
@@ -806,7 +806,7 @@ def upload_run(
        Phase stays unchanged.
     7. If ``"publish"``: upload the HTML via ``_upload(..., kind="html")``,
        set ``run_state.phase = "uploaded"``, save, and return the run
-       **package** URL (``/ddd/<feature>/<run_id>``) — the navigable view that
+       **package** URL (``/ddd/<narrative_slug>/<run_id>``) — the navigable view that
        groups the video, deck, narrative, and links, NOT the loose docs-page
        artifact URL.
 
@@ -830,7 +830,7 @@ def upload_run(
         Defaults to ``_default_gate``.
     _narrative_check:
         Injected narrative-existence probe for tests.
-        Signature: ``(feature, run_id, *, base_url, token) -> bool``.
+        Signature: ``(narrative_slug, run_id, *, base_url, token) -> bool``.
         Defaults to ``_default_narrative_check`` (queries canopy-web).
     auto_approve_for_test:
         If ``True``, skip the gate and proceed directly to publish.  Only
@@ -839,14 +839,14 @@ def upload_run(
     Returns
     -------
     str
-        The run **package** URL (``/ddd/<feature>/<run_id>``) on publish, or
+        The run **package** URL (``/ddd/<narrative_slug>/<run_id>``) on publish, or
         ``""`` if the gate returned ``"hold"``.
 
     Raises
     ------
     NarrativeMissingError
         If the run has no narrative version (neither a stamped
-        ``narrative_review_id`` nor a narrative on canopy-web for its feature),
+        ``narrative_review_id`` nor a narrative on canopy-web for its narrative_slug),
         unless ``DDD_ALLOW_NO_NARRATIVE=1`` is set. This is the guard that stops
         a run being published as "no narrative".
     """
@@ -870,7 +870,7 @@ def upload_run(
             f"package URL without re-uploading. Start a new run to render again.",
             file=sys.stderr,
         )
-        return run_package_url(run_state.feature, run_id, base_url)
+        return run_package_url(run_state.narrative_slug, run_id, base_url)
 
     # The narrative VERSION this run rendered — the ID the narrative-agreement
     # gate stamped on run_state. Lets canopy-web attach the run to its exact
@@ -878,22 +878,22 @@ def upload_run(
     narrative_review_id = _resolve_narrative_review_id(run_state)
 
     # GUARD: refuse to publish a run that has no narrative. Without this, a run
-    # whose narrative gate never ran (or ran under a different feature slug)
+    # whose narrative gate never ran (or ran under a different narrative_slug slug)
     # publishes anyway and renders as "no narrative" in canopy-web. A stamped
     # narrative_review_id is proof the gate ran; if it's absent, re-verify
     # against canopy-web before allowing the publish.
     if not narrative_review_id and not os.environ.get(_ALLOW_NO_NARRATIVE_ENV):
         if not narrative_check(
-            run_state.feature, run_id, base_url=base_url, token=token
+            run_state.narrative_slug, run_id, base_url=base_url, token=token
         ):
             raise NarrativeMissingError(
                 f"Refusing to upload run {run_id!r}: no narrative version exists "
-                f"for narrative {run_state.feature!r} on canopy-web, so the "
+                f"for narrative {run_state.narrative_slug!r} on canopy-web, so the "
                 f"published package would render as \"no narrative\".\n"
                 f"Run `/canopy:ddd-narrative-review {run_id}` first to post and "
                 f"lock the narrative (it stamps run_state.narrative_review_id), "
                 f"then re-run the upload.\n"
-                f"This commonly happens when the feature slug was renamed "
+                f"This commonly happens when the narrative_slug slug was renamed "
                 f"mid-flow (the narrative was posted under the old slug). "
                 f"Emergency override: set {_ALLOW_NO_NARRATIVE_ENV}=1."
             )
@@ -920,7 +920,7 @@ def upload_run(
         base_url=base_url,
         token=token,
         run_id=run_id,
-        feature=run_state.feature,
+        narrative_slug=run_state.narrative_slug,
         role="hero_video",
         narrative_review_id=narrative_review_id,
     )
@@ -951,7 +951,7 @@ def upload_run(
             return ""
 
     # 6. Upload the docs HTML. The returned loose /w/ artifact URL is grouped
-    #    server-side under the run via run_id/feature/role — we don't hand it to
+    #    server-side under the run via run_id/narrative_slug/role — we don't hand it to
     #    the user directly; the package URL (below) is the navigable entry point.
     upload_fn(
         html_content,
@@ -960,7 +960,7 @@ def upload_run(
         base_url=base_url,
         token=token,
         run_id=run_id,
-        feature=run_state.feature,
+        narrative_slug=run_state.narrative_slug,
         role="docs",
         narrative_review_id=narrative_review_id,
     )
@@ -969,10 +969,10 @@ def upload_run(
     run_state.phase = "uploaded"
     save_state(run_state)
 
-    # 8. Return the run PACKAGE URL — the navigable /ddd/<feature>/<run_id> view
+    # 8. Return the run PACKAGE URL — the navigable /ddd/<narrative_slug>/<run_id> view
     #    that canopy-web assembles from the run's video + deck + narrative +
     #    links, NOT the loose docs artifact URL.
-    return run_package_url(run_state.feature, run_id, base_url)
+    return run_package_url(run_state.narrative_slug, run_id, base_url)
 
 
 # ---------------------------------------------------------------------------
@@ -987,7 +987,7 @@ def main(argv=None):
         prog="scripts.ddd.upload",
         description="Upload a converged DDD run's artifacts to canopy-web as a navigable package.",
     )
-    parser.add_argument("run_id", help="Run identifier (e.g. my-feature-2026-01-01-001)")
+    parser.add_argument("run_id", help="Run identifier (e.g. my-narrative_slug-2026-01-01-001)")
     parser.add_argument("--video", required=True, dest="video_path", help="Path to hero video .mp4")
     parser.add_argument("--base-url", default=None, help="canopy-web API base URL")
     args = parser.parse_args(argv)

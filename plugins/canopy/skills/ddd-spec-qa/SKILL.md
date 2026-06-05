@@ -20,7 +20,7 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: tell the user "canopy **v{new}*
 
 # DDD Unified Spec QA
 
-Structural quality gate for `docs/walkthroughs/<feature>.yaml` before the
+Structural quality gate for `docs/walkthroughs/<narrative-slug>.yaml` before the
 concept judge runs.  Pure python — deterministic, fast, no LLM calls.
 
 Implements two layers of checks:
@@ -49,7 +49,7 @@ concept judge (SP3) will score.  A non-falsifiable claim cannot be judged.
 
 ## Inputs
 
-- **`spec_path`** — path to the unified spec YAML (e.g. `docs/walkthroughs/<feature>.yaml`).
+- **`spec_path`** — path to the unified spec YAML (e.g. `docs/walkthroughs/<narrative-slug>.yaml`).
   The why_brief (if declared) is resolved automatically from the spec file's
   `why_brief` field relative to the spec file — no separate path argument needed.
 

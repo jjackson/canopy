@@ -32,7 +32,7 @@ from scripts.ddd.schemas.models import (
 def _brief(**kwargs) -> WhyBrief:
     """Build a minimal valid WhyBrief, override fields via kwargs."""
     defaults = dict(
-        feature="F",
+        narrative_slug="F",
         problem="A real problem",
         spine=[
             SpineItem(
