@@ -419,5 +419,28 @@ def post(payload: dict, api_url: str, token: str, timeout: int = 60) -> tuple[in
     return resp.status, (json.loads(raw.decode("utf-8")) if raw else {})
 
 
+def clear(filters: dict, api_url: str, token: str, timeout: int = 30) -> tuple[int, dict]:
+    """POST a clear request to canopy-web. `filters` keys: source, project,
+    date_from, date_to (all optional; {} clears all). Returns (status, body)."""
+    url = f"{api_url.rstrip('/')}/api/shareouts/clear/"
+    data = json.dumps(filters).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        method="POST",
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+    )
+    try:
+        resp = urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        try:
+            body = json.loads(e.read().decode("utf-8") or "{}")
+        except json.JSONDecodeError:
+            body = {"error": e.reason}
+        return e.code, body
+    raw = resp.read()
+    return resp.status, (json.loads(raw.decode("utf-8")) if raw else {})
+
+
 def feed_url(api_url: str) -> str:
     return f"{api_url.rstrip('/')}/shareouts"
