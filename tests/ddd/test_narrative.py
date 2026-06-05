@@ -1643,3 +1643,13 @@ class TestNarrativeSync:
         spec = merge_narrative_into_spec(None, parts)
         assert spec["name"] == "vm"
         assert spec["scenes"][0]["show"] == ""  # recipe left for authoring
+
+
+class TestNarrativeSyncUnstampedClean:
+    def test_unsynced_local_matching_web_pulls_not_refuses(self):
+        """An unstamped local spec whose narrative MATCHES web is not 'newer' —
+        it should pull (record the link), never falsely refuse."""
+        from scripts.ddd.narrative import decide_narrative_sync
+        a, _ = decide_narrative_sync(local_present=True, local_changed=False,
+                                     local_synced_version=None, web_version=1)
+        assert a == "pull"
