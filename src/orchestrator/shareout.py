@@ -35,49 +35,59 @@ MAX_PRS_PER_PROJECT = 50
 # ---------------------------------------------------------------------------
 
 
+UTC = dt.timezone.utc
+
+
 def _parse_date(s: str) -> dt.date:
     return dt.date.fromisoformat(s.strip())
+
+
+def _day_start(d: dt.date) -> dt.datetime:
+    return dt.datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=UTC)
+
+
+def _day_end(d: dt.date) -> dt.datetime:
+    return dt.datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=UTC)
 
 
 def resolve_range(
     from_date: str | None = None,
     to_date: str | None = None,
     days: int | None = None,
-    today: dt.date | None = None,
-) -> tuple[dt.date, dt.date]:
-    """Resolve a (start, end) inclusive date window.
+    now: dt.datetime | None = None,
+) -> tuple[dt.datetime, dt.datetime]:
+    """Resolve a (start, end) inclusive *timestamp* window (tz-aware UTC).
 
-    Precedence: explicit dates win, then `days`, then the default (yesterday).
-      - no args                -> yesterday, single day
-      - --days N               -> the N full days ending yesterday
-      - --from only            -> from .. yesterday (or single day if from==yesterday)
-      - --to only              -> single day (that date)
-      - --from and --to        -> explicit window
+    Shareouts are stamped to the second, so this returns datetimes:
+      - --from/--to (calendar dates) -> whole-day window: from 00:00:00 .. to 23:59:59.
+        --from only -> from .. end of today; --to only -> that whole day.
+      - --days N    -> a rolling window: now - N days .. now.
+      - no args     -> fallback only (yesterday, full day); the real no-arg
+        default is `resolve_default_range` (since the last shareout).
 
-    `today` is injectable for testing.
+    `now` is injectable for testing.
     """
-    today = today or dt.date.today()
-    yesterday = today - dt.timedelta(days=1)
+    now = now or dt.datetime.now(UTC)
+    today = now.date()
 
     if from_date or to_date:
         start = _parse_date(from_date) if from_date else None
         end = _parse_date(to_date) if to_date else None
         if start is not None and end is None:
-            end = yesterday if start <= yesterday else start
+            end = today
         if end is not None and start is None:
             start = end
         if start > end:
             raise ValueError(f"--from ({start}) is after --to ({end})")
-        return start, end
+        return _day_start(start), _day_end(end)
 
     if days:
         if days < 1:
             raise ValueError("--days must be >= 1")
-        end = yesterday
-        start = end - dt.timedelta(days=days - 1)
-        return start, end
+        return now - dt.timedelta(days=days), now
 
-    return yesterday, yesterday
+    yesterday = today - dt.timedelta(days=1)
+    return _day_start(yesterday), _day_end(yesterday)
 
 
 def fetch_latest_period_end(api_url: str, token: str, timeout: int = 15) -> dt.date | None:
@@ -93,52 +103,50 @@ def fetch_latest_period_end(api_url: str, token: str, timeout: int = 15) -> dt.d
     items = data.get("items") or []
     if not items:
         return None
-    pe = items[0].get("period_end")
-    try:
-        return dt.date.fromisoformat(pe) if pe else None
-    except (ValueError, TypeError):
-        return None
+    return _parse_ts(items[0].get("period_end"))
 
 
 def resolve_default_range(
-    latest_end: dt.date | None, today: dt.date | None = None
-) -> tuple[dt.date, dt.date]:
-    """The no-argument default: cover from the end of the last shareout up to
-    *now*.
+    latest_end: dt.datetime | None, now: dt.datetime | None = None
+) -> tuple[dt.datetime, dt.datetime]:
+    """The no-argument default: cover from the end *time* of the last shareout
+    up to right now (tz-aware UTC). Consecutive shareouts chain exactly —
+    next.period_start == prev.period_end — regardless of clock time.
 
-    - latest_end given  -> (latest_end + 1 day) .. today (the gap since the last
-      shareout, including today's partial day). If the last shareout already
-      reaches today, the window collapses to today..today.
-    - latest_end None   -> yesterday..yesterday (no prior shareout to continue
-      from; matches the original single-day default).
+    - latest_end given -> latest_end .. now (clamped so start never exceeds now).
+    - latest_end None  -> (now - 24h) .. now (no prior shareout to continue from).
 
-    `today` is injectable for testing.
+    `now` is injectable for testing.
     """
-    today = today or dt.date.today()
-    yesterday = today - dt.timedelta(days=1)
+    now = now or dt.datetime.now(UTC)
     if latest_end is None:
-        return yesterday, yesterday
-    start = latest_end + dt.timedelta(days=1)
-    if start > today:
-        start = today
-    return start, today
+        return now - dt.timedelta(days=1), now
+    return (latest_end if latest_end < now else now), now
+
+
+def _parse_ts(s) -> dt.datetime | None:
+    """Parse an ISO timestamp (or date) to a tz-aware UTC datetime, or None."""
+    if not s:
+        return None
+    try:
+        d = dt.datetime.fromisoformat(str(s).strip().replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=UTC)
 
 
 def _ts_date(ts: str | None) -> dt.date | None:
-    """Date portion (UTC) of an ISO timestamp string, or None."""
-    if not ts or len(ts) < 10:
-        return None
-    try:
-        return dt.date.fromisoformat(ts[:10])
-    except ValueError:
-        return None
+    """Date portion (UTC) of an ISO timestamp string, or None. Used for the
+    coarser PR-window check (PRs only carry day-resolution intent here)."""
+    d = _parse_ts(ts)
+    return d.date() if d else None
 
 
-def session_in_range(session: dict, start: dt.date, end: dt.date) -> bool:
-    """True if the session's [first_ts, last_ts] window (by UTC calendar date)
-    intersects [start, end]. Sessions missing timestamps are excluded."""
-    first = _ts_date(session.get("first_ts"))
-    last = _ts_date(session.get("last_ts")) or first
+def session_in_range(session: dict, start: dt.datetime, end: dt.datetime) -> bool:
+    """True if the session's [first_ts, last_ts] timestamp window intersects
+    [start, end]. Sessions missing timestamps are excluded."""
+    first = _parse_ts(session.get("first_ts"))
+    last = _parse_ts(session.get("last_ts")) or first
     first = first or last
     if first is None or last is None:
         return False
@@ -246,18 +254,25 @@ def gather(
     projects_dir: Path,
     repo_map: dict,
     labels: dict,
-    start: dt.date,
-    end: dt.date,
+    start: dt.datetime | dt.date,
+    end: dt.datetime | dt.date,
     author: str = "@me",
     project_filter: str | None = None,
     fetch_prs_fn=fetch_prs,
 ) -> dict:
-    """Build the per-project corpus for [start, end].
+    """Build the per-project corpus for the [start, end] timestamp window.
 
-    Returns {"period": {start, end}, "projects": {repo: {sessions, prs}}}.
+    `start`/`end` may be datetimes (the normal path) or plain dates (coerced to
+    whole-day bounds). Returns {"period": {start, end}, "projects": {...}}.
     `fetch_prs_fn` is injectable for testing.
     """
     from orchestrator.scanner import scan_all_transcripts
+
+    # Accept dates for convenience; work internally in tz-aware datetimes.
+    if not isinstance(start, dt.datetime):
+        start = _day_start(start)
+    if not isinstance(end, dt.datetime):
+        end = _day_end(end)
 
     sessions = scan_all_transcripts(projects_dir, repo_map, labels)
     in_range = [s for s in sessions if session_in_range(s, start, end)]
@@ -275,7 +290,7 @@ def gather(
     for repo, sess in sorted(groups.items()):
         sess.sort(key=lambda s: s.get("last_ts") or "")
         digests = [_session_digest(s) for s in sess[:MAX_SESSIONS_PER_PROJECT]]
-        prs = fetch_prs_fn(repo, start, end, author) if "/" in repo else []
+        prs = fetch_prs_fn(repo, start.date(), end.date(), author) if "/" in repo else []
         projects[repo] = {
             "session_count": len(sess),
             "sessions": digests,

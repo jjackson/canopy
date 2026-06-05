@@ -74,8 +74,8 @@ Write an authoring doc to a temp file in this shape:
 
 ```json
 {
-  "period_start": "2026-06-03",
-  "period_end": "2026-06-03",
+  "period_start": "2026-06-03T09:00:00Z",
+  "period_end": "2026-06-04T14:30:00Z",
   "author": "<your name, e.g. jjackson>",
   "rollup": { "title": "...", "summary": "...", "content": "## ...", "links": [] },
   "projects": [
@@ -84,7 +84,9 @@ Write an authoring doc to a temp file in this shape:
 }
 ```
 
-- `period_start`/`period_end` come from the corpus `period`.
+- `period_start`/`period_end` are **ISO timestamps** — copy them verbatim from the
+  corpus `period` (don't truncate to dates; the window is precise to the second so
+  consecutive shareouts chain exactly).
 - `project_slug` must be a **canopy-web project slug**. Check available slugs:
   `curl -s -H "Authorization: Bearer $(cat ~/.claude/canopy/workbench-token)" "https://canopy-web-ujpz2cuyxq-uc.a.run.app/api/projects/slugs/" | python3 -c "import sys,json;[print(p['slug']) for p in json.load(sys.stdin)]"`
   Map each corpus repo (e.g. `jjackson/canopy`) to the matching slug (e.g. `canopy`).
