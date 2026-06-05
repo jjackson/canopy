@@ -12,42 +12,50 @@ from orchestrator import shareout
 # resolve_range
 # ---------------------------------------------------------------------------
 
+UTC = dt.timezone.utc
+NOW = dt.datetime(2026, 6, 4, 14, 30, 0, tzinfo=UTC)
 TODAY = dt.date(2026, 6, 4)
 YESTERDAY = dt.date(2026, 6, 3)
 
 
+def _dt(y, m, d, hh=0, mm=0, ss=0):
+    return dt.datetime(y, m, d, hh, mm, ss, tzinfo=UTC)
+
+
 class TestResolveRange:
-    def test_default_is_yesterday_single_day(self):
-        assert shareout.resolve_range(None, None, None, today=TODAY) == (YESTERDAY, YESTERDAY)
-
-    def test_days_window_ends_yesterday(self):
-        # last 7 full days ending yesterday
-        assert shareout.resolve_range(None, None, 7, today=TODAY) == (
-            dt.date(2026, 5, 28),
-            YESTERDAY,
+    def test_explicit_from_and_to_is_whole_day_window(self):
+        assert shareout.resolve_range("2026-06-01", "2026-06-02", None, now=NOW) == (
+            _dt(2026, 6, 1, 0, 0, 0),
+            _dt(2026, 6, 2, 23, 59, 59),
         )
 
-    def test_explicit_from_and_to(self):
-        assert shareout.resolve_range("2026-06-01", "2026-06-02", None, today=TODAY) == (
-            dt.date(2026, 6, 1),
-            dt.date(2026, 6, 2),
+    def test_days_is_rolling_window_ending_now(self):
+        assert shareout.resolve_range(None, None, 7, now=NOW) == (
+            NOW - dt.timedelta(days=7),
+            NOW,
         )
 
-    def test_from_only_extends_to_yesterday(self):
-        assert shareout.resolve_range("2026-06-01", None, None, today=TODAY) == (
-            dt.date(2026, 6, 1),
-            YESTERDAY,
+    def test_from_only_extends_to_end_of_today(self):
+        assert shareout.resolve_range("2026-06-01", None, None, now=NOW) == (
+            _dt(2026, 6, 1, 0, 0, 0),
+            _dt(2026, 6, 4, 23, 59, 59),
         )
 
-    def test_to_only_is_single_day(self):
-        assert shareout.resolve_range(None, "2026-05-01", None, today=TODAY) == (
-            dt.date(2026, 5, 1),
-            dt.date(2026, 5, 1),
+    def test_to_only_is_single_whole_day(self):
+        assert shareout.resolve_range(None, "2026-05-01", None, now=NOW) == (
+            _dt(2026, 5, 1, 0, 0, 0),
+            _dt(2026, 5, 1, 23, 59, 59),
+        )
+
+    def test_no_args_fallback_is_yesterday_whole_day(self):
+        assert shareout.resolve_range(None, None, None, now=NOW) == (
+            _dt(2026, 6, 3, 0, 0, 0),
+            _dt(2026, 6, 3, 23, 59, 59),
         )
 
     def test_inverted_range_raises(self):
         with pytest.raises(ValueError):
-            shareout.resolve_range("2026-06-05", "2026-06-01", None, today=TODAY)
+            shareout.resolve_range("2026-06-05", "2026-06-01", None, now=NOW)
 
 
 # ---------------------------------------------------------------------------
@@ -60,19 +68,21 @@ class TestSessionInRange:
         return {"first_ts": first, "last_ts": last}
 
     def test_session_within_window(self):
-        s = self._s("2026-06-03T10:00:00Z", "2026-06-03T12:00:00Z")
-        assert shareout.session_in_range(s, YESTERDAY, YESTERDAY)
+        s = self._s("2026-06-04T13:00:00Z", "2026-06-04T13:30:00Z")
+        assert shareout.session_in_range(s, _dt(2026, 6, 4, 12), _dt(2026, 6, 4, 14))
 
-    def test_session_outside_window(self):
-        s = self._s("2026-06-01T10:00:00Z", "2026-06-01T12:00:00Z")
-        assert not shareout.session_in_range(s, YESTERDAY, YESTERDAY)
+    def test_session_before_window_excluded(self):
+        s = self._s("2026-06-04T09:00:00Z", "2026-06-04T11:00:00Z")
+        assert not shareout.session_in_range(s, _dt(2026, 6, 4, 12), _dt(2026, 6, 4, 14))
 
     def test_session_spanning_into_window(self):
-        s = self._s("2026-06-02T23:00:00Z", "2026-06-03T01:00:00Z")
-        assert shareout.session_in_range(s, YESTERDAY, YESTERDAY)
+        s = self._s("2026-06-04T11:30:00Z", "2026-06-04T12:30:00Z")
+        assert shareout.session_in_range(s, _dt(2026, 6, 4, 12), _dt(2026, 6, 4, 14))
 
     def test_missing_timestamps_excluded(self):
-        assert not shareout.session_in_range({"first_ts": None, "last_ts": None}, YESTERDAY, YESTERDAY)
+        assert not shareout.session_in_range(
+            {"first_ts": None, "last_ts": None}, _dt(2026, 6, 4), _dt(2026, 6, 4, 23, 59, 59)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +116,9 @@ class TestGather:
             end=YESTERDAY,
             fetch_prs_fn=lambda *a, **k: [],
         )
-        assert corpus["period"] == {"start": "2026-06-03", "end": "2026-06-03"}
+        # dates coerce to whole-day timestamp bounds
+        assert corpus["period"]["start"].startswith("2026-06-03T00:00:00")
+        assert corpus["period"]["end"].startswith("2026-06-03T23:59:59")
         assert "jjackson/canopy" in corpus["projects"]
         sessions = corpus["projects"]["jjackson/canopy"]["sessions"]
         assert len(sessions) == 1
@@ -199,31 +211,25 @@ class TestBuildPostPayload:
 
 
 class TestResolveDefaultRange:
-    def test_no_prior_shareout_falls_back_to_yesterday(self):
-        assert shareout.resolve_default_range(None, today=TODAY) == (YESTERDAY, YESTERDAY)
+    def test_no_prior_shareout_falls_back_to_last_24h(self):
+        assert shareout.resolve_default_range(None, now=NOW) == (NOW - dt.timedelta(days=1), NOW)
 
-    def test_continues_from_day_after_last_shareout(self):
-        # last shareout ended 2026-05-31 → cover 2026-06-01 .. today (06-04)
-        assert shareout.resolve_default_range(dt.date(2026, 5, 31), today=TODAY) == (
-            dt.date(2026, 6, 1),
-            TODAY,
-        )
+    def test_continues_from_exact_end_of_last_shareout(self):
+        last_end = _dt(2026, 6, 3, 17, 30, 0)
+        assert shareout.resolve_default_range(last_end, now=NOW) == (last_end, NOW)
 
-    def test_last_shareout_was_yesterday_covers_today(self):
-        assert shareout.resolve_default_range(YESTERDAY, today=TODAY) == (TODAY, TODAY)
-
-    def test_last_shareout_already_reaches_today_collapses_to_today(self):
-        # already current (or somehow ahead) → today..today, never an inverted range
-        assert shareout.resolve_default_range(TODAY, today=TODAY) == (TODAY, TODAY)
-        assert shareout.resolve_default_range(dt.date(2026, 6, 9), today=TODAY) == (TODAY, TODAY)
+    def test_last_shareout_already_at_now_collapses(self):
+        # already current (or ahead) → start clamped to now, never inverted
+        assert shareout.resolve_default_range(NOW, now=NOW) == (NOW, NOW)
+        assert shareout.resolve_default_range(NOW + dt.timedelta(hours=1), now=NOW) == (NOW, NOW)
 
 
 class TestFetchLatestPeriodEnd:
     def test_parses_period_end_from_items(self, monkeypatch):
         import io
-        payload = json.dumps({"items": [{"period_end": "2026-06-03"}], "total": 1}).encode()
+        payload = json.dumps({"items": [{"period_end": "2026-06-03T17:30:00Z"}], "total": 1}).encode()
         monkeypatch.setattr(shareout.urllib.request, "urlopen", lambda *a, **k: io.BytesIO(payload))
-        assert shareout.fetch_latest_period_end("https://x", "tok") == dt.date(2026, 6, 3)
+        assert shareout.fetch_latest_period_end("https://x", "tok") == _dt(2026, 6, 3, 17, 30, 0)
 
     def test_empty_feed_returns_none(self, monkeypatch):
         import io
