@@ -36,6 +36,7 @@ previous scene's. Pass ``snapshot_empty_scenes=True`` to override.
 
 from __future__ import annotations
 
+import base64
 import dataclasses
 import json
 import time
@@ -43,6 +44,39 @@ from pathlib import Path
 from typing import Any
 
 from playwright.sync_api import Page
+
+# A freeze-frame crossfade that hides the white flash a browser paints during
+# navigation. We screenshot the outgoing scene, then on the incoming page lay
+# that frame over the viewport at max z-index and fade it out once the new page
+# is visually ready (its ``load`` event, or a safety cap). Without this, the
+# continuous recording shows a jarring white blink between every scene.
+_CROSSFADE_JS = r"""
+(img) => {
+  try {
+    var o = document.createElement('div');
+    o.setAttribute('data-wt-xfade', '1');
+    o.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;'
+      + 'opacity:1;transition:opacity 420ms ease;background:#ffffff center center / cover no-repeat';
+    o.style.backgroundImage = 'url(' + img + ')';
+    (document.body || document.documentElement).appendChild(o);
+    var done = false;
+    var fade = function () {
+      if (done) return; done = true;
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          o.style.opacity = '0';
+          setTimeout(function () { if (o && o.parentNode) o.parentNode.removeChild(o); }, 520);
+        });
+      });
+    };
+    // Fade once the incoming page is visually ready (a beat after load), or a
+    // hard safety cap so the overlay can never get stuck covering the scene.
+    if (document.readyState === 'complete') { setTimeout(fade, 200); }
+    else { window.addEventListener('load', function () { setTimeout(fade, 140); }, { once: true }); }
+    setTimeout(fade, 1700);
+  } catch (e) {}
+}
+"""
 
 from .config import RecorderConfig
 from .recorder import execute_action
@@ -232,19 +266,52 @@ class Recorder:
         original ``domcontentloaded`` + ``load`` + ``goto_settle_ms`` flow
         for any external caller and every non-``wait_for`` first action.
         """
+        prev_frame = self._capture_frame(page)
         if skip_settle:
             # Fastest possible gate: return as soon as the navigation request
             # is committed. The wait_for action will poll until the target
             # appears — that's the real settle.
             print("  · using wait_until=commit (first action is wait_for; navigation gate deferred to it)")
             page.goto(url, wait_until="commit", timeout=self.config.goto_timeout_ms)
+            self._crossfade(page, prev_frame)
             return
         page.goto(url, wait_until="domcontentloaded", timeout=self.config.goto_timeout_ms)
+        self._crossfade(page, prev_frame)
         try:
             page.wait_for_load_state("load", timeout=self.config.load_settle_timeout_ms)
         except Exception:
             pass
         page.wait_for_timeout(self.config.goto_settle_ms)
+
+    def _capture_frame(self, page: Page) -> str | None:
+        """Grab the current viewport as a base64 PNG data URI for the crossfade.
+
+        Returns ``None`` on the very first navigation (blank page — nothing to
+        fade from) or if the screenshot fails (never block the nav on it).
+        """
+        if not getattr(self.config, "crossfade", True):
+            return None
+        try:
+            if not page.url or page.url == "about:blank":
+                return None
+            png = page.screenshot(full_page=False, timeout=2500)
+            return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+        except Exception:
+            return None
+
+    def _crossfade(self, page: Page, prev_frame: str | None) -> None:
+        """Lay the outgoing frame over the freshly-navigated page and fade it.
+
+        Hides the browser's white navigation flash. Best-effort: the new
+        document's execution context may briefly be unavailable right after
+        ``commit`` — swallow and move on rather than fail the scene.
+        """
+        if not prev_frame:
+            return
+        try:
+            page.evaluate(_CROSSFADE_JS, prev_frame)
+        except Exception:
+            pass
 
     def _apply_viewport(self, page: Page, viewport: dict[str, int] | None) -> None:
         """Resize the page viewport to ``viewport`` if different from current.

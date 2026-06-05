@@ -89,6 +89,23 @@ class RecorderConfig:
     goto_settle_ms: int = 1200
     """Hold after a ``goto`` (navigation + brief idle)."""
 
+    crossfade: bool = True
+    """Crossfade the outgoing scene's frame over the incoming page to hide the
+    browser's white navigation flash. Set False to disable (e.g. when debugging
+    raw page state, or for specs where the flash is wanted)."""
+
+    # ---- action-level: native <select> reveal ----------------------------
+    select_reveal: bool = True
+    """Render a synthetic dropdown over a native ``<select>`` before committing
+    the choice, so the recording actually SHOWS the options and which one is
+    picked. Native OS select popups can't be screen-recorded; without this the
+    closed widget just silently flips value."""
+
+    select_reveal_dwell_ms: int = 1000
+    """How long the synthetic dropdown stays open (cursor gliding to the chosen
+    option) before the value commits and it closes — long enough for a viewer
+    to read the options and see which one is picked."""
+
     # ---- action-level: typing --------------------------------------------
     typing_delay_ms: int = 45
     """Per-keystroke delay during ``fill`` / ``type`` so the typing is visible."""

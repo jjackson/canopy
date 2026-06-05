@@ -21,7 +21,7 @@ from pathlib import Path
 
 import yaml
 
-from scripts.ddd.schemas.models import Decision, Feature, NarrationItem, ReviewRequest, UnifiedSpec
+from scripts.ddd.schemas.models import Decision, NarrationItem, ReviewRequest, UnifiedSpec
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +38,68 @@ from scripts.ddd.schemas.models import Decision, Feature, NarrationItem, ReviewR
 import re as _re
 
 _SENTENCE_SPLIT_RE = _re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'])")
+
+
+# ---------------------------------------------------------------------------
+# Narrative lock — an approved narrative is durable INPUT.
+#
+# Once the narrative-agreement gate returns ``approve``, the spec is the
+# human-owned narrative artifact: ddd-spec must not regenerate it and a new run
+# reuses the whole spec verbatim. ``redraft`` clears the lock so it can be
+# re-authored. The flag lives in the spec file (UnifiedSpec.narrative_locked) so
+# it travels with the narrative, not the run.
+# ---------------------------------------------------------------------------
+
+
+def _now_iso() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _set_narrative_lock(raw: dict, decision: str) -> bool:
+    """Mutate ``raw``'s narrative-lock fields per a gate decision.
+
+    ``approve`` → locked (+ timestamp); ``redraft`` → unlocked. Returns True iff
+    the lock state changed. Any other decision is a no-op.
+    """
+    was = bool(raw.get("narrative_locked"))
+    if decision == "approve":
+        raw["narrative_locked"] = True
+        raw["narrative_locked_at"] = _now_iso()
+        return not was
+    if decision == "redraft":
+        raw["narrative_locked"] = False
+        raw.pop("narrative_locked_at", None)
+        return was
+    return False
+
+
+def is_narrative_locked(spec_path) -> bool:
+    """True iff the spec file exists and is marked ``narrative_locked``.
+
+    ddd-spec and the orchestrator call this before (re)authoring a spec: a locked
+    narrative is reused verbatim, never regenerated.
+    """
+    p = Path(spec_path)
+    if not p.exists():
+        return False
+    try:
+        raw = yaml.safe_load(p.read_text()) or {}
+    except Exception:
+        return False
+    return bool(raw.get("narrative_locked"))
+
+
+def set_narrative_lock(spec_path, locked: bool) -> dict:
+    """Explicitly lock/unlock a spec file (CLI + programmatic). Returns the new
+    lock state and whether it changed."""
+    p = Path(spec_path)
+    raw = yaml.safe_load(p.read_text()) or {}
+    changed = _set_narrative_lock(raw, "approve" if locked else "redraft")
+    if changed:
+        p.write_text(yaml.dump(raw, default_flow_style=False, allow_unicode=True))
+    return {"narrative_locked": bool(raw.get("narrative_locked")), "changed": changed}
 
 
 def _split_narrative_sentences(narrative: str) -> list[str]:
@@ -402,6 +464,12 @@ def apply_narrative_edits(
     }
     decision: str = _LEGACY_MAP.get(raw_decision, raw_decision)
 
+    # Lock-on-approve: an approved narrative becomes durable input (ddd-spec will
+    # reuse the whole spec verbatim instead of regenerating it); redraft clears
+    # the lock so it can be re-authored. Applied to `raw` here so it persists
+    # through whichever write path runs below.
+    lock_changed = _set_narrative_lock(raw, decision)
+
     # Persona + why-brief edits are independent of the scene-edit shape; apply
     # both up front. Persona edits mutate `raw` (written with the spec below);
     # why-brief edits write their own file.
@@ -661,6 +729,7 @@ def apply_narrative_edits(
 
         return {
             "decision": decision,
+            "narrative_locked": bool(raw.get("narrative_locked")),
             "applied": {
                 "updated": updated,
                 "added": added,
@@ -721,8 +790,9 @@ def apply_narrative_edits(
         # Preserve whatever the spec already has (may be absent)
         build_order_legacy = raw.get("build_order") or []
 
-    # Write back (only if there were edits OR build_order changed, but always write to keep round-trip clean)
-    if edited > 0 or response_build_order_legacy is not None or personas_changed > 0:
+    # Write back (only if there were edits OR build_order changed OR the lock
+    # state changed, but always write to keep round-trip clean)
+    if edited > 0 or response_build_order_legacy is not None or personas_changed > 0 or lock_changed:
         raw["scenes"] = scenes
         spec_path.write_text(
             yaml.dump(raw, default_flow_style=False, allow_unicode=True)
@@ -730,6 +800,7 @@ def apply_narrative_edits(
 
     return {
         "decision": decision,
+        "narrative_locked": bool(raw.get("narrative_locked")),
         "applied": {
             "updated": edited,
             "added": 0,
@@ -801,7 +872,10 @@ def main() -> None:
         print(
             "Usage:\n"
             "  python -m scripts.ddd.narrative post <spec_path> <run_id>\n"
-            "  python -m scripts.ddd.narrative apply <spec_path> <response_json_file>",
+            "  python -m scripts.ddd.narrative apply <spec_path> <response_json_file>\n"
+            "  python -m scripts.ddd.narrative locked <spec_path>   # prints locked|unlocked\n"
+            "  python -m scripts.ddd.narrative lock <spec_path>\n"
+            "  python -m scripts.ddd.narrative unlock <spec_path>",
             file=sys.stderr,
         )
         sys.exit(2)
@@ -826,8 +900,23 @@ def main() -> None:
             sys.exit(2)
         _cmd_apply(sys.argv[2], sys.argv[3])
 
+    elif subcmd == "locked":
+        if len(sys.argv) != 3:
+            print("Usage: python -m scripts.ddd.narrative locked <spec_path>", file=sys.stderr)
+            sys.exit(2)
+        print("locked" if is_narrative_locked(sys.argv[2]) else "unlocked")
+
+    elif subcmd in ("lock", "unlock"):
+        if len(sys.argv) != 3:
+            print(f"Usage: python -m scripts.ddd.narrative {subcmd} <spec_path>", file=sys.stderr)
+            sys.exit(2)
+        print(json.dumps(set_narrative_lock(sys.argv[2], subcmd == "lock")))
+
     else:
-        print(f"ERROR: unknown subcommand {subcmd!r}. Use 'post' or 'apply'.", file=sys.stderr)
+        print(
+            f"ERROR: unknown subcommand {subcmd!r}. Use 'post', 'apply', 'locked', 'lock', or 'unlock'.",
+            file=sys.stderr,
+        )
         sys.exit(2)
 
 

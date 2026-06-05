@@ -9,6 +9,16 @@ bump — see `.claude/CLAUDE.md`). The project does not tag releases. Pre-histor
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.172] - 2026-06-04
+
+### Changed
+- **walkthrough recorder: smooth scene transitions + filmable native `<select>`s.** Two fixes to the DDD/walkthrough video recorder, both general (not feature-specific). (1) **Crossfade** — the browser paints a white flash during `page.goto` between scenes, which the continuous recording captured as a jarring blink. The recorder now screenshots the outgoing scene and lays it over the incoming page at max z-index, fading it out once the new page is visually ready (its `load` event, or a safety cap) — so scenes dissolve into each other instead of flashing white. (2) **Filmable dropdowns** — native OS `<select>` popups can't be screen-recorded, so a `select` action used to silently flip the closed widget's value (the viewer never saw the options or that a choice was made). The recorder now renders a synthetic styled dropdown over the select showing every option with the chosen one highlighted, glides the cursor onto it, holds (`select_reveal_dwell_ms`, default 1000ms), then commits and closes. Both behaviours are on by default and gated by `RecorderConfig.crossfade` / `.select_reveal`. `.first` on the select commit keeps a multi-row selector from throwing strict-mode.
+
+## [0.2.171] - 2026-06-04
+
+### Added
+- **ddd: lock the narrative on approve — an approved narrative is durable input, not regenerable text.** `UnifiedSpec` gains `narrative_locked` (+ `narrative_locked_at`), stored in the spec file so it travels with the narrative artifact (the whole spec: narrative paragraph + every scene's narrative/show/design_intent/features/actions). The narrative-agreement gate sets the lock on `approve` and clears it on `redraft`; `ddd-spec` and the orchestrator skip regeneration when locked. So you approve the story once, then re-iterate render→judge→converge→upload as many times as you like without ever rewriting it — `redraft` is the single explicit door back to authoring. New CLI: `python -m scripts.ddd.narrative locked|lock|unlock <spec>`. (#137)
+
 ## [0.2.169] - 2026-06-04
 
 ### Changed

@@ -373,6 +373,15 @@ class UnifiedSpec(BaseModel):
     why_brief: str | None = None
     personas: dict[str, Persona]
     scenes: list[Scene]
+    narrative_locked: bool = False
+    """When True, this narrative has been approved at the narrative-agreement gate
+    and is durable INPUT — ddd-spec must NOT regenerate it, and a new run reuses
+    the whole spec (narrative paragraph, every scene's narrative/show/design_intent/
+    features/actions) verbatim. Only an explicit ``redraft`` clears the lock. Set by
+    ``apply_narrative_edits`` on ``approve``; the flag lives in the spec file so it
+    travels with the narrative artifact. See ``narrative.is_narrative_locked``."""
+    narrative_locked_at: str | None = None
+    """ISO-8601 timestamp the narrative was locked (set alongside narrative_locked)."""
     tagline: str = ""
     """One plain-language sentence: what this is + who it's for. The uploaded docs
     page leads with it so a newcomer understands the feature before pressing play.

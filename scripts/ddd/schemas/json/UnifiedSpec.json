@@ -831,6 +831,23 @@
       "title": "Scenes",
       "type": "array"
     },
+    "narrative_locked": {
+      "default": false,
+      "title": "Narrative Locked",
+      "type": "boolean"
+    },
+    "narrative_locked_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Narrative Locked At"
+    },
     "tagline": {
       "default": "",
       "title": "Tagline",

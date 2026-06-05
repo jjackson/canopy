@@ -19,6 +19,27 @@ if [ -n "$_CANOPY_UPD" ]; then echo "$_CANOPY_UPD"; fi
 
 If output shows `UPGRADE_AVAILABLE <old> <new>`: tell the user "canopy **v{new}** is available (you're on v{old}). Run `/canopy:update` to upgrade." Then continue with the skill — do not block on the upgrade.
 
+## Lock gate (run BEFORE authoring — do NOT skip)
+
+An approved narrative is **durable input**, not something to regenerate. If the
+target spec already exists and is `narrative_locked`, the human has signed off on
+this story arc at the narrative-agreement gate — re-authoring it would silently
+discard their edits (the whole spec: narrative paragraph + every scene's
+narrative/show/design_intent/features/actions).
+
+```bash
+test -f "docs/walkthroughs/<feature>.yaml" && \
+  (cd ~/emdash-projects/canopy && uv run python -m scripts.ddd.narrative locked "<abs-spec-path>") || echo unlocked
+```
+
+- Prints **`locked`** → **STOP. Do not regenerate.** Report "narrative is locked
+  (approved) — reusing it verbatim" and exit. The caller proceeds to render with
+  the existing spec. The ONLY way to re-author a locked narrative is an explicit
+  **redraft** (the narrative-agreement gate returning `redraft`, which clears the
+  lock via `apply_narrative_edits`) or a manual `python -m scripts.ddd.narrative
+  unlock <spec>`.
+- Prints **`unlocked`** (or no spec yet) → author/refresh the spec as normal.
+
 # DDD Unified Spec
 
 Author a `docs/walkthroughs/<feature>.yaml` that is simultaneously:
