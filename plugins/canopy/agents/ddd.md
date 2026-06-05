@@ -206,6 +206,47 @@ bootstrap pattern exactly.
    - **New run** (`decision: new`): `(cd "$DDD_REPO" && uv run python -c "from scripts.ddd.runstate import new_run; print(new_run('<narrative-slug>'))")`
    - **Resume** (`decision: resume`): `(cd "$DDD_REPO" && uv run python -c "from scripts.ddd.runstate import load; state = load('<run_id>'); print(state.phase)")`
 
+### Step 4.5 — Hydrate from canopy-web (web → disk; source of truth)
+
+**canopy-web is the source of truth for the narrative** — the overview + scene
+beats + personas + build_order + why_brief. The render *recipe* (per-scene
+`show`/`url`/`actions`/`design_intent`) is disk-only and regenerated each run.
+Before authoring anything, hydrate the approved narrative from canopy-web so you
+never start from stale local files:
+
+```bash
+SPEC_PATH="$REPO_ROOT/docs/walkthroughs/<narrative-slug>.yaml"
+(cd "$DDD_REPO" && uv run python -m scripts.ddd.narrative pull "<narrative-slug>" "$SPEC_PATH"); echo "pull exit: $?"
+```
+
+Branch on the result:
+- **`action: pulled` / `noop`** (exit 0) → local `why_brief.yaml` + spec are now
+  in sync with canopy-web. Copy the why-brief into the run dir for the run-scoped
+  skills, then **skip Phase 0 and spec authoring** (the narrative already exists)
+  and go to **Step 6 (Spec QA) → render**:
+  `cp "$REPO_ROOT/docs/walkthroughs/<narrative-slug>.why_brief.yaml" "$DDD_DIR/runs/<run_id>/why_brief.yaml"`
+  - If the hydrate was **fresh** (the narrative was authored on another machine,
+    so scene `show`/`actions` came back empty), author the render recipe first —
+    the **Spec** step below fills the render details (`show`/`actions`) from the
+    hydrated narrative — before rendering. If the recipe was preserved (same
+    machine), render directly.
+- **`REFUSED` (exit 1, local narrative newer)** → your local narrative has edits
+  not on canopy-web; **do NOT overwrite**. This is the round-trip guard. Surface
+  to the user — it's their call:
+  - push the local edits as the next version through the narrative gate
+    (`/canopy:ddd-narrative-review <run_id>`), which re-posts to canopy-web and
+    re-syncs — then continue; or
+  - discard the local edits and take web as truth: re-run `pull … --force`.
+- **`no_web` (exit 1)** → canopy-web has no narrative for this slug yet. Nothing
+  to hydrate — proceed with Phase 0 below to author it from scratch (the normal
+  first-time path). The narrative-agreement gate will post it to canopy-web,
+  making canopy-web the source of truth from then on.
+
+> The disk→web direction already exists: the **narrative-agreement gate**
+> (`ddd-narrative-review`) posts each approved/edited narrative as a new version
+> and stamps the local sync. Hydrate (above) is the web→disk half — together they
+> close the loop, so disk and canopy-web always converge on the same narrative.
+
 ---
 
 ## Phase 0 — Ground the why
