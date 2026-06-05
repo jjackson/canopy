@@ -304,11 +304,10 @@ class TestPrInWindow:
         pr = self._pr(created="2026-06-01T00:00:00Z", merged="2026-06-03T14:00:00Z")
         assert not shareout._pr_in_window(pr, _dt(2026, 6, 3, 23, 59, 59), NOW)
 
-    def test_unmerged_anchors_on_created(self):
+    def test_unmerged_excluded(self):
+        # open / closed-without-merge didn't ship → never in any window
         pr = self._pr(created="2026-06-04T09:00:00Z", merged=None)
-        assert shareout._pr_in_window(pr, _dt(2026, 6, 4), _dt(2026, 6, 5))
-        pr_old = self._pr(created="2026-06-02T09:00:00Z", merged=None)
-        assert not shareout._pr_in_window(pr_old, _dt(2026, 6, 4), _dt(2026, 6, 5))
+        assert not shareout._pr_in_window(pr, _dt(2026, 6, 4), _dt(2026, 6, 5))
 
     def test_boundary_belongs_to_previous_window(self):
         # a PR merged exactly at the shared boundary is in the prior window

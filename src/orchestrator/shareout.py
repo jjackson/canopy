@@ -185,30 +185,26 @@ def _session_digest(session: dict) -> dict:
     }
 
 
-def _pr_anchor(pr: dict) -> dt.datetime | None:
-    """The single moment a PR 'belongs' to: its merge time if merged, else its
-    creation time. Anchoring on one timestamp (not 'updated') means a PR lands
-    in exactly ONE shareout window — a later comment/label touch never
-    re-surfaces an already-reported PR."""
-    return _parse_ts(pr.get("mergedAt")) or _parse_ts(pr.get("createdAt"))
-
-
 def _pr_in_window(pr: dict, start: dt.datetime, end: dt.datetime) -> bool:
-    """Half-open (start, end]: the start instant belongs to the PREVIOUS
-    window (whose end == this start), so chained shareouts never double-count
-    a PR on the boundary."""
-    ts = _pr_anchor(pr)
-    return ts is not None and start < ts <= end
+    """A PR belongs to the window it *merged* in: mergedAt within (start, end].
+
+    Merge-time-only anchoring is what makes "what shipped" non-duplicating —
+    each merged PR lands in exactly ONE shareout, and a PR opened in one window
+    but merged in the next appears only once (when it merged). Unmerged PRs
+    (open / closed-without-merge) didn't ship, so they're excluded. Half-open
+    on the start so the boundary instant belongs to the previous window."""
+    merged = _parse_ts(pr.get("mergedAt"))
+    return merged is not None and start < merged <= end
 
 
 def fetch_prs(repo: str, start: dt.datetime, end: dt.datetime, author: str = "@me") -> list[dict]:
-    """Fetch the author's PRs in `repo` whose merge (or, if unmerged, creation)
-    time falls in the (start, end] window, via gh.
+    """Fetch the author's PRs in `repo` that *merged* within the (start, end]
+    window, via gh.
 
     Best-effort: returns [] when gh is unavailable, unauthenticated, or the repo
-    isn't on GitHub. The gh `updated:>=` search is a coarse day-resolution
-    candidate filter (a superset); `_pr_in_window` then narrows precisely so
-    consecutive shareouts don't share PRs.
+    isn't on GitHub. The gh `merged:>=` search is a coarse day-resolution
+    candidate filter (a superset); `_pr_in_window` then narrows to the precise
+    merge timestamp so consecutive shareouts never share a PR.
     """
     if not repo or "/" not in repo:
         return []
@@ -219,8 +215,8 @@ def fetch_prs(repo: str, start: dt.datetime, end: dt.datetime, author: str = "@m
                 "gh", "pr", "list",
                 "--repo", repo,
                 "--author", author,
-                "--state", "all",
-                "--search", f"updated:>={start.date().isoformat()}",
+                "--state", "merged",
+                "--search", f"merged:>={start.date().isoformat()}",
                 "--json", fields,
                 "--limit", str(MAX_PRS_PER_PROJECT),
             ],
