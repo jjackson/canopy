@@ -1158,11 +1158,21 @@ def _cmd_pull(slug: str, spec_path_str: str, force: bool = False) -> None:
 
     spec_path = Path(spec_path_str)
 
-    # 1. Web side: current narrative version + its request_json.
+    # 1. Web side: current narrative version + its full payload (needed both to
+    #    pull and to hash for change detection on an unstamped local spec).
     detail = rv.get_narrative(slug)
     cur = (detail or {}).get("current_version") or {}
     web_version = cur.get("version")
     review_id = cur.get("review_id")
+    request_json: dict | None = None
+    parts: dict | None = None
+    web_hash: str | None = None
+    if web_version is not None and review_id:
+        full = rv.get_review(review_id)
+        request_json = full.get("request_json") if isinstance(full, dict) else None
+        if isinstance(request_json, dict):
+            parts = web_narrative_to_spec_parts(request_json)
+            web_hash = narrative_content_hash(parts)
 
     # 2. Local side: spec + sync stamps + change detection.
     local: dict | None = None
@@ -1171,11 +1181,17 @@ def _cmd_pull(slug: str, spec_path_str: str, force: bool = False) -> None:
         local = loaded if isinstance(loaded, dict) else None
     local_present = local is not None
     local_synced_version = local.get("narrative_synced_version") if local else None
-    if local_present:
+    if not local_present:
+        local_changed = False
+    elif local_synced_version is not None:
+        # Stamped: compare against the hash recorded at the last sync.
         stored_hash = local.get("narrative_synced_hash")
         local_changed = (not stored_hash) or (narrative_content_hash(local) != stored_hash)
     else:
-        local_changed = False
+        # Unstamped local spec: "changed" only if its narrative content actually
+        # differs from web's current version. An existing spec that already
+        # matches web (e.g. the one that posted v1) is NOT a false "local newer".
+        local_changed = (web_hash is None) or (narrative_content_hash(local) != web_hash)
 
     action, reason = decide_narrative_sync(
         local_present=local_present,
@@ -1207,14 +1223,11 @@ def _cmd_pull(slug: str, spec_path_str: str, force: bool = False) -> None:
         )
         sys.exit(1)
 
-    # 4. Pull (action == "pull", or a forced refuse). Fetch the full payload.
-    full = rv.get_review(review_id)
-    request_json = full.get("request_json") if isinstance(full, dict) else None
-    if not isinstance(request_json, dict):
+    # 4. Pull (action == "pull", or a forced refuse). Payload was fetched above.
+    if not isinstance(request_json, dict) or parts is None:
         print(f"ERROR: could not read narrative payload for {slug!r} (review {review_id}).", file=sys.stderr)
         sys.exit(1)
 
-    parts = web_narrative_to_spec_parts(request_json)
     merged = merge_narrative_into_spec(local, parts)
 
     # why_brief next to the spec; point the spec at it.
