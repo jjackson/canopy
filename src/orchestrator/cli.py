@@ -544,6 +544,35 @@ def shareout_post(authoring_json, corpus_json, source_override, api_url):
     click.echo(f"View: {shareout_mod.feed_url(api)}")
 
 
+@shareout_group.command("clear")
+@click.option("--source", default=None, help="Delete shareouts with this exact source tag")
+@click.option("--project", default=None, help="Delete shareouts for this project slug")
+@click.option("--from", "date_from", default=None, help="period_end on/after YYYY-MM-DD")
+@click.option("--to", "date_to", default=None, help="period_start on/before YYYY-MM-DD")
+@click.option("--all", "clear_all", is_flag=True, help="Required to delete with no filters")
+@click.option("--api-url", default=None, help="canopy-web base URL")
+def shareout_clear(source, project, date_from, date_to, clear_all, api_url):
+    """Delete shareouts from the canopy-web feed (filters AND-combine)."""
+    import os
+
+    from orchestrator import shareout as shareout_mod
+
+    filters = {k: v for k, v in {
+        "source": source, "project": project, "date_from": date_from, "date_to": date_to,
+    }.items() if v}
+    if not filters and not clear_all:
+        raise click.ClickException("refusing to clear ALL shareouts without --all")
+
+    api = api_url or os.environ.get("CANOPY_WEB_API_URL", shareout_mod.DEFAULT_API)
+    token = shareout_mod.resolve_pat()
+    if not token:
+        raise click.ClickException("no canopy-web PAT — run /canopy:canopy-web-pat-mint")
+    status, body = shareout_mod.clear(filters, api, token)
+    if status != 200:
+        raise click.ClickException(f"clear failed ({status}): {body}")
+    click.echo(f"Cleared {body.get('cleared', 0)} shareout row(s).")
+
+
 @main.group("test-audit")
 def test_audit():
     """Test-audit tools: build a corpus for the agent to judge, then apply verdicts."""
