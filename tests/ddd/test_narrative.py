@@ -107,6 +107,28 @@ class TestBuildNarrativeReviewRequest:
         result = build_narrative_review_request(spec, "my-run-42")
         assert result.run_id == "my-run-42"
 
+    def test_feature_defaults_to_run_id_slug(self):
+        """With no explicit feature, the narrative slug is the run_id with the
+        date stamp stripped — matching canopy-web's feature_from_run_id."""
+        spec = _make_spec()
+        result = build_narrative_review_request(spec, "verified-monitoring-2026-06-04-001")
+        assert result.feature == "verified-monitoring"
+
+    def test_explicit_feature_overrides_run_id_slug(self):
+        """The explicit feature wins — this is what survives a slug rename, so
+        the review files under the renamed narrative, not the old run_id slug."""
+        spec = _make_spec()
+        result = build_narrative_review_request(
+            spec, "did-monitoring-2026-06-01-001", feature="verified-monitoring"
+        )
+        assert result.feature == "verified-monitoring"
+
+    def test_feature_serialised_into_payload(self):
+        """The cross-repo contract: canopy-web reads request_json.feature."""
+        spec = _make_spec()
+        result = build_narrative_review_request(spec, "run-001", feature="my-feature")
+        assert result.model_dump(by_alias=True)["feature"] == "my-feature"
+
     def test_video_is_empty_dict(self):
         """No cut yet — this is a pre-render narrative review."""
         spec = _make_spec()
@@ -1437,3 +1459,58 @@ class TestNarrativeLock:
         r3 = set_narrative_lock(spec_path, False)
         assert r3 == {"narrative_locked": False, "changed": True}
         assert is_narrative_locked(spec_path) is False
+
+
+# ---------------------------------------------------------------------------
+# Deterministic run_state stamping — replaces the old hand-run snippet
+# ---------------------------------------------------------------------------
+
+class TestStampRunState:
+    def test_tokenized_url_appends_share_token(self):
+        from scripts.ddd.narrative import _tokenized_review_url
+
+        out = _tokenized_review_url(
+            {"url": "https://c/review/abc/", "share_token": "tok9"}
+        )
+        assert out == "https://c/review/abc/?t=tok9"
+
+    def test_tokenized_url_keeps_already_tokenized(self):
+        from scripts.ddd.narrative import _tokenized_review_url
+
+        out = _tokenized_review_url(
+            {"url": "https://c/review/abc/?t=existing", "share_token": "tok9"}
+        )
+        assert out == "https://c/review/abc/?t=existing"
+
+    def test_feature_from_run_id(self):
+        from scripts.ddd.narrative import _feature_from_run_id
+
+        assert _feature_from_run_id("verified-monitoring-2026-06-04-001") == "verified-monitoring"
+        assert _feature_from_run_id("nostampslug") == "nostampslug"
+
+    def test_stamp_writes_id_and_url(self, tmp_path, monkeypatch):
+        import scripts.ddd.runstate as rs
+        from scripts.ddd.narrative import _stamp_run_state
+        from scripts.ddd.schemas.models import RunState
+
+        monkeypatch.setattr(rs, "_resolve_ddd_dir", lambda: tmp_path)
+        run_id = "verified-monitoring-2026-06-04-001"
+        rs.save(RunState(run_id=run_id, feature="verified-monitoring", phase="converged"))
+
+        _stamp_run_state(
+            run_id,
+            {"id": "rev-uuid-1", "url": "https://c/review/rev-uuid-1/", "share_token": "t0"},
+        )
+
+        reloaded = rs.load(run_id)
+        assert reloaded.narrative_review_id == "rev-uuid-1"
+        assert reloaded.narrative_review_url == "https://c/review/rev-uuid-1/?t=t0"
+
+    def test_stamp_missing_run_state_warns_not_raises(self, tmp_path, monkeypatch, capsys):
+        import scripts.ddd.runstate as rs
+        from scripts.ddd.narrative import _stamp_run_state
+
+        monkeypatch.setattr(rs, "_resolve_ddd_dir", lambda: tmp_path)
+        # No run_state on disk — must warn, not crash (the post already succeeded).
+        _stamp_run_state("ghost-2026-01-01-001", {"id": "r", "url": "https://c/review/r/"})
+        assert "WARNING" in capsys.readouterr().err

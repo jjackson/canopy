@@ -53,6 +53,23 @@ from scripts.ddd.runstate import _resolve_ddd_dir
 DEFAULT_API = "https://canopy-web-ujpz2cuyxq-uc.a.run.app"
 TOKEN_FILE = Path.home() / ".claude" / "canopy" / "workbench-token"
 
+# Escape hatch (emergencies only): set DDD_ALLOW_NO_NARRATIVE=1 to publish a run
+# that has no narrative version on canopy-web. Mirrors the SKIP_TESTS pattern in
+# deploy.sh — the guard exists precisely so this is a conscious override.
+_ALLOW_NO_NARRATIVE_ENV = "DDD_ALLOW_NO_NARRATIVE"
+
+
+class NarrativeMissingError(RuntimeError):
+    """Raised when ``upload_run`` is asked to publish a run with no narrative.
+
+    A run is publishable only if a story-bearing ``concept_change`` review (the
+    ``ddd-narrative-review`` gate) exists for its narrative — otherwise the
+    published package would render as "no narrative" in canopy-web. The fix is
+    to run ``/canopy:ddd-narrative-review <run_id>`` first (which stamps
+    ``run_state.narrative_review_id``), then re-upload.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Auth / URL resolution — mirrors review.py exactly
 # ---------------------------------------------------------------------------
@@ -95,6 +112,37 @@ def _review_id_from_url(url: str | None) -> str | None:
         return None
     m = _REVIEW_ID_RE.search(url)
     return m.group(1) if m else None
+
+
+def _resolve_narrative_review_id(run_state: RunState) -> str | None:
+    """The narrative version this run rendered, however it was stamped.
+
+    Prefers the explicit ``narrative_review_id`` field (written by the
+    ``narrative post`` command since 0.2.172); falls back to parsing the legacy
+    ``narrative_review_url`` so runs stamped by older plugin versions still link.
+    """
+    explicit = (getattr(run_state, "narrative_review_id", None) or "").strip()
+    if explicit:
+        return explicit
+    return _review_id_from_url(getattr(run_state, "narrative_review_url", None))
+
+
+def _default_narrative_check(
+    feature: str,
+    run_id: str,
+    *,
+    base_url: str | None = None,
+    token: str | None = None,
+) -> bool:
+    """Real narrative-existence probe used by ``upload_run`` in production.
+
+    Returns True iff canopy-web has a narrative version for ``feature``. Kept as
+    a thin wrapper (local import) so ``upload.py`` has no import-time dependency
+    on the review client and tests can inject a fake without the network.
+    """
+    from scripts.ddd import review as rv
+
+    return rv.narrative_version_exists(feature, base_url=base_url, token=token)
 
 
 def _resolve_token(token: str | None) -> str:
@@ -741,6 +789,7 @@ def upload_run(
     token: str | None = None,
     _upload: Callable = None,  # type: ignore[assignment]
     _gate: Callable = None,  # type: ignore[assignment]
+    _narrative_check: Callable = None,  # type: ignore[assignment]
     auto_approve_for_test: bool = False,
 ) -> str:
     """Upload a converged run's artifacts to canopy-web as a navigable package.
@@ -779,6 +828,10 @@ def upload_run(
         Signature: ``(review_request, base_url, token) -> str`` (returns
         chosen option: ``"publish"`` or ``"hold"``).
         Defaults to ``_default_gate``.
+    _narrative_check:
+        Injected narrative-existence probe for tests.
+        Signature: ``(feature, run_id, *, base_url, token) -> bool``.
+        Defaults to ``_default_narrative_check`` (queries canopy-web).
     auto_approve_for_test:
         If ``True``, skip the gate and proceed directly to publish.  Only
         intended for integration tests that cannot mock ``_gate``.
@@ -788,9 +841,20 @@ def upload_run(
     str
         The run **package** URL (``/ddd/<feature>/<run_id>``) on publish, or
         ``""`` if the gate returned ``"hold"``.
+
+    Raises
+    ------
+    NarrativeMissingError
+        If the run has no narrative version (neither a stamped
+        ``narrative_review_id`` nor a narrative on canopy-web for its feature),
+        unless ``DDD_ALLOW_NO_NARRATIVE=1`` is set. This is the guard that stops
+        a run being published as "no narrative".
     """
     upload_fn = _upload if _upload is not None else publish_artifact
     gate_fn = _gate if _gate is not None else _default_gate
+    narrative_check = (
+        _narrative_check if _narrative_check is not None else _default_narrative_check
+    )
 
     # 1. Load run state
     run_state = load_state(run_id)
@@ -808,12 +872,32 @@ def upload_run(
         )
         return run_package_url(run_state.feature, run_id, base_url)
 
-    # The narrative VERSION this run rendered — derived from the review URL the
-    # narrative-agreement gate stamped on run_state. Lets canopy-web attach the
-    # run to its exact story version.
-    narrative_review_id = _review_id_from_url(
-        getattr(run_state, "narrative_review_url", None)
-    )
+    # The narrative VERSION this run rendered — the ID the narrative-agreement
+    # gate stamped on run_state. Lets canopy-web attach the run to its exact
+    # story version.
+    narrative_review_id = _resolve_narrative_review_id(run_state)
+
+    # GUARD: refuse to publish a run that has no narrative. Without this, a run
+    # whose narrative gate never ran (or ran under a different feature slug)
+    # publishes anyway and renders as "no narrative" in canopy-web. A stamped
+    # narrative_review_id is proof the gate ran; if it's absent, re-verify
+    # against canopy-web before allowing the publish.
+    if not narrative_review_id and not os.environ.get(_ALLOW_NO_NARRATIVE_ENV):
+        if not narrative_check(
+            run_state.feature, run_id, base_url=base_url, token=token
+        ):
+            raise NarrativeMissingError(
+                f"Refusing to upload run {run_id!r}: no narrative version exists "
+                f"for narrative {run_state.feature!r} on canopy-web, so the "
+                f"published package would render as \"no narrative\".\n"
+                f"Run `/canopy:ddd-narrative-review {run_id}` first to post and "
+                f"lock the narrative (it stamps run_state.narrative_review_id), "
+                f"then re-run the upload.\n"
+                f"This commonly happens when the feature slug was renamed "
+                f"mid-flow (the narrative was posted under the old slug). "
+                f"Emergency override: set {_ALLOW_NO_NARRATIVE_ENV}=1."
+            )
+
     ddd_dir = _resolve_ddd_dir()
     run_dir = ddd_dir / "runs" / run_id
 

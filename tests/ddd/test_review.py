@@ -342,3 +342,71 @@ class TestTokenResolution:
         monkeypatch.setenv("CANOPY_WEB_PAT", "env-token")
         import scripts.ddd.review as rv
         assert rv._resolve_token("explicit-token") == "explicit-token"
+
+
+# ---------------------------------------------------------------------------
+# get_narrative / narrative_version_exists — the upload guard's probe
+# ---------------------------------------------------------------------------
+
+class TestNarrativeExistence:
+    def test_get_narrative_returns_detail(self, monkeypatch):
+        monkeypatch.setenv("CANOPY_WEB_PAT", "tok")
+        body = {"slug": "verified-monitoring", "current_version": {"version": 1}}
+        with patch("urllib.request.urlopen", _mock_urlopen(body)):
+            from scripts.ddd import review as rv
+            got = rv.get_narrative("verified-monitoring", base_url="https://canopy.test")
+        assert got == body
+
+    def test_get_narrative_404_returns_none(self, monkeypatch):
+        monkeypatch.setenv("CANOPY_WEB_PAT", "tok")
+
+        def raise_404(req, **kwargs):
+            raise urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, None)
+
+        with patch("urllib.request.urlopen", side_effect=raise_404):
+            from scripts.ddd import review as rv
+            assert rv.get_narrative("nope", base_url="https://canopy.test") is None
+
+    def test_get_narrative_non_404_propagates(self, monkeypatch):
+        monkeypatch.setenv("CANOPY_WEB_PAT", "tok")
+
+        def raise_500(req, **kwargs):
+            raise urllib.error.HTTPError(req.full_url, 500, "Boom", {}, None)
+
+        with patch("urllib.request.urlopen", side_effect=raise_500):
+            from scripts.ddd import review as rv
+            with pytest.raises(urllib.error.HTTPError):
+                rv.get_narrative("x", base_url="https://canopy.test")
+
+    def test_exists_true_when_current_version(self, monkeypatch):
+        monkeypatch.setenv("CANOPY_WEB_PAT", "tok")
+        body = {"current_version": {"version": 2}, "versions": []}
+        with patch("urllib.request.urlopen", _mock_urlopen(body)):
+            from scripts.ddd import review as rv
+            assert rv.narrative_version_exists("f", base_url="https://canopy.test") is True
+
+    def test_exists_true_when_version_row_present(self, monkeypatch):
+        monkeypatch.setenv("CANOPY_WEB_PAT", "tok")
+        body = {"current_version": None, "versions": [{"version": 1}, {"version": None}]}
+        with patch("urllib.request.urlopen", _mock_urlopen(body)):
+            from scripts.ddd import review as rv
+            assert rv.narrative_version_exists("f", base_url="https://canopy.test") is True
+
+    def test_exists_false_when_only_none_bucket(self, monkeypatch):
+        """The exact 'no narrative' shape: artifacts exist but every version is
+        the null bucket → no narrative version → guard must see False."""
+        monkeypatch.setenv("CANOPY_WEB_PAT", "tok")
+        body = {"current_version": None, "versions": [{"version": None}]}
+        with patch("urllib.request.urlopen", _mock_urlopen(body)):
+            from scripts.ddd import review as rv
+            assert rv.narrative_version_exists("f", base_url="https://canopy.test") is False
+
+    def test_exists_false_when_narrative_absent(self, monkeypatch):
+        monkeypatch.setenv("CANOPY_WEB_PAT", "tok")
+
+        def raise_404(req, **kwargs):
+            raise urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, None)
+
+        with patch("urllib.request.urlopen", side_effect=raise_404):
+            from scripts.ddd import review as rv
+            assert rv.narrative_version_exists("gone", base_url="https://canopy.test") is False

@@ -456,6 +456,13 @@ class NarrationItem(BaseModel):
 class ReviewRequest(BaseModel):
     schema_version: int = 1
     run_id: str
+    feature: str = ""
+    """The narrative slug this review belongs to — the explicit source of truth
+    canopy-web files the review under (``request_json.feature``). Sending it
+    decouples narrative identity from ``run_id`` slug-parsing, so a run whose
+    ``run_id`` slug differs from its feature (e.g. after a mid-flow rename) still
+    groups with the right narrative. Defaults to "" → canopy-web falls back to
+    ``feature_from_run_id(run_id)``."""
     gate: str
     video: dict
     decisions: list[Decision]
@@ -546,3 +553,11 @@ class RunState(BaseModel):
     # upload step passes it as the video's `narrative` companion link so a
     # viewer watching the clip can jump back to the story that generated it.
     narrative_review_url: str | None = None
+    # Hosted narrative-review ID (0.2.172). Stamped alongside narrative_review_url
+    # by the ddd-narrative-review gate's `narrative post` command — the raw
+    # ReviewRequest UUID, so ddd-upload can attach this run's artifacts to the
+    # exact narrative version without regex-parsing it back out of the URL.
+    # Its presence is also the upload gate's proof that a narrative review ran:
+    # when it's None, upload re-verifies against canopy-web and refuses to
+    # publish a run that has no narrative (see scripts/ddd/upload.py).
+    narrative_review_id: str | None = None

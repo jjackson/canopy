@@ -39,6 +39,17 @@ import re as _re
 
 _SENTENCE_SPLIT_RE = _re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'])")
 
+# Trailing "-YYYY-MM-DD-NNN" stamp on a run_id — kept in lockstep with
+# canopy-web's apps/common/ddd.feature_from_run_id so the narrative slug derived
+# here matches the one canopy-web groups artifacts under.
+_RUN_ID_STAMP_RE = _re.compile(r"-\d{4}-\d{2}-\d{2}-\d+$")
+
+
+def _feature_from_run_id(run_id: str) -> str:
+    """``'verified-monitoring-2026-06-04-001'`` -> ``'verified-monitoring'``."""
+    base = _RUN_ID_STAMP_RE.sub("", run_id or "").strip("-")
+    return base or run_id or "(untitled)"
+
 
 # ---------------------------------------------------------------------------
 # Narrative lock — an approved narrative is durable INPUT.
@@ -192,6 +203,7 @@ def build_narrative_review_request(
     run_id: str,
     actionability: dict | None = None,
     why_brief: dict | None = None,
+    feature: str | None = None,
 ) -> ReviewRequest:
     """Build a ReviewRequest for the narrative-agreement gate (DDD v3).
 
@@ -220,6 +232,10 @@ def build_narrative_review_request(
         A ReviewRequest with gate="concept_change" ready to post via
         ``review.post_review_request``.
     """
+    # Explicit narrative slug — the source of truth canopy-web files this review
+    # under (request_json.feature). Falls back to the run_id slug (date stamp
+    # stripped), matching canopy-web's own feature_from_run_id().
+    resolved_feature = (feature or "").strip() or _feature_from_run_id(run_id)
     narration = [
         NarrationItem(
             scene=i,
@@ -252,6 +268,7 @@ def build_narrative_review_request(
 
     return ReviewRequest(
         run_id=run_id,
+        feature=resolved_feature,
         gate="concept_change",
         video={},
         narration=narration,
@@ -837,8 +854,55 @@ def load_why_brief(spec_path: str | Path, spec: UnifiedSpec) -> dict:
         return {}
 
 
+def _tokenized_review_url(result: dict) -> str | None:
+    """Token-bearing review URL from a post result ``{id, url, share_token}``.
+
+    Prefers an already-tokenized ``url``; otherwise appends ``?t=<share_token>``
+    so a non-owner viewer (e.g. the user reading on another device) can open it.
+    """
+    url = (result.get("url") or "").strip()
+    if not url:
+        return None
+    token = (result.get("share_token") or "").strip()
+    if token and "t=" not in url:
+        sep = "&" if "?" in url else "?"
+        url = f"{url}{sep}t={token}"
+    return url
+
+
+def _stamp_run_state(run_id: str, result: dict) -> None:
+    """Deterministically record the posted narrative review on run_state.yaml.
+
+    Writes ``narrative_review_id`` (the raw ReviewRequest UUID) and
+    ``narrative_review_url`` (token-bearing) so ddd-upload can attach this run's
+    artifacts to the exact narrative version — and so its upload guard sees
+    proof the narrative gate ran. Replaces the old hand-run Python snippet that
+    the model had to remember (and silently skipped). A missing run_state is a
+    warning, not a failure: the post already succeeded.
+    """
+    from scripts.ddd import runstate as rs
+
+    review_id = (result.get("id") or "").strip()
+    try:
+        state = rs.load(run_id)
+    except FileNotFoundError:
+        print(
+            f"WARNING: posted narrative review {review_id or '(unknown id)'} but "
+            f"run_state for {run_id!r} was not found — could not stamp "
+            f"narrative_review_id. ddd-upload will re-verify against canopy-web.",
+            file=sys.stderr,
+        )
+        return
+    if review_id:
+        state.narrative_review_id = review_id
+    url = _tokenized_review_url(result)
+    if url:
+        state.narrative_review_url = url
+    rs.save(state)
+
+
 def _cmd_post(spec_path_str: str, run_id: str) -> None:
-    """Post the narrative review request and print {id, url, share_token}."""
+    """Post the narrative review request, stamp run_state, print {id, url, share_token}."""
     from scripts.ddd import review as rv  # local import — network-touching
 
     spec_path = Path(spec_path_str)
@@ -846,11 +910,25 @@ def _cmd_post(spec_path_str: str, run_id: str) -> None:
         print(f"ERROR: spec file not found: {spec_path}", file=sys.stderr)
         sys.exit(1)
 
+    # The narrative slug this review belongs to: prefer the run's own feature
+    # (handles a run_id whose slug differs from its feature after a rename),
+    # else derive from the run_id stamp.
+    feature: str | None = None
+    try:
+        from scripts.ddd import runstate as rs
+
+        feature = rs.load(run_id).feature
+    except FileNotFoundError:
+        feature = None
+
     raw = yaml.safe_load(spec_path.read_text())
     spec = UnifiedSpec.model_validate(raw)
     why_brief = load_why_brief(spec_path, spec)
-    request = build_narrative_review_request(spec, run_id, why_brief=why_brief)
+    request = build_narrative_review_request(
+        spec, run_id, why_brief=why_brief, feature=feature
+    )
     result = rv.post_review_request(request)
+    _stamp_run_state(run_id, result)
     print(json.dumps(result))
 
 
@@ -866,6 +944,50 @@ def _cmd_apply(spec_path_str: str, response_json_file: str) -> None:
     print(json.dumps(result))
 
 
+def _cmd_status(run_id: str) -> None:
+    """Report whether *run_id* has a narrative the upload step will accept.
+
+    Prints a JSON status: ``{run_id, feature, narrative_review_id, stamped,
+    narrative_exists, ok}``. ``ok`` is True when the run is stamped OR canopy-web
+    already has a narrative version for its feature — i.e. ``ddd-upload`` would
+    NOT refuse it. The orchestrator calls this before render/upload so a renamed
+    or never-posted narrative is caught early (and re-posted under the right
+    slug) instead of surfacing as "no narrative" after publish. Exit code is 0
+    when ``ok`` is True, 1 otherwise — so a shell gate can branch on it.
+    """
+    from scripts.ddd import review as rv
+    from scripts.ddd import runstate as rs
+
+    try:
+        state = rs.load(run_id)
+        feature = state.feature
+        review_id = (getattr(state, "narrative_review_id", None) or "").strip() or None
+        if not review_id:
+            review_id = _review_id_from_url(
+                getattr(state, "narrative_review_url", None)
+            )
+    except FileNotFoundError:
+        feature = _feature_from_run_id(run_id)
+        review_id = None
+
+    stamped = bool(review_id)
+    narrative_exists = rv.narrative_version_exists(feature)
+    ok = stamped or narrative_exists
+    print(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "feature": feature,
+                "narrative_review_id": review_id,
+                "stamped": stamped,
+                "narrative_exists": narrative_exists,
+                "ok": ok,
+            }
+        )
+    )
+    sys.exit(0 if ok else 1)
+
+
 def main() -> None:
     """Entry point for ``python -m scripts.ddd.narrative``."""
     if len(sys.argv) < 2:
@@ -873,6 +995,7 @@ def main() -> None:
             "Usage:\n"
             "  python -m scripts.ddd.narrative post <spec_path> <run_id>\n"
             "  python -m scripts.ddd.narrative apply <spec_path> <response_json_file>\n"
+            "  python -m scripts.ddd.narrative status <run_id>     # prints narrative status JSON; exit 1 if upload would refuse\n"
             "  python -m scripts.ddd.narrative locked <spec_path>   # prints locked|unlocked\n"
             "  python -m scripts.ddd.narrative lock <spec_path>\n"
             "  python -m scripts.ddd.narrative unlock <spec_path>",
@@ -890,6 +1013,15 @@ def main() -> None:
             )
             sys.exit(2)
         _cmd_post(sys.argv[2], sys.argv[3])
+
+    elif subcmd == "status":
+        if len(sys.argv) != 3:
+            print(
+                "Usage: python -m scripts.ddd.narrative status <run_id>",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        _cmd_status(sys.argv[2])
 
     elif subcmd == "apply":
         if len(sys.argv) != 4:
@@ -914,7 +1046,7 @@ def main() -> None:
 
     else:
         print(
-            f"ERROR: unknown subcommand {subcmd!r}. Use 'post', 'apply', 'locked', 'lock', or 'unlock'.",
+            f"ERROR: unknown subcommand {subcmd!r}. Use 'post', 'status', 'apply', 'locked', 'lock', or 'unlock'.",
             file=sys.stderr,
         )
         sys.exit(2)
