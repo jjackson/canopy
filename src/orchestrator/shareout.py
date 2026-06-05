@@ -135,13 +135,6 @@ def _parse_ts(s) -> dt.datetime | None:
     return d if d.tzinfo else d.replace(tzinfo=UTC)
 
 
-def _ts_date(ts: str | None) -> dt.date | None:
-    """Date portion (UTC) of an ISO timestamp string, or None. Used for the
-    coarser PR-window check (PRs only carry day-resolution intent here)."""
-    d = _parse_ts(ts)
-    return d.date() if d else None
-
-
 def session_in_range(session: dict, start: dt.datetime, end: dt.datetime) -> bool:
     """True if the session's [first_ts, last_ts] timestamp window intersects
     [start, end]. Sessions missing timestamps are excluded."""
@@ -192,12 +185,30 @@ def _session_digest(session: dict) -> dict:
     }
 
 
-def fetch_prs(repo: str, start: dt.date, end: dt.date, author: str = "@me") -> list[dict]:
-    """Fetch the author's PRs in `repo` touched within [start, end] via gh.
+def _pr_anchor(pr: dict) -> dt.datetime | None:
+    """The single moment a PR 'belongs' to: its merge time if merged, else its
+    creation time. Anchoring on one timestamp (not 'updated') means a PR lands
+    in exactly ONE shareout window — a later comment/label touch never
+    re-surfaces an already-reported PR."""
+    return _parse_ts(pr.get("mergedAt")) or _parse_ts(pr.get("createdAt"))
 
-    Best-effort: returns [] when gh is unavailable, unauthenticated, or the
-    repo isn't on GitHub. A PR is included when it was created, merged, or last
-    updated within the window.
+
+def _pr_in_window(pr: dict, start: dt.datetime, end: dt.datetime) -> bool:
+    """Half-open (start, end]: the start instant belongs to the PREVIOUS
+    window (whose end == this start), so chained shareouts never double-count
+    a PR on the boundary."""
+    ts = _pr_anchor(pr)
+    return ts is not None and start < ts <= end
+
+
+def fetch_prs(repo: str, start: dt.datetime, end: dt.datetime, author: str = "@me") -> list[dict]:
+    """Fetch the author's PRs in `repo` whose merge (or, if unmerged, creation)
+    time falls in the (start, end] window, via gh.
+
+    Best-effort: returns [] when gh is unavailable, unauthenticated, or the repo
+    isn't on GitHub. The gh `updated:>=` search is a coarse day-resolution
+    candidate filter (a superset); `_pr_in_window` then narrows precisely so
+    consecutive shareouts don't share PRs.
     """
     if not repo or "/" not in repo:
         return []
@@ -209,7 +220,7 @@ def fetch_prs(repo: str, start: dt.date, end: dt.date, author: str = "@me") -> l
                 "--repo", repo,
                 "--author", author,
                 "--state", "all",
-                "--search", f"updated:>={start.isoformat()}",
+                "--search", f"updated:>={start.date().isoformat()}",
                 "--json", fields,
                 "--limit", str(MAX_PRS_PER_PROJECT),
             ],
@@ -228,13 +239,7 @@ def fetch_prs(repo: str, start: dt.date, end: dt.date, author: str = "@me") -> l
 
     out = []
     for pr in raw:
-        created = _ts_date(pr.get("createdAt"))
-        merged = _ts_date(pr.get("mergedAt"))
-        updated = _ts_date(pr.get("updatedAt"))
-        in_window = any(
-            d is not None and start <= d <= end for d in (created, merged, updated)
-        )
-        if not in_window:
+        if not _pr_in_window(pr, start, end):
             continue
         body = (pr.get("body") or "").strip()
         out.append({
@@ -290,7 +295,7 @@ def gather(
     for repo, sess in sorted(groups.items()):
         sess.sort(key=lambda s: s.get("last_ts") or "")
         digests = [_session_digest(s) for s in sess[:MAX_SESSIONS_PER_PROJECT]]
-        prs = fetch_prs_fn(repo, start.date(), end.date(), author) if "/" in repo else []
+        prs = fetch_prs_fn(repo, start, end, author) if "/" in repo else []
         projects[repo] = {
             "session_count": len(sess),
             "sessions": digests,
