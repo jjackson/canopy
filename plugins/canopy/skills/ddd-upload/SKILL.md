@@ -8,7 +8,11 @@ description: |
   deck, narrative, and links group under the run and are navigable at
   /ddd/<narrative-slug>/<run_id>. Returns the run PACKAGE URL, not a loose artifact link.
   Phase transitions from "converged" → "uploaded" on publish; no-op on hold.
-  Use when asked to "upload this run", "publish the run", or "upload the run package".
+  STUCK runs (didn't converge) upload a REVIEW package too — pass --stuck to skip the
+  external_release gate and leave the run iterable, so there is ALWAYS a navigable
+  /ddd/<slug>/<run_id> to inspect per-scene and decide next steps.
+  Use when asked to "upload this run", "publish the run", "upload the run package", or
+  when the loop gets stuck (stop_unclear / stop_max_iter / stop_concept_change / stop_partial).
 ---
 
 ## Preamble (run first)
@@ -44,6 +48,32 @@ every upload, and assembles them into a run package:
 
 The package + previous-runs navigation live at `/ddd/<narrative-slug>` (narrative
 landing) and `/ddd/<narrative-slug>/<run_id>` (the run package).
+
+## Stuck runs upload a review package too (`--stuck`)
+
+A run that does NOT converge but gets **stuck** (the orchestrator's
+`stop_unclear` / `stop_max_iter` / `stop_concept_change` / `stop_partial`) should
+STILL produce a navigable package — that's exactly when you want to open
+`/ddd/<slug>/<run_id>`, poke each scene's deep-link, and decide what to do next.
+A non-converged run must never leave the user with no package, or with only a
+loose `/w/<artifact-id>` link.
+
+Pass **`--stuck`** (CLI) / `release=False` (`upload_run`). In this mode the script:
+
+- uploads the hero video (`role=hero_video`) and the docs page (`role=docs`) so the
+  package assembles and is navigable per-scene, **but**
+- **skips the `external_release` gate** — a stuck run is an internal inspection
+  package, not a public release, and
+- **leaves `phase` unchanged** (does NOT set `uploaded`), so the run stays
+  iterable: fix the stuck findings, re-render, and re-upload the same run.
+
+The narrative + partial guards (Steps 0 / 0.5) still apply — a review package must
+still have a narrative and (for a clean package) cover the full spec.
+
+**Do NOT** fall back to `scripts/walkthrough-share/upload.py` to hand-make a link
+for a stuck run — that produces a loose, mis-roled `/w/` artifact that masquerades
+as the run's package. Always go through this skill so the link is the real
+`/ddd/<slug>/<run_id>` package.
 
 ## Inputs
 
@@ -130,7 +160,10 @@ DDD_REPO="$HOME/emdash-projects/canopy"; [ -d "$DDD_REPO/scripts/ddd" ] || DDD_R
 if [ ! -d "$DDD_REPO/scripts/ddd" ]; then echo "ERROR: scripts/ddd not found — run /canopy:update to sync the canopy checkout"; exit 1; fi
 # pass the video_path as an absolute path (resolved before the cd):
 VIDEO_ABS="$(realpath <video_path>)"
+# Converged run → public release (runs the external_release gate):
 (cd "$DDD_REPO" && uv run python -m scripts.ddd.upload <run_id> --video "$VIDEO_ABS")
+# STUCK run → review package (skips the gate, leaves the run iterable):
+(cd "$DDD_REPO" && uv run python -m scripts.ddd.upload <run_id> --video "$VIDEO_ABS" --stuck)
 ```
 
 The script orchestrates all steps internally:

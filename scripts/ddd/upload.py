@@ -791,8 +791,22 @@ def upload_run(
     _gate: Callable = None,  # type: ignore[assignment]
     _narrative_check: Callable = None,  # type: ignore[assignment]
     auto_approve_for_test: bool = False,
+    release: bool = True,
 ) -> str:
-    """Upload a converged run's artifacts to canopy-web as a navigable package.
+    """Upload a run's artifacts to canopy-web as a navigable package.
+
+    Two modes:
+
+    - **release=True** (default, converged run): run the ``external_release`` gate
+      and, on ``publish``, upload the deck, set ``phase = "uploaded"`` (terminal),
+      and return the package URL. The public-release path.
+    - **release=False** (a STUCK run — ``stop_unclear`` / ``stop_max_iter`` /
+      ``stop_concept_change`` / ``stop_partial``): upload the navigable package for
+      REVIEW without the external_release gate, and LEAVE ``phase`` unchanged so the
+      run stays iterable. A stuck run is exactly when you want a navigable
+      ``/ddd/<slug>/<run_id>`` to inspect per-scene and decide what to do next — the
+      loop should never leave you without a package just because it didn't converge.
+      The narrative + partial-run guards still apply.
 
     Orchestration
     -------------
@@ -928,8 +942,10 @@ def upload_run(
     # 4. Build docs HTML
     html_content = build_docs_page(spec, why_brief, video_url)
 
-    # 5. External release gate
-    if not auto_approve_for_test:
+    # 5. External release gate — ONLY for a public release. A stuck/review upload
+    #    (release=False) skips the gate: it's an internal inspection package, not a
+    #    public release, and the run stays iterable.
+    if release and not auto_approve_for_test:
         review_request = ReviewRequest(
             run_id=run_id,
             gate="external_release",
@@ -965,9 +981,12 @@ def upload_run(
         narrative_review_id=narrative_review_id,
     )
 
-    # 7. Update run state
-    run_state.phase = "uploaded"
-    save_state(run_state)
+    # 7. Update run state. A release marks the run terminal (uploaded); a stuck
+    #    review upload leaves phase unchanged so the run can keep iterating toward
+    #    convergence — the package is just an inspection view, not a publish.
+    if release:
+        run_state.phase = "uploaded"
+        save_state(run_state)
 
     # 8. Return the run PACKAGE URL — the navigable /ddd/<narrative_slug>/<run_id> view
     #    that canopy-web assembles from the run's video + deck + narrative +
@@ -990,11 +1009,25 @@ def main(argv=None):
     parser.add_argument("run_id", help="Run identifier (e.g. my-narrative_slug-2026-01-01-001)")
     parser.add_argument("--video", required=True, dest="video_path", help="Path to hero video .mp4")
     parser.add_argument("--base-url", default=None, help="canopy-web API base URL")
+    parser.add_argument(
+        "--stuck",
+        action="store_true",
+        help=(
+            "Upload a STUCK (non-converged) run as a navigable REVIEW package: skip "
+            "the external_release gate and leave phase unchanged (run stays iterable). "
+            "Use when the loop stopped on stop_unclear / stop_max_iter / "
+            "stop_concept_change / stop_partial so there's always a /ddd/<slug>/<run_id> "
+            "to inspect per-scene and decide next steps."
+        ),
+    )
     args = parser.parse_args(argv)
 
-    package_url = upload_run(args.run_id, video_path=args.video_path, base_url=args.base_url)
+    package_url = upload_run(
+        args.run_id, video_path=args.video_path, base_url=args.base_url, release=not args.stuck
+    )
     if package_url:
-        print(f"Uploaded: {package_url}")
+        label = "Review package (stuck run)" if args.stuck else "Uploaded"
+        print(f"{label}: {package_url}")
     else:
         print("Upload held — the run package was not published.")
 

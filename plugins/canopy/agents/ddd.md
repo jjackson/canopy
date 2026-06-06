@@ -456,6 +456,18 @@ After routing all findings and re-rendering changed scenes, **read
 `state.auto_iterate_next_action`** from `run_state.yaml` (computed by
 `ddd-run` Step 5; see the `ddd-run` SKILL for the contract). Branch on it:
 
+**Always leave the user with a navigable package — converged OR stuck.** Whenever
+the loop reaches a TERMINAL stop that hands control back to the user — `stop_done`
+(release), and every STUCK stop (`stop_unclear`, `stop_concept_change`,
+`stop_max_iter`, `stop_partial`) — invoke `/canopy:ddd-upload <run_id>` so the run
+publishes its `/ddd/<slug>/<run_id>` package and you surface THAT package URL (not a
+loose `/w/` artifact, and never a hand-made `walkthrough-share` upload). For the
+stuck stops use **`--stuck`** (review package: skips the external_release gate, leaves
+the run iterable) so the user can open the package, poke each scene's `#scene-<N>`
+deep-link, and decide what to do next. The ONLY case that doesn't upload is a
+non-terminal `continue` (mechanical fixes, loop again). A stuck run that never gets a
+package is a bug — the user is stuck precisely when they most need to inspect it.
+
 ### `stop_done` (converged, full-spec)
 
 Both judges passed on the full spec. **Automatically upload — do NOT stop at
