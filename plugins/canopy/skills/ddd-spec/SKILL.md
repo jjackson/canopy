@@ -153,6 +153,36 @@ This narrative is rendered at the top of the review surface, so the reviewer rea
 the whole arc before the per-scene breakdown.  It is the thing they approve or
 send back.
 
+**Narrative voice — write it as the persona, not as a UI tour.** The narrative
+(and every scene's `narrative` beat) is a story about a *named person doing
+things*, not a description of the product. This is the single biggest quality
+lever; apply all four every time:
+
+- **The persona is the named subject of (almost) every sentence.** "David drops to
+  the map… David clicks the flagged surveyor's GPS…" — NOT "The page shows a map…
+  A panel opens…". Lead beats with the persona's name, not "he/she/they" and not
+  the UI. Test: delete the persona's name; if the sentence still reads as a UI
+  description, rewrite it so the persona is doing the acting.
+- **Ground the persona in the real user — role + the live question they walked in
+  with.** Not a generic stand-in ("a funder"); the actual user of *this* product
+  with the actual decision they're trying to make ("David manages a Connect
+  program and wants to know whether his visits are changing anything"). Pull it
+  from the why_brief `problem` + persona, made specific.
+- **Active and first-order: the persona does, reads, notices, decides.** The verbs
+  belong to the persona ("reads the distance between the two numbers", "checks the
+  people who collected the data"), not to the UI ("the trend displays", "the table
+  renders").
+- **Show-don't-tell — end on the persona drawing their own conclusion.** Don't
+  state the takeaway; let the persona reach it ("…and decided for himself whether
+  his program is working"). No interpretive verbs telling the viewer what to think.
+
+Before → after, same moment and same UI:
+- ✗ UI tour: "The dashboard leads with a six-cycle trend; the self-reported line
+  sits above the independent survey every cycle."
+- ✓ Persona story: "David starts with the six-cycle trend, lining up what his
+  program reported against what the independent survey found and reading the
+  distance between them."
+
 **Write it so the scenes fall out of the literal text.** The narrative is the
 single source of truth; the scene list is a *mechanical decomposition of it*, not
 a separate authoring pass. So:
@@ -180,9 +210,29 @@ one continuous demo.
 
 For each scene, take it **directly from its narrative sentence**:
 - `persona` ← the persona that sentence named.
+- `narrative` ← that sentence kept **in the persona's voice** — the story beat the
+  reviewer reads (see "Two fields per scene" below). Write it for EVERY scene.
 - `concept_claim` ← that sentence, tightened into one falsifiable assertion (see below).
 - `title` ← a short story-beat label for that same moment.
 - `show` ← the concrete browser actions that play out that moment.
+
+**Two fields per scene, two jobs — don't conflate them:**
+
+- **`narrative`** — the persona-voiced **story beat the reviewer reads** on the
+  narrative-review surface. **Write it explicitly for every scene.** If you leave
+  it empty, the surface falls back to the terse, third-person `concept_claim`,
+  which reads as an abstract UI claim, not a story — the most common narrative
+  miss. Apply the four "Narrative voice" rules from Step 3 to each beat (named
+  persona as subject, grounded, active, show-don't-tell).
+- **`concept_claim`** — the tightened, **falsifiable assertion the judge tests**.
+  Third-person and terse is correct here; it is the build/eval contract, not the
+  human-facing story.
+
+Same moment, two registers:
+- `narrative`: "David clicks the flagged surveyor's GPS and reads, survey by
+  survey, how far each capture sat from the household it claimed."
+- `concept_claim`: "clicking a quality cell shows the full per-record census for
+  that surveyor, failing rows first."
 
 Because the scenes are a literal decomposition, the scene count equals the beat
 count and their order matches the narrative order. If you find yourself adding a
@@ -639,8 +689,10 @@ personas:
 scenes:                       # ordered story beats, numbered from 1 by position
   - persona: ...              # who is on screen this beat
     title: ...                # the story beat (a moment), NOT a capability name
+    narrative: >-             # the persona-voiced beat the REVIEWER reads (write it!)
+      <Named persona as subject, active voice, grounded, show-don't-tell.>
     show: ...
-    concept_claim: ...
+    concept_claim: ...        # tightened, falsifiable assertion the JUDGE tests
     provenance: ...
     design_intent: ...
     features:
