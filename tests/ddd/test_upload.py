@@ -494,6 +494,47 @@ class TestUploadRun:
         state = rs.load(tmp_run["run_id"])
         assert state.phase == "uploaded"
 
+    def test_stuck_uploads_package_without_gate(self, tmp_run, monkeypatch):
+        """A stuck/review upload (release=False) uploads the navigable package
+        (video + docs) WITHOUT running the external_release gate."""
+        monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
+        upload_calls: list[dict] = []
+        uploader = self._make_uploader(upload_calls)
+        gate = self._make_gate("hold")  # would block a release; must be ignored
+
+        url = upload_run(
+            tmp_run["run_id"],
+            video_path=tmp_run["video_path"],
+            base_url="https://canopy.test",
+            _upload=uploader,
+            _gate=gate,
+            release=False,
+        )
+
+        assert url == "https://canopy.test/ddd/smart-routing/smart-routing-2026-01-01-001"
+        assert gate.calls == [], "stuck upload must NOT run the external_release gate"
+        kinds = [c["kind"] for c in upload_calls]
+        assert "video" in kinds and "html" in kinds, "package (video + docs) must still upload"
+
+    def test_stuck_leaves_phase_iterable(self, tmp_run, monkeypatch):
+        """A stuck/review upload must NOT mark the run terminal — phase stays
+        unchanged so the run can keep iterating toward convergence."""
+        monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
+        uploader = self._make_uploader([])
+        gate = self._make_gate("hold")
+
+        upload_run(
+            tmp_run["run_id"],
+            video_path=tmp_run["video_path"],
+            base_url="https://canopy.test",
+            _upload=uploader,
+            _gate=gate,
+            release=False,
+        )
+
+        import scripts.ddd.runstate as rs
+        assert rs.load(tmp_run["run_id"]).phase == "converged", "stuck upload must not set phase=uploaded"
+
     def test_hold_does_not_upload_html(self, tmp_run, monkeypatch):
         monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
         upload_calls: list[dict] = []
