@@ -1483,6 +1483,36 @@ class TestStampRunState:
         )
         assert out == "https://c/review/abc/?t=existing"
 
+    def test_internal_url_strips_token_and_is_absolute(self):
+        from scripts.ddd.narrative import _internal_review_url
+
+        # server returns a RELATIVE, token-bearing url — internal must drop the
+        # token and absolutize against base, so it opens with the left rail.
+        out = _internal_review_url(
+            {"id": "abc-123", "url": "/review/abc-123/?t=TOK", "share_token": "TOK"},
+            "https://c",
+        )
+        assert out == "https://c/review/abc-123/"
+        assert "?t=" not in out
+
+    def test_internal_url_falls_back_to_url_path_without_id(self):
+        from scripts.ddd.narrative import _internal_review_url
+
+        out = _internal_review_url(
+            {"id": "", "url": "https://c/review/zzz/?t=Q", "share_token": "Q"},
+            "https://c",
+        )
+        assert out == "https://c/review/zzz/"
+
+    def test_internal_url_differs_from_share_url(self):
+        from scripts.ddd.narrative import _internal_review_url, _tokenized_review_url
+
+        result = {"id": "d-9", "url": "/review/d-9/?t=Z", "share_token": "Z"}
+        internal = _internal_review_url(result, "https://c")
+        share = _tokenized_review_url(result)
+        assert "?t=" not in internal
+        assert "?t=" in share
+
     def test_narrative_slug_from_run_id(self):
         from scripts.ddd.narrative import _narrative_slug_from_run_id
 
