@@ -72,6 +72,7 @@ the patterns scan the checklist; authors who don't read the deeper sections.
 - **Prefer prefix syntax — `testid:foo` / `role:button:Foo` / `aria:Foo` — over fragile `:nth-of-type` CSS chains.** Bare strings work for the common case; prefixes make the resolution explicit and refactor-resistant. (See "Target resolution syntax".)
 - **Use `must_succeed: true` on actions whose failure makes later scenes gibberish.** The form-submit that creates the entity later scenes operate on; the navigation that lands on the page later scenes screenshot. (See "`must_succeed: true` for critical actions".)
 - **When a single scene needs more room than the rest, set `viewport: {width, height}` on it.** Most specs render at one viewport. A dense plan-review scene can override per-scene without inflating the whole recording. (See "Per-scene `viewport:` override".)
+- **Map / WebGL scenes capture fine — give the map a `hold` to paint, and set `full_page: false` on map+table pages.** Headless WebGL (Mapbox/deck.gl/three.js) renders via SwiftShader out of the box; a "blank map" is almost always too short a settle (tiles still loading) or a full-page capture of a tall table+map page, not a WebGL failure. (See "Map / WebGL scenes".)
 - **Narrative-only back-half scenes are fine** — the recorder skips them with `--skip-empty-scenes`. Deck slides still cover them; the mp4 doesn't waste `min_hold_ms` on identical static pages.
 - **A scene that omits `url:` continues on whatever page the previous scene's actions navigated to** (continue-scene pattern). This is how a narrative can CREATE an entity in one scene and operate on it in later scenes whose URL can't be known ahead of time.
 
@@ -457,6 +458,41 @@ narrative first (Step 3) so the two stay in lockstep.
   don't expect the dense scene to be sharper in the video. For per-scene
   resolution, use multiple render passes + ffmpeg concat (out of scope for
   normal spec authoring).
+
+  **Map / WebGL scenes (Mapbox, deck.gl, three.js, canvas) — they DO capture.**
+  Headless rendering of WebGL maps works out of the box: the recorder launches
+  Chromium with SwiftShader (`--enable-unsafe-swiftshader --use-angle=swiftshader
+  --ignore-gpu-blocklist`), Chromium's CPU GL backend, so a Mapbox/WebGL canvas
+  renders and composites into both the snapshot and the video. There is no special
+  capture path or second browser needed. Two authoring rules make map scenes land:
+
+  - **Give the map time to paint.** Tiles (especially high-zoom satellite) load over
+    the network after the page is "ready", so open the scene with a `wait_for` on a
+    stable on-map element (a legend row, an arm label, `View-only`) and then a
+    `hold` of **~6–12s** before the snapshot — the snapshot fires at the scene's
+    steady state, so the hold is the paint budget. Too short → a half-painted or
+    blank-looking canvas. This is the #1 cause of a "blank map"; it is a *timing*
+    problem, not a WebGL one.
+  - **For a page that is a map + a long table (e.g. the plan-review page), set
+    `full_page: false`** so the snapshot is just the viewport (the map is the hero).
+    Default full-page capture of such a page yields a 16,000px strip where the map
+    is a ~4% sliver up top — it *looks* blank but the map rendered fine; it's just
+    dwarfed. A full-viewport map page (e.g. a group overlay map) captures correctly
+    either way, so `full_page` only matters for table-dominant pages.
+
+  ```yaml
+  - title: "Maya sees both arms on one map"
+    url: "/microplans/program/133/group/3635/map/"
+    full_page: false            # viewport capture — map is the hero, not a tall strip
+    actions:
+      - { kind: wait_for, target: "View-only" }
+      - { kind: wait_for, target: "intervention" }   # an on-map legend label
+      - { kind: hold, seconds: 10 }                   # let tiles paint before the snapshot
+  ```
+
+  To interact with the map (draw an area, click a feature), use the `draw` action
+  (coordinate clicks on the canvas) documented in Step 4 — a labelled-element click
+  can't address a point on a WebGL canvas.
 
 **Narrative voice — the persona stays the subject (CRITICAL):**
 

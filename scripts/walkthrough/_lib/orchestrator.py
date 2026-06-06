@@ -179,7 +179,17 @@ class Recorder:
         self.snapshot_dir.mkdir(parents=True, exist_ok=True)
         png_path = self.snapshot_dir / f"scene_{scene_index}.png"
         text_path = self.snapshot_dir / f"scene_{scene_index}_page_text.json"
-        png_ok = self._screenshot_with_settle_retry(page, png_path, scene_index)
+        # Per-scene capture mode. Default is a full-page screenshot. Scenes whose
+        # page is a tall TABLE + a map/chart (e.g. a plan-review page) set
+        # ``full_page: false`` so the snapshot is just the viewport — the map/chart
+        # is the hero instead of a sliver atop a 16,000px strip. A full-viewport
+        # map page (e.g. the group overlay map) captures fine either way; this only
+        # matters for table-dominant pages. WebGL/Mapbox itself renders + composites
+        # correctly under the SwiftShader launch flags (see record_video.py) given a
+        # long enough settle for tiles to paint — no special capture path needed.
+        full_page = scene.get("full_page")
+        full_page = True if full_page is None else bool(full_page)
+        png_ok = self._screenshot_with_settle_retry(page, png_path, scene_index, full_page=full_page)
         try:
             inner_text = page.evaluate("() => document.body && document.body.innerText || ''")
         except Exception as e:  # noqa: BLE001
@@ -204,7 +214,9 @@ class Recorder:
         else:
             print(f"  · snapshot scene_{scene_index}_page_text.json (PNG failed after retry)")
 
-    def _screenshot_with_settle_retry(self, page: Page, png_path: Path, scene_index: int) -> bool:
+    def _screenshot_with_settle_retry(
+        self, page: Page, png_path: Path, scene_index: int, full_page: bool = True
+    ) -> bool:
         """Take a full-page screenshot, settling and retrying once on timeout.
 
         WebGL / Mapbox / Canvas-heavy pages can hang ``Page.captureScreenshot``
@@ -225,7 +237,7 @@ class Recorder:
         One settle + one retry is enough — never retry forever.
         """
         try:
-            page.screenshot(path=str(png_path), full_page=True, timeout=10000)
+            page.screenshot(path=str(png_path), full_page=full_page, timeout=10000)
             return True
         except Exception as e:  # noqa: BLE001 — Playwright's TimeoutError isn't always exposed
             print(f"  ! scene {scene_index}: screenshot failed ({e}); settling 8s and retrying...")
@@ -234,7 +246,7 @@ class Recorder:
         except Exception:  # noqa: BLE001 — even the settle is best-effort
             pass
         try:
-            page.screenshot(path=str(png_path), full_page=True, timeout=20000)
+            page.screenshot(path=str(png_path), full_page=full_page, timeout=20000)
             return True
         except Exception as e2:  # noqa: BLE001
             print(f"  ! scene {scene_index}: screenshot failed after retry: {e2}")
