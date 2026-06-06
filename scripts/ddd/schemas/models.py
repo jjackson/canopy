@@ -356,6 +356,16 @@ class Scene(BaseModel):
             viewport: { width: 1440, height: 900 }  # this scene needs more room
             actions: ...
     """
+    full_page: bool | None = None
+    """Optional per-scene snapshot capture mode. Default ``None`` → full-page
+    screenshot. Set ``false`` for a page that is a tall TABLE plus a map/chart
+    (e.g. the plan-review page) so the snapshot is just the viewport and the
+    map/chart is the hero — a full-page capture of such a page yields a 16,000px
+    strip in which the map is a ~4% sliver (looks blank but rendered fine). A
+    full-viewport map page (a group overlay map) captures correctly either way,
+    so this only matters for table-dominant pages. WebGL/Mapbox itself renders +
+    composites headlessly via the recorder's SwiftShader flags given a long
+    enough ``hold`` for tiles to paint — see ddd-spec "Map / WebGL scenes"."""
     narrative: str = ""
     """Canonical per-scene narrative text — the story beat the reviewer reads.
     May be one OR MORE sentences (per gap-flexible-scene-length). When set, it

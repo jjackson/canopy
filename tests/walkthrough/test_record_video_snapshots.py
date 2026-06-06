@@ -91,6 +91,43 @@ def test_snapshot_emits_png_and_json_for_action_bearing_scene(tmp_path):
     assert rec.snapshots_taken == [3]
 
 
+def test_snapshot_full_page_false_captures_viewport(tmp_path):
+    """A scene with ``full_page: false`` is captured at the viewport, not full-page.
+
+    Used for map+table pages (e.g. plan-review) so the map is the hero instead of
+    a sliver atop a tall strip. Regression guard: the default stays full-page.
+    """
+    page = FakePage(url="https://example.com/group/1/map")
+    rec = Recorder(snapshot_dir=tmp_path)
+    scene = {
+        "title": "Both arms on one map",
+        "actions": [{"kind": "press", "value": "Enter"}],
+        "scene_index": 2,
+        "full_page": False,
+    }
+    rec.run_scene(page, scene)
+    assert page.screenshots == [{"path": str(tmp_path / "scene_2.png"), "full_page": False}]
+
+
+def test_build_scenes_from_spec_preserves_full_page(tmp_path):
+    """``build_scenes_from_spec`` must carry ``full_page`` through to the recorder.
+
+    Dropping it (the original bug) made map+table scenes capture as unreadable
+    full-page strips even when the author set ``full_page: false``.
+    """
+    from scripts.walkthrough.record_video import build_scenes_from_spec
+
+    spec = {
+        "scenes": [
+            {"title": "normal", "url": "/a", "actions": []},
+            {"title": "map", "url": "/b", "full_page": False, "actions": []},
+        ]
+    }
+    scenes = build_scenes_from_spec(spec, base_url="https://example.com", run_data=None)
+    assert scenes[0]["full_page"] is None  # default → recorder treats as full-page
+    assert scenes[1]["full_page"] is False  # explicit override survives
+
+
 def test_snapshot_uses_original_spec_index_not_loop_position(tmp_path):
     """A ``--scene 3`` partial run still produces ``scene_3.*``, not ``scene_1.*``.
 
