@@ -128,7 +128,12 @@ prompts. Post via the gate's own tooling — the **narrative-agreement gate** us
 `scripts.ddd.narrative post <spec> <run_id>`; other ReviewRequests use
 `scripts.ddd.review`. Present the returned review URL **plus** an inline storyboard so
 the user can glance at the arc in chat, then act on the page; pick up their decision by
-polling `review.await_resolution` (async) or from their reply (live).
+polling `review.await_resolution` (async) or from their reply (live). When you present
+that URL, give the user the **internal owner link** — the returned `url` with the
+`?t=<token>` query **stripped** (`<base_url>/review/<id>/`), which opens inside the
+workbench with the left rail. The token-bearing `?t=` form is the standalone, no-rail
+external share link — only for recipients who are not signed in, never the user's
+primary review link.
 
 Do **NOT** use the built-in `AskUserQuestion` tool to run a gate when the review
 surface is reachable — that bypasses the UI we built. `AskUserQuestion` is a

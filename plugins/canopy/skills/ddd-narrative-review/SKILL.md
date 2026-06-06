@@ -67,8 +67,26 @@ SPEC_ABS="$(realpath <spec_path>)"
 (cd "$DDD_REPO" && uv run python -m scripts.ddd.narrative post "$SPEC_ABS" "<run_id>")
 ```
 
-This returns JSON: `{"id": "<review_id>", "url": "<review_url>", "share_token": "<token>"}`.
-Capture the `url` to present to the user.
+This returns JSON with **two explicit link fields** — use the right one:
+
+```json
+{"id": "<review_id>",
+ "internal_url": "<base>/review/<review_id>/",          // owner view, LEFT RAIL — give the user THIS
+ "share_url":    "<base>/review/<review_id>/?t=<token>", // standalone, NO rail — externals only
+ "url": "...", "share_token": "..."}
+```
+
+- **`internal_url` — present THIS to the user.** It opens inside the workbench
+  with the left rail / navigation because the user is signed in. This is the
+  review surface they actually want.
+- **`share_url`** carries the `?t=<token>` share token, which forces standalone
+  **share mode with NO left rail**, for people who are not signed in. Only hand
+  this out when the user explicitly asks to share externally — never as their
+  primary review link.
+
+(The bare `url` / `share_token` fields are the raw server response, kept for
+back-compat. Prefer `internal_url`. `narrative post` also prints both links to
+stderr labelled "internal (owner, left rail)" / "external (share, no rail)".)
 
 **`post` stamps `run_state.yaml` for you — do NOT stamp it by hand.** The
 command writes both `narrative_review_id` (the raw review UUID) and a
@@ -85,8 +103,12 @@ proceed.
 
 Before waiting for the user's response, present:
 
-1. **The review URL** — the editable web page where the user reads each story
-   beat and can approve or redraft.
+1. **The review URL** — present the **internal (owner) link**
+   (`<base_url>/review/<review_id>/`, the returned `url` with the `?t=` token
+   stripped), the editable web page where the user reads each story beat and can
+   approve or redraft. It opens inside the workbench with the left rail. Do NOT
+   present the token-bearing `?t=` link as the primary review URL — that is the
+   no-rail external share link, for non-signed-in recipients only.
 
 2. **The inline storyboard** — a brief scene-by-scene arc so the user knows
    what they are agreeing to without leaving the chat.  Include the per-scene
@@ -108,7 +130,7 @@ Before waiting for the user's response, present:
      Features: ...
    ...
 
-   ▶ Review and approve at: <review_url>
+   ▶ Review and approve at: <internal_review_url>   (= <base_url>/review/<review_id>/ , no ?t= token)
    ```
 
    Make reviewing easy and inviting.  The user should be able to glance at the

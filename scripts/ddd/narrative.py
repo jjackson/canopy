@@ -1037,6 +1037,31 @@ def _tokenized_review_url(result: dict) -> str | None:
     return url
 
 
+def _internal_review_url(result: dict, base_url: str) -> str | None:
+    """Owner (internal) review URL from a post result ``{id, url, share_token}``.
+
+    The ``?t=<share_token>`` query forces canopy-web into standalone share mode
+    with NO left rail — that's for recipients who are not signed in. The signed-in
+    owner wants the page WITHOUT the token, which opens inside the workbench (left
+    rail intact). Prefer reconstructing ``<base>/review/<id>/`` from the review id;
+    fall back to stripping the query off the returned ``url``. Returns an absolute
+    URL so it is click-ready regardless of whether the server returned a relative
+    or absolute ``url``.
+    """
+    base = (base_url or "").rstrip("/")
+    rid = (result.get("id") or "").strip()
+    raw = (result.get("url") or "").strip()
+    if rid:
+        path = f"/review/{rid}/"
+    elif raw:
+        path = raw.split("?", 1)[0]
+    else:
+        return None
+    if path.startswith("http://") or path.startswith("https://"):
+        return path.split("?", 1)[0]
+    return f"{base}{path}"
+
+
 def _stamp_run_state(run_id: str, result: dict) -> None:
     """Deterministically record the posted narrative review on run_state.yaml.
 
@@ -1101,7 +1126,24 @@ def _cmd_post(spec_path_str: str, run_id: str) -> None:
     # diverge from a stale stamp and refuse a clean fast-forward.
     if narrative_slug:
         _stamp_spec_sync(spec_path, narrative_slug, rv)
-    print(json.dumps(result))
+    # Surface BOTH link forms explicitly so callers (and skills) never hand the
+    # user the no-rail share link by mistake:
+    #   internal_url — owner view, opens inside the workbench (LEFT RAIL). Default.
+    #   share_url    — token-bearing standalone share link (NO rail), externals only.
+    base = rv._resolve_base_url(None)
+    out = dict(result)
+    internal = _internal_review_url(result, base)
+    if internal:
+        out["internal_url"] = internal
+    share = _tokenized_review_url(result)
+    if share:
+        out["share_url"] = share if share.startswith("http") else f"{base.rstrip('/')}{share}"
+    # Human-readable hint to stderr (the JSON on stdout stays machine-parseable).
+    if internal:
+        print(f"internal (owner, left rail): {internal}", file=sys.stderr)
+    if out.get("share_url"):
+        print(f"external (share, no rail):   {out['share_url']}", file=sys.stderr)
+    print(json.dumps(out))
 
 
 def _stamp_spec_sync(spec_path: Path, slug: str, rv) -> None:
