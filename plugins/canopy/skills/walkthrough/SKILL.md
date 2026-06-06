@@ -875,6 +875,13 @@ python3 "$REC" \
   --cookies /tmp/walkthrough-cookies-<name>.json
 ```
 
+**Auth alternative — `--storage-state`:** if the `browse cookies` export isn't
+available or isn't sticking across contexts, pass a Playwright `storage_state`
+JSON instead: `--storage-state /tmp/state-<name>.json`. It's applied at context
+creation (so it carries localStorage/origins, not just cookies) and seeds the
+session before the first scene navigates. Mutually exclusive with `--cookies`
+(storage_state wins); when set, the spec's URL/command auth fallback is skipped.
+
 Requires `playwright>=1.40` with Chromium installed (`pip install
 'playwright>=1.40' && python -m playwright install chromium`, or
 `pip install -e '<canopy>[browser]'`) and `ffmpeg` on PATH. The script

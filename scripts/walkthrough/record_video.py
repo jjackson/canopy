@@ -15,7 +15,7 @@ Usage:
     python3 record_video.py \\
         --spec docs/walkthroughs/<name>.yaml \\
         --output screenshots/walkthroughs/<name>.mp4 \\
-        [--cookies /tmp/walkthrough-cookies.json] \\
+        [--cookies /tmp/walkthrough-cookies.json | --storage-state /tmp/state.json] \\
         [--input /tmp/walkthrough-run-data.json] \\
         [--scene 2,4 | --scene 2-4 | --scene name-match] \\
         [--skip-same-url] \\
@@ -233,6 +233,16 @@ def main() -> None:
     ap.add_argument("--input", help="walkthrough run JSON (optional — narrows scenes to captured set)")
     ap.add_argument("--cookies", help="optional cookies JSON exported by `browse cookies`")
     ap.add_argument(
+        "--storage-state",
+        help=(
+            "alternative to --cookies: a Playwright storage_state JSON (path). "
+            "Use when the `browse cookies` export isn't available or isn't "
+            "sticking across contexts — storage_state is applied at context "
+            "creation, so it also carries localStorage/origins, not just cookies. "
+            "Mutually exclusive with --cookies; if both are given, --storage-state wins."
+        ),
+    )
+    ap.add_argument(
         "--skip-same-url",
         action="store_true",
         help="don't re-navigate between scenes whose URL hasn't changed (preserves JS state)",
@@ -322,11 +332,17 @@ def main() -> None:
                     "--ignore-gpu-blocklist",
                 ],
             )
-            context = browser.new_context(
+            context_kwargs = dict(
                 viewport={"width": viewport_w, "height": viewport_h},
                 record_video_dir=str(video_dir),
                 record_video_size={"width": viewport_w, "height": viewport_h},
             )
+            # storage_state must be supplied at context construction (Playwright
+            # can't load it onto an existing context). It seeds the auth before
+            # any page opens, so the first scene navigation is already logged in.
+            if args.storage_state:
+                context_kwargs["storage_state"] = args.storage_state
+            context = browser.new_context(**context_kwargs)
             # Synthetic cursor + click ripple (headless Chromium draws no OS
             # cursor). add_init_script runs at document-create on every nav, so
             # the cursor survives the per-scene page changes.
@@ -335,7 +351,7 @@ def main() -> None:
             # "regenerate?" prompts) so a scripted click doesn't hang the render.
             context.on("dialog", lambda d: d.accept())
 
-            if args.cookies:
+            if args.cookies and not args.storage_state:
                 cookies = json.loads(Path(args.cookies).read_text())
                 if cookies:
                     context.add_cookies(cookies)
@@ -343,8 +359,9 @@ def main() -> None:
             page = context.new_page()
 
             # URL-based auth (e.g. /auth/e2e-login?token=...) for specs that
-            # use a magic-link login instead of cookie import.
-            if not args.cookies:
+            # use a magic-link login instead of cookie import. Skipped when
+            # --storage-state already seeded the session.
+            if not args.cookies and not args.storage_state:
                 auth = spec.get("auth") or {}
                 if auth.get("type") == "url" and auth.get("url"):
                     try:
