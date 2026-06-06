@@ -58,6 +58,30 @@ DDD_REPO="$HOME/emdash-projects/canopy"; [ -d "$DDD_REPO/scripts/ddd" ] || DDD_R
 if [ ! -d "$DDD_REPO/scripts/ddd" ]; then echo "ERROR: scripts/ddd not found — run /canopy:update to sync the canopy checkout"; exit 1; fi
 ```
 
+### Step 1b — Narration voice check (do this BEFORE posting)
+
+The review surface shows, per scene, the scene's **`narrative`** field — or, if it
+is empty, it falls back to the terse third-person **`concept_claim`**, which reads
+as an abstract UI claim, not a story. Before posting, confirm every scene carries
+a persona-voiced `narrative` beat:
+
+```bash
+SPEC_ABS="$(realpath <spec_path>)"
+(cd "$DDD_REPO" && uv run python -c "
+import sys, yaml
+from scripts.ddd.schemas.models import UnifiedSpec
+spec = UnifiedSpec.model_validate(yaml.safe_load(open('$SPEC_ABS')))
+miss = [s.title for s in spec.scenes if not (s.narrative or '').strip()]
+print('scenes missing a persona-voiced narrative beat:', miss or 'none')
+")
+```
+
+If any scene is missing its `narrative` (or a beat reads as a UI tour rather than
+the persona *doing* something — "The page shows…" instead of "David clicks…"),
+**fix the spec first** (see ddd-spec → "Narrative voice" + "Two fields per scene")
+and only then post. The persona is the named subject of each beat; the story is
+about the user, not the UI.
+
 ### Step 2 — Post the narrative for review
 
 Pass the spec path as an absolute path resolved before the `cd`:
