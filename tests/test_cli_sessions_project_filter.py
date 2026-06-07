@@ -7,11 +7,20 @@ substring filter and caught both jjackson/ace and jjackson/ace-web; the
 user wanted only the ace plugin.
 """
 import json
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from click.testing import CliRunner
 
 from orchestrator.cli import main
+
+# Timestamps must be RELATIVE to now, not hardcoded calendar dates: `sessions
+# list` drops anything older than --hours (168h here), so fixed past dates
+# silently age out of the window and every assertion sees an empty list. Build
+# the fixtures a few hours back so they always fall inside the recency cutoff.
+_NOW = datetime.now(timezone.utc)
+_FIRST_TS = (_NOW - timedelta(hours=12)).strftime("%Y-%m-%dT%H:%M:%SZ")
+_LAST_TS = (_NOW - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _stub_sessions():
@@ -24,8 +33,8 @@ def _stub_sessions():
             "repo": "jjackson/ace",
             "first_msg": "ace plugin work",
             "user_msgs": 5,
-            "first_ts": "2026-05-02T00:00:00Z",
-            "last_ts": "2026-05-02T12:00:00Z",
+            "first_ts": _FIRST_TS,
+            "last_ts": _LAST_TS,
             "lines": 100,
             "mcp_servers": [],
             "mcp_call_count": 0,
@@ -39,8 +48,8 @@ def _stub_sessions():
             "repo": "jjackson/ace-web",
             "first_msg": "ace-web work",
             "user_msgs": 5,
-            "first_ts": "2026-05-02T00:00:00Z",
-            "last_ts": "2026-05-02T12:00:00Z",
+            "first_ts": _FIRST_TS,
+            "last_ts": _LAST_TS,
             "lines": 100,
             "mcp_servers": [],
             "mcp_call_count": 0,
@@ -54,8 +63,8 @@ def _stub_sessions():
             "repo": "jjackson/canopy",
             "first_msg": "canopy work",
             "user_msgs": 5,
-            "first_ts": "2026-05-02T00:00:00Z",
-            "last_ts": "2026-05-02T12:00:00Z",
+            "first_ts": _FIRST_TS,
+            "last_ts": _LAST_TS,
             "lines": 100,
             "mcp_servers": [],
             "mcp_call_count": 0,

@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.ddd.schemas.models import Scene  # noqa: E402
+from scripts.narrative.models import Scene  # noqa: E402
 
 _BASE = dict(
     persona="lead", title="Open the dashboard", show="Lead opens dashboard.",

@@ -29,7 +29,7 @@ from pydantic import TypeAdapter, ValidationError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.ddd.schemas.models import Action, WaitForAction  # noqa: E402
+from scripts.narrative.models import Action, WaitForAction  # noqa: E402
 from scripts.walkthrough._lib.config import RecorderConfig  # noqa: E402
 from scripts.walkthrough._lib.recorder import execute_action, wait_for  # noqa: E402
 

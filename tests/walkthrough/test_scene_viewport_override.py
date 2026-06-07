@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.ddd.schemas.models import Scene  # noqa: E402
+from scripts.narrative.models import Scene  # noqa: E402
 from scripts.walkthrough._lib.config import RecorderConfig  # noqa: E402
 from scripts.walkthrough._lib.orchestrator import Recorder  # noqa: E402
 

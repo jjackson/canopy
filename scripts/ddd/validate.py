@@ -3,7 +3,7 @@
 Exposes:
   validate(kind, obj_or_path) -> tuple[bool, list[str]]
 
-  dump_json_schemas(out_dir="scripts/ddd/schemas/json") -> None
+  dump_json_schemas(out_dir="scripts/narrative/schema/json") -> None
 
 CLI:
   python -m scripts.ddd.validate <kind> <path>   # exits 0 on valid, 1 on invalid
@@ -22,11 +22,13 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
-from scripts.ddd.schemas.models import (
+# Generic narrative/eval/review models come from the neutral substrate; the
+# DDD-only RunState stays in scripts.ddd.schemas.models.
+from scripts.ddd.schemas.models import RunState
+from scripts.narrative.models import (
     Decision,
     Feature,
     ReviewRequest,
-    RunState,
     UnifiedSpec,
     Verdict,
     WhyBrief,
@@ -234,8 +236,12 @@ def validate(
     return (len(problems) == 0), problems
 
 
-def dump_json_schemas(out_dir: str | Path = "scripts/ddd/schemas/json") -> None:
-    """Write JSON Schema files for every DDD model into *out_dir*."""
+def dump_json_schemas(out_dir: str | Path = "scripts/narrative/schema/json") -> None:
+    """Write JSON Schema files for every narrative + DDD model into *out_dir*.
+
+    The generic narrative/eval/review models are the canonical cross-repo
+    contract; ``RunState`` (DDD-only) is emitted alongside them.
+    """
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
 

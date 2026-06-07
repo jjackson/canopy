@@ -370,7 +370,7 @@ def test_committed_json_schemas_match_generated(tmp_path):
 
     dump_json_schemas(out_dir=tmp_path)
 
-    committed_dir = Path("scripts/ddd/schemas/json")
+    committed_dir = Path("scripts/narrative/schema/json")
     for generated in sorted(tmp_path.glob("*.json")):
         committed = committed_dir / generated.name
         assert committed.exists(), f"Committed schema missing: {committed}"
