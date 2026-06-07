@@ -9,6 +9,11 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.183] - 2026-06-07
+
+### Changed
+- **concept-eval `visual_polish`: judge the polished PRODUCT, fix the product not the camera.** Two standing rules added to the `visual_polish` dimension (rubric + ddd-concept-eval SKILL), closing a gap that surfaced on a live product walkthrough. (1) **Host-product chrome is grounding, never a flaw.** The platform frame a product lives in — top nav, side rail, branding, account menu — is what makes a demo read as a *real shipping product* rather than a detached mockup; its presence is required and must never be deducted or cap a score ("looks like a tool", "too much app chrome" are not findings). Only genuinely broken chrome (occluding content, z-index collision, placeholder nav) counts. This reinforces `artifact_kind: product_walkthrough` so judges stop re-litigating whether the product frame belongs in the demo. (2) **Findings drive the product, never the camera.** Every `visual_polish` fix_recommendation must be a PRODUCT change (a bigger hero, a focused/expanded view, progressive disclosure, fixing an occluding layout) — never a capture workaround ("zoom in", "crop", "set full_page:false"). If the load-bearing number is too small to read, the *product* should present it legibly; a capture trick that makes an over-dense product look good hides a real product-readiness gap. The one capture-side exception (a full-PAGE strip of a long scrolling page is an inaccurate capture — judge the real viewport, flag once, don't deduct) is called out explicitly so it isn't abused as a license to crop.
+
 ## [0.2.182] - 2026-06-07
 
 ### Fixed
