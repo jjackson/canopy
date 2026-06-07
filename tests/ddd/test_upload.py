@@ -12,7 +12,12 @@ import pytest
 import yaml
 
 from scripts.ddd.schemas.models import RunState, Scene, UnifiedSpec, WhyBrief, SpineItem, Persona
-from scripts.ddd.upload import build_docs_page, publish_artifact, upload_run
+from scripts.ddd.upload import (
+    _external_links_from_spec,
+    build_docs_page,
+    publish_artifact,
+    upload_run,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +75,40 @@ def _make_why_brief() -> WhyBrief:
         ],
         gaps=[],
     )
+
+
+# ---------------------------------------------------------------------------
+# _external_links_from_spec — external systems the run used
+# ---------------------------------------------------------------------------
+
+
+class TestExternalLinksFromSpec:
+    def test_base_url_only_when_scenes_have_no_url(self):
+        links = _external_links_from_spec(_make_spec())
+        assert links == [
+            {"label": "App", "url": "https://example.com", "kind": "reference"}
+        ]
+
+    def test_resolves_scene_urls_against_base_and_dedupes(self):
+        spec = UnifiedSpec(
+            name="Study",
+            narrative="Maya builds a two-arm study from the map.",
+            base_url="https://labs.example.com",
+            personas={"m": Persona(name="Maya", role="PI", color="#000", intro="Maya runs studies.")},
+            scenes=[
+                Scene(persona="m", title="Manage", show="open", concept_claim="See the study manage page clearly.", provenance="SP1", url="/program/133/group/7/manage/"),
+                Scene(persona="m", title="Editor", show="open", concept_claim="Open the plan editor on the map.", provenance="SP2", url="/program/133/new/?group=7"),
+                Scene(persona="m", title="Manage again", show="open", concept_claim="Return to the manage page later.", provenance="SP3", url="/program/133/group/7/manage/"),
+            ],
+        )
+        links = _external_links_from_spec(spec)
+        assert [l["url"] for l in links] == [
+            "https://labs.example.com",
+            "https://labs.example.com/program/133/group/7/manage/",
+            "https://labs.example.com/program/133/new/?group=7",
+        ]  # base first, scene order preserved, duplicate dropped
+        assert all(l["kind"] == "reference" for l in links)
+        assert links[1]["label"] == "Manage"
 
 
 # ---------------------------------------------------------------------------
@@ -426,13 +465,14 @@ class TestUploadRun:
         def fake_upload(
             content, *, kind, title, base_url=None, token=None,
             run_id=None, narrative_slug=None, role=None, narrative_review_id=None,
+            links=None,
         ):
             counter["n"] += 1
             url = f"https://canopy.test/w/fake-{kind}-{counter['n']}"
             calls_store.append({
                 "kind": kind, "title": title, "content_len": len(content), "url": url,
                 "run_id": run_id, "narrative_slug": narrative_slug, "role": role,
-                "narrative_review_id": narrative_review_id,
+                "narrative_review_id": narrative_review_id, "links": links,
             })
             return url
 
@@ -471,6 +511,12 @@ class TestUploadRun:
         kinds = [c["kind"] for c in upload_calls]
         assert "video" in kinds
         assert "html" in kinds
+        # The docs upload carries the external-systems links built from the spec
+        # (here just the base app, since the fixture scenes have no per-scene url).
+        docs_call = next(c for c in upload_calls if c["role"] == "docs")
+        assert docs_call["links"] == [
+            {"label": "App", "url": "https://example.com", "kind": "reference"}
+        ]
 
     def test_already_uploaded_is_noop(self, tmp_run, monkeypatch):
         """An uploaded run is immutable — re-calling upload_run returns the
@@ -653,6 +699,7 @@ class TestUploadRun:
         def capturing_upload(
             content, *, kind, title, base_url=None, token=None,
             run_id=None, narrative_slug=None, role=None, narrative_review_id=None,
+            links=None,
         ):
             if kind == "html":
                 html_bytes_store.append(content if isinstance(content, bytes) else content.encode("utf-8"))
