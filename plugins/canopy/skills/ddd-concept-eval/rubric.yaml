@@ -92,24 +92,51 @@ dimensions:
     label: "Visual Polish"
     weight: 0.15
     default_score: 3
-    # SCOPE: rendered aesthetic quality of the captured screenshots — alignment,
-    # typographic hierarchy, color/contrast, whitespace rhythm, control
-    # consistency, density. Carved out of design_soundness in v0.2.153 because
-    # the prior 5-dim rubric had no place to land pure visual failures, so ugly
-    # UI shipped with passing concept-evals. Tough Judge methodology applies as
-    # everywhere else: start from 3, adversarial-list issues first, deduct.
+    # SCOPE: does the demo present a POLISHED PRODUCT — judged as the product's
+    # real user sees it in a normal viewport. Alignment, typographic hierarchy,
+    # color/contrast, whitespace rhythm, control consistency, and the legibility
+    # of the scene's load-bearing content. Carved out of design_soundness in
+    # v0.2.153 so pure visual failures have a place to land. Tough Judge
+    # methodology applies: start from 3, adversarial-list first, deduct.
+    #
+    # TWO STANDING RULES for product_walkthrough artifacts (read BEFORE scoring):
+    #
+    # 1. HOST-PRODUCT CHROME IS GROUNDING, NOT A FLAW. The platform frame the
+    #    product lives in — its top nav, side rail, branding, account menu,
+    #    breadcrumbs — is what makes the demo read as a REAL shipping product
+    #    instead of a detached mockup. Its PRESENCE is required and must NEVER be
+    #    deducted, listed as a flaw, or used to cap a score. "Looks like a tool",
+    #    "too much app chrome", "busy shell" are NOT findings. Only genuinely
+    #    BROKEN chrome counts: a frame element overlapping/occluding content, a
+    #    z-index collision, a placeholder/unstyled nav. Deduct the breakage, never
+    #    the frame.
+    #
+    # 2. FINDINGS DRIVE THE PRODUCT, NEVER THE CAMERA. Judge the product as its
+    #    user sees it in one viewport and recommend PRODUCT changes only. If the
+    #    load-bearing number/chart is too small to read, the finding is "the
+    #    PRODUCT should present it prominently" (a bigger hero, a focused/expanded
+    #    view, progressive disclosure) — NEVER "zoom in", "crop the capture", or
+    #    "set full_page:false". A capture trick that makes an over-dense product
+    #    look good HIDES a real product-readiness gap, and the demo's whole job is
+    #    to show a product worth shipping. (One exception that is NOT a polish
+    #    finding: a full-PAGE screenshot of a long scrolling page is an inaccurate
+    #    CAPTURE — a user never sees a 16k-px strip — so judge the real viewport
+    #    instead and flag the strip once as a capture-accuracy note; do not score
+    #    the product down for it, and do not "fix" it by cropping to fake legibility.)
     anchor:
-      "5": "Every captured scene is shippable as marketing material — alignment is tight, typographic hierarchy is intentional, color usage is semantic and consistent, whitespace breathes, no chrome looks unfinished. A designer reviewing the screenshots would say 'this is well crafted'."
-      "4": "Visually polished overall; one scene has a minor issue (a label crowded against a chart edge, a single inconsistent button style, a slightly mismatched font weight) that doesn't read as a quality signal."
+      "5": "Every scene is shippable as marketing material — tight alignment, intentional type hierarchy, semantic consistent color, breathing whitespace, and the load-bearing content legible at a glance — WITH the host-product frame present, which grounds it as a real product. A designer would say 'this is well crafted, and it's clearly the real product'."
+      "4": "Visually polished overall; one scene has a minor issue (a label crowded against a chart edge, one inconsistent button style, a slightly small secondary label) that doesn't read as a quality signal."
       "3": "Functional but unremarkable — the UI does its job without distinction; a designer would have notes on alignment, type, or spacing in at least one scene. (DEFAULT)"
-      "2": "Multiple visual issues that a careful viewer would notice: misaligned elements across scenes, jarring color combinations, inconsistent button/control styles within a single page, cramped layouts."
-      "1": "The UI looks unfinished or amateur — unshippable as a public product surface. Inconsistent type, broken alignment, garish colors, chart overflow, or chrome that reads as 'placeholder'."
+      "2": "Multiple visual issues a careful viewer would notice IN THE PRODUCT ITSELF: misaligned elements, jarring color, inconsistent controls within a page, or the scene's load-bearing content too dense/small to read at a normal viewport — a product-presentation gap, fixable only in the product."
+      "1": "The UI looks unfinished or amateur — unshippable. Broken alignment, garish color, real content overflow/occlusion, or chrome that reads as placeholder. (The PRESENCE of a normal product frame is never what lands a scene here.)"
     deduction_rules:
+      - "Host-product chrome present and intact: NOT a deduction — it is grounding (standing rule 1)"
+      - "A frame/nav element overlaps or occludes content, or a z-index collision: max 2 (product layout bug — fix in the product, e.g. scroll-margin, not by re-cropping the capture)"
       - "Misaligned UI elements visible in 2+ scenes: max 2"
       - "Inconsistent button or control styles within a single scene: max 3"
       - "Low-contrast text against background (likely WCAG AA failure): max 2"
-      - "Crowded layout with no whitespace rhythm, or content visibly clipped: max 3"
-      - "Chart / table / form content overflows the viewport or wraps awkwardly: max 3"
+      - "The scene's load-bearing content is too small/dense to read at a normal viewport: max 3 (PRODUCT finding — the product needs a focused/larger presentation; do NOT recommend zoom/crop/full_page as the fix)"
+      - "Real content (not a full-page-strip capture artifact) overflows the viewport or wraps awkwardly: max 3"
       - "Typography hierarchy is flat or arbitrary (no visible H1/H2/body distinction): max 3"
       - "Color usage is decorative rather than semantic (random brand-accent on non-action elements): max 3"
 
