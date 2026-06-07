@@ -420,6 +420,27 @@ section {
 # ---------------------------------------------------------------------------
 
 
+# A canopy-web walkthrough URL: the viewer page ``/w/<id>`` or its byte stream
+# ``/w/<id>/content`` (optionally with a ``?t=`` share token, stripped here).
+_CANOPY_W_RE = re.compile(r"/w/[^/?#]+(?:/content)?/?$")
+
+
+def _to_content_url(url: str) -> str:
+    """Rewrite a canopy-web viewer URL to its public byte-stream URL.
+
+    ``https://host/w/<id>?t=tok`` -> ``https://host/w/<id>/content?t=tok``.
+    The viewer page (``/w/<id>``) is auth-gated (redirects to Google login) and
+    sends ``X-Frame-Options: DENY``, so framing it renders blank; the
+    ``/content`` endpoint serves the bytes token-gated and same-origin
+    frameable. Idempotent if already a ``/content`` URL.
+    """
+    base, sep, query = url.partition("?")
+    base = base.rstrip("/")
+    if base.endswith("/content"):
+        return url
+    return f"{base}/content{sep}{query}"
+
+
 def build_docs_page(spec: UnifiedSpec, why_brief: WhyBrief, video_url: str, poster_url: str = "") -> str:
     """Return a self-contained HTML documentation page.
 
@@ -451,7 +472,6 @@ def build_docs_page(spec: UnifiedSpec, why_brief: WhyBrief, video_url: str, post
     # keep the raw slug only for the <title>/internal use.
     _raw_name = spec.name or why_brief.narrative_slug
     feature_name = html.escape(_raw_name.replace("-", " ").replace("_", " ").strip().title())
-    esc_video_url = html.escape(video_url, quote=True)
     esc_poster = html.escape(poster_url, quote=True) if poster_url else ""
     # One-line lede: a docs page needs a crisp, plain-language hook (what it is + who
     # it's for), NOT the build-audience narrative. Prefer spec.tagline; fall back to the
@@ -464,23 +484,34 @@ def build_docs_page(spec: UnifiedSpec, why_brief: WhyBrief, video_url: str, post
         _first = re.split(r"(?<=\.)\s+", _narr, maxsplit=1)[0] if _narr else ""
         narrative_lede = html.escape(_first)
 
-    # Determine if this is a remote URL or embeddable src — always use <video>
-    # for .mp4 / data URIs; use <iframe> for http(s) links that look like
-    # streaming share pages (e.g. canopy-web /w/ viewer).
-    is_share_page = (
+    # Embed the hero as the actual video bytes, not the canopy-web viewer page.
+    # A canopy-web /w/<id> URL (viewer or content) is rewritten to the public
+    # /w/<id>/content stream and played inline with <video>; .mp4 / data: URIs
+    # likewise. Only a genuinely external embed (no /w/ path, e.g. a Loom share)
+    # falls back to an <iframe>.
+    _path = video_url.split("?", 1)[0]
+    is_canopy_artifact = (
         video_url.startswith("http://") or video_url.startswith("https://")
-    ) and "/w/" in video_url
+    ) and bool(_CANOPY_W_RE.search(_path))
+    use_video = (
+        is_canopy_artifact
+        or video_url.startswith("data:")
+        or _path.lower().endswith(".mp4")
+    )
 
-    if is_share_page:
-        video_html = (
-            f'<iframe src="{esc_video_url}" allowfullscreen title="Feature demo"></iframe>'
-        )
-    else:
+    hero_src = _to_content_url(video_url) if is_canopy_artifact else video_url
+    esc_hero_src = html.escape(hero_src, quote=True)
+
+    if use_video:
         poster_attr = f' poster="{esc_poster}"' if esc_poster else ""
         video_html = (
-            f'<video controls preload="auto"{poster_attr} src="{esc_video_url}">'
-            f'<a href="{esc_video_url}">Watch the demo video</a>'
+            f'<video controls preload="auto"{poster_attr} src="{esc_hero_src}">'
+            f'<a href="{esc_hero_src}">Watch the demo video</a>'
             f"</video>"
+        )
+    else:
+        video_html = (
+            f'<iframe src="{esc_hero_src}" allowfullscreen title="Feature demo"></iframe>'
         )
 
     # --- What you can do ---
