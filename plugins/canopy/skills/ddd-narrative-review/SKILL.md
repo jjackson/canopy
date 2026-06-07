@@ -69,7 +69,7 @@ a persona-voiced `narrative` beat:
 SPEC_ABS="$(realpath <spec_path>)"
 (cd "$DDD_REPO" && uv run python -c "
 import sys, yaml
-from scripts.ddd.schemas.models import UnifiedSpec
+from scripts.narrative.models import UnifiedSpec
 spec = UnifiedSpec.model_validate(yaml.safe_load(open('$SPEC_ABS')))
 miss = [s.title for s in spec.scenes if not (s.narrative or '').strip()]
 print('scenes missing a persona-voiced narrative beat:', miss or 'none')
