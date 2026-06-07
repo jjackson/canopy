@@ -45,12 +45,14 @@ from .config import RecorderConfig
 from .results import ActionAssertError, ActionResult
 from .targets import measure_box, resolve_target, wait_for_target
 
-# ACTION_KINDS lives in the DDD schema (single source of truth — keeps the
-# Pydantic Literal and the dispatcher vocabulary in sync). Imported lazily
-# to avoid a hard dependency on pydantic when the recorder is used standalone.
+# ACTION_KINDS lives in the neutral narrative substrate (single source of
+# truth — keeps the Pydantic Literal and the dispatcher vocabulary in sync). A
+# renderer must not depend on a methodology, so this imports from
+# scripts.narrative, not scripts.ddd. Imported lazily to avoid a hard
+# dependency on pydantic when the recorder is used standalone.
 try:
-    from scripts.ddd.schemas.models import ACTION_KINDS  # noqa: F401
-except Exception:  # pragma: no cover — recorder may run without the ddd package on PYTHONPATH
+    from scripts.narrative.models import ACTION_KINDS  # noqa: F401
+except Exception:  # pragma: no cover — recorder may run without the narrative package on PYTHONPATH
     ACTION_KINDS = (
         "goto", "click", "click_menu", "fill", "select", "type", "press",
         "hover", "scroll_to", "scroll", "wait_for", "hold", "draw",

@@ -21,7 +21,7 @@ from pydantic import TypeAdapter, ValidationError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.ddd.schemas.models import (  # noqa: E402
+from scripts.narrative.models import (  # noqa: E402
     Action,
     ClickAction,
     FillAction,
@@ -188,7 +188,7 @@ def test_scene_actions_list_round_trips():
 
 
 def test_draw_validates_with_points():
-    from scripts.ddd.schemas.models import DrawAction
+    from scripts.narrative.models import DrawAction
 
     a = ACTION.validate_python(
         {"kind": "draw", "target": "css:#review-map", "points": [[0.3, 0.4], [0.6, 0.4], [0.6, 0.7]]}
@@ -213,7 +213,7 @@ def test_draw_rejects_foreign_fields():
 
 
 def test_draw_accepts_optional_tool():
-    from scripts.ddd.schemas.models import DrawAction
+    from scripts.narrative.models import DrawAction
 
     a = ACTION.validate_python(
         {"kind": "draw", "target": "css:#m", "points": [[0.3, 0.4], [0.6, 0.6]],

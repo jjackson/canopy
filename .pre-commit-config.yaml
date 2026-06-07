@@ -11,17 +11,19 @@ repos:
   - repo: local
     hooks:
       - id: regen-ddd-json-schemas
-        # The Pydantic models in scripts/ddd/schemas/models.py are the source
-        # of truth. The committed JSON schemas at scripts/ddd/schemas/json/*.json
-        # are downstream artifacts consumed by scripts/ddd/validate.py and
-        # external tools; they're supposed to stay in lockstep.
+        # The Pydantic models are the source of truth: the generic narrative
+        # models in scripts/narrative/models.py plus the DDD-only RunState in
+        # scripts/ddd/schemas/models.py. The committed JSON schemas at
+        # scripts/narrative/schema/json/*.json are downstream artifacts consumed
+        # by scripts/ddd/validate.py and external (cross-repo) tools; they're
+        # supposed to stay in lockstep.
         #
-        # This hook fires only when models.py is staged, regenerates the JSON
-        # files via scripts/ddd/regen_json_schemas.py, and relies on
+        # This hook fires when either models file is staged, regenerates the
+        # JSON files via scripts/ddd/regen_json_schemas.py, and relies on
         # pre-commit's standard modify-then-fail behaviour: if the regenerated
         # output differs from what is committed, pre-commit blocks the commit
         # with "files were modified by this hook" and the developer runs
-        # `git add scripts/ddd/schemas/json/` before retrying.
+        # `git add scripts/narrative/schema/json/` before retrying.
         #
         # Motivation: DrawAction (added in #104) was missing from
         # UnifiedSpec.json for two days until someone re-ran the regen by
@@ -29,7 +31,7 @@ repos:
         # tests/ddd/test_validate.py::test_committed_json_schemas_match_generated
         # test catches this in CI; this hook catches it locally, before the
         # push, so other developers never pull stale schemas.
-        name: Regenerate DDD JSON schemas from models.py
+        name: Regenerate narrative JSON schemas from models.py
         entry: python scripts/ddd/regen_json_schemas.py
         language: python
         # Match pyproject.toml's `requires-python = ">=3.11"`. The DDD models
@@ -43,5 +45,5 @@ repos:
         additional_dependencies:
           - "pydantic>=2.13.4"
           - "pyyaml>=6.0"
-        files: ^scripts/ddd/schemas/models\.py$
+        files: ^scripts/(narrative/models|ddd/schemas/models)\.py$
         pass_filenames: false

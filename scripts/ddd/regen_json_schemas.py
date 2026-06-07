@@ -1,4 +1,9 @@
-"""Regenerate the committed DDD JSON schemas from ``scripts/ddd/schemas/models.py``.
+"""Regenerate the committed narrative JSON schemas from the Pydantic models.
+
+The generic models live in ``scripts/narrative/models.py`` (the canonical
+cross-repo contract); the DDD-only ``RunState`` lives in
+``scripts/ddd/schemas/models.py``. Both are emitted into
+``scripts/narrative/schema/json/``.
 
 This is the entry point invoked by the ``regen-ddd-json-schemas`` pre-commit
 hook (see ``.pre-commit-config.yaml``). It is also safe to run by hand:
@@ -35,7 +40,7 @@ from scripts.ddd.validate import dump_json_schemas  # noqa: E402
 
 
 def main() -> int:
-    out_dir = REPO_ROOT / "scripts" / "ddd" / "schemas" / "json"
+    out_dir = REPO_ROOT / "scripts" / "narrative" / "schema" / "json"
     dump_json_schemas(out_dir=out_dir)
     return 0
 
