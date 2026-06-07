@@ -220,7 +220,14 @@ attention on things they've already implicitly decided.
 After `apply_narrative_edits` resolves and you've posted a fresh review URL,
 present the **updated narrative inline in chat** alongside the URL — the new
 narrative paragraph + a per-scene beat-by-beat table (number, persona, scene
-title, status badge `Existing feature`/`New feature`). A URL alone is the wrong
+title, status badge `Existing feature`/`New feature`). The status badge is the
+`status` field on each narration item (`built` → `Existing feature`, `new` →
+`New feature`), derived at review-build time from the why-brief (mirrors
+canopy-web's `sceneIsFrontier`): a beat is `new` when its `provenance` spine item
+is a gap (status != `grounded`) OR a why-brief gap references it; otherwise
+`built`. Do NOT eyeball this — read `narration[].status`; it is exactly what the
+BUILD SEQUENCE panel labels, so the inline table and the panel agree.
+A URL alone is the wrong
 shape: it forces the user to chase, and most of the time they won't react to
 something they have to chase to see. The artifact has to be in front of them in
 the conversation so they can react in the same turn. Pull the artifact from

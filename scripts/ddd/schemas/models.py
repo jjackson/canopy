@@ -476,6 +476,16 @@ class NarrationItem(BaseModel):
     provenance: str = ""  # spine id this beat grounds — lets the surface co-locate grounding
     text: str
     features: list[Feature] = []
+    status: Literal["built", "new"] = "new"
+    """Whether this beat's underlying capability already exists (``built``) or is
+    work still to do (``new``, the "frontier"). Derived (not authored) at
+    review-build time from the why-brief, mirroring canopy-web's
+    ``sceneIsFrontier``: a beat is ``new`` when its ``provenance`` spine item is a
+    gap (status != ``grounded``) OR a why-brief gap references it by
+    ``claim_ref``; otherwise ``built``. Lets the BUILD SEQUENCE panel label
+    already-shipped beats so the reviewer is not asked to "build" what is already
+    live. Defaults to ``new`` (safe: shows as to-do) when there is no why-brief or
+    the provenance is absent from the spine."""
 
 
 class ReviewRequest(BaseModel):

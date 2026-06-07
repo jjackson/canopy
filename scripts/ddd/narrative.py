@@ -194,6 +194,37 @@ def _title_slug(title: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
 
 
+def _beat_status_map(why_brief: dict | None) -> dict[str, str]:
+    """Map each why-brief spine id -> ``"built"`` or ``"new"``.
+
+    A beat is ``new`` (still to build, the "frontier") when its spine item is a
+    gap (``status`` != ``grounded``) OR a why-brief gap (CAPABILITY / RESEARCH /
+    DECISION) references it by ``claim_ref`` — a grounded claim with an open
+    capability gap is still something we'd build, so it reads as ``new``, not
+    ``built``. Everything else (grounded, no open gap) is ``built``.
+
+    This mirrors canopy-web's client-side ``sceneIsFrontier`` exactly, so the
+    BUILD SEQUENCE panel, the per-scene badges, and this API status all agree.
+    Unknown / unprovenanced ids default to ``built`` only when grounded; absent
+    from the spine they fall through to ``new`` at the call site.
+    """
+    referenced_by_gap: set[str] = set()
+    for gap in (why_brief or {}).get("gaps") or []:
+        if isinstance(gap, dict) and gap.get("claim_ref"):
+            referenced_by_gap.add(gap["claim_ref"])
+
+    status: dict[str, str] = {}
+    for item in (why_brief or {}).get("spine") or []:
+        if not isinstance(item, dict):
+            continue
+        sid = item.get("id")
+        if not sid:
+            continue
+        is_frontier = (item.get("status") or "grounded") != "grounded" or sid in referenced_by_gap
+        status[sid] = "new" if is_frontier else "built"
+    return status
+
+
 # ---------------------------------------------------------------------------
 # Pure build function
 # ---------------------------------------------------------------------------
@@ -237,6 +268,9 @@ def build_narrative_review_request(
     # under (request_json.narrative_slug). Falls back to the run_id slug (date
     # stamp stripped), matching canopy-web's own narrative_slug_from_run_id().
     resolved_narrative_slug = (narrative_slug or "").strip() or _narrative_slug_from_run_id(run_id)
+    # Derive built|new per beat from the why-brief (mirrors canopy-web's
+    # sceneIsFrontier): grounded-and-ungapped spine items are built, gaps are new.
+    beat_status = _beat_status_map(why_brief)
     narration = [
         NarrationItem(
             scene=i,
@@ -246,6 +280,7 @@ def build_narrative_review_request(
             provenance=scene.provenance,
             text=_scene_text_for_review(spec, i - 1),
             features=scene.features,
+            status=beat_status.get(scene.provenance, "new"),
         )
         for i, scene in enumerate(spec.scenes, start=1)
     ]
