@@ -169,11 +169,34 @@ class TestBuildDocsPage:
         assert "<head>" in result
         assert "<body>" in result
 
-    def test_share_page_url_uses_iframe(self):
-        """URLs containing /w/ (canopy-web viewer) should embed as iframe."""
+    def test_canopy_viewer_url_embeds_content_stream_as_video(self):
+        """A canopy-web /w/<id> viewer URL must embed the public /content byte
+        stream as <video> — NOT an <iframe> to the viewer page, which is
+        auth-gated (redirects to login) and X-Frame-Options: DENY, so it renders
+        blank. The share token is preserved on the rewritten URL."""
         spec = _make_spec()
         why = _make_why_brief()
         result = build_docs_page(spec, why, "https://canopy.example.com/w/abc123?t=tok")
+        assert "<video" in result
+        assert "https://canopy.example.com/w/abc123/content?t=tok" in result
+        # The bare viewer page must not be framed.
+        assert '<iframe src="https://canopy.example.com/w/abc123?t=tok"' not in result
+
+    def test_canopy_content_url_is_not_double_rewritten(self):
+        """An already-/content URL embeds as <video> unchanged (idempotent)."""
+        spec = _make_spec()
+        why = _make_why_brief()
+        result = build_docs_page(spec, why, "https://canopy.example.com/w/abc123/content?t=tok")
+        assert "<video" in result
+        assert "https://canopy.example.com/w/abc123/content?t=tok" in result
+        assert "/content/content" not in result
+
+    def test_external_embed_without_w_path_uses_iframe(self):
+        """A genuinely external embed (no /w/ path, not .mp4) still uses an
+        <iframe> — e.g. a Loom share page."""
+        spec = _make_spec()
+        why = _make_why_brief()
+        result = build_docs_page(spec, why, "https://www.loom.com/embed/xyz789")
         assert "<iframe" in result
 
     def test_plain_mp4_url_uses_video_tag(self):
