@@ -69,7 +69,7 @@ Canopy targets Python 3.11+ and depends on PyYAML, Click, and Pydantic.
 - **Always-PR shipping.** Changes ship as pull requests, and any change under
   `plugins/canopy/` must be accompanied by a version bump (`canopy version bump`)
   — the bump is the only signal that tells installed sessions to pick up new work.
-  The full discipline lives in `.claude/CLAUDE.md`.
+  The full discipline lives in `CLAUDE.md`.
 
 ## CLI reference
 
@@ -136,7 +136,7 @@ Run `canopy <group> --help` for full flags. Grouped by purpose:
 
 ## Contributing
 
-`.claude/CLAUDE.md` is the authoritative contributor and skill-authoring guide. It
+`CLAUDE.md` is the authoritative contributor and skill-authoring guide. It
 documents the worktree rules, the always-PR + version-bump discipline, the git
 hooks (`scripts/hooks/`), skill-authoring foot-guns (command/skill collisions,
 reserved built-in names, description limits, bash positional-parameter gotchas),

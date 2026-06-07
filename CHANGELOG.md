@@ -5,7 +5,7 @@ All notable changes to canopy are documented here, following
 
 Versions track the `VERSION` file and `plugins/canopy/.claude-plugin/plugin.json`,
 which are kept in lockstep (every change under `plugins/canopy/` requires a patch
-bump — see `.claude/CLAUDE.md`). The project does not tag releases. Pre-history
+bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 

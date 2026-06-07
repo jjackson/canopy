@@ -944,7 +944,7 @@ def version_bump(repo):
 def structure_drift_cmd(repo, strict, per_skill_limit, as_json):
     """Self-audit canopy's documented structural invariants in one pass.
 
-    Checks the invariants canopy documents in .claude/CLAUDE.md:
+    Checks the invariants canopy documents in CLAUDE.md:
       - command/skill collisions follow Pattern B (read SKILL.md from disk)
       - no command/skill/agent uses a reserved built-in slash-command name
       - VERSION == plugin.json version == marketplace.json version field(s)
