@@ -687,6 +687,45 @@ def _default_post(
     return json.loads(raw.decode("utf-8")) if raw else {}
 
 
+def _external_links_from_spec(spec) -> list[dict]:
+    """Build "external systems" reference links from a spec: the base app URL
+    plus each scene's concrete page (``scene.url`` or its first ``goto``
+    action's target), resolved against ``base_url`` and de-duped in scene order.
+
+    These are the live systems the run was recorded against — the pages and
+    entities we used/created during the demo — surfaced on the run page so a
+    viewer can go visit them. Returns ``[{label, url, kind: "reference"}, ...]``.
+    """
+    base = (getattr(spec, "base_url", "") or "").rstrip("/")
+    out: list[dict] = []
+    seen: set[str] = set()
+
+    def _add(url: str, label: str) -> None:
+        if not url or url in seen:
+            return
+        seen.add(url)
+        out.append({"label": label, "url": url, "kind": "reference"})
+
+    if base:
+        _add(base, "App")
+    for scene in getattr(spec, "scenes", []) or []:
+        raw = getattr(scene, "url", None)
+        if not raw:
+            raw = next(
+                (
+                    a.target
+                    for a in (getattr(scene, "actions", []) or [])
+                    if getattr(a, "kind", None) == "goto" and getattr(a, "target", None)
+                ),
+                None,
+            )
+        if not raw:
+            continue
+        full = raw if raw.startswith("http") else f"{base}/{raw.lstrip('/')}"
+        _add(full, getattr(scene, "title", None) or full)
+    return out
+
+
 def publish_artifact(
     content: str | bytes,
     *,
@@ -698,6 +737,7 @@ def publish_artifact(
     narrative_slug: str | None = None,
     role: str | None = None,
     narrative_review_id: str | None = None,
+    links: list[dict] | None = None,
     _post=None,
 ) -> str:
     """Upload *content* to canopy-web and return the hosted URL.
@@ -754,6 +794,10 @@ def publish_artifact(
     # Link this run's artifacts to the narrative version they rendered.
     if narrative_review_id:
         fields["narrative_review_id"] = narrative_review_id
+    # External systems the run used/created — rendered as a section on the run
+    # page. Sent as a JSON list of {label, url, kind}.
+    if links:
+        fields["links"] = json.dumps(links)
 
     post_fn = _post if _post is not None else _default_post
     body = post_fn(
@@ -970,8 +1014,9 @@ def upload_run(
         narrative_review_id=narrative_review_id,
     )
 
-    # 4. Build docs HTML
+    # 4. Build docs HTML + the external-systems links (live pages the run used).
     html_content = build_docs_page(spec, why_brief, video_url)
+    external_links = _external_links_from_spec(spec)
 
     # 5. External release gate — ONLY for a public release. A stuck/review upload
     #    (release=False) skips the gate: it's an internal inspection package, not a
@@ -1010,6 +1055,7 @@ def upload_run(
         narrative_slug=run_state.narrative_slug,
         role="docs",
         narrative_review_id=narrative_review_id,
+        links=external_links,
     )
 
     # 7. Update run state. A release marks the run terminal (uploaded); a stuck
