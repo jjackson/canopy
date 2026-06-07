@@ -1,6 +1,6 @@
 """Single-command structural self-audit for the canopy plugin.
 
-canopy documents a handful of structural invariants in `.claude/CLAUDE.md`
+canopy documents a handful of structural invariants in `CLAUDE.md`
 (Pattern B for command/skill collisions, the reserved built-in slash-command
 namespace, the VERSION ↔ plugin.json ↔ marketplace.json version triple, and
 the per-skill description char budget). Historically these were enforced only
