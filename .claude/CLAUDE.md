@@ -89,6 +89,12 @@ Then follow the plugin-update steps below (`/canopy:update` etc.) if
 - `canopy skills dropped [--scope ... --source ... --per-skill-limit N --aggregate-limit N --json-output]` — simulate Claude Code's drop logic and print which skills get dropped under the aggregate cap.
 - `canopy version verify` — confirm VERSION and plugin.json agree (CI-safe)
 - `canopy version bump` — bump VERSION + plugin.json by `max(local, origin/main) + patch+1`. Fetches origin first so a parallel worktree's bump is visible before deciding the next number. Use this instead of editing the two files by hand.
+- `canopy doctor` — diagnose canopy plugin health (workbench token, repo-map, session log, hook registration)
+- `canopy shareout [...]` — gather a date range of sessions + PRs into a teammate-facing work briefing for the canopy-web /shareouts feed
+- `canopy portfolio-discover` — list local emdash repos with recent activity that canopy can act on
+- `canopy structure-drift` — self-audit canopy's documented structure against the actual tree (agent frontmatter, modules, docs)
+- `canopy test-audit [...]` — build a test corpus for the agent to judge and prune dumb tests
+- `canopy verify-findings` — re-verify session-review proposals against the current state of their target repos
 
 ## Key Modules
 
@@ -111,6 +117,8 @@ Then follow the plugin-update steps below (`/canopy:update` etc.) if
 - `src/orchestrator/briefing.py` — strategic brief with gstack cognitive patterns
 - `src/orchestrator/router.py` — tiered routing (inline/single/team)
 - `src/orchestrator/skill_catalog.py` — enumerates installed skills (plugin + user) and detects when a `new_skill` proposal duplicates one that already exists. Wired into the proposer prompt and `_validate_proposals` to silence the "we just proposed building something that already ships" pattern.
+- `src/orchestrator/skill_budget.py` — computes per-skill + aggregate description-size budget (backs `canopy skills budget` / `dropped`)
+- `src/orchestrator/shareout.py` — gathers sessions + PRs over a date range into teammate-facing work briefings (backs `canopy shareout`)
 
 ### Registry & discovery
 - `registry.yaml` — capability registry mapping servers to tools (auto-synced)
@@ -119,6 +127,8 @@ Then follow the plugin-update steps below (`/canopy:update` etc.) if
 - `src/orchestrator/scanner.py` — transcript discovery and metadata extraction
 - `src/orchestrator/transcripts.py` — Claude Code transcript parsing
 - `src/orchestrator/repo_map.py` — project-to-GitHub-repo mapping (JSON, stdlib only)
+- `src/orchestrator/repo_paths.py` — resolves local repo checkout paths for a project
+- `src/orchestrator/portfolio_discover.py` — discovers local emdash repos with recent activity (backs `canopy portfolio-discover`)
 
 ### Capture & hooks
 - `hooks/post_tool_use.py` — captures repo mapping on every tool call, logs MCP calls
@@ -140,11 +150,15 @@ Then follow the plugin-update steps below (`/canopy:update` etc.) if
 - `src/orchestrator/corpus.py` — activity corpus builder for analysis
 - `src/orchestrator/digest.py` — daily digest generation from improvement runs
 - `src/orchestrator/run_log.py` — improvement cycle run log tracking
+- `src/orchestrator/doctor.py` — canopy plugin health diagnostics (backs `canopy doctor`)
+- `src/orchestrator/structure_drift.py` — self-audit of documented structure vs the actual tree (backs `canopy structure-drift`)
+- `src/orchestrator/verify_findings.py` — re-verifies session-review proposals against current repo state (backs `canopy verify-findings`)
+- `src/orchestrator/version_bump.py` — VERSION coordination across worktrees (backs `canopy version bump`)
 
 ### Plugin (Claude Code skills, commands, agents)
-- `plugins/canopy/skills/` — skill definitions (select-session, find-session, improve, brief, patterns, orchestrator, product-management, issue-triage, doc-regeneration, update, walkthrough, walkthrough-defect-creator, walkthrough-eval, website-builder, auth-preflight, doctor, project-status)
-- `plugins/canopy/commands/` — slash commands (pm-scout, pm-status, issue-triage, doc-regen, improve, brief, patterns, select-session, find-session, session-review, update, walkthrough, walkthrough-defect-creator, walkthrough-eval, website-builder, auth-preflight, project-status)
-- `plugins/canopy/agents/` — autonomous agents (pm-supervisor, session-review, walkthrough, website-builder)
+- `plugins/canopy/skills/` — skill definitions (alignment, auth-preflight, brief, canopy-doctor, context-ingestion, ddd-concept-eval, ddd-evidence-audit, ddd-narrative-actionability-eval, ddd-narrative-coherence, ddd-narrative-review, ddd-run, ddd-spec, ddd-spec-qa, ddd-upload, ddd-why-brief, ddd-why-eval, ddd-why-qa, doc-regeneration, find-session, improve, improve-lens, information-architecture, issue-triage, orchestrator, patch-gstack-browse, patterns, portfolio-guide, portfolio-review, product-management, project-status, select-session, shareout, test-audit, update, verify-findings, visual-judge, walkthrough, walkthrough-defect-creator, walkthrough-eval, walkthrough-share, website-builder)
+- `plugins/canopy/commands/` — slash commands (alignment, auth-preflight, brief, canopy-web-pat-mint, ddd, ddd-concept-eval, ddd-evidence-audit, ddd-narrative-actionability-eval, ddd-narrative-review, ddd-run, ddd-spec, ddd-spec-qa, ddd-upload, ddd-why-brief, ddd-why-eval, ddd-why-qa, doc-regen, find-session, improve, issue-triage, patch-gstack-browse, patterns, pm-autonomous, pm-autonomous-loop, pm-scout, pm-status, portfolio-guide, portfolio-review, project-status, select-session, session-review, setup, test-audit, update, verify-findings, walkthrough, walkthrough-defect-creator, walkthrough-eval, website-builder)
+- `plugins/canopy/agents/` — autonomous agents (ddd, pm-supervisor, session-review, walkthrough, website-builder)
 - `.claude-plugin/marketplace.json` — plugin marketplace manifest
 
 ## Important: Hook Must Use Stdlib Only
@@ -397,4 +411,4 @@ Outside a git repo, the PM resolver falls back to `$HOME/.canopy/pm/<basename-of
 The global "self-improvement brain" (`~/.claude/canopy/observations/`, `proposals/`, `session-log.jsonl`, etc.) stays under `$HOME/.claude/canopy/` — that data is intentionally cross-project on a single machine.
 
 ## Testing
-- `uv run pytest` from project root (420 tests)
+- `uv run pytest` from project root (~1,590 tests across 114 test files). A handful of browser-dep tests error on collection unless the optional extras are installed: `pip install -e '.[browser]'`.
