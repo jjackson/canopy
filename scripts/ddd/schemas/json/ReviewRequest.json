@@ -97,6 +97,15 @@
           },
           "title": "Features",
           "type": "array"
+        },
+        "status": {
+          "default": "new",
+          "enum": [
+            "built",
+            "new"
+          ],
+          "title": "Status",
+          "type": "string"
         }
       },
       "required": [

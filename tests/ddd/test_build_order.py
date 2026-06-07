@@ -313,6 +313,75 @@ class TestBuildNarrativeReviewRequestBuildOrder:
 
 
 # ---------------------------------------------------------------------------
+# 3b. build_narrative_review_request — derives built|new status per beat
+# ---------------------------------------------------------------------------
+
+
+def _why_brief(*, s1_status="grounded", s2_status="grounded", s3_status="grounded", gaps=None):
+    """A why-brief whose spine ids (S1/S2/S3) carry the given grounded/gap status.
+
+    ``gaps`` is a list of spine ids that an open why-brief gap references.
+    """
+    def _spine(sid, status):
+        return {
+            "id": sid,
+            "claim": sid,
+            "status": status,
+            "evidence": [{"kind": "implemented", "ref": f"EV-{sid}"}],
+        }
+
+    return {
+        "feature": "rooftop-surveys",
+        "problem": "x",
+        "spine": [_spine("S1", s1_status), _spine("S2", s2_status), _spine("S3", s3_status)],
+        "gaps": [{"id": f"G{i}", "type": "CAPABILITY", "claim_ref": ref} for i, ref in enumerate(gaps or [])],
+    }
+
+
+class TestNarrationBuildStatus:
+    def test_grounded_ungapped_beat_is_built(self):
+        """A grounded spine item with no open gap is 'built' — even with implemented evidence on a gap peer."""
+        from scripts.ddd.narrative import build_narrative_review_request
+
+        wb = _why_brief(s1_status="grounded", s2_status="gap", s3_status="grounded")
+        result = build_narrative_review_request(_make_spec(), "run-001", why_brief=wb)
+        by_prov = {n.provenance: n.status for n in result.narration}
+        assert by_prov["S1"] == "built"  # grounded, no gap
+        assert by_prov["S2"] == "new"  # status=gap -> frontier
+        assert by_prov["S3"] == "built"
+
+    def test_grounded_claim_with_open_capability_gap_reads_new(self):
+        """A grounded spine item that a CAPABILITY gap references is still to-build -> 'new'."""
+        from scripts.ddd.narrative import build_narrative_review_request
+
+        wb = _why_brief(s1_status="grounded", s2_status="grounded", s3_status="grounded", gaps=["S2"])
+        result = build_narrative_review_request(_make_spec(), "run-001", why_brief=wb)
+        by_prov = {n.provenance: n.status for n in result.narration}
+        assert by_prov["S1"] == "built"
+        assert by_prov["S2"] == "new"  # grounded but a gap references it -> frontier
+        assert by_prov["S3"] == "built"
+
+    def test_no_why_brief_defaults_all_new(self):
+        """With no why-brief, nothing is known to be built — every beat is 'new'."""
+        from scripts.ddd.narrative import build_narrative_review_request
+
+        result = build_narrative_review_request(_make_spec(), "run-001")
+        assert all(n.status == "new" for n in result.narration)
+
+    def test_unknown_provenance_is_new(self):
+        """A scene whose provenance isn't in the spine falls back to 'new'."""
+        from scripts.ddd.narrative import build_narrative_review_request
+
+        wb = _why_brief()
+        wb["spine"] = [wb["spine"][0]]  # drop S2/S3 from the spine entirely
+        result = build_narrative_review_request(_make_spec(), "run-001", why_brief=wb)
+        by_prov = {n.provenance: n.status for n in result.narration}
+        assert by_prov["S1"] == "built"
+        assert by_prov["S2"] == "new"  # no longer in spine -> new
+        assert by_prov["S3"] == "new"
+
+
+# ---------------------------------------------------------------------------
 # 4. apply_narrative_edits — persists build_order from response_json
 # ---------------------------------------------------------------------------
 

@@ -9,6 +9,11 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.181] - 2026-06-07
+
+### Fixed
+- **BUILD SEQUENCE now labels built vs to-build.** The narrative-agreement review's BUILD SEQUENCE listed every scene as if it were new work, with no signal for what already exists — so an already-shipped feature's narrative read as an all-new build plan. `build_narrative_review_request` now derives a per-beat `status` (`built` | `new`) from the why-brief, mirroring canopy-web's `sceneIsFrontier`: a beat is `new` when its `provenance` spine item is a gap (status != `grounded`) or a why-brief gap references it, otherwise `built`. The field rides on each `NarrationItem` (`narration[].status`) so the `ddd-narrative-review` inline table and the canopy-web panel agree. (canopy-web renders the badge on the BUILD SEQUENCE items in a paired change; it computes the same frontier client-side, so the badge also lights up on already-posted reviews once deployed.)
+
 ## [0.2.172] - 2026-06-04
 
 ### Changed
