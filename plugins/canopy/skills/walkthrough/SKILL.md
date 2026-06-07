@@ -612,7 +612,7 @@ lifts the `feature_use` score off the floor — a demo where nothing is clicked
 reads as a slideshow.
 
 Declare `actions` per scene in the spec (see `ddd-spec` for authoring + the
-`Action` schema in `scripts/ddd/schemas/models.py`). Verbs: `goto`, `click`,
+`Action` schema in `scripts/narrative/models.py`). Verbs: `goto`, `click`,
 `click_menu`, `fill`, `select`, `type`, `press`, `hover`, `scroll_to`,
 `scroll`, `wait_for`, `hold`, `draw`. Each action is
 `{kind, target?, value?, seconds?, note?}`; `target` is visible text OR a CSS
