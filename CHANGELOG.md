@@ -9,10 +9,15 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
-## [0.2.181] - 2026-06-07
+## [0.2.182] - 2026-06-07
 
 ### Fixed
 - **BUILD SEQUENCE now labels built vs to-build.** The narrative-agreement review's BUILD SEQUENCE listed every scene as if it were new work, with no signal for what already exists — so an already-shipped feature's narrative read as an all-new build plan. `build_narrative_review_request` now derives a per-beat `status` (`built` | `new`) from the why-brief, mirroring canopy-web's `sceneIsFrontier`: a beat is `new` when its `provenance` spine item is a gap (status != `grounded`) or a why-brief gap references it, otherwise `built`. The field rides on each `NarrationItem` (`narration[].status`) so the `ddd-narrative-review` inline table and the canopy-web panel agree. (canopy-web renders the badge on the BUILD SEQUENCE items in a paired change; it computes the same frontier client-side, so the badge also lights up on already-posted reviews once deployed.)
+
+## [0.2.181] - 2026-06-07
+
+### Changed
+- **doc-regeneration: prune as well as add, and drop the 200-line target.** Two fixes aimed at high-velocity codebases where docs decay fast. (1) **No more line-count target.** The old Check 4 told the skill to "keep CLAUDE.md under ~200 lines" — an arbitrary number that penalizes large multi-plugin systems (ace, canopy) with legitimately long reference docs, and that the skill didn't even honor. Replaced with a *compactness principle*: there is no line target; cut waste (stale status, duplication, dead detail), never cut accurate load-bearing reference; judge every line by "would the next agent be worse off without this?" Justified growth (e.g. newly-shipped endpoint coverage) is correct and must be reported. (2) **New Check 6 — stale-content pruning (retirement).** Regeneration is now an explicit two-way edit: alongside adding missing facts, it classifies every standing learning/plan/spec as LIVING / HISTORICAL-ACCURATE / SUPERSEDED / CONTRADICTED, flags cross-doc contradictions, and recommends retirement. Apply mode adds `Status: shipped … historical record` banners to historical docs (low-risk, reversible) but gates archive/delete of superseded docs behind user confirmation in the PR body (or an explicit `--prune`) — deleting a design doc is high-regret. Phase 1 now discovers whatever design-doc dirs actually exist (`docs/specs/`, `docs/superpowers/{plans,specs}/`, …) instead of assuming `docs/plans/`.
 
 ## [0.2.172] - 2026-06-04
 
