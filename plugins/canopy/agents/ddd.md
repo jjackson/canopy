@@ -32,6 +32,52 @@ narration alone), then the **narrative-agreement gate** (`ddd-narrative-review` 
 an `approve`/`redraft` decision) so the user explicitly approves the story arc
 before anything is built or rendered.
 
+## Never hand-drive a run (load-bearing — read this first)
+
+**The single most common way DDD work goes wrong: an agent hand-drives the
+render/judge/upload instead of going through the skills.** It happens because the
+human often breaks in to build the feature directly — editing the workflow
+template, pushing it live via MCP — and the next agent, seeing a live product and
+an existing run, reaches for the low-level tools (`record_video.py`, ad-hoc
+`visual-judge` Agent dispatches, `walkthrough-share/upload.py`) à la carte. That
+feels productive and is almost always wrong:
+
+- **`record_video.py` by hand** renders snapshots but NEVER assembles the
+  dual-judge verdict into `run_state.yaml`. The run keeps its stale phase, so it
+  looks done/uploaded when it isn't, and `auto_iterate_next_action` is a lie.
+- **Dispatching judge sub-agents by hand** produces verdicts that live only in
+  the chat transcript — `assemble_run_state` never runs, so nothing persists and
+  the next session can't resume from them.
+- **`walkthrough-share/upload.py` by hand** produces loose `/w/<id>` clips, not a
+  navigable `/ddd/<slug>/<run_id>` package, and never sets the hero/deck/narrative
+  grouping `ddd-upload` builds.
+- **Approving the narrative in chat** without the gate locks it locally but leaves
+  the canopy-web review `pending`, so the package shows `concept_change · pending`.
+
+**The rule: every render, judge, and upload for a run goes through the skills —
+`/canopy:ddd-run` (render+judge+persist) and `/canopy:ddd-upload` (package) — even
+when the human just hand-edited the product.** The way to SEE a product edit's
+effect on the run is to re-fire `/canopy:ddd-run`, not to render by hand. The
+recorder enforces this: it **refuses** to write into a `.canopy/ddd/runs/` dir
+unless `ddd-run` passes `--ddd-orchestrated` (override only via an explicit
+`--force-hand-render` for a deliberate one-off).
+
+**Re-entry detection (you broke in mid-flow — now what):** before doing ANY
+render/judge/upload work, check whether the feature already has a run:
+
+```bash
+ls .canopy/ddd/runs/*/run_state.yaml 2>/dev/null   # a run exists → resume it
+ls docs/walkthroughs/*.yaml 2>/dev/null            # a narrative spec exists
+```
+
+If a run exists, **resume it through the orchestrator** — `/canopy:ddd --resume
+<run_id>` (or just `/canopy:ddd`, which auto-resumes the newest run). Resume
+hydrates the locked narrative (skips re-authoring), re-fires `ddd-run` (which
+persists the fresh verdict), routes findings, and loops. Do NOT reconstruct state
+by hand or write a bespoke "continuation prompt" carrying state that should live
+in `run_state.yaml` — if you feel the urge to hand-carry state, that is the signal
+you've been hand-driving and should re-enter via the orchestrator instead.
+
 ## Pause policy (load-bearing — read this first)
 
 **Only two gates ever block execution and emit a ReviewRequest:**

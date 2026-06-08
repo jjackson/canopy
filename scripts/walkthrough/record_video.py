@@ -279,7 +279,60 @@ def main() -> None:
             "Default: record every scene (back-compat)."
         ),
     )
+    ap.add_argument(
+        "--ddd-orchestrated",
+        action="store_true",
+        help=(
+            "Set by /canopy:ddd-run when it drives the render as part of a DDD "
+            "run. Suppresses the hand-drive guard below. Do NOT pass this by "
+            "hand — it exists so the orchestrator is the only quiet way to "
+            "render into a DDD run dir."
+        ),
+    )
+    ap.add_argument(
+        "--force-hand-render",
+        action="store_true",
+        help=(
+            "Override the DDD hand-drive guard and render into a run dir anyway "
+            "(e.g. one-off debugging). Prefer /canopy:ddd-run — hand-rendering "
+            "does NOT persist the dual-judge verdict to run_state.yaml."
+        ),
+    )
     args = ap.parse_args()
+
+    # ---- Guardrail: don't hand-drive a DDD run's render ----------------------
+    # Calling this recorder directly (instead of going through /canopy:ddd-run)
+    # is the #1 way DDD runs end up broken: the dual-judge verdict is never
+    # assembled into run_state.yaml, the run can't be resumed cleanly, and
+    # ddd-upload has no converged verdict to publish (you get loose /w/ clips,
+    # not a navigable /ddd/<slug>/<run_id> package). If the output is landing
+    # inside a `.canopy/ddd/runs/<run_id>/` directory, the caller MUST be the
+    # orchestrator (--ddd-orchestrated) or explicitly override (--force-hand-render).
+    _out_paths = " ".join(
+        str(p) for p in (args.snapshots, args.output, args.report) if p
+    )
+    if ".canopy/ddd/runs/" in _out_paths and not (
+        args.ddd_orchestrated or args.force_hand_render
+    ):
+        sys.exit(
+            "\n"
+            "════════════════════════════════════════════════════════════════════\n"
+            "  ⛔  Refusing to hand-render into a DDD run directory.\n"
+            "\n"
+            "      This output path lives under .canopy/ddd/runs/. Rendering it\n"
+            "      directly bypasses /canopy:ddd-run, so the dual-judge verdict is\n"
+            "      NEVER written to run_state.yaml — the run looks stale/done, can't\n"
+            "      be resumed cleanly, and ddd-upload publishes loose /w/ clips\n"
+            "      instead of a /ddd/<slug>/<run_id> package.\n"
+            "\n"
+            "      ➜  Run  /canopy:ddd-run <run_id>  instead. It renders AND judges\n"
+            "         AND persists run_state in one step, so a later /canopy:ddd\n"
+            "         --resume <run_id> just works.\n"
+            "\n"
+            "      (Standalone /canopy:walkthrough renders OUTSIDE a run dir and is\n"
+            "       unaffected. For a deliberate one-off, pass --force-hand-render.)\n"
+            "════════════════════════════════════════════════════════════════════\n"
+        )
 
     ffmpeg = check_ffmpeg()
     spec = yaml.safe_load(Path(args.spec).read_text())

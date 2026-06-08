@@ -125,8 +125,17 @@ python3 "$REC" \
   --snapshots "<run_dir>/snapshots/" \
   --report "<run_dir>/run-report.json" \
   --skip-empty-scenes \
-  --skip-same-url
+  --skip-same-url \
+  --ddd-orchestrated
 ```
+
+`--ddd-orchestrated` is **required** here: the recorder refuses to write into a
+`.canopy/ddd/runs/<run_id>/` directory without it (the hand-drive guard). That
+guard exists because rendering a run by hand — calling `record_video.py` or
+dispatching judge sub-agents directly instead of going through THIS skill —
+leaves `run_state.yaml` with no assembled verdict, so the run looks stale/done,
+can't be resumed cleanly, and `ddd-upload` has nothing converged to publish.
+`/canopy:ddd-run` is the only path that should pass this flag.
 
 After the recorder exits, scan `<run_dir>/run-report.json` for non-zero
 `failed` counts before letting the judges run. A scene whose
