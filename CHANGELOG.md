@@ -9,6 +9,11 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.186] - 2026-06-08
+
+### Changed
+- **DDD loop is progress-aware, not iteration-capped — fix the obvious things and keep going.** The orchestrator used a raw `MAX_ITERATIONS = 3` count to decide when to stop auto-iterating, so it handed half-finished runs back to the human after three passes even when every finding was a trivial mechanical fix and each pass scored strictly better than the last — the opposite of "loop and fix the obvious things." A raw count was also blind to *regressions* (a fix that breaks another scene should stop the loop immediately; a count happily burns more iterations on it). Replaced with trajectory-gating: `run_pipeline.compute_auto_iterate` appends the gating score to `RunState.score_history` each iteration and returns `continue` while findings are mechanical AND the score is still improving, `stop_max_iter` only on a **stall/regression** (no new best across the last 2 iterations) or a `HARD_CAP` (10) runaway backstop, plus the existing `stop_done` / `stop_concept_change` / `stop_unclear`. `ddd-run` SKILL Step 5 and the `ddd` agent doc ("Converge or loop", stop_max_iter, rules) updated to match; `MAX_ITERATIONS` kept as a back-compat alias of `HARD_CAP`. New `score_history` field on RunState (JSON schema regenerated).
+
 ## [0.2.185] - 2026-06-08
 
 ### Changed

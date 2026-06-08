@@ -164,6 +164,14 @@
       "title": "Iteration Clips",
       "type": "object"
     },
+    "score_history": {
+      "default": [],
+      "items": {
+        "type": "number"
+      },
+      "title": "Score History",
+      "type": "array"
+    },
     "narrative_review_url": {
       "anyOf": [
         {
