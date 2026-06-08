@@ -15,8 +15,8 @@ if [ -z "$_CANOPY_DIR" ]; then
     [ -d "$cand/.git" ] && _CANOPY_DIR="$cand" && break
   done
 fi
-_CANOPY_UPD=$(bash "$_CANOPY_DIR/scripts/canopy-update-check.sh" 2>/dev/null || true)
-if [ -n "$_CANOPY_UPD" ]; then echo "$_CANOPY_UPD"; fi
+_CANOPY_UPD=$(bash "$HOME/emdash-projects/canopy/plugins/canopy/scripts/canopy-update-check.sh" 2>/dev/null || bash "$HOME/.claude/plugins/marketplaces/canopy/plugins/canopy/scripts/canopy-update-check.sh" 2>/dev/null || true)
+case "$_CANOPY_UPD" in UPGRADE_AVAILABLE*) echo "$_CANOPY_UPD" ;; esac
 ```
 
 If output shows `UPGRADE_AVAILABLE <old> <new>`: tell the user "canopy **v{new}** is available (you're on v{old}). Run `/canopy:update` to upgrade." Then continue with the skill — do not block on the upgrade.
