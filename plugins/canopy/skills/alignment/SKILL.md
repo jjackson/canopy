@@ -6,8 +6,8 @@ description: Compare two sibling systems for drift and surface what one built th
 ## Preamble (run first)
 
 ```bash
-_CANOPY_UPD=$(bash ~/emdash-projects/canopy/scripts/canopy-update-check.sh 2>/dev/null || true)
-if [ -n "$_CANOPY_UPD" ]; then echo "$_CANOPY_UPD"; fi
+_CANOPY_UPD=$(bash "$HOME/emdash-projects/canopy/plugins/canopy/scripts/canopy-update-check.sh" 2>/dev/null || bash "$HOME/.claude/plugins/marketplaces/canopy/plugins/canopy/scripts/canopy-update-check.sh" 2>/dev/null || true)
+case "$_CANOPY_UPD" in UPGRADE_AVAILABLE*) echo "$_CANOPY_UPD" ;; esac
 ```
 
 If output shows `UPGRADE_AVAILABLE <old> <new>`, mention the upgrade once and continue.
