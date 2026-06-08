@@ -9,6 +9,11 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.185] - 2026-06-08
+
+### Changed
+- **DDD: stop agents hand-driving runs; force render/judge/upload through the skills.** A recurring failure mode — especially when the human breaks in to build the feature directly, then a fresh agent sees a live product + an existing run and reaches for the low-level tools — is hand-driving: calling `record_video.py`, dispatching `visual-judge` Agents, or `walkthrough-share/upload.py` à la carte instead of going through `/canopy:ddd-run` and `/canopy:ddd-upload`. Hand-driving never assembles the dual-judge verdict into `run_state.yaml` (so the run looks stale/done and can't be resumed), and produces loose `/w/` clips instead of a `/ddd/<slug>/<run_id>` package. Three guardrails: (1) **the recorder now refuses** to write into a `.canopy/ddd/runs/` directory unless `/canopy:ddd-run` passes the new `--ddd-orchestrated` flag (deliberate one-off override: `--force-hand-render`) — the only *quiet* render path is the orchestrated one; (2) `ddd-run` SKILL passes `--ddd-orchestrated` and documents why; (3) the **`ddd` agent doc** leads with a "Never hand-drive a run" section + a **re-entry detection** recipe (if `.canopy/ddd/runs/*/run_state.yaml` exists, resume via `/canopy:ddd --resume <run_id>` rather than reconstructing state by hand or writing a bespoke continuation prompt).
+
 ## [0.2.183] - 2026-06-07
 
 ### Changed
