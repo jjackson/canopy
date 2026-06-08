@@ -569,14 +569,17 @@ of each new persona.
 After collecting all data, find the generator script:
 
 ```bash
-# Check canopy repo locations
+# Resolve the generator: dev checkout first, then the plugin marketplace
+# clone (what a portable, non-dev install pulls via /canopy:update), then a
+# project-local copy. generate_presentation.py is pure stdlib, so bare
+# python3 runs it anywhere it's found.
 GEN=""
 for P in \
-  ~/emdash-projects/canopy/scripts/walkthrough/generate_presentation.py; do
+  ~/emdash-projects/canopy/scripts/walkthrough/generate_presentation.py \
+  ~/.claude/plugins/marketplaces/canopy/scripts/walkthrough/generate_presentation.py \
+  tools/walkthrough/generate_presentation.py; do
   [ -f "$P" ] && GEN="$P" && break
 done
-# Fallback: check if project has a local copy
-[ -z "$GEN" ] && [ -f "tools/walkthrough/generate_presentation.py" ] && GEN="tools/walkthrough/generate_presentation.py"
 echo "${GEN:-NOT_FOUND}"
 ```
 
@@ -853,6 +856,15 @@ scroll for that scene and dwell a fixed N seconds instead. Use for key
 moments where the viewer should sit with one screen.
 
 ### Run
+
+> **Dependency note.** Unlike the slideshow generator (pure stdlib, runs
+> anywhere), `record_video.py` needs **playwright + a chromium download** —
+> a heavy, video-only dependency that `/canopy:setup` does **not** install.
+> On a portable install without it, the recorder exits with the exact
+> install command. To enable video, run it once against the resolved
+> checkout: `pip install 'playwright>=1.40' && python -m playwright install
+> chromium` (or `pip install -e '<canopy-checkout>[browser]'`). The
+> still-frame slideshow deck needs none of this.
 
 Export the live browse cookies so the recorder inherits the auth you
 already established during capture, then invoke the script:

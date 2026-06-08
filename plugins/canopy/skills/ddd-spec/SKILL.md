@@ -28,8 +28,9 @@ discard their edits (the whole spec: narrative paragraph + every scene's
 narrative/show/design_intent/features/actions).
 
 ```bash
+DDD_REPO="$HOME/emdash-projects/canopy"; [ -d "$DDD_REPO/scripts/ddd" ] || DDD_REPO="$HOME/.claude/plugins/marketplaces/canopy"
 test -f "docs/walkthroughs/<narrative-slug>.yaml" && \
-  (cd ~/emdash-projects/canopy && uv run python -m scripts.ddd.narrative locked "<abs-spec-path>") || echo unlocked
+  (cd "$DDD_REPO" && uv run python -m scripts.ddd.narrative locked "<abs-spec-path>") || echo unlocked
 ```
 
 - Prints **`locked`** → **STOP. Do not regenerate.** Report "narrative is locked
