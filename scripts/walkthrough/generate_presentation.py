@@ -987,6 +987,10 @@ JS_NAVIGATION = """
 
     // Scroll to top of slide
     window.scrollTo(0, 0);
+
+    // Reflect the active scene in the URL so the deck is shareable to the
+    // current slide and #scene-N deep-links stay in sync as the user navigates.
+    syncHash(n);
   }
 
   function prevSlide() {
@@ -996,6 +1000,48 @@ JS_NAVIGATION = """
   function nextSlide() {
     showSlide(currentSlide + 1);
   }
+
+  // Map a scene anchor id (e.g. "scene-3") to its slide's position in the deck.
+  // Scene slides carry id="scene-N" using the ORIGINAL spec index, which need
+  // not equal DOM order (title/summary slides have no anchor, partial runs skip
+  // scenes), so resolve by element identity rather than arithmetic.
+  function slideIndexForScene(sceneId) {
+    if (!sceneId) return -1;
+    var el = document.getElementById(sceneId);
+    if (!el) return -1;
+    for (var i = 0; i < totalSlides; i++) {
+      if (slides[i] === el) return i;
+    }
+    return -1;
+  }
+
+  // Parse a #scene-N deep-link from the URL hash into a slide index, or -1.
+  function indexFromHash() {
+    var m = (window.location.hash || '').match(/^#(scene-\\d+)$/);
+    if (!m) return -1;
+    return slideIndexForScene(m[1]);
+  }
+
+  // Keep the URL hash pointed at the active scene. Uses replaceState (which does
+  // NOT fire hashchange) so this never loops with the hashchange listener.
+  function syncHash(n) {
+    try {
+      var id = slides[n] && slides[n].id;
+      if (id) {
+        window.history.replaceState(null, '', '#' + id);
+      } else {
+        window.history.replaceState(
+          null, '', window.location.pathname + window.location.search);
+      }
+    } catch (e) {}
+  }
+
+  // Honor #scene-N deep-links applied after load: an embedding page setting the
+  // iframe's hash, or browser back/forward between scenes.
+  window.addEventListener('hashchange', function () {
+    var idx = indexFromHash();
+    if (idx >= 0 && idx !== currentSlide) showSlide(idx);
+  });
 
   // Keyboard navigation
   document.addEventListener('keydown', function (e) {
@@ -1073,8 +1119,9 @@ JS_NAVIGATION = """
   nav.appendChild(themeBtn);
   document.body.appendChild(nav);
 
-  // Initialize
-  showSlide(0);
+  // Initialize — honor a #scene-N deep-link on first load, else open on slide 1.
+  var initialSlide = indexFromHash();
+  showSlide(initialSlide >= 0 ? initialSlide : 0);
 })();
 """
 
