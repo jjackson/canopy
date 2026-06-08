@@ -103,6 +103,11 @@ class RunState(BaseModel):
     # original spec index, so the anchor is stable across partial/full runs.
     iteration_decks: dict[int, str] = {}
     iteration_clips: dict[int, str] = {}
+    # Gating overall score per iteration (lower of the two judges). Appended by
+    # /canopy:ddd-run Step 5; the progress-aware auto-iterate loop reads it to
+    # tell "still improving → keep going" from "stalled/regressed → get a human",
+    # replacing the old raw MAX_ITERATIONS=3 count.
+    score_history: list[float] = []
     # Hosted narrative-review URL (0.2.150). Stamped by the ddd-narrative-review
     # gate after it posts the narrative to the canopy-web review surface — the
     # token-bearing /review/<id>/?t=<token> link the user approved. ddd-run's

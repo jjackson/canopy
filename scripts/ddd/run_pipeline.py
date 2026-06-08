@@ -13,9 +13,11 @@ compute_convergence(concept_verdict, user_verdict, *, threshold) -> bool
     Returns True iff BOTH verdicts have overall_score >= threshold AND neither
     verdict is "blocked".  Threshold defaults to 4.0.
 
-MAX_ITERATIONS
-    Module constant: maximum refinement iterations before the orchestrator
-    surfaces a human-review checkpoint (used by the outer loop, not here).
+HARD_CAP
+    Module constant: runaway backstop on refinement iterations. The loop is
+    progress-aware (keep going while mechanical findings are still improving the
+    score; stop on a stall/regression) — HARD_CAP only catches a pathological
+    non-converging loop. See ``compute_auto_iterate``.
 """
 from __future__ import annotations
 
@@ -25,7 +27,11 @@ from scripts.ddd.schemas.models import RunState, Verdict
 # Constants
 # ---------------------------------------------------------------------------
 
-MAX_ITERATIONS: int = 3
+# Runaway backstop only — NOT the normal stop. The loop stops on real gates,
+# options/redesign findings, or a score stall/regression long before this.
+HARD_CAP: int = 10
+# Back-compat alias for older callers; no longer a hard 3-iteration cap.
+MAX_ITERATIONS: int = HARD_CAP
 
 
 # ---------------------------------------------------------------------------
@@ -126,3 +132,76 @@ def compute_convergence(
     if user_verdict.overall_score < threshold:
         return False
     return True
+
+
+# ---------------------------------------------------------------------------
+# Progress-aware auto-iterate (replaces the old raw MAX_ITERATIONS=3 stop)
+# ---------------------------------------------------------------------------
+
+
+def compute_auto_iterate(
+    state: RunState,
+    concept_verdict: Verdict,
+    user_verdict: Verdict,
+    findings: list[dict],
+    *,
+    converged: bool | None = None,
+    hard_cap: int = HARD_CAP,
+) -> tuple[str, str]:
+    """Decide the next loop action from the SCORE TRAJECTORY, not an iteration count.
+
+    DDD's point is to loop autonomously on mechanical findings until they're
+    exhausted. A raw count stopped good runs mid-progress and was blind to
+    regressions. This gates on whether the gating score is still improving:
+
+    - converged (both judges >= threshold)        -> ``stop_done`` / ``stop_partial``
+    - a CONCEPT/redesign finding                  -> ``stop_concept_change``
+    - any options/redesign finding                -> ``stop_unclear``
+    - score stalled/regressed over last 2 iters   -> ``stop_max_iter`` (needs a human)
+    - hit ``hard_cap`` without converging         -> ``stop_max_iter`` (runaway backstop)
+    - else (mechanical + still improving)         -> ``continue`` (keep looping)
+
+    Mutates ``state.score_history`` (appends this iteration's gating score) and
+    returns ``(action, reason)``. The gating score is the lower of the two
+    judges' overall_score (claim_reality_coherence is already excluded upstream).
+    """
+    if converged is None:
+        converged = compute_convergence(concept_verdict, user_verdict)
+
+    score = min(concept_verdict.overall_score, user_verdict.overall_score)
+    state.score_history = (state.score_history or []) + [float(score)]
+    hist = state.score_history
+    # "stalled" = the last two iterations produced no new best (no progress, or a
+    # fix regressed another scene). Needs >=3 data points to judge a trend.
+    stalled = (
+        len(hist) >= 3 and hist[-1] <= max(hist[:-2]) and hist[-2] <= max(hist[:-2])
+    )
+
+    all_findings = [
+        {"route": f.get("route", "PRODUCT"), "fix_kind": f.get("fix_kind", "options")}
+        for f in findings
+    ]
+    for d in (user_verdict.dimensions or {}).values():
+        if isinstance(d, dict) and d.get("fix_kind"):
+            all_findings.append({"route": "PRODUCT", "fix_kind": d["fix_kind"]})
+    non_defer = [f for f in all_findings if f["route"] != "DEFER"]
+    unclear = [f for f in non_defer if f["fix_kind"] in ("options", "redesign")]
+
+    if converged and not getattr(state, "scene_filter", None):
+        return "stop_done", "Both judges passed full spec — ready for promotion."
+    if converged and getattr(state, "scene_filter", None):
+        return "stop_partial", "Both judges passed the filtered scope — drop --scene and re-fire."
+    if any(f["route"] == "CONCEPT" and f["fix_kind"] == "redesign" for f in non_defer):
+        return "stop_concept_change", "Concept-change finding — needs user judgment on direction."
+    if unclear:
+        return "stop_unclear", f"{len(unclear)} options/redesign finding(s) — need a user pick."
+    if stalled:
+        return "stop_max_iter", (
+            f"Score stalled/regressed across the last 2 iterations (history={hist}) — "
+            "mechanical fixes aren't converging; needs a human look."
+        )
+    if len(hist) >= hard_cap:
+        return "stop_max_iter", f"Hit the {hard_cap}-iteration backstop (history={hist})."
+    return "continue", (
+        f"All findings mechanical and score still improving (history={hist}) — apply + re-fire."
+    )

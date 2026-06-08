@@ -227,12 +227,75 @@ class TestComputeConvergence:
 
 
 class TestMaxIterations:
-    def test_max_iterations_exists_and_is_3(self) -> None:
-        from scripts.ddd.run_pipeline import MAX_ITERATIONS
+    def test_hard_cap_is_backstop_not_a_low_count(self) -> None:
+        # The loop is progress-aware now; the old raw 3-iteration cap is gone.
+        # HARD_CAP is a runaway backstop only, and MAX_ITERATIONS is a
+        # back-compat alias for it (no longer 3).
+        from scripts.ddd.run_pipeline import HARD_CAP, MAX_ITERATIONS
 
-        assert MAX_ITERATIONS == 3
+        assert HARD_CAP >= 8  # generous backstop, not the normal stop
+        assert MAX_ITERATIONS == HARD_CAP
 
-    def test_max_iterations_is_int(self) -> None:
-        from scripts.ddd.run_pipeline import MAX_ITERATIONS
+    def test_constants_are_int(self) -> None:
+        from scripts.ddd.run_pipeline import HARD_CAP, MAX_ITERATIONS
 
-        assert isinstance(MAX_ITERATIONS, int)
+        assert isinstance(HARD_CAP, int) and isinstance(MAX_ITERATIONS, int)
+
+
+# ---------------------------------------------------------------------------
+# Progress-aware auto-iterate
+# ---------------------------------------------------------------------------
+
+
+class TestComputeAutoIterate:
+    """The loop continues while mechanical + improving; stops on stall/gate."""
+
+    def test_continue_while_improving(self):
+        from scripts.ddd.run_pipeline import compute_auto_iterate
+
+        s = _stub_state("vm")
+        mech = [{"route": "PRODUCT", "fix_kind": "mechanical"}]
+        a, _ = compute_auto_iterate(s, _stub_verdict(2.0, "fail"), _stub_verdict(2.0, "fail"), mech)
+        assert a == "continue"
+        a, _ = compute_auto_iterate(s, _stub_verdict(3.0, "warn"), _stub_verdict(3.0, "warn"), mech)
+        assert a == "continue"  # still improving — keep going past iteration 2
+        assert s.score_history == [2.0, 3.0]
+
+    def test_stop_done_on_converged(self):
+        from scripts.ddd.run_pipeline import compute_auto_iterate
+
+        s = _stub_state("vm")
+        a, _ = compute_auto_iterate(s, _stub_verdict(4.0, "pass"), _stub_verdict(4.5, "pass"), [])
+        assert a == "stop_done"
+
+    def test_stop_unclear_on_options_finding(self):
+        from scripts.ddd.run_pipeline import compute_auto_iterate
+
+        s = _stub_state("vm")
+        a, _ = compute_auto_iterate(
+            s, _stub_verdict(2.0, "fail"), _stub_verdict(3.0, "warn"),
+            [{"route": "PRODUCT", "fix_kind": "options"}],
+        )
+        assert a == "stop_unclear"
+
+    def test_stop_max_iter_on_stall_not_count(self):
+        from scripts.ddd.run_pipeline import compute_auto_iterate
+
+        s = _stub_state("vm")
+        mech = [{"route": "PRODUCT", "fix_kind": "mechanical"}]
+        # Three iterations at the same score → stalled (no new best), not a raw count.
+        compute_auto_iterate(s, _stub_verdict(3.0, "warn"), _stub_verdict(3.0, "warn"), mech)
+        compute_auto_iterate(s, _stub_verdict(3.0, "warn"), _stub_verdict(3.0, "warn"), mech)
+        a, reason = compute_auto_iterate(s, _stub_verdict(3.0, "warn"), _stub_verdict(3.0, "warn"), mech)
+        assert a == "stop_max_iter"
+        assert "stall" in reason.lower()
+
+    def test_many_iterations_ok_while_climbing(self):
+        """A long but monotonically-improving run does NOT stop at 3 (the old bug)."""
+        from scripts.ddd.run_pipeline import compute_auto_iterate
+
+        s = _stub_state("vm")
+        mech = [{"route": "PRODUCT", "fix_kind": "mechanical"}]
+        for sc in (1.0, 2.0, 3.0, 3.5):  # 4 iterations, each better
+            a, _ = compute_auto_iterate(s, _stub_verdict(sc, "warn"), _stub_verdict(sc, "warn"), mech)
+            assert a == "continue"

@@ -622,11 +622,18 @@ the URL inline (NOT a local path); include the element_locator naming
 what each option would change; include the hosted video clip URL with
 time fragment when the scene has been recorded.
 
-### `stop_max_iter` (cap reached)
+### `stop_max_iter` (stalled / regressed — NOT a raw count)
 
-`state.iteration >= MAX_ITERATIONS - 1`. Surface all remaining findings
-and ask the user whether to extend, abandon, or accept partial progress.
-This is a human-review checkpoint, not a full gate.
+Fires when the loop is **no longer making progress** — `ddd-run` Step 5 detects
+that the gating score stalled or regressed across the last two iterations (e.g. a
+mechanical fix broke another scene), or the `HARD_CAP` runaway backstop (10) was
+hit. **It is NOT "you've done 3 iterations."** While every finding is mechanical
+AND the score is still climbing, the loop **keeps going on its own** via
+`continue` — that is the whole point of DDD, so do not stop a run that is still
+improving. Only when progress flatlines do you surface all remaining findings and
+ask the user whether to extend, abandon, or accept — a human-review checkpoint
+(stalls usually mean the remaining findings aren't really mechanical, or two fixes
+are fighting each other).
 
 **Artifact links required (ace-web hosted)** — same contract. The user
 should be able to open the most recent capture(s) directly from the
@@ -709,6 +716,6 @@ proceeding with autonomous work.
   All other work runs autonomously.
 - Never auto-apply a self-tuning class demotion — always suggest-then-confirm.
 - Save learnings after every completed cycle via `runstate.append_learning`.
-- Max iterations before human checkpoint: `MAX_ITERATIONS` (currently 3).
+- Loop is **progress-aware, not count-capped**: keep auto-iterating while findings are mechanical AND the gating score is still improving; stop for a human only on a real gate, an options/redesign finding, or a **stall/regression** (score no new-best across 2 iterations) — with a `HARD_CAP` of 10 as a runaway backstop, never the normal stop.
 - When dispatching PRODUCT fixers, route by dimension: `design_soundness`/`motion_friction` → `/design-review`; `concept_clarity` → `/review`; broken flows → `/qa`.
 - Prefer re-rendering only changed scenes over full re-runs.

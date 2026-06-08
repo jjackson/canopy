@@ -396,8 +396,22 @@ for dim_id, d in user_verdict.dimensions.items():     # user-artifact per-dimens
         all_findings.append({"route": "PRODUCT", "fix_kind": d["fix_kind"]})
 
 # Decide the next action.
-# Order of precedence: done > concept_change > partial_filtered > max_iter > continue > stop_unclear.
-MAX_ITERATIONS = 3
+# Order of precedence: done > concept_change > unclear > stalled/backstop > continue.
+#
+# PROGRESS-AWARE LOOP (not a raw iteration cap). DDD's whole point is to loop
+# autonomously on mechanical findings until they're exhausted. A raw count
+# (the old MAX_ITERATIONS=3) stopped good runs mid-progress AND couldn't tell
+# "improving" (FAIL→WARN→PASS — keep going!) from "thrashing" (score stalled,
+# or a fix REGRESSED something — THAT is when to get a human). So gate on the
+# SCORE TRAJECTORY, not on how many iterations have passed.
+score = min(concept_verdict.overall_score, user_verdict.overall_score)  # gating overall this iteration
+state.score_history = (state.score_history or []) + [score]
+hist = state.score_history
+# "stalled" = the last two iterations produced no NEW best (no progress, or a
+# regression like a fix that broke another scene). Needs >=3 points to judge.
+stalled = len(hist) >= 3 and hist[-1] <= max(hist[:-2]) and hist[-2] <= max(hist[:-2])
+HARD_CAP = 10   # runaway backstop ONLY — not the normal stop
+
 non_defer = [f for f in all_findings if f["route"] != "DEFER"]
 unclear = [f for f in non_defer if f["fix_kind"] in ("options", "redesign")]
 
@@ -413,13 +427,32 @@ elif any(f["route"] == "CONCEPT" and f["fix_kind"] == "redesign" for f in non_de
 elif unclear:
     auto_iterate_next_action = "stop_unclear"
     reason = f"{len(unclear)} finding(s) with fix_kind='options' or 'redesign' — need user pick."
-elif state.iteration >= MAX_ITERATIONS - 1:           # 0-indexed; next iter would be 3
+elif stalled or len(hist) >= HARD_CAP:
+    # NOT making progress (or hit the runaway backstop) → escalate to a human.
     auto_iterate_next_action = "stop_max_iter"
-    reason = f"Max iterations ({MAX_ITERATIONS}) would be exceeded by next iteration."
+    reason = (
+        f"Score stalled/regressed across the last 2 iterations (history={hist}) — "
+        "autonomous mechanical fixes aren't converging; needs a human look."
+        if stalled else
+        f"Hit the {HARD_CAP}-iteration backstop (history={hist}) without converging."
+    )
 else:
+    # All non-DEFER findings are mechanical AND the score is still climbing →
+    # KEEP LOOPING autonomously. This is the common, correct path. Do NOT stop
+    # just because a few iterations have passed — only a real gate, an
+    # options/redesign finding, a stall, or the backstop stops the loop.
     auto_iterate_next_action = "continue"
-    reason = f"All non-DEFER findings are fix_kind='mechanical'. Orchestrator can apply and re-fire."
+    reason = f"All findings mechanical and score is still improving (history={hist}) — apply + re-fire."
 ```
+
+> **Why this replaced the old `MAX_ITERATIONS = 3` hard stop.** A raw count
+> made the orchestrator hand a half-finished run back to the human after three
+> iterations even when every finding was a trivial mechanical fix and each pass
+> was strictly better than the last — the exact opposite of "loop and fix the
+> obvious things." Worse, a count is blind to *regressions*: a fix that breaks
+> another scene should stop the loop immediately (that's a human-judgment
+> moment), but a count happily burns more iterations on it. Trajectory-gating
+> fixes both: keep going while it's getting better, stop the instant it isn't.
 
 Stamp `auto_iterate_next_action` and `auto_iterate_reason` onto run_state
 (both are optional fields on RunState — set them after save() or extend the
