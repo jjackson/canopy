@@ -24,7 +24,8 @@ _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 SOURCE=""
 for P in \
   "$_ROOT/evals/walkthrough/source/$1/index.html" \
-  ~/emdash-projects/canopy/evals/walkthrough/source/$1/index.html; do
+  ~/emdash-projects/canopy/evals/walkthrough/source/$1/index.html \
+  ~/.claude/plugins/marketplaces/canopy/evals/walkthrough/source/$1/index.html; do
   [ -f "$P" ] && SOURCE="$P" && break
 done
 echo "${SOURCE:-NOT_FOUND}"

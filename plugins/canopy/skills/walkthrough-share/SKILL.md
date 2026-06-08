@@ -40,22 +40,38 @@ link, rotate the token, or delete. Non-owners just see the player.
 
 ## Modes
 
+First resolve the uploader (dev checkout first, then the plugin marketplace
+clone a portable install pulls via `/canopy:update`). `upload.py` is pure
+stdlib, so bare `python3` runs it. Run this in the same shell as the command
+you pick below (Claude Code starts a fresh shell per block — re-run it if you
+split blocks):
+
+```bash
+UPLOAD=""
+for P in \
+  ~/emdash-projects/canopy/scripts/walkthrough-share/upload.py \
+  ~/.claude/plugins/marketplaces/canopy/scripts/walkthrough-share/upload.py; do
+  [ -f "$P" ] && UPLOAD="$P" && break
+done
+[ -z "$UPLOAD" ] && echo "NOT_FOUND — run /canopy:update to sync the canopy checkout" && exit 1
+```
+
 ```bash
 # Upload (private — only visible to logged-in dimagi users)
-python3 ~/emdash-projects/canopy/scripts/walkthrough-share/upload.py \
+python3 "$UPLOAD" \
   screenshots/walkthroughs/my-demo.html \
   --title "My Demo" \
   --project canopy-web
 
 # Upload + mint a share link (anyone with the URL can view)
-python3 ~/emdash-projects/canopy/scripts/walkthrough-share/upload.py \
+python3 "$UPLOAD" \
   screenshots/walkthroughs/my-demo.html \
   --title "My Demo" \
   --project canopy-web \
   --public
 
 # Upload a video (kind auto-detected from .mp4 extension)
-python3 ~/emdash-projects/canopy/scripts/walkthrough-share/upload.py \
+python3 "$UPLOAD" \
   screenshots/walkthroughs/my-demo.mp4 \
   --public
 
@@ -63,7 +79,7 @@ python3 ~/emdash-projects/canopy/scripts/walkthrough-share/upload.py \
 # - back to the narrative that generated it
 # - the still-frame (deck) version of the same demo
 # - the app pages the demo walked through (one per scene url in the spec)
-python3 ~/emdash-projects/canopy/scripts/walkthrough-share/upload.py \
+python3 "$UPLOAD" \
   screenshots/walkthroughs/my-demo.mp4 \
   --public \
   --narrative-url "https://canopy-web.../review/42/?t=abc" \
