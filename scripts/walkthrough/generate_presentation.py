@@ -886,15 +886,6 @@ ul li {
   font-variant-numeric: tabular-nums;
 }
 
-#nav-slide-title {
-  font-size: 0.8rem;
-  color: var(--muted-foreground);
-  max-width: 240px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 #theme-toggle {
   background: none;
   border: none;
@@ -969,14 +960,6 @@ JS_NAVIGATION = """
     var progress = document.getElementById('nav-progress');
     if (progress) {
       progress.textContent = (currentSlide + 1) + ' / ' + totalSlides;
-    }
-
-    // Update slide title in nav
-    var titleEl = document.getElementById('nav-slide-title');
-    if (titleEl) {
-      var h2 = slides[n].querySelector('h2');
-      var h1 = slides[n].querySelector('h1');
-      titleEl.textContent = (h2 && h2.textContent) || (h1 && h1.textContent) || '';
     }
 
     // Update bottom progress bar
@@ -1074,9 +1057,6 @@ JS_NAVIGATION = """
   var progress = document.createElement('span');
   progress.id = 'nav-progress';
 
-  var slideTitle = document.createElement('span');
-  slideTitle.id = 'nav-slide-title';
-
   var nextBtn = document.createElement('button');
   nextBtn.textContent = '\\u2192';
   nextBtn.title = 'Next slide (ArrowRight)';
@@ -1114,7 +1094,6 @@ JS_NAVIGATION = """
 
   nav.appendChild(prevBtn);
   nav.appendChild(progress);
-  nav.appendChild(slideTitle);
   nav.appendChild(nextBtn);
   nav.appendChild(themeBtn);
   document.body.appendChild(nav);
