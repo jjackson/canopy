@@ -1105,8 +1105,14 @@ JS_NAVIGATION = """
 """
 
 
-def generate(run_data, output_path):
-    """Generate HTML slideshow and JSON sidecar from run data."""
+def build_presentation_html(run_data) -> str:
+    """Build the self-contained HTML slideshow string from run data.
+
+    Pure function — no filesystem — so callers that need the HTML in memory
+    (e.g. ddd-upload uploading a ``role=deck`` slideshow) can reuse it without
+    a temp file. ``generate()`` writes this same HTML (plus a JSON sidecar) to
+    disk.
+    """
     slides_html_parts = []
     personas = run_data["personas"]
     total_slides = len(run_data["slides"])
@@ -1126,7 +1132,7 @@ def generate(run_data, output_path):
             slides_html_parts.append(_render_summary_slide(slide, run_data))
 
     slides_html = "\n".join(slides_html_parts)
-    page_html = f"""<!DOCTYPE html>
+    return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -1139,6 +1145,11 @@ def generate(run_data, output_path):
 <script>{JS_NAVIGATION}</script>
 </body>
 </html>"""
+
+
+def generate(run_data, output_path):
+    """Generate HTML slideshow and JSON sidecar from run data."""
+    page_html = build_presentation_html(run_data)
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:

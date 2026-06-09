@@ -40,6 +40,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -852,6 +853,74 @@ def _default_gate(review_request: ReviewRequest, base_url: str | None, token: st
 
 
 # ---------------------------------------------------------------------------
+# Slideshow deck (role=deck) — rebuilt from captured frames
+# ---------------------------------------------------------------------------
+
+
+def _build_deck_run_data(run_dir: Path, raw_spec: dict, *, generated_at: str) -> dict | None:
+    """Build a ``walkthrough-run-data.json``-shaped dict from a run dir's
+    captured ``scene_<N>.png`` screenshots + the spec.
+
+    ``canopy:walkthrough`` writes that sidecar during rendering; a run rendered
+    directly via ``record_video.py`` does NOT, so no slideshow deck (role=deck)
+    is ever produced and the package page's "Walkthrough slides" section renders
+    empty. Rebuilding the deck data from the captured frames lets ``upload_run``
+    guarantee a deck regardless of how the run was rendered. Returns ``None`` when
+    no scene captures are present (nothing to deck).
+    """
+    scenes = raw_spec.get("scenes", []) or []
+    personas_raw = raw_spec.get("personas", {}) or {}
+    base = (raw_spec.get("base_url") or "").rstrip("/")
+    slides: list[dict] = []
+    for idx, scene in enumerate(scenes, start=1):
+        png = run_dir / f"scene_{idx}.png"
+        if not png.exists():
+            continue
+        persona_key = scene.get("persona") or (next(iter(personas_raw), "") if personas_raw else "")
+        # Scene starting URL: explicit url, else the first goto action's target,
+        # else the spec base. Path-relative urls resolve against base_url.
+        url = scene.get("url")
+        if not url:
+            for action in scene.get("actions", []) or []:
+                if action.get("kind") == "goto" and action.get("target"):
+                    url = action["target"]
+                    break
+        if url and url.startswith("/"):
+            url = base + url
+        slides.append(
+            {
+                "type": "scene",
+                "title": scene.get("title", f"Scene {idx}"),
+                "narration": scene.get("narrative") or scene.get("show") or "",
+                "url": url or base,
+                "screenshot_b64": base64.b64encode(png.read_bytes()).decode(),
+                "scene_index": idx,
+                "scene_total": len(scenes),
+                "persona": persona_key,
+                "persona_key": persona_key,
+            }
+        )
+    if not slides:
+        return None
+    return {
+        "name": raw_spec.get("name", ""),
+        "narrative": raw_spec.get("narrative", ""),
+        "generated_at": generated_at,
+        "duration_seconds": 0,
+        "personas": {
+            key: {
+                "name": val.get("name", key),
+                "role": val.get("role", ""),
+                "color": val.get("color", "#4F46E5"),
+                "intro": val.get("intro", ""),
+            }
+            for key, val in personas_raw.items()
+        },
+        "slides": slides,
+    }
+
+
+# ---------------------------------------------------------------------------
 # upload_run
 # ---------------------------------------------------------------------------
 
@@ -1057,6 +1126,42 @@ def upload_run(
         narrative_review_id=narrative_review_id,
         links=external_links,
     )
+
+    # 6b. Ensure a slideshow deck (role=deck) exists. The package page's
+    #     "Walkthrough slides" section reads role=deck; ddd-run Step 2b uploads
+    #     one per iteration when rendered via canopy:walkthrough, but a run
+    #     rendered directly via record_video.py emits no walkthrough-run-data.json
+    #     sidecar, so no deck is ever produced and that section renders empty.
+    #     Prefer an existing sidecar; otherwise rebuild the deck from the run
+    #     dir's captured scene_<N>.png frames so the package is always complete.
+    #     A missing/un-renderable deck must NEVER break the upload — the video +
+    #     docs are already published — so failures here are logged, not raised.
+    try:
+        from scripts.walkthrough.generate_presentation import build_presentation_html
+
+        sidecar_path = run_dir / "walkthrough-run-data.json"
+        if sidecar_path.exists():
+            deck_run_data = json.loads(sidecar_path.read_text())
+        else:
+            deck_run_data = _build_deck_run_data(
+                run_dir,
+                raw_spec,
+                generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            )
+        if deck_run_data and deck_run_data.get("slides"):
+            upload_fn(
+                build_presentation_html(deck_run_data),
+                kind="html",
+                title=f"{spec.name} — walkthrough slides",
+                base_url=base_url,
+                token=token,
+                run_id=run_id,
+                narrative_slug=run_state.narrative_slug,
+                role="deck",
+                narrative_review_id=narrative_review_id,
+            )
+    except Exception as exc:  # noqa: BLE001 — deck is best-effort; never block the package
+        print(f"ddd-upload: skipped slideshow deck ({exc})", file=sys.stderr)
 
     # 7. Update run state. A release marks the run terminal (uploaded); a stuck
     #    review upload leaves phase unchanged so the run can keep iterating toward
