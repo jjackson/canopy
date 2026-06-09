@@ -489,6 +489,58 @@ class TestUploadRun:
         fake_gate.calls = gate_calls
         return fake_gate
 
+    def test_uploads_slideshow_deck_rebuilt_from_captures(self, tmp_run, monkeypatch):
+        """A run rendered via record_video.py (no walkthrough-run-data.json
+        sidecar) still gets a role=deck slideshow: upload_run rebuilds it from
+        the captured scene_<N>.png frames so the package's "Walkthrough slides"
+        section is never empty."""
+        monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
+        run_dir = tmp_run["run_dir"]
+        # Frames the recorder left in the run dir (dummy PNG bytes are fine — the
+        # deck just base64-embeds them).
+        (run_dir / "scene_1.png").write_bytes(b"\x89PNG\r\n\x1a\none")
+        (run_dir / "scene_2.png").write_bytes(b"\x89PNG\r\n\x1a\ntwo")
+
+        upload_calls: list[dict] = []
+        uploader = self._make_uploader(upload_calls)
+
+        upload_run(
+            tmp_run["run_id"],
+            video_path=tmp_run["video_path"],
+            base_url="https://canopy.test",
+            _upload=uploader,
+            release=False,  # stuck/review upload — no external_release gate
+        )
+
+        deck_calls = [c for c in upload_calls if c["role"] == "deck"]
+        assert len(deck_calls) == 1, "a role=deck slideshow must be uploaded"
+        deck = deck_calls[0]
+        assert deck["kind"] == "html"
+        assert deck["run_id"] == tmp_run["run_id"]
+        assert deck["narrative_slug"] == "smart-routing"
+        assert deck["content_len"] > 0
+        # video + docs are still uploaded alongside the deck
+        assert {"video", "html"} <= {c["kind"] for c in upload_calls}
+
+    def test_no_deck_uploaded_when_no_captures(self, tmp_run, monkeypatch):
+        """No scene_<N>.png captures → no deck upload, and the package still
+        publishes the video + docs (a missing deck never breaks the upload)."""
+        monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
+        upload_calls: list[dict] = []
+        uploader = self._make_uploader(upload_calls)
+
+        url = upload_run(
+            tmp_run["run_id"],
+            video_path=tmp_run["video_path"],
+            base_url="https://canopy.test",
+            _upload=uploader,
+            release=False,
+        )
+
+        assert not [c for c in upload_calls if c["role"] == "deck"]
+        assert {"video", "html"} <= {c["kind"] for c in upload_calls}
+        assert url.endswith("/ddd/smart-routing/smart-routing-2026-01-01-001")
+
     def test_publish_returns_package_url(self, tmp_run, monkeypatch):
         """On publish we return the navigable run PACKAGE URL
         (/ddd/<narrative_slug>/<run_id>), NOT a loose /w/<artifact-id> link."""
