@@ -96,6 +96,13 @@ class RunReport:
     with no setup block (the key is then omitted from :meth:`as_dict`, so
     existing report consumers are unchanged)."""
 
+    prewarm: dict | None = None
+    """Pre-warm pass provenance: ``{"pages": int, "duration_seconds": float,
+    "failures": [{"url": str, "error": str}, ...]}``. Stamped by
+    ``record_video.main`` when the pre-warm pass ran (spec ``prewarm: true``
+    or CLI ``--prewarm``). ``None`` when prewarm was off — the key is then
+    omitted from :meth:`as_dict`, mirroring ``setup``."""
+
     def record(self, r: ActionResult) -> None:
         """Append one result. Called by ``execute_action`` after each action."""
         self.results.append(r)
@@ -148,6 +155,8 @@ class RunReport:
         }
         if self.setup is not None:
             d["setup"] = self.setup
+        if self.prewarm is not None:
+            d["prewarm"] = self.prewarm
         return d
 
     def to_json(self, *, indent: int | None = 2) -> str:

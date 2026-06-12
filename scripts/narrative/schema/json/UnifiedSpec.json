@@ -868,6 +868,11 @@
       ],
       "default": null
     },
+    "prewarm": {
+      "default": false,
+      "title": "Prewarm",
+      "type": "boolean"
+    },
     "why_brief": {
       "anyOf": [
         {

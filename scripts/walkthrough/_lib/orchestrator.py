@@ -476,7 +476,19 @@ class Recorder:
             scene_results.append(result)
             self.after_action(scene, action, result)
 
-        page.wait_for_timeout(self.config.final_hold_ms)
+        # End-of-scene hold. ``scene.video_hold_seconds`` (legacy per-scene
+        # knob) overrides the global ``final_hold_ms`` for THIS scene only —
+        # it dated from the scroll-pan-era recorder and had been a silent
+        # no-op since the orchestrator refactor (passed through by
+        # build_scenes_from_spec, consumed by nothing). Wiring it here gives
+        # it one defined meaning in the timing model: the end-of-scene dwell.
+        # For mid-scene cinematic dwells prefer explicit ``hold`` actions —
+        # see the walkthrough SKILL's "Recording time & dead space" section.
+        hold_override = scene.get("video_hold_seconds")
+        final_hold_ms = (
+            int(float(hold_override) * 1000) if hold_override else self.config.final_hold_ms
+        )
+        page.wait_for_timeout(final_hold_ms)
 
         # Steady-state moment: actions are done, their post-action settle and
         # final hold have fired, and we're about to transition. This is the
@@ -506,7 +518,7 @@ class Recorder:
                 duration_seconds=time.monotonic() - scene_start,
             )
 
-        elapsed_s = time.monotonic() - start + (self.config.initial_hold_ms + self.config.final_hold_ms) / 1000
+        elapsed_s = time.monotonic() - start + (self.config.initial_hold_ms + final_hold_ms) / 1000
         return max(elapsed_s, self.config.min_hold_ms / 1000)
 
     def run(self, page: Page, scenes: list[dict]) -> float:

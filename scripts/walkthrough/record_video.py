@@ -22,6 +22,7 @@ Usage:
         [--report run-report.json] \\
         [--snapshots screenshots/walkthroughs/<name>/] \\
         [--snapshot-empty-scenes] \\
+        [--prewarm | --no-prewarm] \\
         [--skip-setup]
 
 ``--spec`` is the source of truth for scenes. ``--input`` is accepted for
@@ -36,6 +37,12 @@ generator command run BEFORE recording — honoring ``rerun: per_render | once``
 the command's outputs JSON. ``--skip-setup`` skips the command (but still
 loads the outputs) for fast re-renders when the data is known-fresh; demos
 that mutate state during recording must not use it.
+
+Specs with ``prewarm: true`` (or CLI ``--prewarm``; ``--no-prewarm`` wins the
+other way) get a pre-warm pass after setup + auth and BEFORE the recorded
+context exists: a separate non-recorded context visits each unique resolved
+scene URL once, so cold caches are paid off camera instead of as frozen
+frames. Best-effort — see :func:`run_prewarm`.
 """
 
 from __future__ import annotations
@@ -132,6 +139,103 @@ def filter_empty_scenes(scenes: list[dict]) -> list[dict]:
     browser. ``record_video.main`` calls this when ``--skip-empty-scenes``
     is set."""
     return [s for s in scenes if not _is_empty_scene(s)]
+
+
+# --------------------------------------------------------------------------- #
+# pre-warm pass (spec.prewarm / --prewarm — heat cold caches OFF camera)
+
+
+def resolve_prewarm(cli_value: bool | None, spec_value: object) -> bool:
+    """Decide whether the pre-warm pass runs. CLI wins; spec is the default.
+
+    ``cli_value`` is ``True`` for ``--prewarm``, ``False`` for ``--no-prewarm``,
+    ``None`` when neither flag was passed (→ fall back to the spec's
+    ``prewarm:`` value; absent → off). Pure function — unit tested directly.
+    """
+    if cli_value is not None:
+        return bool(cli_value)
+    return bool(spec_value)
+
+
+def collect_prewarm_urls(scenes: list[dict]) -> list[str]:
+    """The unique resolved scene URLs to pre-warm, in spec order.
+
+    Takes the scene records ``build_scenes_from_spec`` produced — i.e. AFTER
+    ``${var}`` substitution and URL absolutization, so what gets warmed is
+    exactly what gets filmed. Continuation scenes (``url is None`` — they stay
+    on the previous scene's page) contribute nothing; duplicate URLs are
+    visited once (first occurrence wins the ordering).
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for scene in scenes:
+        url = scene.get("url")
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        out.append(url)
+    return out
+
+
+def run_prewarm(
+    context,
+    urls: list[str],
+    *,
+    settle_ms: int = 4000,
+    page_timeout_ms: int = 15000,
+    auth_url: str | None = None,
+) -> dict:
+    """Visit each URL once in a NON-recorded context so caches are hot on film.
+
+    The legacy hand-built recorder had ``defer_record=True``: visit everything
+    once off camera (~20s), THEN start filming. This is canopy's equivalent.
+    Cold-cache waits — a 15s first-hit page render, a remote-image cold fetch —
+    are real seconds, but they only need to be PAID once; without prewarm they
+    get paid on camera as frozen frames.
+
+    Per page: ``goto(wait_until="domcontentloaded", timeout=page_timeout_ms)``
+    then a bounded settle — up to ``settle_ms`` (clipped to the page's
+    remaining time budget) waiting for network idle, so image/chart fetches
+    actually complete and warm their caches; exits early once idle.
+
+    Best-effort by contract: every per-page failure is logged (one line) and
+    recorded in the provenance, never raised — a page that can't pre-warm
+    simply stays cold and films like it did before prewarm existed.
+
+    Returns the provenance dict that rides on the RunReport:
+    ``{"pages": N, "duration_seconds": S, "failures": [{"url", "error"}]}``.
+    """
+    started = time.monotonic()
+    failures: list[dict] = []
+    page = context.new_page()
+    if auth_url:
+        # URL-based auth (magic-link login) lives in THIS context's cookie jar
+        # only — replay it so authenticated pages actually render (a login
+        # redirect would warm the login page, not the scene).
+        try:
+            page.goto(auth_url, wait_until="domcontentloaded", timeout=page_timeout_ms)
+        except Exception as e:  # noqa: BLE001 — best-effort, like everything here
+            print(f"  ! prewarm auth nav failed: {e}", file=sys.stderr)
+    for url in urls:
+        page_started = time.monotonic()
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=page_timeout_ms)
+            elapsed_ms = (time.monotonic() - page_started) * 1000
+            settle_budget = min(settle_ms, max(0, page_timeout_ms - int(elapsed_ms)))
+            if settle_budget > 0:
+                try:
+                    page.wait_for_load_state("networkidle", timeout=settle_budget)
+                except Exception:  # noqa: BLE001 — long-poll apps never go idle; bounded by budget
+                    pass
+            print(f"  · prewarm {url} ({time.monotonic() - page_started:.1f}s)")
+        except Exception as e:  # noqa: BLE001
+            failures.append({"url": url, "error": str(e)})
+            print(f"  ! prewarm {url} failed ({e}) — continuing")
+    return {
+        "pages": len(urls),
+        "duration_seconds": round(time.monotonic() - started, 2),
+        "failures": failures,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -454,6 +558,26 @@ def main() -> None:
         ),
     )
     ap.add_argument(
+        "--prewarm",
+        dest="prewarm",
+        action="store_true",
+        default=None,
+        help=(
+            "visit each unique resolved scene URL once in a separate NON-"
+            "recorded context before filming, so cold caches (first-hit page "
+            "renders, remote image fetches) are paid OFF camera instead of as "
+            "frozen frames. Overrides the spec's `prewarm:` value; default is "
+            "the spec value (absent → off). Best-effort: failing pages are "
+            "logged and skipped."
+        ),
+    )
+    ap.add_argument(
+        "--no-prewarm",
+        dest="prewarm",
+        action="store_false",
+        help="disable the pre-warm pass even when the spec sets `prewarm: true`.",
+    )
+    ap.add_argument(
         "--skip-setup",
         action="store_true",
         help=(
@@ -584,6 +708,14 @@ def main() -> None:
 
     print(f"Recording {len(scenes)} scenes at pace={pace} ({viewport_w}x{viewport_h})")
 
+    prewarm_enabled = resolve_prewarm(args.prewarm, spec.get("prewarm"))
+
+    # Parse the cookies export once — used by both the pre-warm context and
+    # the recorded context (same auth, two contexts).
+    cookies_data: list | None = None
+    if args.cookies and not args.storage_state:
+        cookies_data = json.loads(Path(args.cookies).read_text()) or None
+
     with tempfile.TemporaryDirectory(prefix="walkthrough-video-") as td:
         video_dir = Path(td)
         with sync_playwright() as p:
@@ -600,6 +732,58 @@ def main() -> None:
                     "--ignore-gpu-blocklist",
                 ],
             )
+            # ---- Pre-warm pass (OFF camera) --------------------------------
+            # Runs AFTER setup (so ${var}-resolved URLs are final) and with the
+            # same auth as the recording, but BEFORE the recorded context is
+            # created — Playwright's video capture starts at page creation, so
+            # nothing here can land on film. Cold caches (first-hit page
+            # renders, remote-image cold fetches) get paid now instead of as
+            # frozen frames mid-scene. Best-effort throughout: any failure is
+            # logged and the render proceeds with whatever stayed cold.
+            prewarm_provenance: dict | None = None
+            if prewarm_enabled:
+                prewarm_urls = collect_prewarm_urls(scenes)
+                if prewarm_urls:
+                    print(f"Prewarm: visiting {len(prewarm_urls)} unique scene URL(s) off camera")
+                    try:
+                        prewarm_kwargs: dict = dict(
+                            viewport={"width": viewport_w, "height": viewport_h},
+                        )
+                        if args.storage_state:
+                            prewarm_kwargs["storage_state"] = args.storage_state
+                        prewarm_context = browser.new_context(**prewarm_kwargs)
+                        try:
+                            if cookies_data:
+                                prewarm_context.add_cookies(cookies_data)
+                            prewarm_auth_url: str | None = None
+                            if not args.cookies and not args.storage_state:
+                                auth = spec.get("auth") or {}
+                                if auth.get("type") == "url" and auth.get("url"):
+                                    prewarm_auth_url = base_url + auth["url"]
+                            prewarm_provenance = run_prewarm(
+                                prewarm_context,
+                                prewarm_urls,
+                                settle_ms=config.prewarm_settle_ms,
+                                page_timeout_ms=config.prewarm_page_timeout_ms,
+                                auth_url=prewarm_auth_url,
+                            )
+                        finally:
+                            prewarm_context.close()
+                    except Exception as e:  # noqa: BLE001 — prewarm must never kill the render
+                        print(f"  ! prewarm pass aborted ({e}) — recording proceeds cold")
+                        prewarm_provenance = {
+                            "pages": len(prewarm_urls),
+                            "duration_seconds": 0.0,
+                            "failures": [{"url": "*", "error": str(e)}],
+                        }
+                    failed = len((prewarm_provenance or {}).get("failures") or [])
+                    print(
+                        f"Prewarm: done in {prewarm_provenance['duration_seconds']:.1f}s "
+                        f"({prewarm_provenance['pages']} page(s), {failed} failure(s))"
+                    )
+                else:
+                    print("Prewarm: enabled but no scene URLs to warm — skipping")
+
             context_kwargs = dict(
                 viewport={"width": viewport_w, "height": viewport_h},
                 record_video_dir=str(video_dir),
@@ -619,10 +803,8 @@ def main() -> None:
             # "regenerate?" prompts) so a scripted click doesn't hang the render.
             context.on("dialog", lambda d: d.accept())
 
-            if args.cookies and not args.storage_state:
-                cookies = json.loads(Path(args.cookies).read_text())
-                if cookies:
-                    context.add_cookies(cookies)
+            if cookies_data:
+                context.add_cookies(cookies_data)
 
             page = context.new_page()
             # Playwright's video capture starts when the page opens — this is
@@ -658,6 +840,7 @@ def main() -> None:
             # evidence chain — the resolved vars + setup command + exit code +
             # duration ride on the RunReport, and land in the snapshots dir.
             recorder.report.setup = setup_provenance
+            recorder.report.prewarm = prewarm_provenance
             if args.snapshots and setup_provenance is not None:
                 snap_dir = Path(args.snapshots)
                 snap_dir.mkdir(parents=True, exist_ok=True)
