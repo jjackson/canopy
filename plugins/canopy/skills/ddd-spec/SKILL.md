@@ -527,6 +527,9 @@ narrative first (Step 3) so the two stay in lockstep.
     problem, not a WebGL one.
   - **For a page that is a map + a long table (e.g. the plan-review page), set
     `full_page: false`** so the snapshot is just the viewport (the map is the hero).
+    Full-page captures handle sticky headers automatically (scroll-to-top +
+    restore at capture time, post-final-hold) — do NOT reach for
+    `full_page: false` just because a page has a sticky navbar.
     Default full-page capture of such a page yields a 16,000px strip where the map
     is a ~4% sliver up top — it *looks* blank but the map rendered fine; it's just
     dwarfed. A full-viewport map page (e.g. a group overlay map) captures correctly

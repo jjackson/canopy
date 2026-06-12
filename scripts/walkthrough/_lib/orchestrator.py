@@ -23,9 +23,11 @@ The orchestrator does NOT own the browser lifecycle — that's the CLI's job. A
 its :class:`RunReport`. Easy to drive from a test that hands in a mocked Page.
 
 **Per-scene snapshots.** Pass ``snapshot_dir=Path(...)`` to capture a steady-state
-PNG + ``document.body.innerText`` JSON per scene. The capture moment is between
-the action loop and the scene's ``final_hold_ms`` — after all scripted actions
-have run and the post-action settle has fired, before the next scene navigates.
+PNG + ``document.body.innerText`` JSON per scene. The capture moment is after
+the action loop AND the scene's ``final_hold_ms`` — all scripted actions have
+run, the post-action settle and final hold have fired, and the next scene is
+about to navigate; full-page captures scroll to top (and restore) so sticky
+headers paint at the document top, with the bounce masked by the crossfade.
 That's the same frame the deck's screenshot strip lifts; downstream judges
 (``canopy:walkthrough`` eval, ``ddd-concept-eval``) read these files directly
 instead of re-driving the page. Action-empty scenes (the narrative-only back-
@@ -162,9 +164,9 @@ class Recorder:
     def take_snapshot(self, page: Page, scene: dict, scene_index: int) -> None:
         """Capture a per-scene PNG + page-text JSON at this scene's steady state.
 
-        Called between the action loop and ``final_hold_ms`` — after the last
-        action's ``post_*_settle`` has fired, before the next scene navigates
-        away. Action-empty scenes (the narrative-only back half of a long
+        Called after the action loop and ``final_hold_ms`` — the last
+        action's ``post_*_settle`` and the final hold have fired, and the next
+        scene is about to navigate away. Action-empty scenes (the narrative-only back half of a long
         spec) are skipped unless ``snapshot_empty_scenes=True`` — there's
         nothing to capture between init and final that a previous-scene
         snapshot didn't already record.
@@ -196,7 +198,29 @@ class Recorder:
         # long enough settle for tiles to paint — no special capture path needed.
         full_page = scene.get("full_page")
         full_page = True if full_page is None else bool(full_page)
+        # Sticky-header artifact guard: Chromium's beyond-viewport capture
+        # paints position:sticky/fixed elements at the LIVE scroll offset, so
+        # a scene that ends scrolled down gets its navbar stamped mid-image
+        # and a bar-less, clipped document top. Scroll to top for the capture
+        # and restore after — capture runs post-final-hold, so the bounce sits
+        # at the scene boundary under the crossfade. Viewport captures
+        # (full_page: false) show the live viewport and need no correction.
+        scroll_y = 0
+        if full_page:
+            try:
+                scroll_y = int(page.evaluate("() => window.scrollY") or 0)
+                if scroll_y:
+                    page.evaluate("() => window.scrollTo(0, 0)")
+                    page.wait_for_timeout(200)
+            except Exception:  # noqa: BLE001 — capture correction is best-effort
+                scroll_y = 0
         png_ok = self._screenshot_with_settle_retry(page, png_path, scene_index, full_page=full_page)
+        if full_page and scroll_y:
+            try:
+                page.evaluate(f"() => window.scrollTo(0, {scroll_y})")
+                page.wait_for_timeout(120)
+            except Exception:  # noqa: BLE001
+                pass
         try:
             inner_text = page.evaluate("() => document.body && document.body.innerText || ''")
         except Exception as e:  # noqa: BLE001
@@ -452,14 +476,17 @@ class Recorder:
             scene_results.append(result)
             self.after_action(scene, action, result)
 
-        # Steady-state moment: actions are done, their post-action settle has
-        # fired, and we're about to hold + transition. This is the same frame
-        # the deck's screenshot strip lifts; capture it here so downstream
-        # judges read the same surface a viewer sees.
+        page.wait_for_timeout(self.config.final_hold_ms)
+
+        # Steady-state moment: actions are done, their post-action settle and
+        # final hold have fired, and we're about to transition. This is the
+        # same frame the deck's screenshot strip lifts; capture it here —
+        # AFTER the hold — so the full-page capture's scroll-to-top bounce
+        # (see take_snapshot) lands at the scene cut, where the crossfade to
+        # the next scene masks it, instead of mid-scene on film.
         if idx is not None:
             self.take_snapshot(page, scene, int(idx))
 
-        page.wait_for_timeout(self.config.final_hold_ms)
         self.after_scene(scene, scene_results)
 
         # Restore the spec-level viewport so the next scene starts at the
