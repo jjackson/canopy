@@ -97,14 +97,17 @@ scene snapshot is missing; `video_t` is omitted when the scene was untimed
 
 ```json
 {
-  "decisions": { "<cluster_id>": "implement" | "skip" | "defer" },
-  "overall": "proceed" | "discuss",
-  "notes": "free text"
+  "decisions": {
+    "<cluster_id>": { "decision": "implement" | "skip" | null, "comment": "free text" }
+  }
 }
 ```
 
-`decisions` is keyed by `cluster_id`; `overall`/`notes` are siblings of it. The
-`apply` subcommand parses this into the **implement** set downstream applies.
+Per-finding: a `decision` (implement / skip; `null` = the reviewer left a comment
+but didn't explicitly pick — treat as guidance to address, never auto-skip) plus an
+optional `comment`. Nothing is pre-selected, and only findings the reviewer touched
+appear. The `apply` subcommand parses this into `{implement, skip, commented, comments}`
+— the **implement** set (honoring each finding's `comment`) is what downstream applies.
 
 ## Inputs
 

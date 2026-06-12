@@ -433,47 +433,38 @@ def test_request_from_tiny_fixture_design_findings_and_png(tmp_path):
 def test_parse_selection_contract_shape():
     response = {
         "decisions": {
-            "scene-2-visual-polish": "implement",
-            "scene-3-clarity": "skip",
-            "user-trust": "defer",
-            "weird-one": "maybe?",
-        },
-        "overall": "proceed",
-        "notes": "looks good",
-    }
-    sel = parse_selection(response)
-    assert sel["overall"] == "proceed"
-    assert sel["notes"] == "looks good"
-    assert sel["implement"] == ["scene-2-visual-polish"]
-    assert sel["skip"] == ["scene-3-clarity"]
-    assert sel["defer"] == ["user-trust"]
-    # Unknown decision values are preserved but never bucketed (no auto-apply).
-    assert {"cluster_id": "weird-one", "decision": "maybe?"} in sel["selections"]
-    assert "weird-one" not in sel["implement"] + sel["skip"] + sel["defer"]
-
-
-def test_parse_selection_legacy_overall_in_decisions_still_honored():
-    response = {
-        "decisions": {
-            "scene-2-visual-polish": "implement",
-            OVERALL_DECISION_ID: "proceed with selected",
+            "scene-2-visual-polish": {"decision": "implement", "comment": "hoist it"},
+            "scene-3-clarity": {"decision": "skip", "comment": ""},
+            "user-trust": {"decision": None, "comment": "look into this more"},
         }
     }
     sel = parse_selection(response)
-    assert sel["overall"] == "proceed with selected"
-    # The legacy overall row is never bucketed as a cluster.
     assert sel["implement"] == ["scene-2-visual-polish"]
+    assert sel["skip"] == ["scene-3-clarity"]
+    # decision=null + a comment is guidance to address, never an auto-skip.
+    assert "user-trust" not in sel["implement"] + sel["skip"]
+    assert sel["commented"] == ["scene-2-visual-polish", "user-trust"]
+    assert sel["comments"]["user-trust"] == "look into this more"
+    assert {"cluster_id": "scene-2-visual-polish", "decision": "implement", "comment": "hoist it"} in sel[
+        "selections"
+    ]
+
+
+def test_parse_selection_legacy_flat_decision_still_bucketed():
+    # A pre-redesign flat value (the decision string itself) still buckets.
+    sel = parse_selection({"decisions": {"scene-2-visual-polish": "implement"}})
+    assert sel["implement"] == ["scene-2-visual-polish"]
+    assert sel["comments"] == {}
 
 
 def test_parse_selection_tolerates_empty_response():
     sel = parse_selection({})
     assert sel == {
-        "overall": None,
-        "notes": "",
         "selections": [],
         "implement": [],
         "skip": [],
-        "defer": [],
+        "commented": [],
+        "comments": {},
     }
 
 
@@ -627,15 +618,16 @@ def test_cli_apply_prints_selection(tmp_path, capsys):
     response.write_text(
         json.dumps(
             {
-                "decisions": {"scene-2-visual-polish": "implement"},
-                "overall": "proceed",
+                "decisions": {
+                    "scene-2-visual-polish": {"decision": "implement", "comment": "hoist it"},
+                }
             }
         )
     )
     fr.main(["apply", str(response)])
     out = json.loads(capsys.readouterr().out.strip())
     assert out["implement"] == ["scene-2-visual-polish"]
-    assert out["overall"] == "proceed"
+    assert out["comments"]["scene-2-visual-polish"] == "hoist it"
 
 
 def test_cli_mode_prints_review_mode(tmp_path, capsys):

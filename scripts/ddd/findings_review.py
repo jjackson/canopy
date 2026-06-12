@@ -633,52 +633,51 @@ def build_findings_review_request(
 def parse_selection(response_json: dict) -> dict:
     """Turn a resolved review's ``response_json`` into a machine-readable selection.
 
-    Contract ``response_json`` shape::
+    Contract ``response_json`` shape (per-finding decision + comment; nothing is
+    pre-selected, only findings the reviewer touched are present)::
 
-        {"decisions": {"<cluster_id>": "implement" | "skip" | "defer"},
-         "overall": "proceed" | "discuss",
-         "notes": "free text"}
+        {"decisions": {"<cluster_id>": {"decision": "implement" | "skip" | null,
+                                        "comment": "free text"}}}
 
-    The per-cluster decisions live in the top-level ``decisions`` map keyed by
-    ``cluster_id``; ``overall`` and ``notes`` are siblings of it (NOT a synthetic
-    decision row inside the map). Returns::
+    ``decision`` is ``null`` when the reviewer left a comment but didn't pick
+    implement/skip — treat that as guidance to address, never as an auto-skip.
+    Returns::
 
-        {"overall": "proceed" | "discuss" | None,
-         "notes": str,
-         "selections": [{"cluster_id": str, "decision": str}, ...],
-         "implement": [cluster ids],   # the set downstream applies
-         "skip": [cluster ids],
-         "defer": [cluster ids]}
+        {"selections": [{"cluster_id": str, "decision": str|None, "comment": str}, ...],
+         "implement": [cluster ids],          # decision == "implement"
+         "skip": [cluster ids],               # decision == "skip"
+         "commented": [cluster ids],          # any non-empty comment
+         "comments": {cluster_id: comment}}   # non-empty comments, keyed by id
 
-    Unknown decision values are preserved in ``selections`` but excluded from
-    the three buckets (the orchestrator treats them as ``defer`` — never
-    auto-apply on ambiguity). For backward compatibility a legacy
-    ``decisions[<OVERALL_DECISION_ID>]`` entry is honored as ``overall`` when
-    no top-level ``overall`` is present, and is never bucketed as a cluster.
+    Backward-compatible: a legacy flat value (``decisions[id] == "implement"``)
+    is still bucketed correctly.
     """
     response_json = response_json or {}
     decisions: dict = response_json.get("decisions") or {}
-    # Prefer the contract's top-level ``overall``; fall back to a legacy
-    # in-decisions overall row only if the top-level key is absent.
-    overall = response_json.get("overall")
-    if overall is None:
-        overall = decisions.get(OVERALL_DECISION_ID)
-    notes = response_json.get("notes") or ""
     selections: list[dict] = []
-    buckets: dict[str, list[str]] = {"implement": [], "skip": [], "defer": []}
-    for cluster_id, decision in decisions.items():
-        if cluster_id == OVERALL_DECISION_ID:
-            continue
-        selections.append({"cluster_id": cluster_id, "decision": decision})
+    buckets: dict[str, list[str]] = {"implement": [], "skip": []}
+    commented: list[str] = []
+    comments: dict[str, str] = {}
+    for cluster_id, entry in decisions.items():
+        if isinstance(entry, dict):
+            decision = entry.get("decision")
+            comment = (entry.get("comment") or "").strip()
+        else:
+            # Legacy flat shape: the value IS the decision string.
+            decision = entry
+            comment = ""
+        selections.append({"cluster_id": cluster_id, "decision": decision, "comment": comment})
         if decision in buckets:
             buckets[decision].append(cluster_id)
+        if comment:
+            commented.append(cluster_id)
+            comments[cluster_id] = comment
     return {
-        "overall": overall,
-        "notes": notes,
         "selections": selections,
         "implement": buckets["implement"],
         "skip": buckets["skip"],
-        "defer": buckets["defer"],
+        "commented": commented,
+        "comments": comments,
     }
 
 
