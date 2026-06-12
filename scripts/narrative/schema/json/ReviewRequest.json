@@ -201,6 +201,15 @@
       "default": null,
       "title": "Actionability"
     },
+    "findings": {
+      "default": [],
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
     "build_order": {
       "default": [],
       "items": {

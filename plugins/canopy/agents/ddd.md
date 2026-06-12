@@ -98,6 +98,20 @@ applicable findings via the review surface so the user picks. It's NOT a hard
 gate (no concept-direction lock), but the loop genuinely cannot proceed without
 input on which path to take.
 
+**Plus one opt-in gate:** `product_findings` — fires ONLY when the spec sets
+`review_mode: human` (`UnifiedSpec.review_mode`; default `autonomous`). In human
+mode the orchestrator never auto-applies PRODUCT findings (mechanical included):
+after each judged, non-converged iteration it posts ONE clustered findings
+review via `python -m scripts.ddd.findings_review post <run_id>` — every cluster
+carrying evidence deep-links (the iteration deck at `#scene-<N>` AND the
+iteration clip at `#t=<seconds>`, built from the recorder's per-scene timings in
+`run-report.json`) — then presents the single review URL + a compact summary
+table in chat and waits for the user's implement / skip / defer picks
+(`findings_review apply` parses the resolved response into a machine-readable
+selection). See `skills/ddd-findings-review/SKILL.md`. In autonomous mode this
+gate never fires. Like every gate, it posts to the review surface — never
+`AskUserQuestion`.
+
 **Every surfaced decision MUST include ace-web hosted artifact links —
 NEVER local `file://` paths.** When a `ReviewRequest` fires (any gate) —
 OR when surfacing options/redesign findings inline because the review
@@ -477,6 +491,17 @@ After `ddd-run` returns, load `<run_dir>/run_state.yaml` and
 ## Route findings
 
 Findings arrive from **two distinct sources** with different route vocabularies. Handle each source separately.
+
+**Mode check first.** Read the spec's `review_mode` before routing PRODUCT
+findings (`uv run python -m scripts.ddd.findings_review mode <spec_path>`).
+In **`human`** mode, the PRODUCT row of table A below is replaced by the
+`product_findings` gate: post the clustered findings review
+(`findings_review post <run_id>` — one link, per-cluster deck `#scene-<N>` +
+video `#t=<seconds>` evidence deep-links), present the URL + a compact summary
+table, await the resolution, and apply ONLY the clusters the user marked
+`implement` (skip → digest, defer → learnings/backlog). Nothing auto-applies.
+CONCEPT / RESEARCH / DEFER routing is identical in both modes. In
+**`autonomous`** mode (the default), use table A as written.
 
 ### A. Design-findings routes (source: `design_findings.json` from `ddd-concept-eval`)
 

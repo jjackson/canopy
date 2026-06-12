@@ -71,6 +71,22 @@ class RunReport:
 
     results: list[ActionResult] = field(default_factory=list)
 
+    scenes: list[dict] = field(default_factory=list)
+    """Per-scene timing entries, in recording order. Each entry::
+
+        {"scene_index": int,        # 1-based ORIGINAL spec index
+         "title": str,
+         "start_seconds": float,    # offset into the recording timeline
+         "duration_seconds": float}
+
+    ``start_seconds`` is measured from the recorder's ``recording_epoch``
+    (set by ``record_video.main`` at page creation — the moment Playwright's
+    webm starts; the final mp4 is that webm re-encoded, so offsets carry
+    over). Scenes dropped by ``--skip-empty-scenes`` never run, so they get
+    no entry. Downstream consumers (the DDD product-findings review) use
+    these to deep-link a video at the scene a finding is about — see
+    :func:`scene_timestamps`."""
+
     setup: dict | None = None
     """Data-setup provenance (the spec's ``setup:`` block execution record):
     command, cwd, rerun mode, skipped/skip_reason, exit code, duration, and
@@ -83,6 +99,24 @@ class RunReport:
     def record(self, r: ActionResult) -> None:
         """Append one result. Called by ``execute_action`` after each action."""
         self.results.append(r)
+
+    def record_scene_timing(
+        self,
+        *,
+        scene_index: int,
+        title: str,
+        start_seconds: float,
+        duration_seconds: float,
+    ) -> None:
+        """Append one per-scene timing entry. Called by ``Recorder.run_scene``."""
+        self.scenes.append(
+            {
+                "scene_index": int(scene_index),
+                "title": title,
+                "start_seconds": round(float(start_seconds), 3),
+                "duration_seconds": round(float(duration_seconds), 3),
+            }
+        )
 
     def ok_count(self) -> int:
         return sum(1 for r in self.results if r.ok)
@@ -110,6 +144,7 @@ class RunReport:
             "ok": self.ok_count(),
             "failed": self.fail_count(),
             "actions": [asdict(r) for r in self.results],
+            "scenes": list(self.scenes),
         }
         if self.setup is not None:
             d["setup"] = self.setup
@@ -117,6 +152,33 @@ class RunReport:
 
     def to_json(self, *, indent: int | None = 2) -> str:
         return json.dumps(self.as_dict(), indent=indent)
+
+
+def scene_timestamps(report: dict) -> dict[int, float]:
+    """Read ``scene_index -> start_seconds`` from a run-report dict.
+
+    ``report`` is the parsed JSON written by ``record_video.py --report``
+    (i.e. :meth:`RunReport.as_dict` output). Scenes that were skipped
+    (``--skip-empty-scenes``) have no entry. Returns ``{}`` for reports
+    written before per-scene timing existed — callers degrade to "no video
+    deep-links" rather than crashing on old artifacts.
+
+    Stdlib-only on purpose: ``scripts.ddd.findings_review`` imports this
+    without dragging in Playwright (this module has no browser deps).
+    """
+    out: dict[int, float] = {}
+    for entry in report.get("scenes") or []:
+        if not isinstance(entry, dict):
+            continue
+        idx = entry.get("scene_index")
+        start = entry.get("start_seconds")
+        if idx is None or start is None:
+            continue
+        try:
+            out[int(idx)] = float(start)
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 class ActionAssertError(RuntimeError):

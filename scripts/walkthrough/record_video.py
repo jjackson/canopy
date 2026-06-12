@@ -625,6 +625,12 @@ def main() -> None:
                     context.add_cookies(cookies)
 
             page = context.new_page()
+            # Playwright's video capture starts when the page opens — this is
+            # second zero of the recording timeline. Captured here (NOT at
+            # Recorder.run) so any pre-scene auth navigation below counts
+            # toward scene 1's start offset, keeping per-scene timestamps
+            # aligned with the produced mp4.
+            recording_started = time.monotonic()
 
             # URL-based auth (e.g. /auth/e2e-login?token=...) for specs that
             # use a magic-link login instead of cookie import. Skipped when
@@ -647,6 +653,7 @@ def main() -> None:
                 # back to this size after each overridden scene's final hold.
                 default_viewport={"width": viewport_w, "height": viewport_h},
             )
+            recorder.recording_epoch = recording_started
             # Provenance: the data this film is made on is part of the run's
             # evidence chain — the resolved vars + setup command + exit code +
             # duration ride on the RunReport, and land in the snapshots dir.
