@@ -20,6 +20,42 @@ Two layers of knobs:
 A primitive that wants to tune its own pacing reads from ``self.config`` (or
 the ``config=`` kwarg). A primitive that takes ``config=None`` defaults to
 :class:`RecorderConfig` (medium pace) so existing call sites keep working.
+
+THE TIMING MODEL — one map, so the next person doesn't do archaeology
+======================================================================
+
+The authoritative author-facing doc is the **"Recording time & dead space"**
+section of ``plugins/canopy/skills/walkthrough/SKILL.md``. Code-side summary:
+
+**Off camera** (never films): the spec's ``setup:`` command (runs before any
+browser opens) and the ``prewarm`` pass (a separate non-recorded context that
+visits each unique scene URL to heat cold caches — ``UnifiedSpec.prewarm`` /
+``--prewarm``, knobs ``prewarm_settle_ms`` + ``prewarm_page_timeout_ms``).
+
+**On camera** (every millisecond is film): scene navigation + ``goto_settle_ms``,
+``initial_hold_ms``, every action's glide/dwell/settle, ``wait_for`` polling
+time, ``hold`` actions, and the end-of-scene final hold.
+
+**Dwell hierarchy** (which knob holds a frame, in precedence order):
+
+1. ``hold`` actions — explicit mid-scene dwells; the recommended way to let a
+   viewer sit with a moment (placed exactly where the moment is).
+2. ``scene.video_hold_seconds`` — legacy per-scene override of the
+   end-of-scene hold (replaces ``final_hold_ms`` for that scene only).
+3. ``final_hold_ms`` — the global end-of-scene floor, from the pace preset /
+   ``video_recorder_config``.
+
+**Dead-space eliminations** (automatic): a leading ``wait_for`` skips both
+``goto_settle_ms`` and ``initial_hold_ms`` (the wait IS the settle); a no-nav
+scene skips ``initial_hold_ms``; redundant leading ``goto`` actions are
+stripped; ``--skip-empty-scenes`` drops action-less scenes from the film;
+``--skip-same-url`` skips re-navs; ``crossfade`` hides the nav white-flash.
+
+**Accounting-only / dead knobs**: ``min_hold_ms`` only floors the REPORTED
+per-scene seconds (the "~Ns of footage" total) — it does not pad the film.
+``scroll_speed_px_s`` is retained for back-compat but unconsumed since the
+static-scene scroll-pan fallback was removed (the ``scroll`` action's eased
+scroll has its own internal duration cap).
 """
 
 from __future__ import annotations
@@ -43,10 +79,13 @@ class RecorderConfig:
     """Hold after a scene's actions finish, before moving to the next scene."""
 
     min_hold_ms: int = 4000
-    """Floor on a scene's elapsed time — short scenes get padded."""
+    """Floor on a scene's REPORTED elapsed time (the "~Ns of footage" total).
+    Accounting only — it does not pad the recording with extra wait."""
 
     scroll_speed_px_s: int = 600
-    """Eased-scroll speed for the static-scene fallback (no actions)."""
+    """DEAD KNOB — unconsumed since the static-scene scroll-pan fallback was
+    removed. Retained so external ``RecorderConfig(...)`` constructors and old
+    ``video_recorder_config`` blocks don't break; scheduled for removal."""
 
     # ---- action-level: cursor motion -------------------------------------
     cursor_steps: int = 36
@@ -128,6 +167,17 @@ class RecorderConfig:
 
     load_settle_timeout_ms: int = 8000
     """Max time the orchestrator waits for the ``load`` event after ``domcontentloaded``."""
+
+    # ---- pre-warm pass (off camera) ---------------------------------------
+    prewarm_settle_ms: int = 4000
+    """Bounded settle per pre-warm page after ``domcontentloaded`` — the page
+    gets up to this long to go network-idle (image fetches, lazy charts) so
+    its caches are actually hot, then the pass moves on. Exits early on idle."""
+
+    prewarm_page_timeout_ms: int = 15000
+    """Per-page cap on the pre-warm navigation. A page slower than this is
+    logged as a pre-warm failure and skipped — prewarm is best-effort and must
+    never stall the render the way it would stall the film."""
 
     # ---- presets ---------------------------------------------------------
     @classmethod

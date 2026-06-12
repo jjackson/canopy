@@ -432,6 +432,17 @@ class UnifiedSpec(BaseModel):
     ``setup.outputs``. When absent, any ``${...}`` placeholder in the spec is
     a hard error (catches misconfiguration before filming a literal
     ``${run_id}`` URL)."""
+    prewarm: bool = False
+    """Optional pre-warm pass (default off). When True, the recorder — after
+    ``setup`` has run (so ``${var}`` placeholders are resolved) and auth is
+    available, but BEFORE the recorded context exists — opens a separate
+    NON-recorded browser context with the same cookies/storage_state and
+    visits each unique resolved scene URL once, in spec order. This warms
+    cold caches (first-hit page renders, remote image fetches, JIT/template
+    warm-up) OFF CAMERA, so the filmed pass doesn't freeze-frame through
+    them. Best-effort: a failing pre-warm page is logged and skipped, never
+    fatal. CLI ``--prewarm`` / ``--no-prewarm`` overrides this value. See the
+    walkthrough SKILL's "Recording time & dead space" section."""
     why_brief: str | None = None
     personas: dict[str, Persona]
     scenes: list[Scene]

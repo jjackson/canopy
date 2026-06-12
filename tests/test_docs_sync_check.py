@@ -147,7 +147,7 @@ class TestCheckDocsSync:
             changed=[
                 "README.md",
                 "tests/test_something_unrelated.py",
-                "scripts/walkthrough/_lib/config.py",  # NOT in TRIGGER_PATHS
+                "scripts/walkthrough/_lib/results.py",  # NOT in TRIGGER_PATHS (telemetry shape, not author surface)
             ],
             pr_body="",
         )

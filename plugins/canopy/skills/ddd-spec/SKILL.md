@@ -486,6 +486,28 @@ narrative first (Step 3) so the two stay in lockstep.
   10 plans"` wait fixed both the false-positive rate and the diagnostic
   signal.
 
+  **Never `wait_for` an element inside a collapsed/hidden container.** A
+  selector `wait_for` waits for *visibility*, and an `<option>` inside a
+  closed `<select>` (or any item inside a closed dropdown / `display:none`
+  panel) is never visible — the wait burns its FULL timeout as a frozen
+  frame on film and then "fails", even though the element exists and the
+  data loaded long ago. Wait on the visible container via `:has()` instead:
+  `css:select#run-picker:has(option[value='${run_id}'])`, never
+  `css:select#run-picker option[value='${run_id}']`. (Cost on
+  program-admin-report: a 20s frozen frame per take.)
+
+  **Recording time & dead space — read the one authoritative section.** What
+  films vs what doesn't (the spec's `setup:` command and the `prewarm: true`
+  pass run OFF camera; every wait, hold, glide, and settle in `actions` is ON
+  camera), every dead-space mechanism (prewarm for cold caches,
+  `--skip-empty-scenes`, `--skip-same-url`, the automatic leading-`wait_for`
+  hold skips, crossfade), and the dwell-knob hierarchy (`hold` actions >
+  legacy `video_hold_seconds` > `final_hold_ms`) are documented ONCE in the
+  **walkthrough SKILL § "Recording time & dead space"** — go there before
+  tuning any timing. Spec-author takeaway: set `prewarm: true` on specs whose
+  app has cold-start cost (first-hit page renders, remote image fetches), and
+  express deliberate dwells as `hold` actions, not pacing-knob tweaks.
+
   **Per-scene viewport override.** Most specs render at one viewport (the
   spec-level `video_viewport_width` / `video_viewport_height`, defaults
   1280×720). When one scene needs a wider canvas (a dense plan-review page

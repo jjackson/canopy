@@ -176,6 +176,9 @@ record_video: true              # default: false
 video_pace: fast                # fast | medium | slow (default: fast)
 video_viewport_width: 1280      # default: 1280
 video_viewport_height: 720      # default: 720
+prewarm: true                   # default: false — visit every unique scene URL once
+                                # OFF camera before filming, so cold caches don't
+                                # freeze-frame on film (see "Recording time & dead space")
 
 # Review mode (optional, DDD-only) — autonomous (default) | human. Human mode
 # routes PRODUCT judge findings to the product_findings review gate instead of
@@ -216,7 +219,8 @@ scenes:
     show: "Main dashboard with KPIs loaded"
     impressive_because: "Data loads in real-time, charts are interactive"
     ai_quality: "KPI descriptions should be specific to the program, not generic"  # optional
-    video_hold_seconds: 8         # optional — dwell this long instead of scroll-paced timing
+    video_hold_seconds: 8         # optional, legacy — end-of-scene hold override; prefer a
+                                  # `hold` action (see "Recording time & dead space")
     viewport: { width: 1440, height: 900 }  # optional — per-scene viewport override
                                             # (this scene only; other scenes stay at the
                                             # spec-level video_viewport_width/height)
@@ -705,6 +709,25 @@ itself, the toast that stays for 5 seconds, the page heading that sticks. Use
 - { kind: wait_for, target: "Created 10 of 10 plans", seconds: 120 }
 ```
 
+**Never `wait_for` an element inside a collapsed/hidden container — wait on
+the visible container via `:has()`.** `wait_for` with a selector waits for the
+element to be *visible*. An `<option>` inside a closed `<select>` is never
+visible (same for items inside a closed dropdown/accordion/`display:none`
+panel), so the wait burns its FULL timeout as a frozen frame on film and then
+reports failure — even though the element exists and the data loaded long ago.
+Wait on the visible container, asserting the child exists inside it:
+
+```yaml
+# ✗ Anti-pattern — option is invisible inside a closed select; burns 20s of film
+- { kind: wait_for, target: "css:select#run-picker option[value='3721']", seconds: 20 }
+
+# ✓ Pattern — the select is visible; :has() asserts the option arrived
+- { kind: wait_for, target: "css:select#run-picker:has(option[value='3721'])", seconds: 20 }
+```
+
+(Root-caused on program-admin-report: a 20s `wait_for` on a bare `option`
+contributed the single largest block of frozen-frame dead space in the film.)
+
 **Target resolution syntax — prefer prefixes over bare CSS.** Every action's
 `target` field can use a prefix to control how the recorder resolves it. Bare
 strings use a heuristic (CSS-shaped → selector engine; English → visible-text
@@ -852,22 +875,71 @@ continue-scene a leading `goto` IS meaningful (it's a deliberate page change, no
 a redundancy) — the strip rule only fires when both `url:` AND a leading `goto` to
 the same path are set.
 
-### Pacing
+### Recording time & dead space (the timing model — AUTHORITATIVE)
 
-The default `fast` preset uses a short hold, a smooth eased scroll over
-tall pages, then a short final hold. The scroll motion is what keeps
-"fast" from feeling fast-forwarded — viewers register movement as natural
-pace rather than a freeze-frame jump-cut.
+This is the one map of every mechanism that decides what ends up on film and
+for how long. The recorder films **one continuous take**: every millisecond
+between the recorded page opening and the last scene's final hold is footage.
+Dead space — a frozen frame while something loads, a blind hold stacked on a
+real readiness signal — is therefore an *authoring + flags* problem, and every
+fix lives in this section. (Code-side map: the module comment in
+`scripts/walkthrough/_lib/config.py` points back here.)
 
-| Pace   | Initial hold | Scroll speed | Final hold | Min per scene |
-| ------ | ------------ | ------------ | ---------- | ------------- |
-| fast   | 0.8s         | 1200 px/s    | 0.5s       | 2.5s          |
-| medium | 1.5s         | 600 px/s     | 1.0s       | 4.0s          |
-| slow   | 2.5s         | 300 px/s     | 1.5s       | 6.0s          |
+**What films vs what doesn't:**
 
-Per-scene override: set `video_hold_seconds: N` on a scene to skip the
-scroll for that scene and dwell a fixed N seconds instead. Use for key
-moments where the viewer should sit with one screen.
+| Phase | On camera? | Notes |
+| --- | --- | --- |
+| `setup:` command (synthetic generator) | **No** | Runs before any browser opens. |
+| Pre-warm pass (`prewarm: true` / `--prewarm`) | **No** | Separate non-recorded context; runs after setup + auth, before the recorded context exists. |
+| URL auth nav (`auth: type: url`) | **Yes** | Happens on the recorded page before scene 1 (counts toward scene 1's start offset). Cookie/storage-state auth is free — seeded at context creation. |
+| Scene navs + `goto_settle_ms`, `initial_hold_ms`, action glides/dwells/settles, `wait_for` polling time, `hold` actions, end-of-scene hold | **Yes** | Every wait an author declares (or a default implies) is film. |
+| Snapshot scroll-to-top bounce | **Yes** | Fires at the scene cut, masked by the crossfade. |
+
+**Every dead-space mechanism and when to use it:**
+
+| Mechanism | Dead space it removes | When to use |
+| --- | --- | --- |
+| `prewarm: true` (spec) / `--prewarm` · `--no-prewarm` (CLI; CLI wins) | Cold-cache waits filmed as frozen frames — a 15s first-hit page render, a 7.5s remote-image cold fetch. The pass visits each **unique resolved** scene URL once off camera (continuation scenes skipped, `${var}` already substituted), with the same cookies/storage_state as the recording. Best-effort: a failing page is logged + recorded in the report's `prewarm` provenance (`{pages, duration_seconds, failures}`), never fatal. | Any spec whose app has cold-start cost (cold page caches, remote images, slow first render). Costs a few off-camera seconds; harmless otherwise. |
+| Leading `wait_for` (automatic) | The recorder skips `goto_settle_ms` + `initial_hold_ms` when a scene's first action is `wait_for` — the wait IS the settle; blind holds on top are pure dead air. | Every scene that opens on a page that takes a moment. This is the default authoring pattern. |
+| No-nav scene (omit `url:`) (automatic) | `initial_hold_ms` skipped — there's no page-load to settle for. | Continuation scenes. |
+| `--skip-same-url` | Re-navigation between same-URL scenes, which films a reload AND wipes JS state. | Specs with continue-on-page flows. |
+| `--skip-empty-scenes` | The minimum dwell on a static page for narrative-only scenes (no `actions`). The deck still shows them as title-card slides. | Specs with an action-less narrative back half. |
+| Redundant-goto strip (automatic) | The visible reload ~1-2s into a scene authored with both `url:` and a leading `goto` to the same path. | Safety net — still author one or the other, not both. |
+| Crossfade (on by default; `video_recorder_config: {crossfade: false}`) | The white navigation flash between scenes. | Leave on; disable only when debugging raw page state. |
+
+**Pacing presets** (`video_pace: fast | medium | slow`, default `fast`) set the
+global tempo — scene holds, cursor glide dwells, per-keystroke typing delay,
+post-click settles:
+
+| Pace   | Initial hold | Final hold | Typing delay | Post-click settle |
+| ------ | ------------ | ---------- | ------------ | ----------------- |
+| fast   | 0.8s         | 0.5s       | 20ms/key     | 0.4s              |
+| medium | 1.5s         | 1.0s       | 45ms/key     | 0.9s              |
+| slow   | 2.5s         | 1.5s       | 80ms/key     | 1.4s              |
+
+Any individual knob can be overridden via `video_recorder_config: {<field>: <ms>}`
+(see `scripts/walkthrough/_lib/config.py` for the full field list).
+
+**The dwell hierarchy — which knob to reach for when you want the viewer to
+sit with a screen.** Three knobs hold a frame on purpose; use them in this
+precedence order:
+
+1. **`hold` actions** (recommended) — explicit mid-scene dwells, placed exactly
+   where the moment is: `{ kind: hold, seconds: 3, note: "let the KPI sink in" }`.
+   This is the cinematic-dwell tool; everything else is plumbing.
+2. **`video_hold_seconds: N`** (legacy per-scene override) — replaces the
+   end-of-scene hold (`final_hold_ms`) for that one scene. Kept for existing
+   specs; prefer a `hold` action, which says *where* in the scene the dwell
+   belongs. (History: this knob was silently dead between the orchestrator
+   refactor and 0.2.192 — it is consumed again, with exactly this meaning.)
+3. **`final_hold_ms`** — the global end-of-scene floor from the pace preset /
+   `video_recorder_config`. The baseline breath between scenes, not a styling
+   tool.
+
+Two knobs that look like dwells but aren't: `min_hold_ms` only floors the
+*reported* per-scene seconds (the "~Ns of footage" accounting) — it does not
+pad the film; `scroll_speed_px_s` is dead (unconsumed since the static-scene
+scroll-pan fallback was removed) and retained only for back-compat.
 
 ### Data setup + `${var}` substitution (specs with a `setup:` block)
 
@@ -937,6 +1009,10 @@ python3 "$REC" \
   --output screenshots/walkthroughs/<name>.mp4 \
   --cookies /tmp/walkthrough-cookies-<name>.json
 ```
+
+**Pre-warm:** the recorder honors the spec's `prewarm:` value automatically;
+`--prewarm` / `--no-prewarm` override it per invocation (CLI wins). See
+"Recording time & dead space" above for semantics + provenance.
 
 **Auth alternative — `--storage-state`:** if the `browse cookies` export isn't
 available or isn't sticking across contexts, pass a Playwright `storage_state`

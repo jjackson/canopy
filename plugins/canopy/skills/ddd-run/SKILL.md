@@ -113,6 +113,7 @@ flags below.
 | `--skip-same-url` | When the spec uses continue-scene patterns (scenes that operate on the previous scene's URL) | Avoids re-navs that wipe JS state between scenes. |
 | `--input <run.json>` | Only for `--scene` partial runs (when reusing a previous walkthrough's capture set) | Without this, the spec is the only source of truth. |
 | `--skip-setup` | **Never in the iterate loop** | Specs with a `setup:` block run their synthetic generator before every render (`rerun: per_render`) — that reseed is load-bearing for state-mutating demos (a scene that creates an audit must find no audit on the next take). `--skip-setup` is a human escape hatch for one-off re-renders on known-fresh, non-mutating data; the orchestrator must not pass it. |
+| `--prewarm` / `--no-prewarm` | Usually neither — the spec's `prewarm:` value is the right default and the recorder honors it automatically (CLI overrides per invocation, CLI wins) | The pre-warm pass visits each unique resolved scene URL once in a NON-recorded context before filming, so cold caches (first-hit page renders, remote image fetches) are paid off camera instead of as frozen frames mid-scene. Best-effort: failures land in `run-report.json` (`prewarm` key: `{pages, duration_seconds, failures}`), never abort the render. Full model: walkthrough SKILL § "Recording time & dead space". |
 
 **DDD orchestrator default flag set** — what `/canopy:ddd-run` should pass to
 `record_video.py`:
