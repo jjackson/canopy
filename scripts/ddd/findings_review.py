@@ -7,25 +7,37 @@ human`` the user picks which PRODUCT findings to implement — and before this
 module existed, that meant a hand-written chat table with no way to see the
 evidence behind each finding without manually scrubbing the deck and video.
 
-This module formalizes that flow: it clusters the iteration's PRODUCT
-findings, attaches **evidence deep-links** to each cluster — the hosted deck
-URL with a ``#scene-<N>`` anchor AND the hosted clip URL with a
-``#t=<seconds>`` time fragment at that scene's start offset — and posts ONE
-``product_findings`` review to the canopy-web review surface. The user opens
-a single link, reads each cluster next to its evidence, and decides
+This module formalizes that flow as a **first-class RUN-CHILD review** (gate
+``product_findings``). It is NOT a narrative version: the posted request_json
+carries **no ``narrative_slug``** — canopy-web pins ``narrative_slug=None,
+version=0`` for this gate, filing the review under the run rather than
+polluting the narrative timeline.
+
+The request_json (the canopy ↔ canopy-web contract) carries:
+``run_id``, ``gate``, ``feature``, ``iteration``, ``video {url}``,
+``deck_url``, ``summary {concept_score, user_score, verdict}``, and
+``clusters[]`` where each cluster has ``id``, ``title``, ``severity``,
+``fix_kind``, ``route``, ``scenes``, ``suggested_fix``, ``count``, and
+``evidence[]``. Each evidence item carries an **inline thumbnail**
+(``thumb`` — a ~480px-wide JPEG of that scene's screenshot, base64 data-URI),
+the deck anchor (``deck_anchor`` = ``#scene-<N>``), and the integer video
+offset (``video_t`` = that scene's ``start_seconds``). The user opens one
+link, reads each cluster next to its inline evidence, and decides
 implement / skip / defer per cluster.
 
-Where the video timestamps come from: the walkthrough recorder
-(``scripts/walkthrough/record_video.py``) stamps per-scene
-``start_seconds``/``duration_seconds`` into the run report
-(``run-report.json``, see ``RunReport.scenes``); ``scene_timestamps`` reads
-them back; the canopy-web ``/w/<id>`` viewer seeks to ``#t=<seconds>`` on
-load.
+Where the data comes from in the run dir:
+  - ``design_findings.json``  — the concept judge's PRODUCT findings (clusters source).
+  - ``run-report.json``       — per-scene ``start_seconds`` (→ ``video_t``).
+  - ``snapshots_iter<N>/scene_<N>.png`` (or the flat ``snapshots/scene_<N>.png``
+    fallback) — the per-scene screenshot downscaled into ``evidence[].thumb``.
+  - ``verdict-concept.yaml`` / ``verdict-user.yaml`` — the ``summary`` scores.
 
 Public API (pure functions — no network):
     cluster_findings(findings, user_verdict=None, scene_resolver=None) -> list[dict]
-    build_findings_review_request(run_id, spec, findings, user_verdict,
-                                  deck_url, clip_url, scene_timestamps) -> ReviewRequest
+    build_findings_review_request(run_id, feature, iteration, spec, findings,
+                                  user_verdict, deck_url, clip_url,
+                                  scene_timestamps, summary=None,
+                                  thumb_resolver=None) -> ReviewRequest
     parse_selection(response_json) -> dict
     resolve_review_mode(spec_or_path) -> str
 
@@ -37,6 +49,8 @@ CLI (post touches network via review.post_review_request):
 from __future__ import annotations
 
 import argparse
+import base64
+import io
 import json
 import re
 import subprocess
@@ -45,9 +59,12 @@ from pathlib import Path
 
 import yaml
 
+# NOTE: ``scripts.ddd.narrative`` is imported ONLY for slug-derivation /
+# review-URL helpers used by the CLI presentation layer. The POSTed payload for
+# gate=product_findings must NOT carry a narrative_slug (it's a run-child), so we
+# deliberately do not call ``_narrative_slug_from_run_id`` into the request.
 from scripts.ddd.narrative import (
     _internal_review_url,
-    _narrative_slug_from_run_id,
     _title_slug,
     _tokenized_review_url,
 )
@@ -273,7 +290,115 @@ def cluster_findings(
 
 
 # ---------------------------------------------------------------------------
-# Evidence links
+# Severity derivation
+# ---------------------------------------------------------------------------
+
+
+def derive_severity(*, route: str, fix_kind: str, score: float | None) -> str:
+    """Map a finding's (route, fix_kind, judge score) → high | medium | low.
+
+    The contract leaves severity to the poster, so we pick a sane, explainable
+    mapping:
+
+      * A PRODUCT/CONCEPT finding on a badly-scored iteration (overall judge
+        score ≤ 2 on the 1–5 scale) is **high** — the artifact is failing and
+        this finding is part of why.
+      * A ``redesign`` fix is **high** regardless of score (it's never trivial).
+      * An ``options`` fix is **medium** (needs a human pick but isn't a fire).
+      * A ``mechanical`` fix on a non-failing iteration is **low** (clean,
+        unambiguous, safe to apply).
+
+    ``score`` is the gating judge overall_score for the iteration (lower of the
+    two judges); ``None`` when unknown → treated as not-failing.
+    """
+    rt = (route or "").upper()
+    fk = (fix_kind or "").lower()
+    failing = score is not None and float(score) <= 2
+    if fk == "redesign":
+        return "high"
+    if failing and rt in ("PRODUCT", "CONCEPT"):
+        return "high"
+    if fk == "options":
+        return "medium"
+    return "low"
+
+
+# ---------------------------------------------------------------------------
+# Thumbnails — inline downscaled JPEG data-URIs for evidence
+# ---------------------------------------------------------------------------
+
+#: Default thumbnail width (px) and JPEG quality per the contract (~480px / q≈70).
+THUMB_WIDTH = 480
+THUMB_QUALITY = 70
+
+
+def thumbnail_data_uri(
+    png_path: Path, *, width: int = THUMB_WIDTH, quality: int = THUMB_QUALITY
+) -> str | None:
+    """Downscale *png_path* to a ``data:image/jpeg;base64,…`` URI, or None.
+
+    Loads the PNG with Pillow, scales it to ``width`` px wide (preserving
+    aspect ratio; never upscales), flattens any alpha onto white (JPEG has no
+    alpha), encodes JPEG at ``quality``, and base64-wraps it as an inline
+    data-URI suitable for ``evidence[].thumb``.
+
+    Returns ``None`` (rather than raising) when the file is missing or
+    unreadable — a run captured before per-scene snapshots existed degrades to
+    "no inline thumb", exactly as untimed scenes degrade to "no video link".
+    """
+    if png_path is None or not Path(png_path).exists():
+        return None
+    try:
+        from PIL import Image
+    except ImportError as exc:  # pragma: no cover - dependency is declared
+        raise RuntimeError(
+            "Pillow is required for findings-review thumbnails; add 'pillow' to "
+            "the canopy pyproject deps (uv add pillow)."
+        ) from exc
+    try:
+        with Image.open(png_path) as im:
+            im = im.convert("RGBA")
+            if im.width > width:
+                height = max(1, round(im.height * width / im.width))
+                im = im.resize((width, height), Image.LANCZOS)
+            # Flatten onto white — JPEG can't carry the alpha channel.
+            background = Image.new("RGB", im.size, (255, 255, 255))
+            background.paste(im, mask=im.split()[-1])
+            buf = io.BytesIO()
+            background.save(buf, format="JPEG", quality=quality, optimize=True)
+    except Exception:
+        return None
+    encoded = base64.b64encode(buf.getvalue()).decode("ascii")
+    return f"data:image/jpeg;base64,{encoded}"
+
+
+def make_thumb_resolver(run_dir: Path | None, iteration: int):
+    """Return a ``scene:int -> (thumb|None)`` resolver bound to a run dir.
+
+    Looks for the scene PNG at the per-iteration archive path the contract
+    names — ``<run_dir>/snapshots_iter<N>/scene_<scene>.png`` — and falls back
+    to the flat capture dir the recorder actually writes today,
+    ``<run_dir>/snapshots/scene_<scene>.png`` (overwritten each iteration). The
+    first that exists is downscaled via :func:`thumbnail_data_uri`.
+    """
+
+    def resolve(scene: int) -> str | None:
+        if run_dir is None:
+            return None
+        candidates = [
+            Path(run_dir) / f"snapshots_iter{iteration}" / f"scene_{scene}.png",
+            Path(run_dir) / "snapshots" / f"scene_{scene}.png",
+        ]
+        for path in candidates:
+            if path.exists():
+                return thumbnail_data_uri(path)
+        return None
+
+    return resolve
+
+
+# ---------------------------------------------------------------------------
+# Evidence
 # ---------------------------------------------------------------------------
 
 
@@ -283,43 +408,42 @@ def _format_ts(seconds: float) -> str:
     return f"{total // 60}:{total % 60:02d}"
 
 
-def evidence_links(
+def build_evidence(
     cluster: dict,
     *,
-    deck_url: str | None,
-    clip_url: str | None,
     scene_timestamps: dict[int, float] | None,
+    thumb_resolver=None,
 ) -> list[dict]:
-    """Build the ``[{label, url}]`` evidence list for one cluster.
+    """Build the contract ``evidence[]`` list for one cluster.
 
-    Per scene the cluster touches: the deck anchor (``<deck_url>#scene-<N>``)
-    and — when the recorder stamped a timing for that scene — the clip
-    deep-link (``<clip_url>#t=<seconds>``; the ``/w/`` viewer seeks on load).
+    One entry per scene the cluster touches, in the contract shape::
+
+        {"scene": 9, "thumb": "data:image/jpeg;base64,…",
+         "deck_anchor": "#scene-9", "video_t": 84}
+
+    - ``thumb``: the downscaled JPEG data-URI of ``scene_<N>.png`` via
+      *thumb_resolver* (``None`` when the snapshot is missing — the surface
+      then shows just the deck/video deep-links for that scene).
+    - ``deck_anchor``: always ``#scene-<N>`` (combined with the request's
+      ``deck_url`` on the surface).
+    - ``video_t``: integer seconds = that scene's ``start_seconds`` from the
+      run report; omitted when the recorder skipped/never-timed that scene.
+
     A cluster with no resolvable scenes (e.g. an artifact-wide user-judge
-    finding) gets the bare deck/clip links so the reviewer still has one
-    click to the artifact.
+    finding) returns ``[]`` — the surface falls back to the top-level video +
+    deck links.
     """
     ts = scene_timestamps or {}
-    links: list[dict] = []
-    scenes: list[int] = cluster.get("scenes") or []
-    if scenes:
-        for n in scenes:
-            if deck_url:
-                links.append({"label": f"Deck — scene {n}", "url": f"{deck_url}#scene-{n}"})
-            if clip_url and n in ts:
-                start = ts[n]
-                links.append(
-                    {
-                        "label": f"Video @ {_format_ts(start)} (scene {n})",
-                        "url": f"{clip_url}#t={int(start)}",
-                    }
-                )
-    else:
-        if deck_url:
-            links.append({"label": "Deck", "url": deck_url})
-        if clip_url:
-            links.append({"label": "Video", "url": clip_url})
-    return links
+    out: list[dict] = []
+    for n in cluster.get("scenes") or []:
+        item: dict = {"scene": n, "deck_anchor": f"#scene-{n}"}
+        thumb = thumb_resolver(n) if thumb_resolver else None
+        if thumb:
+            item["thumb"] = thumb
+        if n in ts:
+            item["video_t"] = int(ts[n])
+        out.append(item)
+    return out
 
 
 _W_PAGE_RE = re.compile(r"^(?P<base>https?://[^/]+)/w/(?P<wid>[0-9a-fA-F-]{36})")
@@ -349,8 +473,27 @@ def _clip_content_url(clip_url: str | None) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _summary_verdict(concept: float | None, user: float | None) -> str:
+    """Headline verdict from the two judge overall_scores (1–5 scale).
+
+    Weakest-link, mirroring the judges' own ``overall_rule: lowest``: FAIL if
+    either is ≤2, WARN if either is ≤3, else PASS. Unknown scores don't drag
+    the verdict down (a missing judge isn't a failing judge)."""
+    scores = [s for s in (concept, user) if s is not None]
+    if not scores:
+        return "UNKNOWN"
+    low = min(scores)
+    if low <= 2:
+        return "FAIL"
+    if low <= 3:
+        return "WARN"
+    return "PASS"
+
+
 def build_findings_review_request(
     run_id: str,
+    feature: str,
+    iteration: int,
     spec: UnifiedSpec | dict | None,
     findings: list[dict],
     user_verdict: dict | None,
@@ -358,42 +501,76 @@ def build_findings_review_request(
     clip_url: str | None,
     scene_timestamps: dict[int, float] | None,
     *,
-    narrative_slug: str | None = None,
+    summary: dict | None = None,
+    thumb_resolver=None,
 ) -> ReviewRequest:
-    """Build the ``product_findings`` ReviewRequest for one judged iteration.
+    """Build the ``product_findings`` RUN-CHILD ReviewRequest for one iteration.
 
-    One narration entry + one implement/skip/defer Decision per finding
-    CLUSTER (PRODUCT route only — see :func:`cluster_findings`), each
-    carrying evidence deep-links (deck ``#scene-<N>`` + clip ``#t=<seconds>``)
-    so the reviewer never has to scrub for the moment a finding refers to.
-    Plus one overall decision: proceed with the selected fixes, or discuss.
+    This is NOT a narrative version: the request carries **no
+    ``narrative_slug``** (left ""). canopy-web pins ``narrative_slug=None,
+    version=0`` for gate=product_findings and files the review under the run.
 
-    The machine-readable cluster list (with evidence) also rides on
-    ``ReviewRequest.findings``; the orchestrator reads the resolved
-    ``response_json.decisions`` back via :func:`parse_selection`.
+    Each PRODUCT finding CLUSTER (see :func:`cluster_findings`) becomes one
+    contract cluster (``id``, ``title``, ``severity``, ``fix_kind``, ``route``,
+    ``scenes``, ``suggested_fix``, ``count``, ``evidence``) and one
+    implement/skip/defer Decision. ``evidence[]`` carries an inline downscaled
+    JPEG thumb, the deck ``#scene-<N>`` anchor, and the integer ``video_t`` so
+    the reviewer never has to scrub for the moment a finding refers to. Plus
+    one overall decision: proceed with the selected fixes, or discuss.
+
+    The contract cluster list rides on ``ReviewRequest.findings``; the
+    orchestrator reads the resolved ``response_json.decisions`` back via
+    :func:`parse_selection`.
     """
-    resolved_slug = (narrative_slug or "").strip() or _narrative_slug_from_run_id(run_id)
-    resolver = make_scene_resolver(spec)
-    clusters = cluster_findings(findings, user_verdict=user_verdict, scene_resolver=resolver)
+    summary = summary or {}
+    gating_score = summary.get("concept_score")
+    if summary.get("user_score") is not None:
+        gating_score = (
+            min(gating_score, summary["user_score"])
+            if gating_score is not None
+            else summary["user_score"]
+        )
 
+    resolver = make_scene_resolver(spec)
+    raw_clusters = cluster_findings(findings, user_verdict=user_verdict, scene_resolver=resolver)
+
+    clusters: list[dict] = []
     narration: list[NarrationItem] = []
     decisions: list[Decision] = []
-    for i, cluster in enumerate(clusters, start=1):
-        links = evidence_links(
+    for i, cluster in enumerate(raw_clusters, start=1):
+        evidence = build_evidence(
             cluster,
-            deck_url=deck_url,
-            clip_url=clip_url,
             scene_timestamps=scene_timestamps,
+            thumb_resolver=thumb_resolver,
         )
-        cluster["evidence"] = links
+        # Re-derive severity from route + fix_kind + the iteration's gating
+        # score (the contract leaves severity to the poster; see derive_severity).
+        severity = derive_severity(
+            route=cluster["route"], fix_kind=cluster["fix_kind"], score=gating_score
+        )
+        contract_cluster = {
+            "id": cluster["cluster_id"],
+            "title": cluster["title"],
+            "severity": severity,
+            "fix_kind": cluster["fix_kind"],
+            "route": cluster["route"],
+            "scenes": cluster["scenes"],
+            "suggested_fix": cluster["suggested_fix"],
+            "count": cluster["count"],
+            "evidence": evidence,
+        }
+        clusters.append(contract_cluster)
 
+        # Mirror the cluster into narration as plain text so surfaces that don't
+        # know the findings[] field still render a readable review.
         text_parts = [cluster["detail"] or cluster["title"]]
         if cluster["suggested_fix"]:
             text_parts.append(f"Suggested fix: {cluster['suggested_fix']}")
-        if links:
-            text_parts.append(
-                "Evidence: " + " · ".join(f"{e['label']} → {e['url']}" for e in links)
-            )
+        scene_tag = (
+            "scenes " + ", ".join(str(n) for n in cluster["scenes"])
+            if cluster["scenes"]
+            else "whole artifact"
+        )
         narration.append(
             NarrationItem(
                 scene=i,
@@ -402,16 +579,11 @@ def build_findings_review_request(
                 text="\n\n".join(text_parts),
             )
         )
-        scene_tag = (
-            "scenes " + ", ".join(str(n) for n in cluster["scenes"])
-            if cluster["scenes"]
-            else "whole artifact"
-        )
         decisions.append(
             Decision(
                 id=cluster["cluster_id"],
                 prompt=(
-                    f"[{cluster['severity']} · {cluster['dimension']} · "
+                    f"[{severity} · {cluster['dimension']} · "
                     f"{cluster['fix_kind']} · {scene_tag}] {cluster['title']}"
                 ),
                 options=list(CLUSTER_OPTIONS),
@@ -437,9 +609,15 @@ def build_findings_review_request(
 
     return ReviewRequest(
         run_id=run_id,
-        narrative_slug=resolved_slug,
+        # RUN-CHILD: deliberately NO narrative_slug — gate=product_findings is a
+        # run-child, not a narrative version. Leaving it "" lets canopy-web pin
+        # narrative_slug=None, version=0 rather than fighting a slug we send.
         gate=GATE,
+        feature=feature,
+        iteration=iteration,
         video=video,
+        deck_url=(deck_url or ""),
+        summary=summary,
         narration=narration,
         decisions=decisions,
         findings=clusters,
@@ -455,20 +633,37 @@ def build_findings_review_request(
 def parse_selection(response_json: dict) -> dict:
     """Turn a resolved review's ``response_json`` into a machine-readable selection.
 
-    Returns::
+    Contract ``response_json`` shape::
 
-        {"overall": "proceed with selected" | "discuss" | None,
+        {"decisions": {"<cluster_id>": "implement" | "skip" | "defer"},
+         "overall": "proceed" | "discuss",
+         "notes": "free text"}
+
+    The per-cluster decisions live in the top-level ``decisions`` map keyed by
+    ``cluster_id``; ``overall`` and ``notes`` are siblings of it (NOT a synthetic
+    decision row inside the map). Returns::
+
+        {"overall": "proceed" | "discuss" | None,
+         "notes": str,
          "selections": [{"cluster_id": str, "decision": str}, ...],
-         "implement": [cluster ids],
+         "implement": [cluster ids],   # the set downstream applies
          "skip": [cluster ids],
          "defer": [cluster ids]}
 
     Unknown decision values are preserved in ``selections`` but excluded from
     the three buckets (the orchestrator treats them as ``defer`` — never
-    auto-apply on ambiguity).
+    auto-apply on ambiguity). For backward compatibility a legacy
+    ``decisions[<OVERALL_DECISION_ID>]`` entry is honored as ``overall`` when
+    no top-level ``overall`` is present, and is never bucketed as a cluster.
     """
-    decisions: dict = (response_json or {}).get("decisions") or {}
-    overall = decisions.get(OVERALL_DECISION_ID)
+    response_json = response_json or {}
+    decisions: dict = response_json.get("decisions") or {}
+    # Prefer the contract's top-level ``overall``; fall back to a legacy
+    # in-decisions overall row only if the top-level key is absent.
+    overall = response_json.get("overall")
+    if overall is None:
+        overall = decisions.get(OVERALL_DECISION_ID)
+    notes = response_json.get("notes") or ""
     selections: list[dict] = []
     buckets: dict[str, list[str]] = {"implement": [], "skip": [], "defer": []}
     for cluster_id, decision in decisions.items():
@@ -479,6 +674,7 @@ def parse_selection(response_json: dict) -> dict:
             buckets[decision].append(cluster_id)
     return {
         "overall": overall,
+        "notes": notes,
         "selections": selections,
         "implement": buckets["implement"],
         "skip": buckets["skip"],
@@ -592,6 +788,7 @@ def _cmd_post(args: argparse.Namespace) -> None:
     run_dir = rs._resolve_ddd_dir() / "runs" / run_id
     findings = _load_json(run_dir / "design_findings.json") or []
     user_verdict = _load_yaml(run_dir / "verdict-user.yaml")
+    concept_verdict = _load_yaml(run_dir / "verdict-concept.yaml") or {}
     report = _load_json(run_dir / "run-report.json") or {}
     timestamps = read_scene_timestamps(report) if isinstance(report, dict) else {}
 
@@ -610,15 +807,33 @@ def _cmd_post(args: argparse.Namespace) -> None:
         if spec is None:
             print(f"WARNING: could not read spec at {spec_path} — scene titles won't resolve.", file=sys.stderr)
 
+    # Summary headline from the two judge verdicts (overall_score, weakest-link
+    # verdict). The feature is the run's narrative/feature slug.
+    concept_score = (concept_verdict or {}).get("overall_score")
+    user_score = (user_verdict or {}).get("overall_score")
+    summary = {
+        "concept_score": concept_score,
+        "user_score": user_score,
+        "verdict": _summary_verdict(concept_score, user_score),
+    }
+    feature = state.narrative_slug
+
+    # Per-scene thumbnails: snapshots_iter<N>/scene_<N>.png (contract) with a
+    # fallback to the flat snapshots/ dir the recorder writes today.
+    thumb_resolver = make_thumb_resolver(run_dir, iteration)
+
     request = build_findings_review_request(
         run_id,
+        feature,
+        iteration,
         spec,
         findings,
         user_verdict,
         deck_url,
         clip_url,
         timestamps,
-        narrative_slug=state.narrative_slug,
+        summary=summary,
+        thumb_resolver=thumb_resolver,
     )
 
     if not request.findings:

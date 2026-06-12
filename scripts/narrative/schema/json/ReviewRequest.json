@@ -201,8 +201,28 @@
       "default": null,
       "title": "Actionability"
     },
+    "feature": {
+      "default": "",
+      "title": "Feature",
+      "type": "string"
+    },
+    "iteration": {
+      "default": 0,
+      "title": "Iteration",
+      "type": "integer"
+    },
+    "deck_url": {
+      "default": "",
+      "title": "Deck Url",
+      "type": "string"
+    },
+    "summary": {
+      "additionalProperties": true,
+      "default": {},
+      "title": "Summary",
+      "type": "object"
+    },
     "findings": {
-      "default": [],
       "items": {
         "additionalProperties": true,
         "type": "object"

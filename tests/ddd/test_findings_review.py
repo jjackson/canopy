@@ -1,25 +1,34 @@
-"""Tests for scripts/ddd/findings_review.py (product-findings review gate).
+"""Tests for scripts/ddd/findings_review.py (product-findings RUN-CHILD gate).
 
-All HTTP calls are mocked — no real network traffic.
+All HTTP calls are mocked — no real network traffic. The findings review is a
+run-child (NOT a narrative version): the request carries no narrative_slug, and
+each cluster's evidence carries an inline JPEG thumb + integer video_t.
 """
 from __future__ import annotations
 
+import base64
+import io
 import json
 from pathlib import Path
 
 import yaml
+from PIL import Image
 
 from scripts.ddd.findings_review import (
     GATE,
     OVERALL_DECISION_ID,
     _clip_content_url,
     _format_ts,
+    _summary_verdict,
+    build_evidence,
     build_findings_review_request,
     cluster_findings,
-    evidence_links,
+    derive_severity,
     make_scene_resolver,
+    make_thumb_resolver,
     parse_selection,
     resolve_review_mode,
+    thumbnail_data_uri,
 )
 from scripts.ddd.schemas.models import ReviewRequest
 
@@ -53,6 +62,12 @@ SPEC = {
         {"title": "Review Dashboard"},
     ],
 }
+
+
+def _write_png(path: Path, *, size=(2, 2), color=(200, 100, 50)) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", size, color).save(path, format="PNG")
+    return path
 
 
 # ---------------------------------------------------------------------------
@@ -89,8 +104,7 @@ def test_clusters_dedupe_by_scene_and_dimension():
     assert merged["cluster_id"] == "scene-2-visual-polish"
     assert merged["count"] == 2
     assert merged["scenes"] == [2]
-    # Worst-of merges: severity high beats medium, options beats mechanical.
-    assert merged["severity"] == "high"
+    # Worst-of fix_kind merge: options beats mechanical.
     assert merged["fix_kind"] == "options"
     assert "Chart too small." in merged["detail"] and "Legend unreadable." in merged["detail"]
     assert "Bigger legend." in merged["suggested_fix"]
@@ -136,7 +150,6 @@ def test_user_verdict_dimensions_become_clusters():
     assert len(clusters) == 1
     c = clusters[0]
     assert c["cluster_id"] == "user-task-completion"
-    assert c["severity"] == "high"  # score <= 2
     assert c["fix_kind"] == "mechanical"
     assert c["scenes"] == []
     assert "inline picker" in c["suggested_fix"]
@@ -153,31 +166,83 @@ def test_title_resolved_scene_strings_cluster_with_indices():
 
 
 # ---------------------------------------------------------------------------
-# Evidence links
+# Severity derivation
 # ---------------------------------------------------------------------------
 
 
-def test_evidence_links_carry_scene_anchor_and_time_param():
-    cluster = {"scenes": [2], "scene_labels": []}
-    links = evidence_links(cluster, deck_url=DECK, clip_url=CLIP, scene_timestamps={2: 83.4})
-    urls = [e["url"] for e in links]
-    assert f"{DECK}#scene-2" in urls
-    assert f"{CLIP}#t=83" in urls
-    labels = [e["label"] for e in links]
-    assert any("1:23" in label for label in labels)
+def test_derive_severity_mapping():
+    # redesign is always high.
+    assert derive_severity(route="PRODUCT", fix_kind="redesign", score=5) == "high"
+    # PRODUCT/CONCEPT on a failing iteration (score <= 2) is high.
+    assert derive_severity(route="PRODUCT", fix_kind="mechanical", score=2) == "high"
+    assert derive_severity(route="CONCEPT", fix_kind="options", score=1) == "high"
+    # options on a non-failing iteration is medium.
+    assert derive_severity(route="PRODUCT", fix_kind="options", score=4) == "medium"
+    # mechanical on a non-failing iteration is low.
+    assert derive_severity(route="PRODUCT", fix_kind="mechanical", score=4) == "low"
+    # unknown score does not drag severity to high.
+    assert derive_severity(route="PRODUCT", fix_kind="mechanical", score=None) == "low"
 
 
-def test_evidence_omits_video_link_for_untimed_scene():
-    # Scene 4 was skipped by --skip-empty-scenes → no timestamp → deck only.
-    cluster = {"scenes": [4], "scene_labels": []}
-    links = evidence_links(cluster, deck_url=DECK, clip_url=CLIP, scene_timestamps={2: 10.0})
-    assert [e["url"] for e in links] == [f"{DECK}#scene-4"]
+# ---------------------------------------------------------------------------
+# Thumbnails
+# ---------------------------------------------------------------------------
 
 
-def test_sceneless_cluster_gets_bare_artifact_links():
-    cluster = {"scenes": [], "scene_labels": []}
-    links = evidence_links(cluster, deck_url=DECK, clip_url=CLIP, scene_timestamps={})
-    assert [e["url"] for e in links] == [DECK, CLIP]
+def test_thumbnail_data_uri_from_png(tmp_path):
+    png = _write_png(tmp_path / "scene_2.png", size=(960, 540))
+    uri = thumbnail_data_uri(png, width=480, quality=70)
+    assert uri.startswith("data:image/jpeg;base64,")
+    # Decodes to a real JPEG no wider than the requested width.
+    raw = base64.b64decode(uri.split(",", 1)[1])
+    with Image.open(io.BytesIO(raw)) as im:
+        assert im.format == "JPEG"
+        assert im.width <= 480
+
+
+def test_thumbnail_missing_file_returns_none(tmp_path):
+    assert thumbnail_data_uri(tmp_path / "nope.png") is None
+
+
+def test_make_thumb_resolver_prefers_iter_dir_then_flat(tmp_path):
+    run_dir = tmp_path / "run"
+    # Contract path: snapshots_iter<N>/scene_<N>.png.
+    _write_png(run_dir / "snapshots_iter3" / "scene_2.png")
+    # Flat fallback path also exists for a different scene.
+    _write_png(run_dir / "snapshots" / "scene_5.png")
+    resolve = make_thumb_resolver(run_dir, 3)
+    assert resolve(2).startswith("data:image/jpeg;base64,")  # from iter dir
+    assert resolve(5).startswith("data:image/jpeg;base64,")  # from flat fallback
+    assert resolve(9) is None  # neither exists
+
+
+# ---------------------------------------------------------------------------
+# Evidence (contract shape)
+# ---------------------------------------------------------------------------
+
+
+def test_build_evidence_contract_shape():
+    cluster = {"scenes": [2]}
+    resolver = lambda n: "data:image/jpeg;base64,AAAA"  # noqa: E731
+    ev = build_evidence(cluster, scene_timestamps={2: 83.9}, thumb_resolver=resolver)
+    assert ev == [
+        {
+            "scene": 2,
+            "deck_anchor": "#scene-2",
+            "thumb": "data:image/jpeg;base64,AAAA",
+            "video_t": 83,  # int(start_seconds)
+        }
+    ]
+
+
+def test_build_evidence_omits_video_t_for_untimed_scene():
+    cluster = {"scenes": [4]}
+    ev = build_evidence(cluster, scene_timestamps={2: 10.0}, thumb_resolver=lambda n: None)
+    assert ev == [{"scene": 4, "deck_anchor": "#scene-4"}]
+
+
+def test_build_evidence_empty_for_sceneless_cluster():
+    assert build_evidence({"scenes": []}, scene_timestamps={}, thumb_resolver=None) == []
 
 
 def test_format_ts():
@@ -195,12 +260,19 @@ def test_clip_content_url_derivation():
     assert _clip_content_url(None) is None
 
 
+def test_summary_verdict_weakest_link():
+    assert _summary_verdict(2, 5) == "FAIL"
+    assert _summary_verdict(3, 4) == "WARN"
+    assert _summary_verdict(4, 5) == "PASS"
+    assert _summary_verdict(None, None) == "UNKNOWN"
+
+
 # ---------------------------------------------------------------------------
-# Request building
+# Request building (RUN-CHILD contract)
 # ---------------------------------------------------------------------------
 
 
-def _build_request() -> ReviewRequest:
+def _build_request(thumb_resolver=None) -> ReviewRequest:
     findings = [
         _finding(scene=2, dimension="visual_polish"),
         _finding(scene=3, dimension="clarity", detail="Jargon in the table header.",
@@ -219,36 +291,67 @@ def _build_request() -> ReviewRequest:
     }
     return build_findings_review_request(
         "verified-monitoring-2026-06-12-001",
+        "verified-monitoring",
+        3,
         SPEC,
         findings,
         user_verdict,
         DECK,
         CLIP,
         {2: 42.0, 3: 81.5},
+        summary={"concept_score": 2, "user_score": 2, "verdict": "FAIL"},
+        thumb_resolver=thumb_resolver or (lambda n: f"data:image/jpeg;base64,SCENE{n}"),
     )
 
 
-def test_request_shape_gate_and_slug():
+def test_request_is_run_child_no_narrative_slug():
     req = _build_request()
-    assert req.gate == GATE
-    assert req.narrative_slug == "verified-monitoring"
-    assert len(req.findings) == 3
+    payload = req.model_dump(by_alias=True)
+    assert payload["gate"] == GATE
+    # RUN-CHILD: narrative_slug must be empty (canopy-web pins it to None).
+    assert payload.get("narrative_slug", "") == ""
+    assert payload["feature"] == "verified-monitoring"
+    assert payload["iteration"] == 3
+    assert payload["deck_url"] == DECK
+    assert payload["summary"] == {"concept_score": 2, "user_score": 2, "verdict": "FAIL"}
     # Embedded video points at the streamable content URL, not the page route.
-    assert req.video["url"].endswith("/content?t=cliptok")
+    assert payload["video"]["url"].endswith("/content?t=cliptok")
 
 
-def test_request_links_contain_scene_anchor_and_time_param():
+def test_request_top_level_keys_match_contract():
     req = _build_request()
-    by_id = {c["cluster_id"]: c for c in req.findings}
+    payload = req.model_dump(by_alias=True)
+    for key in ("run_id", "gate", "feature", "iteration", "video", "deck_url", "summary"):
+        assert key in payload, key
+    # Clusters in the contract shape (serialized under the contract key "clusters").
+    assert "findings" not in payload and "clusters" in payload
+    for cluster in payload["clusters"]:
+        assert set(cluster) >= {
+            "id", "title", "severity", "fix_kind", "route", "scenes",
+            "suggested_fix", "count", "evidence",
+        }
+        assert cluster["route"] == "PRODUCT"
+        assert cluster["severity"] in ("high", "medium", "low")
+
+
+def test_request_evidence_has_thumb_anchor_and_video_t():
+    req = _build_request()
+    by_id = {c["id"]: c for c in req.findings}
     ev = by_id["scene-2-visual-polish"]["evidence"]
-    assert any(e["url"] == f"{DECK}#scene-2" for e in ev)
-    assert any(e["url"] == f"{CLIP}#t=42" for e in ev)
+    assert ev[0]["scene"] == 2
+    assert ev[0]["deck_anchor"] == "#scene-2"
+    assert ev[0]["thumb"].startswith("data:image/jpeg;base64,")
+    assert ev[0]["video_t"] == 42 and isinstance(ev[0]["video_t"], int)
     ev3 = by_id["scene-3-clarity"]["evidence"]
-    assert any(e["url"] == f"{CLIP}#t=81" for e in ev3)
-    # Narration text carries the same links so any review surface shows them.
-    narration_text = "\n".join(n.text for n in req.narration)
-    assert f"{DECK}#scene-2" in narration_text
-    assert f"{CLIP}#t=42" in narration_text
+    assert ev3[0]["video_t"] == 81
+
+
+def test_request_severity_derived_from_failing_score():
+    # concept/user both 2 → failing → PRODUCT mechanical finding becomes high.
+    req = _build_request()
+    by_id = {c["id"]: c for c in req.findings}
+    assert by_id["scene-2-visual-polish"]["severity"] == "high"  # mechanical, failing
+    assert by_id["scene-3-clarity"]["severity"] == "high"  # options, failing
 
 
 def test_request_decisions_one_per_cluster_plus_overall():
@@ -262,7 +365,6 @@ def test_request_decisions_one_per_cluster_plus_overall():
         assert d.class_ == GATE
     overall = req.decisions[-1]
     assert overall.options == ["proceed with selected", "discuss"]
-    assert overall.recommended == "proceed with selected"
 
 
 def test_request_serializes_decisions_with_class_alias():
@@ -273,30 +375,75 @@ def test_request_serializes_decisions_with_class_alias():
 
 def test_no_product_findings_yields_empty_findings_list():
     req = build_findings_review_request(
-        "x-2026-06-12-001", SPEC, [_finding(route="CONCEPT")], None, DECK, CLIP, {}
+        "x-2026-06-12-001", "x", 1, SPEC, [_finding(route="CONCEPT")], None, DECK, CLIP, {}
     )
     assert req.findings == []
-    # Only the overall decision remains — caller checks findings before posting.
     assert [d.id for d in req.decisions] == [OVERALL_DECISION_ID]
 
 
+def test_request_from_tiny_fixture_design_findings_and_png(tmp_path):
+    """End-to-end build from a tiny on-disk design_findings + a 2x2 png.
+
+    Asserts the contract invariants: gate, no narrative_slug, thumb data-URI,
+    int video_t.
+    """
+    run_dir = tmp_path / "run"
+    _write_png(run_dir / "snapshots_iter1" / "scene_2.png")  # the 2x2 png
+    design_findings = [
+        {
+            "scene": 2,
+            "dimension": "visual_polish",
+            "severity": "medium",
+            "route": "PRODUCT",
+            "detail": "The button overflows the card.",
+            "fix_recommendation": "Constrain the button width.",
+            "fix_kind": "mechanical",
+        }
+    ]
+    (run_dir / "design_findings.json").write_text(json.dumps(design_findings))
+
+    findings = json.loads((run_dir / "design_findings.json").read_text())
+    req = build_findings_review_request(
+        "verified-monitoring-2026-06-12-001",
+        "verified-monitoring",
+        1,
+        SPEC,
+        findings,
+        None,
+        DECK,
+        CLIP,
+        {2: 12.0},
+        summary={"concept_score": 3, "user_score": 4, "verdict": "WARN"},
+        thumb_resolver=make_thumb_resolver(run_dir, 1),
+    )
+    payload = req.model_dump(by_alias=True)
+    assert payload["gate"] == "product_findings"
+    assert "narrative_slug" not in payload or payload["narrative_slug"] == ""
+    cluster = payload["clusters"][0]
+    assert cluster["evidence"][0]["thumb"].startswith("data:image/jpeg;base64,")
+    vt = cluster["evidence"][0]["video_t"]
+    assert isinstance(vt, int) and vt == 12
+
+
 # ---------------------------------------------------------------------------
-# Selection parsing (apply)
+# Selection parsing (apply) — contract response_json shape
 # ---------------------------------------------------------------------------
 
 
-def test_parse_selection_buckets_decisions():
+def test_parse_selection_contract_shape():
     response = {
         "decisions": {
             "scene-2-visual-polish": "implement",
             "scene-3-clarity": "skip",
             "user-trust": "defer",
             "weird-one": "maybe?",
-            OVERALL_DECISION_ID: "proceed with selected",
-        }
+        },
+        "overall": "proceed",
+        "notes": "looks good",
     }
     sel = parse_selection(response)
-    assert sel["overall"] == "proceed with selected"
+    assert sel["overall"] == "proceed"
+    assert sel["notes"] == "looks good"
     assert sel["implement"] == ["scene-2-visual-polish"]
     assert sel["skip"] == ["scene-3-clarity"]
     assert sel["defer"] == ["user-trust"]
@@ -305,9 +452,29 @@ def test_parse_selection_buckets_decisions():
     assert "weird-one" not in sel["implement"] + sel["skip"] + sel["defer"]
 
 
+def test_parse_selection_legacy_overall_in_decisions_still_honored():
+    response = {
+        "decisions": {
+            "scene-2-visual-polish": "implement",
+            OVERALL_DECISION_ID: "proceed with selected",
+        }
+    }
+    sel = parse_selection(response)
+    assert sel["overall"] == "proceed with selected"
+    # The legacy overall row is never bucketed as a cluster.
+    assert sel["implement"] == ["scene-2-visual-polish"]
+
+
 def test_parse_selection_tolerates_empty_response():
     sel = parse_selection({})
-    assert sel == {"overall": None, "selections": [], "implement": [], "skip": [], "defer": []}
+    assert sel == {
+        "overall": None,
+        "notes": "",
+        "selections": [],
+        "implement": [],
+        "skip": [],
+        "defer": [],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -338,7 +505,7 @@ def test_review_mode_validates_on_unified_spec():
 
 
 # ---------------------------------------------------------------------------
-# CLI post — stamps run_state (mocked HTTP)
+# CLI post — stamps run_state (mocked HTTP), emits run-child payload
 # ---------------------------------------------------------------------------
 
 
@@ -368,16 +535,19 @@ def _seed_run(tmp_path, monkeypatch, *, with_findings=True) -> tuple[Path, str]:
     findings = [_finding(scene=2)] if with_findings else []
     (run_dir / "design_findings.json").write_text(json.dumps(findings))
     (run_dir / "verdict-user.yaml").write_text(
-        yaml.dump({"dimensions": {"clarity": {"score": 5, "weight": 0.35}}})
+        yaml.dump({"overall_score": 2, "dimensions": {"clarity": {"score": 2, "weight": 0.35}}})
     )
+    (run_dir / "verdict-concept.yaml").write_text(yaml.dump({"overall_score": 2}))
     (run_dir / "run-report.json").write_text(
         json.dumps({"scenes": [{"scene_index": 2, "title": "S2", "start_seconds": 42.0,
                                 "duration_seconds": 5.0}]})
     )
+    # Snapshot for the thumbnail (flat fallback path).
+    _write_png(run_dir / "snapshots" / "scene_2.png")
     return run_dir, run_id
 
 
-def test_cli_post_stamps_run_state(tmp_path, monkeypatch, capsys):
+def test_cli_post_stamps_run_state_and_emits_run_child(tmp_path, monkeypatch, capsys):
     run_dir, run_id = _seed_run(tmp_path, monkeypatch)
 
     import scripts.ddd.review as rv
@@ -406,12 +576,19 @@ def test_cli_post_stamps_run_state(tmp_path, monkeypatch, capsys):
     assert out["internal_url"].endswith("/review/rev-123/")
     assert "t=sharetok" in out["share_url"]
 
-    # The posted request carried the evidence deep-links.
+    # The posted request is a run-child carrying inline-thumb evidence.
     req = posted["request"]
-    assert req.gate == GATE
-    ev_urls = [e["url"] for e in req.findings[0]["evidence"]]
-    assert f"{DECK}#scene-2" in ev_urls
-    assert f"{CLIP}#t=42" in ev_urls
+    payload = req.model_dump(by_alias=True)
+    assert payload["gate"] == GATE
+    assert payload.get("narrative_slug", "") == ""
+    assert payload["feature"] == "verified-monitoring"
+    assert payload["iteration"] == 1
+    assert payload["deck_url"] == DECK
+    assert payload["summary"]["verdict"] == "FAIL"  # both judges scored 2
+    ev = payload["clusters"][0]["evidence"][0]
+    assert ev["deck_anchor"] == "#scene-2"
+    assert ev["video_t"] == 42
+    assert ev["thumb"].startswith("data:image/jpeg;base64,")
 
     # run_state stamped with the review id + tokenized URL.
     raw = yaml.safe_load((run_dir / "run_state.yaml").read_text())
@@ -450,17 +627,15 @@ def test_cli_apply_prints_selection(tmp_path, capsys):
     response.write_text(
         json.dumps(
             {
-                "decisions": {
-                    "scene-2-visual-polish": "implement",
-                    OVERALL_DECISION_ID: "proceed with selected",
-                }
+                "decisions": {"scene-2-visual-polish": "implement"},
+                "overall": "proceed",
             }
         )
     )
     fr.main(["apply", str(response)])
     out = json.loads(capsys.readouterr().out.strip())
     assert out["implement"] == ["scene-2-visual-polish"]
-    assert out["overall"] == "proceed with selected"
+    assert out["overall"] == "proceed"
 
 
 def test_cli_mode_prints_review_mode(tmp_path, capsys):
