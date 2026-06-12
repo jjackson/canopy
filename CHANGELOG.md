@@ -9,6 +9,11 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.191] - 2026-06-12
+
+### Fixed
+- **Full-page scene snapshots no longer stamp sticky headers mid-image.** Chromium's beyond-viewport capture paints `position: sticky`/`fixed` elements at the LIVE scroll offset, so any scene that ended scrolled down (audit drills, long tables) produced a still with the navbar floating mid-page and a bar-less, clipped document top — judges read it as a broken render (program-admin-report iter1: 8 of 14 captures affected; reported by the user from the deck). `take_snapshot` now scrolls to top before a `full_page` capture and restores the scroll after; the capture moment moved from before to AFTER `final_hold_ms`, so the scroll bounce lands at the scene cut where the crossfade masks it on film. Viewport captures (`full_page: false`) are untouched — the live viewport IS the artifact. Best-effort: if the scroll evaluation fails, capture proceeds uncorrected.
+
 ## [0.2.190] - 2026-06-12
 
 ### Added
