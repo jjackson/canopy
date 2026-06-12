@@ -682,6 +682,11 @@ base_url: <live environment URL, e.g. https://labs.connect.dimagi.com>
 auth:
   type: session   # or omit if the walkthrough handles auth via browser cookies
 why_brief: why_brief.yaml   # relative path from the spec file to the why_brief
+review_mode: autonomous       # optional — autonomous (default) | human. In human mode the
+                              # orchestrator posts PRODUCT judge findings to the canopy-web
+                              # product_findings review gate (one link, per-finding deck
+                              # #scene-N + video #t=<seconds> evidence) and waits for the
+                              # user's implement/skip/defer picks instead of auto-applying.
 setup:                        # optional — only for demos backed by synthetic data
   command: "python scripts/walkthroughs/<demo>/regenerate.py"   # the synthetic generator
   outputs: "scripts/walkthroughs/<demo>/outputs.json"           # flat JSON {var: string|number}

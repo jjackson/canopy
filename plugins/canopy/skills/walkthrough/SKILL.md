@@ -177,6 +177,11 @@ video_pace: fast                # fast | medium | slow (default: fast)
 video_viewport_width: 1280      # default: 1280
 video_viewport_height: 720      # default: 720
 
+# Review mode (optional, DDD-only) — autonomous (default) | human. Human mode
+# routes PRODUCT judge findings to the product_findings review gate instead of
+# auto-applying them; ignored by plain /canopy:walkthrough runs.
+review_mode: autonomous
+
 # Auth (optional — omit for public pages)
 auth:
   type: url                    # "url" or "command"

@@ -123,6 +123,14 @@ class RunState(BaseModel):
     # when it's None, upload re-verifies against canopy-web and refuses to
     # publish a run that has no narrative (see scripts/ddd/upload.py).
     narrative_review_id: str | None = None
+    # Hosted product-findings review (review_mode: human). Stamped by
+    # `python -m scripts.ddd.findings_review post <run_id>` after it posts the
+    # clustered PRODUCT findings to the canopy-web review surface. The id is
+    # the raw ReviewRequest UUID (what the orchestrator polls for resolution);
+    # the url is the token-bearing share link. Overwritten on each judged
+    # iteration that posts a findings review — the run tracks the LATEST one.
+    findings_review_id: str | None = None
+    findings_review_url: str | None = None
 
 
 __all__ = [

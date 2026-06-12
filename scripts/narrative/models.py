@@ -435,6 +435,23 @@ class UnifiedSpec(BaseModel):
     why_brief: str | None = None
     personas: dict[str, Persona]
     scenes: list[Scene]
+    review_mode: Literal["autonomous", "human"] = "autonomous"
+    """How judge findings are handled after each render+judge iteration.
+
+    - ``autonomous`` (default): the orchestrator auto-applies PRODUCT findings
+      with ``fix_kind: mechanical`` and only pauses on the standing gates
+      (``concept_change``, ``external_release``) or a ``stop_unclear``
+      options/redesign finding.
+    - ``human``: after every judged iteration, ALL PRODUCT findings are posted
+      to the canopy-web review surface as ONE ``product_findings`` review
+      (``scripts.ddd.findings_review``) — clustered, each cluster carrying
+      deck ``#scene-<N>`` and video ``#t=<seconds>`` evidence deep-links —
+      and the user picks implement / skip / defer per cluster before the loop
+      continues. Nothing is auto-applied.
+
+    Lives on the spec (not the run) so the preference travels with the
+    narrative artifact; ``narrative pull`` preserves it like the rest of the
+    disk-only recipe."""
     narrative_locked: bool = False
     """When True, this narrative has been approved at the narrative-agreement gate
     and is durable INPUT — ddd-spec must NOT regenerate it, and a new run reuses
@@ -569,6 +586,17 @@ class ReviewRequest(BaseModel):
     from ``UnifiedSpec.why_brief`` (a path relative to the spec file)."""
     autonomous_audit: list[str] = []
     actionability: dict | None = None
+    findings: list[dict] = []
+    """Machine-readable finding clusters for the ``product_findings`` gate.
+
+    Populated by ``scripts.ddd.findings_review.build_findings_review_request``:
+    one entry per clustered PRODUCT finding, carrying ``cluster_id``, ``title``,
+    ``detail``, ``scenes`` (1-based spec indices), ``dimension``, ``severity``,
+    ``fix_kind``, ``suggested_fix``, and ``evidence`` (``[{label, url}]`` —
+    the deck ``#scene-<N>`` anchor and the video ``#t=<seconds>`` deep-link).
+    Empty for every other gate. The review surface can render these richly;
+    the same data also rides in ``narration`` as plain text so the review is
+    readable on surfaces that don't know the field."""
     build_order: list[str] = []
     """Ordered list of scene-title slugs representing the user's chosen tackle sequence.
 

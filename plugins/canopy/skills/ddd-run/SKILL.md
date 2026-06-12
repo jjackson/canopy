@@ -515,6 +515,38 @@ can see at a glance which findings the orchestrator will auto-apply
 - `stop_max_iter` — "Max iterations reached. Stop and surface remaining findings."
 - `continue` — "Orchestrator can apply mechanical fixes per finding and re-fire `/canopy:ddd-run` on the same scope."
 
+### Step 5b — review_mode gate (human mode posts a findings review instead of auto-applying)
+
+The spec's optional **`review_mode`** key (`UnifiedSpec.review_mode`,
+default `autonomous`) decides what happens to PRODUCT findings after the
+report. Check it before acting on `auto_iterate_next_action`:
+
+```bash
+(cd "$DDD_REPO" && uv run python -m scripts.ddd.findings_review mode "$UNIFIED_SPEC_ABS")
+# prints: autonomous | human
+```
+
+- **`autonomous`** (default): proceed exactly as the tail messages above say —
+  `continue` auto-applies mechanical PRODUCT findings and re-fires.
+- **`human`**: do NOT auto-apply ANY PRODUCT finding (mechanical included).
+  When the run did not converge and PRODUCT findings exist, post the
+  **product-findings review** instead and stop the loop until it resolves:
+
+  ```bash
+  (cd "$DDD_REPO" && uv run python -m scripts.ddd.findings_review post "<run_id>")
+  ```
+
+  It clusters PRODUCT findings (concept `design_findings.json` + user-artifact
+  dimension findings), attaches per-cluster evidence deep-links — the Step 2b
+  deck URL with `#scene-<N>` and the clip URL with `#t=<seconds>` (the scene's
+  start offset from `run-report.json`'s per-scene timings) — posts ONE
+  `gate: product_findings` review, and stamps `findings_review_id` /
+  `findings_review_url` onto run_state. Then present the single review URL +
+  a compact summary table in chat and follow
+  `skills/ddd-findings-review/SKILL.md` (await → `apply` → route the
+  implement/skip/defer selection). CONCEPT / RESEARCH / DEFER findings keep
+  their standard routing in either mode.
+
 ## Output files
 
 | File | Producer | Notes |

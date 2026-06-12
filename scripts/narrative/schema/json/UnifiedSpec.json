@@ -894,6 +894,15 @@
       "title": "Scenes",
       "type": "array"
     },
+    "review_mode": {
+      "default": "autonomous",
+      "enum": [
+        "autonomous",
+        "human"
+      ],
+      "title": "Review Mode",
+      "type": "string"
+    },
     "narrative_locked": {
       "default": false,
       "title": "Narrative Locked",

@@ -125,6 +125,13 @@ class Recorder:
         self._current_viewport: dict[str, int] | None = (
             dict(default_viewport) if default_viewport else None
         )
+        # The recording timeline's zero point (time.monotonic()). The CLI sets
+        # this right after ``context.new_page()`` — the moment Playwright's
+        # video capture starts — so per-scene ``start_seconds`` offsets line up
+        # with the produced mp4 (the webm is re-encoded 1:1). When unset (ad-hoc
+        # callers / tests), it defaults lazily to the first scene's start, so
+        # offsets are still internally consistent.
+        self.recording_epoch: float | None = None
 
     # ---- hooks (override these) -----------------------------------------
 
@@ -377,6 +384,14 @@ class Recorder:
         ``scene["scene_index"]`` (set by ``build_scenes_from_spec``).
         """
         idx = scene_index if scene_index is not None else scene.get("scene_index")
+        # Per-scene wall-clock timing for the run report. Captured BEFORE the
+        # nav so ``start_seconds`` marks the moment this scene begins on the
+        # recording timeline (nav + settle + actions + final hold all count
+        # toward its duration). The epoch defaults to this scene's start when
+        # the CLI didn't stamp one (ad-hoc callers).
+        scene_start = time.monotonic()
+        if self.recording_epoch is None:
+            self.recording_epoch = scene_start
         # Per-scene viewport override: apply BEFORE the goto so the freshly-
         # loaded page lays out at the requested size from the first paint.
         # Restored AFTER final_hold_ms below (so the next scene starts at the
@@ -452,6 +467,17 @@ class Recorder:
         # default_viewport is None (tests/callers that don't care).
         if scene_viewport is not None:
             self._apply_viewport(page, None)
+
+        # Record this scene's slot on the recording timeline. Raw wall-clock
+        # (nav included), unlike the floored return value below — the report
+        # entry must match where the scene actually sits in the mp4.
+        if idx is not None:
+            self.report.record_scene_timing(
+                scene_index=int(idx),
+                title=scene.get("title", f"Scene {idx}"),
+                start_seconds=scene_start - self.recording_epoch,
+                duration_seconds=time.monotonic() - scene_start,
+            )
 
         elapsed_s = time.monotonic() - start + (self.config.initial_hold_ms + self.config.final_hold_ms) / 1000
         return max(elapsed_s, self.config.min_hold_ms / 1000)

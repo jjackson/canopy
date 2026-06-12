@@ -195,6 +195,30 @@
       ],
       "default": null,
       "title": "Narrative Review Id"
+    },
+    "findings_review_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Findings Review Id"
+    },
+    "findings_review_url": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Findings Review Url"
     }
   },
   "required": [
