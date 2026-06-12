@@ -17,6 +17,9 @@ Rules checked:
     (g) every Scene.concept_claim must be non-empty / non-whitespace
     (h) every Scene.concept_claim must be falsifiable — fails if it matches
         a banned list of pure-marketing phrases, OR is too short to be specific.
+    (i) ${...} placeholders in scene URLs / action targets ⇒ the spec must
+        declare a `setup:` block with `outputs:` (the synthetic generator that
+        mints those variables). Declared-but-unused outputs are fine.
 
 Returns the ``Verdict`` model from scripts/ddd/schemas/models.py.
 ``verdict="pass"`` when all rules pass; ``verdict="fail"`` with a
@@ -40,6 +43,7 @@ import yaml
 
 from scripts.ddd.schemas.models import UnifiedSpec, Verdict
 from scripts.ddd.validate import validate
+from scripts.narrative.substitution import scenes_placeholders
 
 # ---------------------------------------------------------------------------
 # Banned marketing phrases (case-insensitive substring match).
@@ -205,6 +209,26 @@ def spec_qa(
 
     # --------------------------------------------------- QA-specific checks
     if spec is not None:
+        # (i) data-setup contract: ${...} placeholders in scene URLs / action
+        # targets are resolved at render time from setup.outputs — a spec that
+        # uses them without declaring where they come from records a literal
+        # "/runs/${run_id}/" URL. (The converse is fine: a setup block whose
+        # outputs declare variables the scenes never use is not an error.)
+        placeholders = scenes_placeholders([s.model_dump() for s in spec.scenes])
+        if placeholders:
+            if spec.setup is None:
+                violations.append(
+                    f"spec uses ${{...}} placeholder(s) ({', '.join(sorted(placeholders))}) "
+                    "but declares no `setup:` block — declare setup.command + setup.outputs "
+                    "(the synthetic generator that mints these variables) or remove the placeholders"
+                )
+            elif not spec.setup.outputs:
+                violations.append(
+                    f"spec uses ${{...}} placeholder(s) ({', '.join(sorted(placeholders))}) "
+                    "but setup.outputs is not declared — the recorder has no variables file "
+                    "to resolve them from; point setup.outputs at the JSON the command emits"
+                )
+
         for scene in spec.scenes:
             title_lower = scene.title.lower()
             for tag in _BANNED_TITLE_TAGS:

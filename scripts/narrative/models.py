@@ -383,11 +383,55 @@ class Scene(BaseModel):
     by sentence and taking the i-th sentence."""
 
 
+class SetupBlock(BaseModel):
+    """Data-setup contract: the command that puts the world in a recordable state.
+
+    Demos backed by synthetic data need (a) a synthetic-data generation step to
+    run BEFORE rendering, and (b) the dynamic IDs that step mints substituted
+    into scene URLs / action targets (``${var}`` — see
+    ``scripts.narrative.substitution``). Without this contract, specs hardcode
+    IDs that silently go stale on every reseed — and demos that MUTATE state
+    during recording (a manager flow that creates a real audit + task) film the
+    wrong UI on every re-render unless the generator runs again first.
+    """
+
+    command: str
+    """Shell command that generates/reseeds the demo data (the synthetic
+    generator). Run with cwd = the git toplevel containing the spec file
+    (``git rev-parse --show-toplevel`` from the spec's directory; falls back to
+    the spec's directory outside a git repo) — so commands are written
+    repo-root-relative, matching how humans run them."""
+
+    outputs: str | None = None
+    """Repo-root-relative path to a flat JSON object (string/number values) of
+    variables the command emits. Parsed after the command runs; its keys
+    resolve the spec's ``${var}`` placeholders. ``None`` for setup commands
+    that mint nothing dynamic (pure reseed, stable URLs)."""
+
+    rerun: Literal["per_render", "once"] = "per_render"
+    """``per_render`` (default) runs the command before EVERY render
+    invocation — required for state-mutating demos, where recording itself
+    changes the world (the scene that creates an audit must find no audit on
+    the next take). ``once`` skips the command when the outputs file already
+    exists — for expensive, idempotent generators whose data survives
+    re-renders."""
+
+    timeout_seconds: int = 1200
+    """Abort the render (loudly) if the setup command runs longer than this."""
+
+
 class UnifiedSpec(BaseModel):
     name: str
     narrative: str
     base_url: str
     auth: dict | None = None
+    setup: SetupBlock | None = None
+    """Optional data-setup contract — see :class:`SetupBlock`. When present,
+    the recorder runs ``setup.command`` before recording (honoring ``rerun``)
+    and resolves ``${var}`` placeholders in scene URLs / action targets from
+    ``setup.outputs``. When absent, any ``${...}`` placeholder in the spec is
+    a hard error (catches misconfiguration before filming a literal
+    ``${run_id}`` URL)."""
     why_brief: str | None = None
     personas: dict[str, Persona]
     scenes: list[Scene]

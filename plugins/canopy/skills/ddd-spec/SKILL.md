@@ -76,6 +76,7 @@ the patterns scan the checklist; authors who don't read the deeper sections.
 - **Map / WebGL scenes capture fine — give the map a `hold` to paint, and set `full_page: false` on map+table pages.** Headless WebGL (Mapbox/deck.gl/three.js) renders via SwiftShader out of the box; a "blank map" is almost always too short a settle (tiles still loading) or a full-page capture of a tall table+map page, not a WebGL failure. (See "Map / WebGL scenes".)
 - **Narrative-only back-half scenes are fine** — the recorder skips them with `--skip-empty-scenes`. Deck slides still cover them; the mp4 doesn't waste `min_hold_ms` on identical static pages.
 - **A scene that omits `url:` continues on whatever page the previous scene's actions navigated to** (continue-scene pattern). This is how a narrative can CREATE an entity in one scene and operate on it in later scenes whose URL can't be known ahead of time.
+- **Synthetic-data demos declare a `setup:` block and reference minted IDs as `${var}` — never hardcode them.** The synthetic generator runs before every render (`rerun: per_render`, the default — required when the demo itself mutates state) and the recorder substitutes `${run_id}` etc. from its outputs JSON into scene `url`s and action `target`/`value` fields. A hardcoded ID silently goes stale on every reseed; a `${...}` placeholder without `setup.outputs` is rejected by spec-qa. (See "Data setup contract" in Step 5.)
 
 ## Procedure
 
@@ -681,6 +682,11 @@ base_url: <live environment URL, e.g. https://labs.connect.dimagi.com>
 auth:
   type: session   # or omit if the walkthrough handles auth via browser cookies
 why_brief: why_brief.yaml   # relative path from the spec file to the why_brief
+setup:                        # optional — only for demos backed by synthetic data
+  command: "python scripts/walkthroughs/<demo>/regenerate.py"   # the synthetic generator
+  outputs: "scripts/walkthroughs/<demo>/outputs.json"           # flat JSON {var: string|number}
+  rerun: per_render           # per_render (default) | once
+  timeout_seconds: 1200
 personas:
   <persona_key>:
     name: ...
@@ -704,6 +710,42 @@ scenes:                       # ordered story beats, numbered from 1 by position
 
 Write the draft to `docs/walkthroughs/<narrative-slug>.yaml` (create the directory if it
 doesn't exist).  The output file path is `<run_dir>/<narrative-slug>.yaml`.
+
+**Data setup contract (`setup:` + `${var}`) — for demos backed by synthetic data:**
+
+A spec must never assume the world is already in a recordable state. If the demo
+runs on generated data, declare the **synthetic generator** in the `setup:` block
+and reference every ID it mints as a `${var}` placeholder — in scene `url`s and in
+action `target`/`value` fields:
+
+```yaml
+setup:
+  command: "python scripts/walkthroughs/par/regenerate.py"
+  outputs: "scripts/walkthroughs/par/outputs.json"   # e.g. {"run_id": 3721}
+scenes:
+  - title: "Dana opens this week's performance run"
+    url: "/workflow/runs/${run_id}/"
+```
+
+- The command runs from the **git toplevel containing the spec file** (write it
+  repo-root-relative, exactly as a human would run it); `outputs` resolves against
+  the same root and must be a flat JSON object of string/number variables.
+- **`rerun: per_render` (the default) is load-bearing for state-mutating demos.**
+  If any scene creates real entities (an audit, a task), the recording itself
+  changes the world — a re-render without a reseed films "View Audit" where the
+  narrative says "Create Audit". Use `rerun: once` only for expensive, idempotent
+  generators whose data survives re-renders.
+- Substitution happens at render time and never mutates the spec file. An
+  unresolved `${...}` is a hard error before recording starts, and **spec-qa
+  rejects** a spec that uses `${...}` without declaring `setup.outputs`
+  (declared-but-unused outputs are fine).
+- Provenance: the recorder copies the resolved variables + command + exit code +
+  duration into the RunReport, and writes `setup-vars.json` into the snapshots
+  dir — the data a film was made on is part of the run's evidence chain.
+
+Recorder mechanics (including the `--skip-setup` escape hatch and why mutating
+demos must not use it) live in the walkthrough skill's "Data setup + `${var}`
+substitution" section.
 
 ### Step 6 — Validate and loop
 

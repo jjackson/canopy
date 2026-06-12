@@ -21,13 +21,21 @@ Usage:
         [--skip-same-url] \\
         [--report run-report.json] \\
         [--snapshots screenshots/walkthroughs/<name>/] \\
-        [--snapshot-empty-scenes]
+        [--snapshot-empty-scenes] \\
+        [--skip-setup]
 
 ``--spec`` is the source of truth for scenes. ``--input`` is accepted for
 backward compatibility: a walkthrough-run-data.json from canopy:walkthrough
 narrows the spec's scenes to the ones that were actually captured (so a
 ``--scene 3`` partial run records exactly that scene). When ``--input`` is
 absent the full spec is recorded.
+
+Specs with a ``setup:`` block (the data-setup contract) get their synthetic
+generator command run BEFORE recording — honoring ``rerun: per_render | once``
+— and the ``${var}`` placeholders in scene URLs / action targets resolved from
+the command's outputs JSON. ``--skip-setup`` skips the command (but still
+loads the outputs) for fast re-renders when the data is known-fresh; demos
+that mutate state during recording must not use it.
 """
 
 from __future__ import annotations
@@ -38,6 +46,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 try:
@@ -60,6 +69,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _lib.config import RecorderConfig  # noqa: E402
 from _lib.orchestrator import Recorder, SkipSameUrlRecorder  # noqa: E402
 from _lib.recorder import CURSOR_OVERLAY_JS  # noqa: E402
+
+# Placeholder substitution is shared with scripts/ddd/spec_qa.py (single source
+# of truth for what `${var}` means) — it lives at the repo root, so put that on
+# the path too for by-path invocations (`python3 record_video.py`).
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from scripts.narrative.substitution import (  # noqa: E402
+    UnresolvedPlaceholderError,
+    scenes_placeholders,
+    substitute_scenes,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -111,6 +132,159 @@ def filter_empty_scenes(scenes: list[dict]) -> list[dict]:
     browser. ``record_video.main`` calls this when ``--skip-empty-scenes``
     is set."""
     return [s for s in scenes if not _is_empty_scene(s)]
+
+
+# --------------------------------------------------------------------------- #
+# data setup (spec.setup — the synthetic generator contract)
+
+
+class SetupError(RuntimeError):
+    """The spec's setup command failed (nonzero exit, timeout, bad outputs).
+
+    Raised by :func:`run_setup` so unit tests can assert on it; ``main``
+    converts it to a loud ``sys.exit``. A failed setup means the world is NOT
+    in a recordable state — rendering anyway films the wrong UI.
+    """
+
+
+def resolve_setup_cwd(spec_path: Path) -> Path:
+    """The directory ``setup.command`` runs in.
+
+    The git toplevel containing the spec file (``git rev-parse
+    --show-toplevel`` from the spec's directory), falling back to the spec's
+    own directory when it isn't in a git repo. Setup commands are written
+    repo-root-relative — matching how humans run them — regardless of where
+    the recorder itself is invoked from.
+    """
+    spec_dir = spec_path.resolve().parent
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(spec_dir), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return Path(result.stdout.strip())
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return spec_dir
+
+
+def load_setup_outputs(outputs_path: Path) -> dict:
+    """Parse the setup command's outputs JSON into a substitution map.
+
+    The contract is a flat JSON object with string/number values — the
+    variables the synthetic generator minted (run IDs, entity IDs, dates).
+    Anything else (a list, nested objects, a non-object top level) is a
+    :class:`SetupError`: the generator and the spec have drifted, and a vague
+    KeyError twelve scenes later would hide that.
+    """
+    if not outputs_path.exists():
+        raise SetupError(
+            f"setup outputs file not found: {outputs_path} — the setup command "
+            "declared `outputs:` but did not write it (or wrote it elsewhere)."
+        )
+    try:
+        data = json.loads(outputs_path.read_text())
+    except json.JSONDecodeError as e:
+        raise SetupError(f"setup outputs file is not valid JSON: {outputs_path} ({e})")
+    if not isinstance(data, dict):
+        raise SetupError(
+            f"setup outputs must be a flat JSON object, got {type(data).__name__}: {outputs_path}"
+        )
+    for key, value in data.items():
+        if not isinstance(value, (str, int, float)) or isinstance(value, bool):
+            raise SetupError(
+                f"setup outputs values must be strings or numbers — "
+                f"key '{key}' is {type(value).__name__}: {outputs_path}"
+            )
+    return data
+
+
+def run_setup(setup: dict, spec_path: Path, *, skip_setup: bool = False) -> dict:
+    """Execute the spec's ``setup`` block and return its provenance record.
+
+    Honors the ``rerun`` semantics: ``per_render`` (default) runs the command
+    on every invocation; ``once`` skips it when the outputs file already
+    exists. ``skip_setup`` (the ``--skip-setup`` escape hatch) skips the
+    command unconditionally but still loads the outputs file — for fast
+    re-renders when the operator KNOWS the data is fresh. State-mutating demos
+    must not use it: their recording changes the world, so every render needs
+    a reseed.
+
+    Output streams to the recorder's log (inherited stdout/stderr — the
+    generator's own progress lines show up live). Nonzero exit or timeout
+    raises :class:`SetupError`; ``main`` aborts loudly before any browser
+    opens.
+
+    Returns the provenance dict that rides on the RunReport and (with
+    ``--snapshots``) lands in ``setup-vars.json``: the command, cwd, rerun
+    mode, whether/why it was skipped, exit code, duration, and the resolved
+    variables. The data a film was made on is part of the run's evidence
+    chain.
+    """
+    command = setup.get("command") or ""
+    if not command.strip():
+        raise SetupError("spec.setup.command is empty — declare the synthetic generator command")
+    rerun = setup.get("rerun", "per_render")
+    if rerun not in ("per_render", "once"):
+        raise SetupError(f"spec.setup.rerun must be per_render | once (got: {rerun!r})")
+    timeout_seconds = int(setup.get("timeout_seconds", 1200))
+
+    cwd = resolve_setup_cwd(spec_path)
+    outputs_rel = setup.get("outputs")
+    outputs_path = (cwd / outputs_rel) if outputs_rel else None
+
+    provenance: dict = {
+        "command": command,
+        "cwd": str(cwd),
+        "rerun": rerun,
+        "outputs": outputs_rel,
+        "skipped": False,
+        "skip_reason": None,
+        "exit_code": None,
+        "duration_seconds": None,
+        "variables": {},
+    }
+
+    skip_reason: str | None = None
+    if skip_setup:
+        skip_reason = "--skip-setup"
+    elif rerun == "once" and outputs_path is not None and outputs_path.exists():
+        skip_reason = f"rerun=once and outputs file exists ({outputs_path})"
+
+    if skip_reason:
+        provenance["skipped"] = True
+        provenance["skip_reason"] = skip_reason
+        print(f"Setup: skipped ({skip_reason})")
+    else:
+        print(f"Setup: running synthetic generator (cwd={cwd}, timeout={timeout_seconds}s)")
+        print(f"  $ {command}")
+        started = time.monotonic()
+        try:
+            # No capture: the generator's output streams straight into the
+            # recorder's log so a hung seed is visible, not silent.
+            result = subprocess.run(
+                command, shell=True, cwd=str(cwd), timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            duration = time.monotonic() - started
+            raise SetupError(
+                f"setup command timed out after {timeout_seconds}s "
+                f"({duration:.0f}s elapsed): {command}"
+            )
+        duration = time.monotonic() - started
+        provenance["exit_code"] = result.returncode
+        provenance["duration_seconds"] = round(duration, 2)
+        if result.returncode != 0:
+            raise SetupError(
+                f"setup command failed (exit {result.returncode} after {duration:.0f}s): {command}\n"
+                "The world is not in a recordable state — refusing to render."
+            )
+        print(f"Setup: done in {duration:.1f}s (exit 0)")
+
+    if outputs_path is not None:
+        provenance["variables"] = load_setup_outputs(outputs_path)
+    return provenance
 
 
 def build_scenes_from_spec(spec: dict, base_url: str, *, run_data: dict | None) -> list[dict]:
@@ -280,6 +454,17 @@ def main() -> None:
         ),
     )
     ap.add_argument(
+        "--skip-setup",
+        action="store_true",
+        help=(
+            "skip running spec.setup.command (the synthetic generator) and "
+            "just load its outputs file for ${var} substitution. Escape hatch "
+            "for fast re-renders when the operator KNOWS the data is fresh. "
+            "Demos that MUTATE state during recording must NOT use this — "
+            "their scenes change the world, so every render needs a reseed."
+        ),
+    )
+    ap.add_argument(
         "--ddd-orchestrated",
         action="store_true",
         help=(
@@ -339,6 +524,36 @@ def main() -> None:
     run_data: dict | None = None
     if args.input:
         run_data = json.loads(Path(args.input).read_text())
+
+    # ---- Data setup (spec.setup — the synthetic generator contract) -----------
+    # Runs BEFORE any browser/context/page exists: a failed seed must abort the
+    # render, and the minted IDs must be substituted into scenes before the
+    # first navigation. Never mutates the spec file on disk.
+    setup = spec.get("setup") or None
+    placeholders = scenes_placeholders(spec.get("scenes") or [])
+    setup_provenance: dict | None = None
+    if setup:
+        try:
+            setup_provenance = run_setup(setup, Path(args.spec), skip_setup=args.skip_setup)
+        except SetupError as e:
+            sys.exit(f"ERROR: {e}")
+    elif placeholders:
+        # ${...} with no setup block is misconfiguration — there is nothing
+        # that could ever resolve these, so filming would navigate to a
+        # literal "/runs/${run_id}/" URL.
+        sys.exit(
+            "ERROR: spec uses ${...} placeholders but declares no `setup:` block: "
+            f"{', '.join(sorted(placeholders))}. Declare setup.command + setup.outputs "
+            "(the synthetic generator that mints these variables), or remove the placeholders."
+        )
+    if placeholders or setup_provenance:
+        variables = (setup_provenance or {}).get("variables", {})
+        try:
+            spec["scenes"] = substitute_scenes(spec.get("scenes") or [], variables)
+        except UnresolvedPlaceholderError as e:
+            sys.exit(f"ERROR: {e}")
+        if placeholders:
+            print(f"Setup: resolved ${{...}} variables: {', '.join(sorted(placeholders))}")
 
     # Build the RecorderConfig: pace preset, optional spec override.
     pace = spec.get("video_pace", "fast")
@@ -432,6 +647,16 @@ def main() -> None:
                 # back to this size after each overridden scene's final hold.
                 default_viewport={"width": viewport_w, "height": viewport_h},
             )
+            # Provenance: the data this film is made on is part of the run's
+            # evidence chain — the resolved vars + setup command + exit code +
+            # duration ride on the RunReport, and land in the snapshots dir.
+            recorder.report.setup = setup_provenance
+            if args.snapshots and setup_provenance is not None:
+                snap_dir = Path(args.snapshots)
+                snap_dir.mkdir(parents=True, exist_ok=True)
+                (snap_dir / "setup-vars.json").write_text(
+                    json.dumps(setup_provenance, indent=2)
+                )
             total_seconds = recorder.run(page, scenes)
 
             context.close()  # flush video
