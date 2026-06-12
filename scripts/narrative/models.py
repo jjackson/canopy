@@ -597,17 +597,38 @@ class ReviewRequest(BaseModel):
     from ``UnifiedSpec.why_brief`` (a path relative to the spec file)."""
     autonomous_audit: list[str] = []
     actionability: dict | None = None
-    findings: list[dict] = []
+    # ---- product_findings (run-child) gate fields ----------------------------
+    # These four ride only on the ``product_findings`` gate's request_json (the
+    # canopy ↔ canopy-web contract). They are absent/empty on every other gate.
+    # The findings review is a RUN-CHILD, not a narrative version — it carries
+    # NO ``narrative_slug`` (left ""), and canopy-web pins ``version=0`` for it.
+    feature: str = ""
+    """The feature/narrative slug this run belongs to (e.g. ``program-admin-report``).
+    The findings review files under the RUN, keyed by ``run_id`` + ``feature`` —
+    not under a narrative version. Empty on non-findings gates."""
+    iteration: int = 0
+    """1-based judged-iteration number this findings review is for. Lets the
+    surface label "iteration N" and lets evidence resolve the right
+    ``snapshots_iter<N>/`` capture set. Empty (0) on non-findings gates."""
+    deck_url: str = ""
+    """Hosted deck URL (``/w/<deck-id>``) supporting ``#scene-N`` anchors, used
+    by ``clusters[].evidence[].deck_anchor`` deep-links. Empty on non-findings gates."""
+    summary: dict = {}
+    """``{concept_score, user_score, verdict}`` headline for the findings gate —
+    the two judge overall_scores and the gating verdict. Empty on other gates."""
+    findings: list[dict] = Field(default_factory=list, serialization_alias="clusters")
     """Machine-readable finding clusters for the ``product_findings`` gate.
 
+    Serialized as ``clusters`` in request_json (the canopy ↔ canopy-web contract key);
+    the Python attribute stays ``findings``. Construction by ``findings=`` is unaffected.
+
     Populated by ``scripts.ddd.findings_review.build_findings_review_request``:
-    one entry per clustered PRODUCT finding, carrying ``cluster_id``, ``title``,
-    ``detail``, ``scenes`` (1-based spec indices), ``dimension``, ``severity``,
-    ``fix_kind``, ``suggested_fix``, and ``evidence`` (``[{label, url}]`` —
-    the deck ``#scene-<N>`` anchor and the video ``#t=<seconds>`` deep-link).
-    Empty for every other gate. The review surface can render these richly;
-    the same data also rides in ``narration`` as plain text so the review is
-    readable on surfaces that don't know the field."""
+    one entry per clustered PRODUCT finding in the contract shape — ``id``,
+    ``title``, ``severity``, ``fix_kind``, ``route``, ``scenes`` (1-based spec
+    indices), ``suggested_fix``, ``count``, and ``evidence`` (a list of
+    ``{scene, thumb, deck_anchor, video_t}`` — an inline downscaled JPEG
+    data-URI of that scene's screenshot, the deck ``#scene-<N>`` anchor, and the
+    integer video offset in seconds). Empty for every other gate."""
     build_order: list[str] = []
     """Ordered list of scene-title slugs representing the user's chosen tackle sequence.
 
