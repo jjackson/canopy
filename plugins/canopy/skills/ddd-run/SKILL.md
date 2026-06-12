@@ -112,6 +112,7 @@ flags below.
 | `--skip-empty-scenes` | When the spec has narrative-only back-half scenes (no `actions`) | The mp4 doesn't waste `min_hold_ms` on identical static pages. Deck slides still cover them. |
 | `--skip-same-url` | When the spec uses continue-scene patterns (scenes that operate on the previous scene's URL) | Avoids re-navs that wipe JS state between scenes. |
 | `--input <run.json>` | Only for `--scene` partial runs (when reusing a previous walkthrough's capture set) | Without this, the spec is the only source of truth. |
+| `--skip-setup` | **Never in the iterate loop** | Specs with a `setup:` block run their synthetic generator before every render (`rerun: per_render`) — that reseed is load-bearing for state-mutating demos (a scene that creates an audit must find no audit on the next take). `--skip-setup` is a human escape hatch for one-off re-renders on known-fresh, non-mutating data; the orchestrator must not pass it. |
 
 **DDD orchestrator default flag set** — what `/canopy:ddd-run` should pass to
 `record_video.py`:
@@ -136,6 +137,17 @@ dispatching judge sub-agents directly instead of going through THIS skill —
 leaves `run_state.yaml` with no assembled verdict, so the run looks stale/done,
 can't be resumed cleanly, and `ddd-upload` has nothing converged to publish.
 `/canopy:ddd-run` is the only path that should pass this flag.
+
+**Data setup runs inside the recorder — don't pre-run it here.** When the spec
+declares a `setup:` block (the data-setup contract — see ddd-spec Step 5), the
+recorder itself runs the synthetic generator before opening any browser,
+resolves `${var}` placeholders in scene URLs / action targets from its outputs
+JSON, and aborts loudly on failure. The orchestrator's job is only to NOT
+defeat it: never pass `--skip-setup` in the iterate loop (re-renders of
+state-mutating demos need the reseed), and treat a setup failure as a blocked
+render, not a graded run. Provenance lands in `run-report.json` (`setup` key:
+command, exit code, duration, resolved variables) and in
+`<run_dir>/snapshots/setup-vars.json` — part of the run's evidence chain.
 
 After the recorder exits, scan `<run_dir>/run-report.json` for non-zero
 `failed` counts before letting the judges run. A scene whose

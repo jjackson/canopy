@@ -71,6 +71,15 @@ class RunReport:
 
     results: list[ActionResult] = field(default_factory=list)
 
+    setup: dict | None = None
+    """Data-setup provenance (the spec's ``setup:`` block execution record):
+    command, cwd, rerun mode, skipped/skip_reason, exit code, duration, and
+    the resolved ``${var}`` substitution variables. Stamped by
+    ``record_video.main`` when the spec declares a setup block — the data a
+    film was made on is part of the run's evidence chain. ``None`` for specs
+    with no setup block (the key is then omitted from :meth:`as_dict`, so
+    existing report consumers are unchanged)."""
+
     def record(self, r: ActionResult) -> None:
         """Append one result. Called by ``execute_action`` after each action."""
         self.results.append(r)
@@ -96,12 +105,15 @@ class RunReport:
         return f"{n} actions: {ok} ok, {bad} failed"
 
     def as_dict(self) -> dict:
-        return {
+        d = {
             "total": len(self.results),
             "ok": self.ok_count(),
             "failed": self.fail_count(),
             "actions": [asdict(r) for r in self.results],
         }
+        if self.setup is not None:
+            d["setup"] = self.setup
+        return d
 
     def to_json(self, *, indent: int | None = 2) -> str:
         return json.dumps(self.as_dict(), indent=indent)

@@ -189,6 +189,15 @@ auth:
 #   login: "python manage.py get_token"      # interactive command (user runs with !)
 #   inject_url: "/auth/set-token?token={token}"  # URL to inject the token
 
+# Data setup (optional — the synthetic generator that puts the world in a
+# recordable state; see "Data setup + ${var} substitution" under Record Video)
+setup:
+  command: "python scripts/walkthroughs/par/regenerate.py"  # runs from the SPEC's git repo root
+  outputs: "scripts/walkthroughs/par/outputs.json"          # flat JSON {var: string|number}
+  rerun: per_render             # per_render (default — required for state-mutating
+                                # demos) | once (skip when outputs file already exists)
+  timeout_seconds: 1200         # abort the render if setup runs longer
+
 personas:
   alice:
     name: "Alice Smith"
@@ -854,6 +863,43 @@ pace rather than a freeze-frame jump-cut.
 Per-scene override: set `video_hold_seconds: N` on a scene to skip the
 scroll for that scene and dwell a fixed N seconds instead. Use for key
 moments where the viewer should sit with one screen.
+
+### Data setup + `${var}` substitution (specs with a `setup:` block)
+
+A spec backed by synthetic data declares its **synthetic generator** in the
+`setup:` block (see YAML Spec Format). The recorder then runs
+`setup.command` **before** opening any browser, parses the flat JSON at
+`setup.outputs` (string/number values), and resolves `${var}` placeholders in
+each scene's `url` and every action's `target` / `value` — at render time,
+never mutating the spec file on disk. So a spec writes
+`url: "/workflow/runs/${run_id}/"` instead of hardcoding an ID that goes
+stale on every reseed.
+
+- **`rerun: per_render` (the default) reruns the generator before EVERY
+  render.** This is required for demos that MUTATE state during recording —
+  e.g. a manager-flow scene that creates a real audit + task. Re-rendering
+  without a reseed films the wrong UI ("View Audit" instead of "Create
+  Audit"). `rerun: once` skips the command when the outputs file already
+  exists — only for expensive, idempotent generators whose data survives
+  re-renders.
+- **cwd contract:** the command runs from the git toplevel containing the
+  *spec file* (`git rev-parse --show-toplevel` from the spec's directory;
+  the spec's own directory outside a git repo) — write it repo-root-relative,
+  exactly as a human would run it. `outputs` is resolved against the same
+  root.
+- **Failures abort the render loudly** — nonzero exit, timeout
+  (`timeout_seconds`, default 1200), a missing/malformed outputs file, or an
+  unresolved `${...}` placeholder (the error lists the missing variable and
+  the available keys). A `${...}` placeholder in a spec with **no** `setup:`
+  block is also a hard error: nothing could ever resolve it.
+- **`--skip-setup` escape hatch:** skips the command but still loads the
+  outputs file — for fast re-renders when you KNOW the data is fresh.
+  **State-mutating demos must not use it** (their recording changes the
+  world; every render needs a reseed).
+- **Provenance:** the resolved variables + command + exit code + duration are
+  copied into the RunReport (`--report`), and with `--snapshots` a
+  `setup-vars.json` is written into the snapshots dir — the data a film was
+  made on is part of the run's evidence chain.
 
 ### Run
 

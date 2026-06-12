@@ -702,6 +702,46 @@
       "title": "SelectAction",
       "type": "object"
     },
+    "SetupBlock": {
+      "description": "Data-setup contract: the command that puts the world in a recordable state.\n\nDemos backed by synthetic data need (a) a synthetic-data generation step to\nrun BEFORE rendering, and (b) the dynamic IDs that step mints substituted\ninto scene URLs / action targets (``${var}`` \u2014 see\n``scripts.narrative.substitution``). Without this contract, specs hardcode\nIDs that silently go stale on every reseed \u2014 and demos that MUTATE state\nduring recording (a manager flow that creates a real audit + task) film the\nwrong UI on every re-render unless the generator runs again first.",
+      "properties": {
+        "command": {
+          "title": "Command",
+          "type": "string"
+        },
+        "outputs": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outputs"
+        },
+        "rerun": {
+          "default": "per_render",
+          "enum": [
+            "per_render",
+            "once"
+          ],
+          "title": "Rerun",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "default": 1200,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "title": "SetupBlock",
+      "type": "object"
+    },
     "TypeAction": {
       "additionalProperties": false,
       "description": "Type ``value`` into whatever element currently has focus.\n\nNo ``target`` \u2014 that's what :class:`FillAction` is for. Use ``type``\nonly after an explicit focus (or right after ``fill`` to extend the\ntext).",
@@ -816,6 +856,17 @@
       ],
       "default": null,
       "title": "Auth"
+    },
+    "setup": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SetupBlock"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "why_brief": {
       "anyOf": [
