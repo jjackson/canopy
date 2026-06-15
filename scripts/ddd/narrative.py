@@ -23,6 +23,7 @@ from pathlib import Path
 import yaml
 
 from scripts.ddd.schemas.models import Decision, NarrationItem, ReviewRequest, UnifiedSpec
+from scripts.ddd.review import _review_id_from_url
 
 
 # ---------------------------------------------------------------------------

@@ -55,6 +55,7 @@ from scripts.ddd.auth import (
     resolve_base_url as _resolve_base_url,
     resolve_token as _resolve_token,
 )
+from scripts.ddd.review import _review_id_from_url
 
 # Escape hatch (emergencies only): set DDD_ALLOW_NO_NARRATIVE=1 to publish a run
 # that has no narrative version on canopy-web. Mirrors the SKIP_TESTS pattern in
@@ -101,21 +102,6 @@ def run_package_url(narrative_slug: str, run_id: str, base_url: str | None = Non
     feat = urllib.parse.quote(narrative_slug or run_id, safe="")
     rid = urllib.parse.quote(run_id, safe="")
     return f"{api}/ddd/{feat}/{rid}"
-
-
-_REVIEW_ID_RE = re.compile(
-    r"/review/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
-    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
-)
-
-
-def _review_id_from_url(url: str | None) -> str | None:
-    """Extract the ReviewRequest UUID from a narrative-review URL
-    (``.../review/<uuid>/?t=...``), or None."""
-    if not url:
-        return None
-    m = _REVIEW_ID_RE.search(url)
-    return m.group(1) if m else None
 
 
 def _resolve_narrative_review_id(run_state: RunState) -> str | None:

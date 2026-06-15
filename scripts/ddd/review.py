@@ -10,6 +10,7 @@ HTTP transport: stdlib urllib (no requests dep — matches upload.py).
 from __future__ import annotations
 
 import json
+import re
 import time
 import urllib.error
 import urllib.request
@@ -21,6 +22,26 @@ from scripts.ddd.auth import (
     resolve_base_url as _resolve_base_url,
     resolve_token as _resolve_token,
 )
+
+
+# ---------------------------------------------------------------------------
+# Narrative-review URL helpers — shared by upload.py and narrative.py
+# ---------------------------------------------------------------------------
+
+
+_REVIEW_ID_RE = re.compile(
+    r"/review/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+)
+
+
+def _review_id_from_url(url: str | None) -> str | None:
+    """Extract the ReviewRequest UUID from a narrative-review URL
+    (``.../review/<uuid>/?t=...``), or None."""
+    if not url:
+        return None
+    m = _REVIEW_ID_RE.search(url)
+    return m.group(1) if m else None
 
 
 # ---------------------------------------------------------------------------
