@@ -22,7 +22,7 @@ from pathlib import Path
 
 import yaml
 
-from scripts.ddd.schemas.models import Decision, NarrationItem, ReviewRequest, UnifiedSpec
+from scripts.ddd.schemas.models import Decision, Gate, NarrationItem, ReviewRequest, UnifiedSpec
 from scripts.ddd.review import _review_id_from_url
 
 
@@ -300,13 +300,13 @@ def build_narrative_review_request(
         ),
         options=["approve", "redraft"],
         recommended="approve",
-        **{"class": "concept_change"},
+        **{"class": Gate.CONCEPT_CHANGE},
     )
 
     return ReviewRequest(
         run_id=run_id,
         narrative_slug=resolved_narrative_slug,
-        gate="concept_change",
+        gate=Gate.CONCEPT_CHANGE,
         video={},
         narration=narration,
         narrative=spec.narrative,

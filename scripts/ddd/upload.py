@@ -45,7 +45,7 @@ from typing import Callable
 
 import yaml
 
-from scripts.ddd.schemas.models import Decision, ReviewRequest, RunState, UnifiedSpec, WhyBrief
+from scripts.ddd.schemas.models import Decision, Gate, ReviewRequest, RunState, UnifiedSpec, WhyBrief
 from scripts.ddd.runstate import load as load_state
 from scripts.ddd.runstate import save as save_state
 from scripts.ddd.runstate import _resolve_ddd_dir
@@ -1001,7 +1001,7 @@ def upload_run(
     if release and not auto_approve_for_test:
         review_request = ReviewRequest(
             run_id=run_id,
-            gate="external_release",
+            gate=Gate.EXTERNAL_RELEASE,
             video={"url": video_url},
             decisions=[
                 Decision(
@@ -1009,7 +1009,7 @@ def upload_run(
                     prompt="Publish this docs page for users?",
                     options=["publish", "hold"],
                     recommended="publish",
-                    **{"class": "external_release"},
+                    **{"class": Gate.EXTERNAL_RELEASE},
                 )
             ],
             narration=[{"text": f"Docs page ready for {spec.name}. Review above video and approve to publish."}],

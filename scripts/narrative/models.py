@@ -14,9 +14,36 @@ The DDD-only ``RunState`` (the converge lifecycle) lives in
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+# ---------------------------------------------------------------------------
+# Gates — the human pause points in the DDD loop
+# ---------------------------------------------------------------------------
+
+
+class Gate(str, Enum):
+    """The three human-pause gates, as a single source of truth.
+
+    A ``str`` subclass so a member drops in anywhere the old string literal was
+    expected — ``ReviewRequest(gate=Gate.CONCEPT_CHANGE)``, equality with the
+    literal (``review.gate == "concept_change"``), and JSON serialization all
+    keep working without a ``.value``.
+
+      * ``concept_change``   — narrative-agreement gate (the irreplaceable-taste
+        pause before any build): ddd-narrative-review.
+      * ``product_findings`` — per-iteration findings review (review_mode: human):
+        ddd-findings-review. A run-child, not a narrative version.
+      * ``external_release`` — publish-this-docs-page gate before a public release:
+        ddd-upload.
+    """
+
+    CONCEPT_CHANGE = "concept_change"
+    PRODUCT_FINDINGS = "product_findings"
+    EXTERNAL_RELEASE = "external_release"
 
 
 # ---------------------------------------------------------------------------

@@ -68,9 +68,9 @@ from scripts.ddd.narrative import (
     _title_slug,
     _tokenized_review_url,
 )
-from scripts.ddd.schemas.models import Decision, NarrationItem, ReviewRequest, UnifiedSpec
+from scripts.ddd.schemas.models import Decision, Gate, NarrationItem, ReviewRequest, UnifiedSpec
 
-GATE = "product_findings"
+GATE = Gate.PRODUCT_FINDINGS
 
 # Decision vocabulary — per cluster, and the one overall decision.
 CLUSTER_OPTIONS = ["implement", "skip", "defer"]
