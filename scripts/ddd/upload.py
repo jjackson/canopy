@@ -49,9 +49,12 @@ from scripts.ddd.schemas.models import Decision, ReviewRequest, RunState, Unifie
 from scripts.ddd.runstate import load as load_state
 from scripts.ddd.runstate import save as save_state
 from scripts.ddd.runstate import _resolve_ddd_dir
-
-DEFAULT_API = "https://canopy-web-ujpz2cuyxq-uc.a.run.app"
-TOKEN_FILE = Path.home() / ".claude" / "canopy" / "workbench-token"
+from scripts.ddd.auth import (
+    DEFAULT_API,
+    TOKEN_FILE,
+    resolve_base_url as _resolve_base_url,
+    resolve_token as _resolve_token,
+)
 
 # Escape hatch (emergencies only): set DDD_ALLOW_NO_NARRATIVE=1 to publish a run
 # that has no narrative version on canopy-web. Mirrors the SKIP_TESTS pattern in
@@ -83,20 +86,6 @@ class DeckMissingError(RuntimeError):
     here is deliberate: a silently-empty "Walkthrough slides" section is the bug
     this refactor removes.
     """
-
-
-# ---------------------------------------------------------------------------
-# Auth / URL resolution — mirrors review.py exactly
-# ---------------------------------------------------------------------------
-
-
-def _resolve_base_url(base_url: str | None) -> str:
-    if base_url:
-        return base_url.rstrip("/")
-    from_env = os.environ.get("CANOPY_WEB_API_URL", "").strip()
-    if from_env:
-        return from_env.rstrip("/")
-    return DEFAULT_API
 
 
 def run_package_url(narrative_slug: str, run_id: str, base_url: str | None = None) -> str:
@@ -158,22 +147,6 @@ def _default_narrative_check(
     from scripts.ddd import review as rv
 
     return rv.narrative_version_exists(narrative_slug, base_url=base_url, token=token)
-
-
-def _resolve_token(token: str | None) -> str:
-    if token:
-        return token
-    from_env = os.environ.get("CANOPY_WEB_PAT", "").strip()
-    if from_env:
-        return from_env
-    if TOKEN_FILE.exists():
-        stored = TOKEN_FILE.read_text().strip()
-        if stored:
-            return stored
-    raise RuntimeError(
-        f"no canopy-web PAT — run /canopy:canopy-web-pat-mint to mint one, "
-        f"or set CANOPY_WEB_PAT env var. Expected token at {TOKEN_FILE}."
-    )
 
 
 # ---------------------------------------------------------------------------

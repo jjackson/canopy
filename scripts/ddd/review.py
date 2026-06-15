@@ -10,48 +10,17 @@ HTTP transport: stdlib urllib (no requests dep — matches upload.py).
 from __future__ import annotations
 
 import json
-import os
 import time
 import urllib.error
 import urllib.request
-from pathlib import Path
 
 from scripts.ddd.schemas.models import ReviewRequest
-
-DEFAULT_API = "https://canopy-web-ujpz2cuyxq-uc.a.run.app"
-TOKEN_FILE = Path.home() / ".claude" / "canopy" / "workbench-token"
-
-
-# ---------------------------------------------------------------------------
-# Auth / URL resolution — mirrors upload.py exactly
-# ---------------------------------------------------------------------------
-
-
-def _resolve_base_url(base_url: str | None) -> str:
-    """Return the effective base URL, stripped of trailing slash."""
-    if base_url:
-        return base_url.rstrip("/")
-    from_env = os.environ.get("CANOPY_WEB_API_URL", "").strip()
-    if from_env:
-        return from_env.rstrip("/")
-    return DEFAULT_API
-
-
-def _resolve_token(token: str | None) -> str:
-    """Return the effective PAT, raising RuntimeError if unavailable."""
-    if token:
-        return token
-    from_env = os.environ.get("CANOPY_WEB_PAT", "").strip()
-    if from_env:
-        return from_env
-    if TOKEN_FILE.exists():
-        stored = TOKEN_FILE.read_text().strip()
-        if stored:
-            return stored
-    raise RuntimeError(
-        f"no canopy-web PAT — run /canopy:canopy-web-pat-mint to mint one, "
-        f"or set CANOPY_WEB_PAT env var. Expected token at {TOKEN_FILE}."
-    )
+from scripts.ddd.auth import (
+    DEFAULT_API,
+    TOKEN_FILE,
+    resolve_base_url as _resolve_base_url,
+    resolve_token as _resolve_token,
+)
 
 
 # ---------------------------------------------------------------------------
