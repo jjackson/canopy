@@ -702,42 +702,30 @@ def _default_post(
     return json.loads(raw.decode("utf-8")) if raw else {}
 
 
-def _external_links_from_spec(spec) -> list[dict]:
-    """Build "external systems" reference links from a spec: the base app URL
-    plus each scene's concrete page (``scene.url`` or its first ``goto``
-    action's target), resolved against ``base_url`` and de-duped in scene order.
+def _external_links_from_manifest(manifest: dict) -> list[dict]:
+    """Build "external systems" reference links from the render manifest: the
+    base app URL plus each scene's already-resolved ``url`` and ``urls_visited``,
+    de-duped in scene order.
 
-    These are the live systems the run was recorded against — the pages and
-    entities we used/created during the demo — surfaced on the run page so a
-    viewer can go visit them. Returns ``[{label, url, kind: "reference"}, ...]``.
+    These are the live systems the run was actually recorded against — the pages
+    and entities we used/created during the demo (including pages the run
+    NAVIGATED to mid-scene, e.g. a freshly-created audit). Reading them from the
+    manifest (not the spec) means the URLs are fully resolved — no unsubstituted
+    ``${...}`` placeholders — and they include the ``urls_visited`` the engine
+    captured. Returns ``[{label, url, kind: "reference"}, ...]``.
     """
-    base = (getattr(spec, "base_url", "") or "").rstrip("/")
+    base = (manifest.get("base_url") or "").rstrip("/")
     out: list[dict] = []
     seen: set[str] = set()
-
-    def _add(url: str, label: str) -> None:
-        if not url or url in seen:
-            return
-        seen.add(url)
-        out.append({"label": label, "url": url, "kind": "reference"})
-
-    if base:
-        _add(base, "App")
-    for scene in getattr(spec, "scenes", []) or []:
-        raw = getattr(scene, "url", None)
-        if not raw:
-            raw = next(
-                (
-                    a.target
-                    for a in (getattr(scene, "actions", []) or [])
-                    if getattr(a, "kind", None) == "goto" and getattr(a, "target", None)
-                ),
-                None,
-            )
-        if not raw:
+    if base and base not in seen:
+        out.append({"label": "App", "url": base, "kind": "reference"}); seen.add(base)
+    for s in manifest.get("slides", []):
+        if s.get("type") != "scene":
             continue
-        full = raw if raw.startswith("http") else f"{base}/{raw.lstrip('/')}"
-        _add(full, getattr(scene, "title", None) or full)
+        label = s.get("title") or "Scene"
+        for u in [s.get("url"), *s.get("urls_visited", [])]:
+            if u and "${" not in u and u not in seen:
+                out.append({"label": label, "url": u, "kind": "reference"}); seen.add(u)
     return out
 
 
@@ -1043,9 +1031,10 @@ def upload_run(
         )
     deck_run_data = json.loads(sidecar_path.read_text())
 
-    # Build docs HTML + the external-systems links (live pages the run used).
+    # Build docs HTML + the external-systems links (live pages the run used),
+    # both derived from the manifest's fully-resolved URLs.
     html_content = build_docs_page(spec, why_brief, video_url)
-    external_links = _external_links_from_spec(spec)
+    external_links = _external_links_from_manifest(deck_run_data)
 
     # 5. External release gate — ONLY for a public release. A stuck/review upload
     #    (release=False) skips the gate: it's an internal inspection package, not a

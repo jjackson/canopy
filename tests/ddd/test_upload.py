@@ -14,7 +14,6 @@ import yaml
 from scripts.ddd.schemas.models import RunState, Scene, UnifiedSpec, WhyBrief, SpineItem, Persona
 from scripts.ddd.upload import (
     DeckMissingError,
-    _external_links_from_spec,
     build_docs_page,
     publish_artifact,
     upload_run,
@@ -78,38 +77,9 @@ def _make_why_brief() -> WhyBrief:
     )
 
 
-# ---------------------------------------------------------------------------
-# _external_links_from_spec — external systems the run used
-# ---------------------------------------------------------------------------
-
-
-class TestExternalLinksFromSpec:
-    def test_base_url_only_when_scenes_have_no_url(self):
-        links = _external_links_from_spec(_make_spec())
-        assert links == [
-            {"label": "App", "url": "https://example.com", "kind": "reference"}
-        ]
-
-    def test_resolves_scene_urls_against_base_and_dedupes(self):
-        spec = UnifiedSpec(
-            name="Study",
-            narrative="Maya builds a two-arm study from the map.",
-            base_url="https://labs.example.com",
-            personas={"m": Persona(name="Maya", role="PI", color="#000", intro="Maya runs studies.")},
-            scenes=[
-                Scene(persona="m", title="Manage", show="open", concept_claim="See the study manage page clearly.", provenance="SP1", url="/program/133/group/7/manage/"),
-                Scene(persona="m", title="Editor", show="open", concept_claim="Open the plan editor on the map.", provenance="SP2", url="/program/133/new/?group=7"),
-                Scene(persona="m", title="Manage again", show="open", concept_claim="Return to the manage page later.", provenance="SP3", url="/program/133/group/7/manage/"),
-            ],
-        )
-        links = _external_links_from_spec(spec)
-        assert [l["url"] for l in links] == [
-            "https://labs.example.com",
-            "https://labs.example.com/program/133/group/7/manage/",
-            "https://labs.example.com/program/133/new/?group=7",
-        ]  # base first, scene order preserved, duplicate dropped
-        assert all(l["kind"] == "reference" for l in links)
-        assert links[1]["label"] == "Manage"
+# NOTE: _external_links_from_spec was deleted in the manifest refactor — external
+# links now derive from the render manifest (walkthrough-run-data.json). See
+# tests/ddd/test_upload_links.py for _external_links_from_manifest coverage.
 
 
 # ---------------------------------------------------------------------------
@@ -604,11 +574,14 @@ class TestUploadRun:
         kinds = [c["kind"] for c in upload_calls]
         assert "video" in kinds
         assert "html" in kinds
-        # The docs upload carries the external-systems links built from the spec
-        # (here just the base app, since the fixture scenes have no per-scene url).
+        # The docs upload carries the external-systems links built from the
+        # render manifest: the base app plus each scene's resolved url (the
+        # fixture manifest gives one resolved url per scene).
         docs_call = next(c for c in upload_calls if c["role"] == "docs")
         assert docs_call["links"] == [
-            {"label": "App", "url": "https://example.com", "kind": "reference"}
+            {"label": "App", "url": "https://example.com", "kind": "reference"},
+            {"label": "Scene 1", "url": "https://example.com/scene-1", "kind": "reference"},
+            {"label": "Scene 2", "url": "https://example.com/scene-2", "kind": "reference"},
         ]
 
     def test_already_uploaded_is_noop(self, tmp_run, monkeypatch):
