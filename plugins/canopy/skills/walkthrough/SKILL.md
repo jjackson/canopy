@@ -71,15 +71,15 @@ say so once: "selector matched all N scenes — equivalent to a full run."
    honest (a scene-2 score from a partial run is directly comparable to
    a scene-2 score from a full run).
 
-   **Same rule for hand-edited sidecar JSON.** When you hand-edit
-   `/tmp/walkthrough-run-data.json` to add or correct per-scene scores,
-   **keep `scene_index` as the original spec index, not the position
-   within the filtered set.** A `--scene 3` partial run produces
-   `scene_index: 3` in the slide entry — that's what makes comparisons
-   against a full-spec run honest. Flattening it to 1-of-N (1, 2, 3
-   inside a 3-scene partial) breaks all the cross-run analytics that key
-   on the original index. Example shape (citing the sidecar JSON in the
-   Data Collection section):
+   **Same rule in the engine-produced manifest.** The engine writes
+   `scene_index` as the ORIGINAL spec index, not the position within the
+   filtered set, and you preserve that when you merge per-scene scores
+   into `/tmp/walkthrough-run-data.json`. A `--scene 3` partial run
+   produces `scene_index: 3` in the slide entry — that's what makes
+   comparisons against a full-spec run honest. Flattening it to 1-of-N
+   (1, 2, 3 inside a 3-scene partial) breaks all the cross-run analytics
+   that key on the original index. Example shape (the manifest the engine
+   emits — see the Score the captured frames section):
 
    ```json
    {
@@ -95,13 +95,15 @@ say so once: "selector matched all N scenes — equivalent to a full run."
    and `scene_filter: "3"` tell consumers what was rendered. Don't
    conflate them.
 
-2. **Tag the sidecar.** Add two fields to `/tmp/walkthrough-run-data.json`:
+2. **The engine tags the manifest.** `record_video.py` writes two fields
+   to `/tmp/walkthrough-run-data.json`:
    - `scenes_run: [2]` — the list of scene_index values actually rendered
    - `scene_filter: "2"` — the raw selector string from `--scene`
 
-   Downstream tooling (deck generator, video recorder, eval history,
-   `ddd-run` convergence reporter) reads these to distinguish partial
-   runs from full runs.
+   Downstream tooling (deck generator, eval history, `ddd-run`
+   convergence reporter) reads these to distinguish partial runs from
+   full runs. Pass `--scene` to `record_video.py` so the single capture
+   pass renders exactly the filtered subset and tags the manifest.
 
 3. **Run the full rubric.** The 5-dimension rubric still applies per
    scene. `--scene` only changes WHICH scenes get rendered, not how
@@ -277,20 +279,20 @@ SIDECAR="screenshots/walkthroughs/<name>.json"
 
 If a previous run exists, keep its data for the summary slide comparison.
 
-### 4. Create output directories
+### 4. Create the output directory
 
-**CRITICAL:** Use a per-walkthrough screenshot directory, not a shared global one.
+**CRITICAL:** Use a per-walkthrough snapshots directory, not a shared global one.
 Without this, screenshots from different projects or previous runs bleed through.
 
 ```bash
-mkdir -p screenshots/walkthroughs
-SHOT_DIR="/tmp/walkthrough-screenshots/<name>-$(date +%s)"
-mkdir -p "$SHOT_DIR"
-echo "Screenshots: $SHOT_DIR"
+mkdir -p screenshots/walkthroughs/<name>
 ```
 
-Use `$SHOT_DIR/scene_{n}.png` for all screenshots in this run. Never use a bare
-`/tmp/walkthrough-screenshots/` — that's shared across all sessions and projects.
+The render engine writes each scene's `scene_{scene_index}.png` +
+`scene_{scene_index}_page_text.json` into this dir via its `--snapshots`
+flag (**Render once via the engine**); the scoring step reads them back.
+Never point `--snapshots` at a bare `/tmp/walkthrough-screenshots/` — that's
+shared across all sessions and projects.
 
 ### 5. Authenticate
 
@@ -358,63 +360,93 @@ against `<X>` and you find `<X2>` looks more populated, that is not authorizatio
 to switch — it's a signal to ask. Silent substitution breaks the narrative premise
 and the user will catch it.
 
-## Execution
+## The flow: render once → score → deck
 
-For each `(orig_index, scene)` in the filtered scene list (see **Scene
-filter** for the selector logic — when `--scene` is omitted, the filtered
-list IS the full `spec.scenes`):
+This skill runs on the **same render engine + manifest that DDD uses** —
+there is ONE renderer, not two. The three steps are:
 
-### Scene Execution Pattern
+1. **Render once** (`record_video.py --manifest …`) — a single capture
+   pass drives the product, writes the mp4 + per-scene screenshots, AND
+   emits the manifest (`walkthrough-run-data.json`). See **Render once via
+   the engine** below.
+2. **Score the captured frames** — for each scene, run
+   `canopy:visual-judge` against that scene's engine-captured screenshot +
+   page text, and MERGE the verdict into the manifest by setting
+   `slides[i]["ai_evaluation"]`. See **Score the captured frames** below.
+3. **Deck from the manifest** — `generate_presentation.py` reads the
+   scored manifest. See **Generate Presentation** below.
+
+There is NO separate, hand-authored run-data JSON and NO after-scoring
+video pass: the video, the screenshots, and the deck all come from the
+SAME capture. The engine produces the manifest score-free; scoring is an
+overlay merged on top.
+
+## Render once via the engine
+
+Run `record_video.py` once. This single pass drives the product (following
+each scene's `url` + `actions`), films the mp4, writes a per-scene
+screenshot + page-text JSON into the `--snapshots` dir, and emits the
+manifest (`walkthrough-run-data.json`) — the canonical record of what was
+rendered. See **Record Video** below for the full invocation (cookies,
+`--spec`, `--output`, `--snapshots`, `--scene`, setup/prewarm flags) and
+for the `actions` / timing authoring contract.
+
+The manifest the engine writes is the canonical run-data: per scene it
+carries `scene_index` / `scene_total` / `title` / `narration` / `persona_key`
+/ resolved `url` / `urls_visited` / `screenshot_b64` / `screenshot_path` /
+`page_text_path` / `mp4_start_offset`, plus top-level `name` / `narrative` /
+`personas` / `scenes_run` / `scene_filter` / `duration_seconds`. Every
+scene's `ai_evaluation` is `null` on emission — you fill it in during
+scoring (next section). You do NOT hand-author this file.
+
+## Score the captured frames
+
+For each `(orig_index, scene)` in the rendered scene list (the manifest's
+`slides` of `type: "scene"`; with `--scene` this is already the filtered
+subset — see **Scene filter**):
+
+### Scene Scoring Pattern
 
 1. **Announce the scene** to the user using the **original spec index**:
    "Scene {orig_index}/{spec_total}: {title} (as {persona_name})"
 
    With a scene filter, mention it once at the top:
-   > "Scene filter active: `--scene <sel>` → running {len(filtered)} of {spec_total} scenes (indices: {orig_indices})."
+   > "Scene filter active: `--scene <sel>` → scored {len(filtered)} of {spec_total} scenes (indices: {orig_indices})."
 
-2. **Navigate and interact.** Read the `show` field and use your knowledge of the app
-   and its URL structure to navigate to the right page. The `show` field is intentionally
-   high-level — you figure out the clicks and navigation. Use the app's UI, links, and
-   URL patterns to get where you need to be.
+2. **Load the engine's captured frame.** The render pass already wrote the
+   screenshot for this scene to the `--snapshots` dir
+   (`scene_{scene_index}.png`) and the page text to
+   `scene_{scene_index}_page_text.json`; the manifest slide's
+   `screenshot_path` / `page_text_path` point at them. You do NOT
+   re-navigate or re-screenshot — the engine drove the product and froze
+   the frame already. (The same frame is the one the mp4 holds on.)
 
-3. **Wait for the page to fully load.** Always wait for network idle before
-   screenshotting — this catches SSE streaming, AJAX calls, lazy-loaded images,
-   and chart rendering:
-   ```bash
-   $B wait --networkidle
-   ```
-   If the page still shows loading spinners or "loading..." text after networkidle,
-   wait a few more seconds and check again with `$B text`.
+   **If a captured screenshot is absurdly tall (10,000+ pixels):** This is a
+   BUG in the app, not a capture problem. An infinitely growing element
+   (e.g., Chart.js canvas with `maintainAspectRatio: false` in an
+   unconstrained container) is making the page impossibly tall. Flag it as a
+   **[CODE]** issue with Demo Readiness ≤ 2 and use the blocking rule — do
+   NOT score it 4/5.
 
-4. **Take a full-page screenshot.**
-   ```bash
-   $B screenshot $SHOT_DIR/scene_{n}.png
-   ```
-   Always use full-page captures — the HTML deck makes slides scrollable, so tall
-   pages are fine. Do NOT switch to `--viewport` screenshots.
+3. **Show the screenshot to the user** using the Read tool on the PNG file.
 
-   **If the screenshot is absurdly tall (10,000+ pixels):** This is a BUG in the app,
-   not a screenshot problem. An infinitely growing element (e.g., Chart.js canvas with
-   `maintainAspectRatio: false` in an unconstrained container) is making the page
-   impossibly tall. Flag it as a **[CODE]** issue with Demo Readiness ≤ 2 and use the
-   blocking rule — do NOT silently switch to viewport captures and score 4/5.
+4. **Evaluate the scene via `canopy:visual-judge`.**
 
-5. **Show the screenshot to the user** using the Read tool on the PNG file.
-
-6. **Evaluate the scene via `canopy:visual-judge`.**
-
-   Capture the page text first (anchor for verbatim-quote scoring):
+   The engine already captured the page text — read it from the snapshots
+   dir (the manifest slide's `page_text_path`) as the anchor for
+   verbatim-quote scoring:
 
    ```bash
-   PAGE_TEXT=$($B text)
+   PAGE_TEXT=$(cat <snapshots_dir>/scene_{scene_index}_page_text.json)
    ```
 
    Dispatch the visual judge with walkthrough's rubric and the
-   scene's narrative anchors:
+   scene's narrative anchors (point `screenshot_path` at the engine's
+   captured PNG — the slide's `screenshot_path`):
 
    ```
    Skill('canopy:visual-judge', args={
-     screenshot_path: "$SHOT_DIR/scene_{n}.png",
+     screenshot_path: "<snapshots_dir>/scene_{scene_index}.png",
      page_text:       <PAGE_TEXT>,
      rubric:          <load skills/walkthrough/rubric.yaml verbatim>,
      context: {
@@ -464,6 +496,33 @@ list IS the full `spec.scenes`):
    consistent across rubrics + future evals that consume the same
    judge.
 
+5. **Merge the verdict into the manifest.** Scoring is an overlay on the
+   engine-produced manifest, not a rebuild of it. Load
+   `/tmp/walkthrough-run-data.json`, find this scene's slide (by
+   `scene_index`), and set its `ai_evaluation` from the judge verdict:
+
+   ```python
+   import json
+   p = "/tmp/walkthrough-run-data.json"
+   m = json.load(open(p))
+   for s in m["slides"]:
+       if s.get("type") == "scene" and s["scene_index"] == <orig_index>:
+           s["ai_evaluation"] = {
+               "score": <LOWEST of the 5 dimension scores — weakest-link>,
+               "max_score": 5,
+               "commentary": "Overall: 3/5 (weakest: Content). A: Content 3/5 — generic. "
+                             "B: App Page 4/5. C: Screenshot 4/5. D: Slide 4/5. E: Demo Ready 3/5.",
+           }
+   json.dump(m, open(p, "w"), indent=2)
+   ```
+
+   `ai_evaluation.score` MUST be the LOWEST of the 5 dimension scores
+   (weakest-link), and the commentary MUST list all 5 dimension scores in
+   the format shown. Leave every other key the engine wrote untouched —
+   you are only filling in the `ai_evaluation` the engine emitted as
+   `null`. Do NOT add or rewrite `screenshot_b64`, `url`, `mp4_start_offset`,
+   `scenes_run`, etc.; the engine is the source of truth for those.
+
 ### Fixing Data Issues
 
 When a scene fails due to bad demo data (`[DATA]` issues — duplicates, placeholder names,
@@ -486,41 +545,41 @@ Instead, step into the codebase:
    or ORM-level scripts to create, update, or delete data. This is faster, more reliable,
    and less error-prone than navigating forms in a headless browser.
 
-4. **Verify through the browser.** After making the data fix, re-navigate to the scene's
-   page in browse and confirm the issue is resolved before re-scoring.
+4. **Re-render to verify the fix.** After making the data fix, re-run the
+   render pass (it reseeds and re-captures — see **Render once via the
+   engine**) and re-score the affected scene against the fresh capture.
+   Do not patch the screenshot by hand in browse — the engine owns capture.
 
 The system IS allowed to mutate data — on localhost or production — but it should do so
 by understanding the codebase's data APIs, not by fumbling through UI forms.
 
-7. **Record issues.** If anything goes wrong (element not found, page error, slow load,
-   empty state), note it as an issue with severity (error/warning) and description.
+**Record issues.** If a scene came back wrong (page error, empty state,
+unresolved load), note it as an issue with severity (error/warning) and
+description. A failed `must_succeed` action aborts the render loudly and
+the run report flags it; a non-critical miss is logged and the capture
+continues — partial decks are better than no deck.
 
-8. **Handle failures gracefully.** If a scene can't complete:
-   - Screenshot the error state
-   - Log the issue
-   - Skip to the next scene
-   - Partial decks are better than no deck
+**Flag test data problems.** When reviewing each captured frame, check for
+signs that test/sample data doesn't look realistic:
+- Organization names like "Unknown Organization" or "None None"
+- Placeholder usernames like "test-user" or blank names
+- Empty states that should have data (charts with "no data", maps with no markers)
+- Duplicate entries (same person/org appearing multiple times with identical content)
+- IDs or slugs showing instead of human-readable names
+If found, note it as an issue so the user knows the demo won't look right
+with this data — and fix the data + re-render rather than shipping it.
 
-9. **Flag test data problems.** Before taking a screenshot, check for signs that
-   test/sample data doesn't look realistic:
-   - Organization names like "Unknown Organization" or "None None"
-   - Placeholder usernames like "test-user" or blank names
-   - Empty states that should have data (charts with "no data", maps with no markers)
-   - Duplicate entries (same person/org appearing multiple times with identical content)
-   - IDs or slugs showing instead of human-readable names
-   If found, note it as an issue so the user knows the demo won't look right
-   with this data.
+### The manifest shape (for reference)
 
-### Data Collection
-
-As you execute scenes, build a JSON data structure. After all scenes complete,
-write it to `/tmp/walkthrough-run-data.json`:
+You do NOT hand-author this file — the engine writes it (**Render once via
+the engine**) and you overlay `ai_evaluation` during scoring. This is the
+shape the deck and downstream consumers read:
 
 ```json
 {
   "name": "<from spec>",
   "narrative": "<from spec>",
-  "generated_at": "<current ISO timestamp>",
+  "generated_at": "<ISO timestamp, engine-stamped>",
   "duration_seconds": 180,
   "personas": "<from spec — the full personas dict>",
   "scenes_run": [2],
@@ -534,10 +593,13 @@ write it to `/tmp/walkthrough-run-data.json`:
       "scene_total": "<total scenes IN THE SPEC, not the filtered count>",
       "persona_key": "<persona>",
       "title": "<scene title>",
-      "narration": "<impressive_because from spec>",
-      "url": "<full URL that was screenshotted, including query string>",
-      "logged_in_as": "<auth profile / username active when captured, e.g. 'ace' or 'ace@dimagi-ai.com'>",
+      "narration": "<impressive_because / show from spec>",
+      "url": "<full resolved URL that was rendered>",
+      "urls_visited": ["<every URL this scene navigated through>"],
+      "screenshot_path": "<snapshots-relative PNG path>",
+      "page_text_path": "<snapshots-relative page-text JSON path>",
       "screenshot_b64": "<base64 encoded PNG>",
+      "mp4_start_offset": 12.4,
       "ai_evaluation": {
         "score": 3,
         "max_score": 5,
@@ -556,35 +618,46 @@ write it to `/tmp/walkthrough-run-data.json`:
 }
 ```
 
-**IMPORTANT:** `duration_seconds` MUST be an integer, not a string. `ai_evaluation.score`
-must be the LOWEST of the 5 dimension scores (weakest-link). The commentary must include
-all 5 dimension scores in the format shown above.
+The engine emits each scene's `ai_evaluation` as `null`; you fill it in
+during scoring (**Score the captured frames**). `ai_evaluation.score`
+must be the LOWEST of the 5 dimension scores (weakest-link), and the
+commentary must include all 5 dimension scores in the format shown above.
 
-**Scene-filter fields.** `scenes_run` is a JSON array of the original 1-based
-spec indices that were actually rendered (e.g. `[2]` for a single-scene
-run; `[1, 2, 3, 4, 5]` for a full run). `scene_filter` is the raw selector
-string from `--scene`, or `null` for a full run. Both fields MUST be
-present even on full runs (use `scenes_run: [1, 2, ..., N]` and
-`scene_filter: null`) so consumers can always check shape unconditionally.
+**Scene-filter fields (engine-written).** `scenes_run` is a JSON array of
+the original 1-based spec indices that were actually rendered (e.g. `[2]`
+for a single-scene run; `[1, 2, 3, 4, 5]` for a full run). `scene_filter`
+is the raw selector string from `--scene`, or `null` for a full run. Both
+fields are always present (the engine writes `scenes_run: [1, 2, ..., N]`
+and `scene_filter: null` on a full run) so consumers can check shape
+unconditionally.
 
-**Capture `url` and `logged_in_as` for every scene.** These render as a context row under
-the slide title so a viewer can tell at a glance where the screenshot came from and under
-which account. Use `$B url` right before the screenshot to grab the full current URL
-(including query string), and use the auth profile name from the spec's `auth` block
-(`--profile <name>` or `profile=<name>` in `inject_url`). Without these fields, the
-context row is hidden — decks still render, but viewers lose that grounding.
+**`walkthrough-eval` and `walkthrough-defect-creator` consume this SAME
+`walkthrough-run-data.json`** — a superset of the old hand-authored shape
+with the same keys — so they keep working unchanged against the
+engine-produced manifest.
 
-**Base64 encoding screenshots:**
-```bash
-base64 -i $SHOT_DIR/scene_{n}.png
-```
+**`url` and `screenshot_b64` are engine-written.** The render pass records
+each scene's resolved `url` (and `urls_visited`) and embeds the base64 PNG
+as `screenshot_b64` — these render as a context row under the slide title.
+You don't gather them by hand; they arrive in the manifest. (The deck also
+reads an optional `logged_in_as` per scene if present — the engine doesn't
+set it, so add it only if you want the "Logged in as …" context line.)
 
-**Persona intro slides:** Insert a `persona_intro` slide before the first scene
-of each new persona.
+**Framing slides (title / persona_intro / summary) you DO add.** The engine
+emits only `type: "scene"` slides. Before generating the deck, insert into
+the manifest's `slides`: a leading `{ "type": "title" }`, a
+`{ "type": "persona_intro", "persona_key": <key> }` before the first scene
+of each new persona, and a trailing `{ "type": "summary", ... }` (scene
+counts, `ai_scores`, `issues`, `previous_run`). `generate_presentation.py`
+renders these slide types; without them the deck loses its title card,
+persona intros, and scorecard.
 
 ## Generate Presentation
 
-After collecting all data, find the generator script:
+The deck comes from the same engine-produced manifest you just scored — the
+input is `/tmp/walkthrough-run-data.json` (with merged `ai_evaluation` and
+the framing slides added), NOT a hand-authored file. Find the generator
+script:
 
 ```bash
 # Resolve the generator: dev checkout first, then the plugin marketplace
@@ -611,16 +684,28 @@ Then open the result:
 open screenshots/walkthroughs/<name>.html
 ```
 
-## Record Video (optional)
+## Record Video — the single capture pass (step 1)
 
-If the spec sets `record_video: true`, produce a silent mp4 walkthrough
-alongside the HTML deck. The recorder runs AFTER scoring and deck
-generation — it replays each scene's captured URL through a fresh
-Playwright Chromium context with `record_video` enabled, then converts
-the resulting webm to mp4 via ffmpeg. Screenshots, scores, and the deck
-are untouched.
+This is the render engine — and it is the FIRST step of the flow, not an
+after-pass. `record_video.py` drives the product through each scene's
+`url` + `actions` in a Playwright Chromium context with `record_video`
+enabled, and in one pass produces **all** of:
 
-**Skip this section entirely if `record_video` is not set or is false.**
+- the silent mp4 (`--output`),
+- the per-scene screenshots + page-text JSON (`--snapshots`), and
+- the manifest `walkthrough-run-data.json` (`--manifest`) — the canonical
+  run-data you score against and deck from.
+
+There is no separate after-scoring video pass: the video, the screenshots
+the judge scores, and the deck all come from this SAME capture, so they
+can never desync. The spec's `record_video: true` no longer gates whether
+the engine runs (it always does — it's how the manifest is produced); it
+signals that the mp4 is a deliverable to surface to the user alongside the
+deck. The webm is converted to mp4 via ffmpeg.
+
+The rest of this section is the authoring contract for what the capture
+does — scene `actions`, the timing model, and the `setup:` / prewarm
+flags — followed by the **Run** invocation.
 
 ### Interactive recording — scene `actions` (cursor + clicks)
 
@@ -980,17 +1065,23 @@ stale on every reseed.
 
 ### Run
 
-> **Dependency note.** Unlike the slideshow generator (pure stdlib, runs
-> anywhere), `record_video.py` needs **playwright + a chromium download** —
-> a heavy, video-only dependency that `/canopy:setup` does **not** install.
-> On a portable install without it, the recorder exits with the exact
-> install command. To enable video, run it once against the resolved
-> checkout: `pip install 'playwright>=1.40' && python -m playwright install
-> chromium` (or `pip install -e '<canopy-checkout>[browser]'`). The
-> still-frame slideshow deck needs none of this.
+> **Dependency note.** The engine (`record_video.py`) needs **playwright +
+> a chromium download** — a heavy dependency that `/canopy:setup` does
+> **not** install. Because the engine is now the single source of the
+> manifest + screenshots (not just the mp4), this dependency is required
+> for the whole flow, not only for video. On a portable install without
+> it, the script exits with the exact install command. Run it once against
+> the resolved checkout: `pip install 'playwright>=1.40' && python -m
+> playwright install chromium` (or `pip install -e
+> '<canopy-checkout>[browser]'`). The deck generator
+> (`generate_presentation.py`) itself stays pure stdlib.
 
-Export the live browse cookies so the recorder inherits the auth you
-already established during capture, then invoke the script:
+Export live browse cookies so the engine inherits the auth you established
+during pre-flight (cookie-based auth seeds at context creation; specs with
+URL/command auth let the engine handle login itself), then invoke the
+script. This single call writes the mp4 (`--output`), the per-scene
+screenshots + page-text JSON (`--snapshots`), and the manifest
+(`--manifest`):
 
 ```bash
 $B cookies > /tmp/walkthrough-cookies-<name>.json
@@ -1004,11 +1095,19 @@ done
 [ -z "$REC" ] && echo "NOT_FOUND" && exit 1
 
 python3 "$REC" \
-  --input /tmp/walkthrough-run-data.json \
   --spec docs/walkthroughs/<name>.yaml \
   --output screenshots/walkthroughs/<name>.mp4 \
+  --snapshots screenshots/walkthroughs/<name>/ \
+  --manifest /tmp/walkthrough-run-data.json \
   --cookies /tmp/walkthrough-cookies-<name>.json
 ```
+
+Add `--scene <selector>` to render (and tag the manifest for) only a
+subset — the engine preserves original spec indices (see **Scene filter**).
+The manifest's per-scene `screenshot_path` / `page_text_path` point into
+the `--snapshots` dir; the scoring step reads those frames, and **Score the
+captured frames** merges each scene's `ai_evaluation` back into the
+manifest before the deck is generated.
 
 **Pre-warm:** the recorder honors the spec's `prewarm:` value automatically;
 `--prewarm` / `--no-prewarm` override it per invocation (CLI wins). See
@@ -1033,7 +1132,7 @@ post-processing tooling outside this skill.
 ## Verify Deck (MANDATORY — do not skip)
 
 After generating the HTML deck, you MUST verify your own output before presenting
-it to the user. The deck may contain problems invisible during live browsing:
+it to the user. The deck may contain problems invisible during scoring:
 
 1. **Open the deck in browse:**
    ```bash
@@ -1048,15 +1147,15 @@ it to the user. The deck may contain problems invisible during live browsing:
    - Does the score shown match what the screenshot actually looks like?
 
 3. **Flag mismatches.** If any slide's screenshot doesn't match the score you gave it
-   during live browsing, update the score and note the discrepancy. Common problems:
-   - Screenshot captured from wrong server (worktree without built CSS)
-   - Screenshot captured before page finished loading (spinners visible)
-   - Screenshot shows a different page than expected (stale browse session)
+   during scoring, update the score and note the discrepancy. Common problems:
+   - Capture from wrong server (worktree without built CSS)
+   - Capture before page finished loading (spinners visible)
+   - Capture shows a different page than expected
    - Screenshot is absurdly tall or blank
 
 4. **Report to the user** with confidence level:
    - "Deck verified — all slides match their scores" (if everything checks out)
-   - "Deck has issues — slides {n, m} need retaking: {reasons}" (if problems found)
+   - "Deck has issues — slides {n, m} need re-rendering: {reasons}" (if problems found)
 
 **Do NOT tell the user the deck is ready without verifying it yourself.**
 The user should never be the first person to catch a bad screenshot.
@@ -1095,11 +1194,14 @@ When invoked as `/walkthrough generate`:
 
 ## Efficient Reruns
 
-When rerunning after fixes, don't re-run all scenes:
+When rerunning after fixes, don't re-render all scenes:
 
-- **Selective retake:** If 2 of 8 scenes need fixing after code changes, retake only
-  those screenshots. Keep the good captures from the previous run.
-- **Screenshot reuse:** If the underlying data hasn't changed for a scene, reuse the
-  previous run's screenshot rather than recapturing (avoids fighting capture issues).
-- **Incremental fixes:** Fix the lowest-scoring scenes first. Each fix-and-retake cycle
-  should target the biggest Demo Readiness blockers.
+- **Selective re-render:** If 2 of 8 scenes need fixing after code changes, re-render
+  only those with `--scene 4,7` (one capture pass over the subset). The engine
+  preserves original spec indices, so the re-rendered slides stay comparable to the
+  full run.
+- **Merge, don't rebuild:** Re-scoring a re-rendered scene only overwrites that
+  scene's `ai_evaluation` in the manifest — the engine owns every other key, so a
+  partial re-render + merge keeps the rest of the manifest intact.
+- **Incremental fixes:** Fix the lowest-scoring scenes first. Each fix-and-re-render
+  cycle should target the biggest Demo Readiness blockers.
