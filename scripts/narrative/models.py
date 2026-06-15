@@ -101,6 +101,29 @@ class Feature(BaseModel):
     verify: str       # how to validate it's done (API assertion, UI state, test command)
 
 
+class Finding(BaseModel):
+    """One judge-emitted design finding (the ddd-concept-eval contract shape).
+
+    The **judge owns ``severity``** (concept judge: score<=1->high, ==2->medium,
+    ==3->low). Downstream consumers (``findings_review``) must treat a present
+    ``severity`` as authoritative and only fall back to a heuristic
+    (``derive_severity``) when it's absent — the judge has the artifact context a
+    route+fix_kind heuristic lacks.
+
+    ``route`` is one of PRODUCT / CONCEPT / RESEARCH / DEFER; ``fix_kind`` is
+    mechanical / options / redesign. ``fix_recommendation`` is optional (a
+    finding can describe the problem without prescribing the fix).
+    """
+
+    scene: str
+    dimension: str
+    route: str
+    fix_kind: str
+    severity: str
+    detail: str
+    fix_recommendation: str = ""
+
+
 # Action verbs the recorder understands. Single source of truth — the recorder
 # imports this tuple, and the ``Action.kind`` Literal below is unpacked from
 # it so Pydantic validation and the dispatcher vocabulary can never drift.

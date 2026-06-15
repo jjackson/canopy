@@ -241,6 +241,11 @@ def cluster_findings(
             if fx and fx not in fixes:
                 fixes.append(fx)
         detail = "\n".join(details)
+        # The judge owns severity. Take the worst of the severities its findings
+        # actually carried; leave it None when NONE did, so the request builder
+        # knows to fall back to derive_severity rather than inventing "low".
+        present_sev = [m["severity"] for m in members if (m.get("severity") or "").strip()]
+        severity = _worst(present_sev, _SEVERITY_ORDER, "low") if present_sev else None
         clusters.append(
             {
                 "cluster_id": cluster_id,
@@ -249,7 +254,7 @@ def cluster_findings(
                 "scenes": sorted(scenes),
                 "scene_labels": scene_labels,
                 "dimension": members[0].get("dimension") or "general",
-                "severity": _worst([m.get("severity", "low") for m in members], _SEVERITY_ORDER, "low"),
+                "severity": severity,
                 "route": "PRODUCT",
                 "fix_kind": _worst(
                     [m.get("fix_kind", "options") for m in members], _FIX_KIND_ORDER, "mechanical"
@@ -543,9 +548,10 @@ def build_findings_review_request(
             scene_timestamps=scene_timestamps,
             thumb_resolver=thumb_resolver,
         )
-        # Re-derive severity from route + fix_kind + the iteration's gating
-        # score (the contract leaves severity to the poster; see derive_severity).
-        severity = derive_severity(
+        # The judge is the severity source. Use the severity its findings carried
+        # (clustered worst-of); fall back to derive_severity ONLY when no finding
+        # in the cluster supplied one.
+        severity = cluster.get("severity") or derive_severity(
             route=cluster["route"], fix_kind=cluster["fix_kind"], score=gating_score
         )
         contract_cluster = {

@@ -184,6 +184,72 @@ def test_derive_severity_mapping():
     assert derive_severity(route="PRODUCT", fix_kind="mechanical", score=None) == "low"
 
 
+def test_finding_model_importable_from_both_homes():
+    from scripts.ddd.schemas.models import Finding as FindingA
+    from scripts.narrative.models import Finding as FindingB
+
+    assert FindingA is FindingB
+    f = FindingA(
+        scene="2", dimension="visual_polish", route="PRODUCT",
+        fix_kind="mechanical", severity="low", detail="x",
+    )
+    assert f.severity == "low" and f.fix_recommendation == ""
+
+
+def test_judge_severity_is_authoritative_not_re_derived():
+    """A finding's judge-set severity flows through unchanged.
+
+    The concept judge owns severity (score<=1->high, ==2->medium, ==3->low).
+    ``build_findings_review_request`` must NOT recompute it: a low-score PRODUCT
+    finding the judge marked "low" stays "low" even though ``derive_severity``
+    (mechanical on a failing score=2 iteration) would return "high".
+    """
+    findings = [
+        _finding(scene=2, dimension="visual_polish", severity="low",
+                 fix_kind="mechanical", route="PRODUCT"),
+    ]
+    req = build_findings_review_request(
+        "verified-monitoring-2026-06-12-001",
+        "verified-monitoring",
+        3,
+        SPEC,
+        findings,
+        None,
+        DECK,
+        CLIP,
+        {2: 42.0},
+        summary={"concept_score": 2, "user_score": 2, "verdict": "FAIL"},
+    )
+    by_id = {c["id"]: c for c in req.findings}
+    # derive_severity would say "high" here (mechanical, failing); the judge said "low".
+    assert by_id["scene-2-visual-polish"]["severity"] == "low"
+
+
+def test_severity_falls_back_to_derive_when_finding_lacks_it():
+    """When NO member of a cluster carried a severity, derive_severity fills in."""
+    findings = [
+        _finding(scene=2, dimension="visual_polish", fix_kind="options", route="PRODUCT"),
+    ]
+    # Strip the severity the helper sets by default — simulate a judge that
+    # emitted a finding with no severity.
+    findings[0].pop("severity")
+    req = build_findings_review_request(
+        "verified-monitoring-2026-06-12-001",
+        "verified-monitoring",
+        3,
+        SPEC,
+        findings,
+        None,
+        DECK,
+        CLIP,
+        {2: 42.0},
+        summary={"concept_score": 5, "user_score": 5, "verdict": "PASS"},
+    )
+    by_id = {c["id"]: c for c in req.findings}
+    # options on a non-failing iteration → derive_severity returns "medium".
+    assert by_id["scene-2-visual-polish"]["severity"] == "medium"
+
+
 # ---------------------------------------------------------------------------
 # Thumbnails
 # ---------------------------------------------------------------------------
@@ -346,12 +412,14 @@ def test_request_evidence_has_thumb_anchor_and_video_t():
     assert ev3[0]["video_t"] == 81
 
 
-def test_request_severity_derived_from_failing_score():
-    # concept/user both 2 → failing → PRODUCT mechanical finding becomes high.
+def test_request_uses_judge_severity_not_re_derived():
+    # The judge owns severity: the findings carried "medium", so the clusters
+    # stay "medium" even on a failing iteration where derive_severity would
+    # otherwise compute "high". (Severity source = judge, not re-derived.)
     req = _build_request()
     by_id = {c["id"]: c for c in req.findings}
-    assert by_id["scene-2-visual-polish"]["severity"] == "high"  # mechanical, failing
-    assert by_id["scene-3-clarity"]["severity"] == "high"  # options, failing
+    assert by_id["scene-2-visual-polish"]["severity"] == "medium"  # judge-set, preserved
+    assert by_id["scene-3-clarity"]["severity"] == "medium"  # judge-set, preserved
 
 
 def test_request_decisions_one_per_cluster_plus_overall():
