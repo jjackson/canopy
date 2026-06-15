@@ -362,8 +362,12 @@ Call `run_pipeline.assemble_run_state` to merge both verdict paths and findings
 into `run_state.yaml`:
 
 ```python
+import json
 from scripts.ddd.run_pipeline import assemble_run_state, compute_convergence
 from scripts.ddd.runstate import load, save
+
+# The render manifest is the single source of truth for what was rendered.
+manifest = json.load(open(f"{run_dir}/walkthrough-run-data.json"))
 
 state = load(run_id)
 state = assemble_run_state(
@@ -373,20 +377,16 @@ state = assemble_run_state(
     findings=<merged findings from design_findings.json>,
     concept_path="<run_dir>/verdict-concept.yaml",
     user_path="<run_dir>/verdict-user.yaml",
+    manifest=manifest,   # fills state.scenes_run / state.scene_filter from the manifest
 )
-
-# Scene-filter metadata: read from the walkthrough sidecar and stamp it
-# onto state. assemble_run_state preserves unknown keys, so a simple
-# attribute set is fine. If your runstate model is stricter, add these as
-# top-level fields on RunState.
-import json
-sidecar = json.load(open(f"{run_dir}/walkthrough-run-data.json"))
-state.scenes_run = sidecar.get("scenes_run")          # e.g. [2] or [1,2,3,4,5]
-state.scene_filter = sidecar.get("scene_filter")      # e.g. "2" or null
 save(state)
 
 converged = compute_convergence(concept_verdict, user_verdict)
 ```
+
+`scenes_run` / `scene_filter` are now populated by `assemble_run_state` from the
+manifest — do NOT hand-stamp them. (The manifest is produced by the render step:
+`record_video.py --manifest <run_dir>/walkthrough-run-data.json`.)
 
 **Upload gate.** `state.scene_filter is not None` means this is a
 partial run — `/canopy:ddd-upload` MUST refuse to upload it. A
@@ -400,76 +400,30 @@ orchestrator (and the human reader) knows whether the next iteration can
 proceed without user input.
 
 ```python
-# Aggregate findings from BOTH sources (concept design_findings + user-artifact dimension findings)
-all_findings = []
-for f in findings:                                    # design_findings.json
-    all_findings.append({"route": f["route"], "fix_kind": f.get("fix_kind", "options")})
-for dim_id, d in user_verdict.dimensions.items():     # user-artifact per-dimension
-    if d.get("fix_kind"):
-        all_findings.append({"route": "PRODUCT", "fix_kind": d["fix_kind"]})
+from scripts.ddd.run_pipeline import compute_auto_iterate
 
-# Decide the next action.
-# Order of precedence: done > concept_change > unclear > stalled/backstop > continue.
-#
-# PROGRESS-AWARE LOOP (not a raw iteration cap). DDD's whole point is to loop
-# autonomously on mechanical findings until they're exhausted. A raw count
-# (the old MAX_ITERATIONS=3) stopped good runs mid-progress AND couldn't tell
-# "improving" (FAIL→WARN→PASS — keep going!) from "thrashing" (score stalled,
-# or a fix REGRESSED something — THAT is when to get a human). So gate on the
-# SCORE TRAJECTORY, not on how many iterations have passed.
-score = min(concept_verdict.overall_score, user_verdict.overall_score)  # gating overall this iteration
-state.score_history = (state.score_history or []) + [score]
-hist = state.score_history
-# "stalled" = the last two iterations produced no NEW best (no progress, or a
-# regression like a fix that broke another scene). Needs >=3 points to judge.
-stalled = len(hist) >= 3 and hist[-1] <= max(hist[:-2]) and hist[-2] <= max(hist[:-2])
-HARD_CAP = 10   # runaway backstop ONLY — not the normal stop
-
-non_defer = [f for f in all_findings if f["route"] != "DEFER"]
-unclear = [f for f in non_defer if f["fix_kind"] in ("options", "redesign")]
-
-if converged and not state.scene_filter:
-    auto_iterate_next_action = "stop_done"
-    reason = "Both judges passed full spec — ready for promotion."
-elif converged and state.scene_filter:
-    auto_iterate_next_action = "stop_partial"
-    reason = "Both judges passed the filtered scope. Drop --scene and re-fire for full-spec promotion."
-elif any(f["route"] == "CONCEPT" and f["fix_kind"] == "redesign" for f in non_defer):
-    auto_iterate_next_action = "stop_concept_change"
-    reason = "Concept-change finding present — fix requires user judgment on direction."
-elif unclear:
-    auto_iterate_next_action = "stop_unclear"
-    reason = f"{len(unclear)} finding(s) with fix_kind='options' or 'redesign' — need user pick."
-elif stalled or len(hist) >= HARD_CAP:
-    # NOT making progress (or hit the runaway backstop) → escalate to a human.
-    auto_iterate_next_action = "stop_max_iter"
-    reason = (
-        f"Score stalled/regressed across the last 2 iterations (history={hist}) — "
-        "autonomous mechanical fixes aren't converging; needs a human look."
-        if stalled else
-        f"Hit the {HARD_CAP}-iteration backstop (history={hist}) without converging."
-    )
-else:
-    # All non-DEFER findings are mechanical AND the score is still climbing →
-    # KEEP LOOPING autonomously. This is the common, correct path. Do NOT stop
-    # just because a few iterations have passed — only a real gate, an
-    # options/redesign finding, a stall, or the backstop stops the loop.
-    auto_iterate_next_action = "continue"
-    reason = f"All findings mechanical and score is still improving (history={hist}) — apply + re-fire."
+# Single source of truth — do NOT re-implement the decision tree here.
+# compute_auto_iterate gates on the SCORE TRAJECTORY (not a raw iteration cap):
+# it appends this iteration's gating score to state.score_history, then returns
+# (action, reason) over: converged -> stop_done/stop_partial; a CONCEPT/redesign
+# finding -> stop_concept_change; any options/redesign -> stop_unclear; score
+# stalled/regressed over the last 2 iters or the hard-cap backstop -> stop_max_iter;
+# else (mechanical + still improving) -> continue. It reads user_verdict.dimensions
+# for per-dimension fix_kinds and honors state.scene_filter for the partial case.
+auto_iterate_next_action, reason = compute_auto_iterate(
+    state, concept_verdict, user_verdict, findings, converged=converged,
+)
 ```
 
-> **Why this replaced the old `MAX_ITERATIONS = 3` hard stop.** A raw count
-> made the orchestrator hand a half-finished run back to the human after three
-> iterations even when every finding was a trivial mechanical fix and each pass
-> was strictly better than the last — the exact opposite of "loop and fix the
-> obvious things." Worse, a count is blind to *regressions*: a fix that breaks
-> another scene should stop the loop immediately (that's a human-judgment
-> moment), but a count happily burns more iterations on it. Trajectory-gating
-> fixes both: keep going while it's getting better, stop the instant it isn't.
+> **Why this is a function call, not inline logic.** The trajectory-gating decision
+> (progress-aware loop, not a raw `MAX_ITERATIONS=3` count) lives in ONE place —
+> `run_pipeline.compute_auto_iterate`, which is unit-tested. Re-implementing it in
+> this SKILL would drift from the code. A raw count stopped good runs mid-progress
+> and was blind to regressions; trajectory-gating keeps looping while the score
+> improves and stops the instant it stalls or regresses.
 
 Stamp `auto_iterate_next_action` and `auto_iterate_reason` onto run_state
-(both are optional fields on RunState — set them after save() or extend the
-model). Then print the summary:
+(both are optional fields on RunState) and `save(state)`. Then print the summary:
 
 ```
 DDD Run — <run_id>
