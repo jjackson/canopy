@@ -38,3 +38,40 @@ def test_build_manifest_superset(tmp_path):
     assert s["mp4_start_offset"] == 0.0
     assert s["ai_evaluation"] is None
     assert base64.b64decode(s["screenshot_b64"]) == b"\x89PNG-1"
+    assert m["duration_seconds"] == 0.0
+
+
+def test_build_manifest_duration_seconds_surfaced(tmp_path):
+    snap = tmp_path / "snapshots"
+    snap.mkdir()
+    report = RunReport()
+    spec = {"name": "PAR", "scenes": [{"title": "Opens"}]}
+    m = build_manifest(
+        spec=spec,
+        report=report,
+        snapshots_dir=snap,
+        scenes_run=[1],
+        scene_filter=None,
+        substitution_vars={},
+        generated_at="2026-06-14",
+        duration_seconds=12.5,
+    )
+    assert m["duration_seconds"] == 12.5
+
+
+def test_build_manifest_snapshot_dir_name_honored(tmp_path):
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    (frames / "scene_1.png").write_bytes(b"\x89PNG-1")
+    report = RunReport()
+    spec = {"name": "PAR", "scenes": [{"title": "Opens"}]}
+    m = build_manifest(
+        spec=spec,
+        report=report,
+        snapshots_dir=frames,
+        scenes_run=[1],
+        scene_filter=None,
+        substitution_vars={},
+        generated_at="2026-06-14",
+    )
+    assert m["slides"][0]["screenshot_path"] == "frames/scene_1.png"

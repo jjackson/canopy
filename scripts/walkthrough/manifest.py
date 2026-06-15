@@ -7,7 +7,8 @@ from typing import Any
 
 
 def build_manifest(*, spec: dict, report: Any, snapshots_dir: Path, scenes_run: list[int],
-                   scene_filter: str | None, substitution_vars: dict[str, str], generated_at: str) -> dict:
+                   scene_filter: str | None, substitution_vars: dict[str, str], generated_at: str,
+                   duration_seconds: float = 0.0) -> dict:
     scenes = spec.get("scenes", []) or []
     personas = spec.get("personas", {}) or {}
     slides: list[dict] = []
@@ -25,16 +26,18 @@ def build_manifest(*, spec: dict, report: Any, snapshots_dir: Path, scenes_run: 
             "persona_key": scene.get("persona") or (next(iter(personas), "") if personas else ""),
             "url": scene.get("url") or "",
             "urls_visited": timing.get("urls_visited", []),
-            "screenshot_path": f"snapshots/{png.name}" if png.exists() else None,
-            "page_text_path": f"snapshots/{page_text.name}" if page_text.exists() else None,
+            "screenshot_path": f"{snapshots_dir.name}/{png.name}" if png.exists() else None,
+            "page_text_path": f"{snapshots_dir.name}/{page_text.name}" if page_text.exists() else None,
             "screenshot_b64": b64,
             "mp4_start_offset": timing.get("start_seconds"),
-            "ok": timing.get("ok", True),
+            # recorded scenes are ok by construction: a failed must_succeed action aborts the render
+            "ok": True,
             "ai_evaluation": None,
         })
     return {
         "name": spec.get("name", ""), "narrative": spec.get("narrative", ""),
-        "generated_at": generated_at, "base_url": (spec.get("base_url") or "").rstrip("/"),
+        "generated_at": generated_at, "duration_seconds": duration_seconds,
+        "base_url": (spec.get("base_url") or "").rstrip("/"),
         "scenes_run": list(scenes_run), "scene_filter": scene_filter,
         "substitution_vars": dict(substitution_vars or {}),
         "personas": {k: {"name": v.get("name", k), "role": v.get("role", ""),

@@ -72,7 +72,10 @@ class RunReport:
     results: list[ActionResult] = field(default_factory=list)
 
     scenes: list[dict] = field(default_factory=list)
-    """Per-scene timing entries, in recording order. Each entry::
+    """Per-scene timing entries, in recording order. INVARIANT: ``_scene_timing_index``
+    mirrors these SAME dict objects by identity, so any new code that appends a
+    scene-timing entry MUST go through :meth:`record_scene_timing` (never
+    ``self.scenes.append(...)`` directly) to keep the mirror in sync. Each entry::
 
         {"scene_index": int,        # 1-based ORIGINAL spec index
          "title": str,
