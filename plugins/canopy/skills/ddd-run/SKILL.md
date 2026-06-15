@@ -109,6 +109,7 @@ flags below.
 | `--snapshots <dir>` | **Always** for DDD runs | Concept-eval needs per-scene PNG + page_text JSON inputs. The visual-judge can't dual-judge without them. |
 | `--snapshot-empty-scenes` | Almost never | Empty scenes (narrative-only back-halves) have no meaningful state to snapshot. |
 | `--report <path>` | Always | The accumulator JSON tells you which actions silently failed (and which `must_succeed` ones aborted). |
+| `--manifest <path>` | **Always** for DDD runs | Writes the canonical render manifest (`walkthrough-run-data.json`) — the single artifact the deck (`generate_presentation`), the external-systems links, and `assemble_run_state` read. Without it `ddd-upload` raises `DeckMissingError`. Point it at `<run_dir>/walkthrough-run-data.json`. (Emitted even on a partial render, so a failed scene still leaves an inspectable manifest of what rendered.) |
 | `--skip-empty-scenes` | When the spec has narrative-only back-half scenes (no `actions`) | The mp4 doesn't waste `min_hold_ms` on identical static pages. Deck slides still cover them. |
 | `--skip-same-url` | When the spec uses continue-scene patterns (scenes that operate on the previous scene's URL) | Avoids re-navs that wipe JS state between scenes. |
 | `--input <run.json>` | Only for `--scene` partial runs (when reusing a previous walkthrough's capture set) | Without this, the spec is the only source of truth. |
@@ -120,16 +121,21 @@ flags below.
 
 ```bash
 python3 "$REC" \
-  --input "<run_dir>/walkthrough-run-data.json" \
   --spec "<unified_spec>" \
   --output "<run_dir>/iter${state.iteration}_clip.mp4" \
   --cookies "<session-cookies>" \
   --snapshots "<run_dir>/snapshots/" \
   --report "<run_dir>/run-report.json" \
+  --manifest "<run_dir>/walkthrough-run-data.json" \
   --skip-empty-scenes \
   --skip-same-url \
   --ddd-orchestrated
 ```
+
+`--manifest` WRITES the manifest (the deck/links/run-state all read it; upload
+raises `DeckMissingError` without it). Do NOT pass `--input` on a first render —
+`--input` only *consumes* an existing capture and is for `--scene` partial re-runs
+that reuse a prior walkthrough's capture set (see the flag matrix above).
 
 `--ddd-orchestrated` is **required** here: the recorder refuses to write into a
 `.canopy/ddd/runs/<run_id>/` directory without it (the hand-drive guard). That
