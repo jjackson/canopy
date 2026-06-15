@@ -48,6 +48,7 @@ frames. Best-effort — see :func:`run_prewarm`.
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import shutil
 import subprocess
@@ -76,6 +77,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _lib.config import RecorderConfig  # noqa: E402
 from _lib.orchestrator import Recorder, SkipSameUrlRecorder  # noqa: E402
 from _lib.recorder import CURSOR_OVERLAY_JS  # noqa: E402
+from manifest import build_manifest  # noqa: E402
 
 # Placeholder substitution is shared with scripts/ddd/spec_qa.py (single source
 # of truth for what `${var}` means) — it lives at the repo root, so put that on
@@ -607,6 +609,7 @@ def main() -> None:
             "does NOT persist the dual-judge verdict to run_state.yaml."
         ),
     )
+    ap.add_argument("--manifest", help="path to write the render manifest (walkthrough-run-data.json)")
     args = ap.parse_args()
 
     # ---- Guardrail: don't hand-drive a DDD run's render ----------------------
@@ -873,6 +876,32 @@ def main() -> None:
                 Path(args.report).parent.mkdir(parents=True, exist_ok=True)
                 Path(args.report).write_text(recorder.report.to_json())
                 print(f"Wrote report: {args.report}")
+
+            # ---- Canonical render manifest (walkthrough-run-data.json) -------
+            # A superset of the legacy report: per-scene slides with screenshot
+            # paths + base64, narration, persona, mp4 offset, and the URLs each
+            # scene actually visited. generate_presentation.py and the eval
+            # fixtures read this; downstream judges and the deck builder consume
+            # it instead of re-driving the page.
+            if args.manifest:
+                manifest_snap_dir = (
+                    Path(args.snapshots) if args.snapshots else Path(args.manifest).parent
+                )
+                manifest = build_manifest(
+                    spec=spec,
+                    report=recorder.report,
+                    snapshots_dir=manifest_snap_dir,
+                    scenes_run=[s["scene_index"] for s in scenes],
+                    scene_filter=spec.get("scene_filter") or None,
+                    substitution_vars=(setup_provenance or {}).get("variables", {}),
+                    generated_at=datetime.datetime.now(datetime.timezone.utc).strftime(
+                        "%Y-%m-%dT%H:%M:%SZ"
+                    ),
+                )
+                manifest_path = Path(args.manifest)
+                manifest_path.parent.mkdir(parents=True, exist_ok=True)
+                manifest_path.write_text(json.dumps(manifest, indent=2))
+                print(f"Wrote manifest: {args.manifest}")
 
         webms = list(video_dir.glob("*.webm"))
         if not webms:
