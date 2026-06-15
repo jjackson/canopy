@@ -199,3 +199,17 @@ def await_resolution(
                 f"review {review_id!r} not resolved within {timeout}s"
             )
         _sleep(poll_interval)  # type: ignore[operator]
+
+
+def resolve_review(review_id: str, decision: dict, *, base_url: str | None = None, token: str | None = None):
+    """Programmatically resolve a review gate. NOT YET SUPPORTED server-side.
+
+    canopy-web exposes /api/reviews/<id>/ as GET/DELETE only; resolution happens
+    in the canopy-web UI. Resolving a gate from code (e.g. an automated upload)
+    needs a server-side PATCH/resolve endpoint — see the follow-up note in
+    docs/superpowers/specs/2026-06-14-ddd-walkthrough-render-engine-and-manifest-design.md.
+    """
+    raise NotImplementedError(
+        "canopy-web /api/reviews/<id>/ is GET/DELETE only; gate resolution needs a "
+        "server-side resolve endpoint (cross-repo follow-up)."
+    )

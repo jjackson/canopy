@@ -271,3 +271,21 @@ keep reading `walkthrough-run-data.json` unchanged (superset shape is back-compa
 - **Walkthrough-skill blast radius.** Migrating the skill touches the standalone
   demo flow + its evals. Mitigation: land 1–3 (engine/deck/ddd) first and verify ddd
   green; migrate the skill (step 4) only after, with the eval suite as the gate.
+
+## Follow-up: canopy-web review-resolve API
+
+The canopy-side review client (`scripts/ddd/review.py`) can POST a `ReviewRequest`
+and POLL it to resolution (`post_review_request` / `await_resolution`), but it
+**cannot resolve a gate from code**: canopy-web exposes `/api/reviews/<id>/` as
+**GET/DELETE only**, and gate resolution (the implement/skip/defer decision, the
+approve/redraft, the publish/hold) happens **in the canopy-web UI**.
+
+`scripts/ddd/review.py::resolve_review` is a deliberate stub — it raises
+`NotImplementedError` to document the gap rather than silently no-op. An automated
+flow that needs to resolve a gate without a human at the UI (e.g. an unattended
+upload that should auto-approve `external_release` under a policy, or a CI run that
+pre-resolves `product_findings`) requires a **server-side resolve endpoint** on
+canopy-web — a `PATCH /api/reviews/<id>/` (or a dedicated `…/resolve/` action) that
+accepts a `response_json` and flips `status` to `resolved`. This is a **cross-repo
+follow-up** (canopy-web change, then wire `resolve_review` to call it). Until then,
+the contract is: canopy POSTs and polls; a human resolves in the UI.
