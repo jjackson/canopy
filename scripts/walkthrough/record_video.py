@@ -48,6 +48,7 @@ frames. Best-effort — see :func:`run_prewarm`.
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import shutil
 import subprocess
@@ -76,6 +77,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _lib.config import RecorderConfig  # noqa: E402
 from _lib.orchestrator import Recorder, SkipSameUrlRecorder  # noqa: E402
 from _lib.recorder import CURSOR_OVERLAY_JS  # noqa: E402
+from manifest import build_manifest  # noqa: E402
 
 # Placeholder substitution is shared with scripts/ddd/spec_qa.py (single source
 # of truth for what `${var}` means) — it lives at the repo root, so put that on
@@ -504,6 +506,54 @@ def build_scenes_from_spec(spec: dict, base_url: str, *, run_data: dict | None) 
 # main
 
 
+def _write_render_artifacts(args, spec, recorder, setup_provenance, total_seconds) -> None:
+    """Write the RunReport (--report) + the canonical manifest (--manifest).
+
+    Called in main()'s finally so a PARTIAL render still emits both. ``scenes_run``
+    is derived from the scenes the recorder ACTUALLY recorded (a failed scene never
+    gets a timing entry), so a partial manifest contains only rendered scenes — not
+    placeholder slides for scenes that never ran.
+
+    The manifest (walkthrough-run-data.json) is a superset of the legacy report:
+    per-scene slides with screenshot paths + base64, narration, persona, mp4 offset,
+    and the URLs each scene actually visited. generate_presentation.py and the eval
+    fixtures read it; downstream judges and the deck builder consume it instead of
+    re-driving the page.
+    """
+    if args.report:
+        Path(args.report).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.report).write_text(recorder.report.to_json())
+        print(f"Wrote report: {args.report}")
+
+    if args.manifest:
+        manifest_snap_dir = (
+            Path(args.snapshots) if args.snapshots else Path(args.manifest).parent
+        )
+        scenes_run = sorted(
+            {
+                s["scene_index"]
+                for s in getattr(recorder.report, "scenes", [])
+                if s.get("scene_index") is not None
+            }
+        )
+        manifest = build_manifest(
+            spec=spec,
+            report=recorder.report,
+            snapshots_dir=manifest_snap_dir,
+            scenes_run=scenes_run,
+            scene_filter=spec.get("scene_filter") or None,
+            substitution_vars=(setup_provenance or {}).get("variables", {}),
+            generated_at=datetime.datetime.now(datetime.timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            ),
+            duration_seconds=total_seconds,
+        )
+        manifest_path = Path(args.manifest)
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps(manifest, indent=2))
+        print(f"Wrote manifest: {args.manifest}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--spec", required=True, help="walkthrough YAML spec (source of truth for scenes)")
@@ -607,6 +657,7 @@ def main() -> None:
             "does NOT persist the dual-judge verdict to run_state.yaml."
         ),
     )
+    ap.add_argument("--manifest", help="path to write the render manifest (walkthrough-run-data.json)")
     args = ap.parse_args()
 
     # ---- Guardrail: don't hand-drive a DDD run's render ----------------------
@@ -807,6 +858,22 @@ def main() -> None:
                 context.add_cookies(cookies_data)
 
             page = context.new_page()
+            # Capture client-side redirects / SPA route changes via Playwright's
+            # framenavigated event (main frame only). Action-boundary page.url
+            # snapshots miss redirects that fire BETWEEN actions (e.g. an
+            # audit→workflow redirect after a completion click while the
+            # recorder holds). The orchestrator clears this list at each scene
+            # start and folds it into that scene's urls_visited at scene end.
+            _nav_sink: list[str] = []
+
+            def _on_frame_navigated(frame):
+                try:
+                    if frame is page.main_frame:
+                        _nav_sink.append(frame.url)
+                except Exception:  # noqa: BLE001 — nav telemetry must never break a render
+                    pass
+
+            page.on("framenavigated", _on_frame_navigated)
             # Playwright's video capture starts when the page opens — this is
             # second zero of the recording timeline. Captured here (NOT at
             # Recorder.run) so any pre-scene auth navigation below counts
@@ -847,16 +914,27 @@ def main() -> None:
                 (snap_dir / "setup-vars.json").write_text(
                     json.dumps(setup_provenance, indent=2)
                 )
-            total_seconds = recorder.run(page, scenes)
-
-            context.close()  # flush video
-            browser.close()
-
-            recorder.print_summary()
-            if args.report:
-                Path(args.report).parent.mkdir(parents=True, exist_ok=True)
-                Path(args.report).write_text(recorder.report.to_json())
-                print(f"Wrote report: {args.report}")
+            # Write the report + manifest in a finally so a PARTIAL render (a
+            # must_succeed action aborts mid-spec) still emits them — the
+            # snapshots for completed scenes are already on disk, so the
+            # manifest/report of what DID render are exactly what you need to
+            # debug the failure. The render error is preserved and re-raised
+            # after, so the process still exits non-zero (loud, not silent).
+            render_error: Exception | None = None
+            total_seconds = 0.0
+            try:
+                total_seconds = recorder.run(page, scenes, nav_sink=_nav_sink)
+            except Exception as e:  # noqa: BLE001 — re-raised below after artifacts are written
+                render_error = e
+            finally:
+                context.close()  # flush video
+                browser.close()
+                recorder.print_summary()
+                _write_render_artifacts(
+                    args, spec, recorder, setup_provenance, total_seconds
+                )
+            if render_error is not None:
+                raise render_error
 
         webms = list(video_dir.glob("*.webm"))
         if not webms:

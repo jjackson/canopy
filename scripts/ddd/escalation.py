@@ -38,8 +38,10 @@ _DEFAULT_ENTRY: dict = {
 }
 
 
-def _state_file() -> Path:
-    return _resolve_ddd_dir() / "escalation.json"
+def _state_file(ddd_dir: Path | None = None) -> Path:
+    if ddd_dir is None:
+        ddd_dir = _resolve_ddd_dir()
+    return ddd_dir / "escalation.json"
 
 
 def _load() -> dict:

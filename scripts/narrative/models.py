@@ -14,9 +14,36 @@ The DDD-only ``RunState`` (the converge lifecycle) lives in
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+# ---------------------------------------------------------------------------
+# Gates — the human pause points in the DDD loop
+# ---------------------------------------------------------------------------
+
+
+class Gate(str, Enum):
+    """The three human-pause gates, as a single source of truth.
+
+    A ``str`` subclass so a member drops in anywhere the old string literal was
+    expected — ``ReviewRequest(gate=Gate.CONCEPT_CHANGE)``, equality with the
+    literal (``review.gate == "concept_change"``), and JSON serialization all
+    keep working without a ``.value``.
+
+      * ``concept_change``   — narrative-agreement gate (the irreplaceable-taste
+        pause before any build): ddd-narrative-review.
+      * ``product_findings`` — per-iteration findings review (review_mode: human):
+        ddd-findings-review. A run-child, not a narrative version.
+      * ``external_release`` — publish-this-docs-page gate before a public release:
+        ddd-upload.
+    """
+
+    CONCEPT_CHANGE = "concept_change"
+    PRODUCT_FINDINGS = "product_findings"
+    EXTERNAL_RELEASE = "external_release"
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +99,29 @@ class Feature(BaseModel):
     id: str
     description: str  # concrete buildable unit — what to implement
     verify: str       # how to validate it's done (API assertion, UI state, test command)
+
+
+class Finding(BaseModel):
+    """One judge-emitted design finding (the ddd-concept-eval contract shape).
+
+    The **judge owns ``severity``** (concept judge: score<=1->high, ==2->medium,
+    ==3->low). Downstream consumers (``findings_review``) must treat a present
+    ``severity`` as authoritative and only fall back to a heuristic
+    (``derive_severity``) when it's absent — the judge has the artifact context a
+    route+fix_kind heuristic lacks.
+
+    ``route`` is one of PRODUCT / CONCEPT / RESEARCH / DEFER; ``fix_kind`` is
+    mechanical / options / redesign. ``fix_recommendation`` is optional (a
+    finding can describe the problem without prescribing the fix).
+    """
+
+    scene: str
+    dimension: str
+    route: str
+    fix_kind: str
+    severity: str
+    detail: str
+    fix_recommendation: str = ""
 
 
 # Action verbs the recorder understands. Single source of truth — the recorder

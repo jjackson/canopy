@@ -10,48 +10,38 @@ HTTP transport: stdlib urllib (no requests dep — matches upload.py).
 from __future__ import annotations
 
 import json
-import os
+import re
 import time
 import urllib.error
 import urllib.request
-from pathlib import Path
 
 from scripts.ddd.schemas.models import ReviewRequest
-
-DEFAULT_API = "https://canopy-web-ujpz2cuyxq-uc.a.run.app"
-TOKEN_FILE = Path.home() / ".claude" / "canopy" / "workbench-token"
+from scripts.ddd.auth import (
+    DEFAULT_API,
+    TOKEN_FILE,
+    resolve_base_url as _resolve_base_url,
+    resolve_token as _resolve_token,
+)
 
 
 # ---------------------------------------------------------------------------
-# Auth / URL resolution — mirrors upload.py exactly
+# Narrative-review URL helpers — shared by upload.py and narrative.py
 # ---------------------------------------------------------------------------
 
 
-def _resolve_base_url(base_url: str | None) -> str:
-    """Return the effective base URL, stripped of trailing slash."""
-    if base_url:
-        return base_url.rstrip("/")
-    from_env = os.environ.get("CANOPY_WEB_API_URL", "").strip()
-    if from_env:
-        return from_env.rstrip("/")
-    return DEFAULT_API
+_REVIEW_ID_RE = re.compile(
+    r"/review/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+)
 
 
-def _resolve_token(token: str | None) -> str:
-    """Return the effective PAT, raising RuntimeError if unavailable."""
-    if token:
-        return token
-    from_env = os.environ.get("CANOPY_WEB_PAT", "").strip()
-    if from_env:
-        return from_env
-    if TOKEN_FILE.exists():
-        stored = TOKEN_FILE.read_text().strip()
-        if stored:
-            return stored
-    raise RuntimeError(
-        f"no canopy-web PAT — run /canopy:canopy-web-pat-mint to mint one, "
-        f"or set CANOPY_WEB_PAT env var. Expected token at {TOKEN_FILE}."
-    )
+def _review_id_from_url(url: str | None) -> str | None:
+    """Extract the ReviewRequest UUID from a narrative-review URL
+    (``.../review/<uuid>/?t=...``), or None."""
+    if not url:
+        return None
+    m = _REVIEW_ID_RE.search(url)
+    return m.group(1) if m else None
 
 
 # ---------------------------------------------------------------------------
@@ -209,3 +199,17 @@ def await_resolution(
                 f"review {review_id!r} not resolved within {timeout}s"
             )
         _sleep(poll_interval)  # type: ignore[operator]
+
+
+def resolve_review(review_id: str, decision: dict, *, base_url: str | None = None, token: str | None = None):
+    """Programmatically resolve a review gate. NOT YET SUPPORTED server-side.
+
+    canopy-web exposes /api/reviews/<id>/ as GET/DELETE only; resolution happens
+    in the canopy-web UI. Resolving a gate from code (e.g. an automated upload)
+    needs a server-side PATCH/resolve endpoint — see the follow-up note in
+    docs/superpowers/specs/2026-06-14-ddd-walkthrough-render-engine-and-manifest-design.md.
+    """
+    raise NotImplementedError(
+        "canopy-web /api/reviews/<id>/ is GET/DELETE only; gate resolution needs a "
+        "server-side resolve endpoint (cross-repo follow-up)."
+    )
