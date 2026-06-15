@@ -1,4 +1,5 @@
 {
+  "description": "The DDD converge lifecycle for one run (run_id), persisted as run_state.yaml.\n\nPhase milestones \u2014 who writes each ``phase`` value:\n\n  * CODE-set (written by a .py module as the run advances):\n      - ``judged``    \u2014 set by ``run_pipeline.assemble_run_state`` after the\n        dual-judge verdict is assembled.\n      - ``uploaded``  \u2014 set by ``upload.upload_run`` after the run package is\n        published to canopy-web (terminal).\n  * ORCHESTRATOR-ONLY milestones (NEVER written by .py \u2014 they label loop\n    stages the orchestrator narrates): ``phase0``, ``spec``, ``render``,\n    ``converged``. The default is ``phase0``; the Literal accepts them so an\n    orchestrator-authored run_state validates, but no module assigns them.\n  * ``promoted`` is a legacy READ-alias for ``uploaded`` \u2014 accepted on read so\n    older on-disk run_state.yaml files still validate; new runs write\n    ``uploaded`` (see ``upload.upload_run``, which treats both as published).",
   "properties": {
     "schema_version": {
       "default": 1,

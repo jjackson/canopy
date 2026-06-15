@@ -52,6 +52,24 @@ from scripts.narrative.models import (
 
 
 class RunState(BaseModel):
+    """The DDD converge lifecycle for one run (run_id), persisted as run_state.yaml.
+
+    Phase milestones — who writes each ``phase`` value:
+
+      * CODE-set (written by a .py module as the run advances):
+          - ``judged``    — set by ``run_pipeline.assemble_run_state`` after the
+            dual-judge verdict is assembled.
+          - ``uploaded``  — set by ``upload.upload_run`` after the run package is
+            published to canopy-web (terminal).
+      * ORCHESTRATOR-ONLY milestones (NEVER written by .py — they label loop
+        stages the orchestrator narrates): ``phase0``, ``spec``, ``render``,
+        ``converged``. The default is ``phase0``; the Literal accepts them so an
+        orchestrator-authored run_state validates, but no module assigns them.
+      * ``promoted`` is a legacy READ-alias for ``uploaded`` — accepted on read so
+        older on-disk run_state.yaml files still validate; new runs write
+        ``uploaded`` (see ``upload.upload_run``, which treats both as published).
+    """
+
     schema_version: int = 1
     run_id: str
     narrative_slug: str
