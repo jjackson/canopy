@@ -50,3 +50,36 @@ def test_orchestrator_records_urls_when_click_navigates(monkeypatch):
 
     timing = rec.report.scene_timing_for(1)
     assert timing["urls_visited"] == ["https://x/a", "https://x/b"]
+
+
+def test_nav_sink_folds_client_side_redirect_into_urls_visited(monkeypatch):
+    """A framenavigated redirect (in the nav_sink) lands in ``urls_visited``.
+
+    Simulates the listener firing mid-scene: ``page.url`` never changes at an
+    action boundary (the redirect fired BETWEEN actions, after the click's
+    own settle), but the sink picks it up — and the orchestrator folds it in.
+    """
+    page = FakePage(url="https://x/audit")
+    nav_sink: list[str] = ["https://x/stale-from-prev-scene"]  # must be cleared
+
+    def fake_execute_action(pg, action, *, base_url="", config=None):
+        if action.get("kind") == "click":
+            # The click triggers a client-side redirect the listener catches,
+            # but page.url at the next boundary still reads the old value.
+            nav_sink.append("https://x/workflow/after-redirect")
+        return ActionResult(kind=action.get("kind", "?"), ok=True)
+
+    monkeypatch.setattr(orchestrator, "execute_action", fake_execute_action)
+
+    rec = Recorder()
+    rec.run_scene(
+        page,
+        {"title": "s", "scene_index": 1, "actions": [{"kind": "click", "target": "x"}]},
+        nav_sink=nav_sink,
+    )
+
+    visited = rec.report.scene_timing_for(1)["urls_visited"]
+    assert "https://x/audit" in visited
+    assert "https://x/workflow/after-redirect" in visited
+    # The stale URL from the prior scene was cleared, not carried forward.
+    assert "https://x/stale-from-prev-scene" not in visited

@@ -393,12 +393,27 @@ class Recorder:
         else:
             print(f"  · viewport restored → {target['width']}x{target['height']}")
 
-    def run_scene(self, page: Page, scene: dict, *, scene_index: int | None = None) -> float:
+    def run_scene(
+        self,
+        page: Page,
+        scene: dict,
+        *,
+        scene_index: int | None = None,
+        nav_sink: list[str] | None = None,
+    ) -> float:
         """Record one scene. Returns elapsed seconds (floored by ``min_hold_ms``).
 
         Order: hook ``before_scene`` → resolve nav target → maybe navigate →
         ``initial_hold_ms`` → each action with ``before_action`` / ``after_action``
         → ``final_hold_ms`` → hook ``after_scene``.
+
+        ``nav_sink`` is an optional shared list that the CLI wires to a Playwright
+        ``framenavigated`` listener (main-frame URLs). Action-boundary ``page.url``
+        snapshots miss client-side redirects that fire BETWEEN actions (e.g. an
+        audit→workflow redirect that lands while the recorder is holding). We
+        CLEAR the sink at scene start so it only carries this scene's
+        navigations, then FOLD its contents into the scene's ``urls_visited`` at
+        scene end. ``None`` (the default) is the no-sink path for ad-hoc callers.
 
         ``scene_index`` is the 1-based ORIGINAL spec index of this scene (the
         ``--scene 3`` partial-run case still gets ``scene_index=3``, not
@@ -416,6 +431,13 @@ class Recorder:
         scene_start = time.monotonic()
         if self.recording_epoch is None:
             self.recording_epoch = scene_start
+        # Clear the shared nav sink at the TRUE scene start (before the goto) so
+        # it accumulates only THIS scene's main-frame navigations — including
+        # the scene's own goto and any client-side redirect that fires while the
+        # recorder holds. Folded into ``visited`` at scene end. The listener
+        # that fills it is registered once on the page by the CLI.
+        if nav_sink is not None:
+            nav_sink.clear()
         # Per-scene viewport override: apply BEFORE the goto so the freshly-
         # loaded page lays out at the requested size from the first paint.
         # Restored AFTER final_hold_ms below (so the next scene starts at the
@@ -532,12 +554,18 @@ class Recorder:
                 start_seconds=scene_start - self.recording_epoch,
                 duration_seconds=time.monotonic() - scene_start,
             )
+            # Fold the framenavigated sink (client-side redirects) in AFTER the
+            # action-boundary snapshots, then record. ``record_scene_urls``
+            # dedupes order-preserving, so a URL already captured at an action
+            # boundary won't double up.
+            if nav_sink is not None:
+                visited = visited + list(nav_sink)
             self.report.record_scene_urls(scene_index=int(idx), urls=visited)
 
         elapsed_s = time.monotonic() - start + (self.config.initial_hold_ms + final_hold_ms) / 1000
         return max(elapsed_s, self.config.min_hold_ms / 1000)
 
-    def run(self, page: Page, scenes: list[dict]) -> float:
+    def run(self, page: Page, scenes: list[dict], *, nav_sink: list[str] | None = None) -> float:
         """Record every scene in ``scenes``. Returns total elapsed seconds.
 
         Each scene's ``scene_index`` (set by ``build_scenes_from_spec`` to the
@@ -545,13 +573,19 @@ class Recorder:
         results get stamped with the right index even on partial (``--scene 3``)
         runs. Scenes without ``scene_index`` fall back to the loop's 1-based
         position — fine for ad-hoc test callers that hand in raw scene dicts.
+
+        ``nav_sink`` (when supplied) is the shared ``framenavigated`` list,
+        passed through to each :meth:`run_scene` so client-side redirects fold
+        into the right scene's ``urls_visited``.
         """
         total = 0.0
         n = len(scenes)
         for i, scene in enumerate(scenes, 1):
             title = scene.get("title", f"(scene {i})")
             print(f"\n=== Scene {i}/{n}: {title}")
-            total += self.run_scene(page, scene, scene_index=scene.get("scene_index", i))
+            total += self.run_scene(
+                page, scene, scene_index=scene.get("scene_index", i), nav_sink=nav_sink
+            )
         return total
 
     def print_summary(self) -> None:

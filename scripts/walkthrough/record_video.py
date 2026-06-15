@@ -807,6 +807,22 @@ def main() -> None:
                 context.add_cookies(cookies_data)
 
             page = context.new_page()
+            # Capture client-side redirects / SPA route changes via Playwright's
+            # framenavigated event (main frame only). Action-boundary page.url
+            # snapshots miss redirects that fire BETWEEN actions (e.g. an
+            # audit→workflow redirect after a completion click while the
+            # recorder holds). The orchestrator clears this list at each scene
+            # start and folds it into that scene's urls_visited at scene end.
+            _nav_sink: list[str] = []
+
+            def _on_frame_navigated(frame):
+                try:
+                    if frame is page.main_frame:
+                        _nav_sink.append(frame.url)
+                except Exception:  # noqa: BLE001 — nav telemetry must never break a render
+                    pass
+
+            page.on("framenavigated", _on_frame_navigated)
             # Playwright's video capture starts when the page opens — this is
             # second zero of the recording timeline. Captured here (NOT at
             # Recorder.run) so any pre-scene auth navigation below counts
@@ -847,7 +863,7 @@ def main() -> None:
                 (snap_dir / "setup-vars.json").write_text(
                     json.dumps(setup_provenance, indent=2)
                 )
-            total_seconds = recorder.run(page, scenes)
+            total_seconds = recorder.run(page, scenes, nav_sink=_nav_sink)
 
             context.close()  # flush video
             browser.close()
