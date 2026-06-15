@@ -462,6 +462,17 @@ class Recorder:
 
         start = time.monotonic()
         scene_results: list[ActionResult] = []
+        # Collect the URLs this scene actually lands on, one ``page.url``
+        # snapshot per action boundary. Seed with the post-nav URL (so a
+        # nav-only scene still records where it went), then append after each
+        # action (a click can trigger a redirect/SPA route change). Deduped +
+        # order-preserved downstream in ``record_scene_urls``. Guarded because
+        # ``page.url`` can raise on a torn-down page.
+        visited: list[str] = []
+        try:
+            visited.append(page.url)
+        except Exception:  # noqa: BLE001 — URL collection is best-effort telemetry
+            pass
         for action in (scene.get("actions") or []):
             self.before_action(scene, action)
             result = execute_action(page, action, base_url=self.base_url, config=self.config)
@@ -474,6 +485,10 @@ class Recorder:
                 result = dataclasses.replace(result, scene_index=int(idx))
             self.report.record(result)
             scene_results.append(result)
+            try:
+                visited.append(page.url)
+            except Exception:  # noqa: BLE001 — best-effort telemetry
+                pass
             self.after_action(scene, action, result)
 
         # End-of-scene hold. ``scene.video_hold_seconds`` (legacy per-scene
@@ -517,6 +532,7 @@ class Recorder:
                 start_seconds=scene_start - self.recording_epoch,
                 duration_seconds=time.monotonic() - scene_start,
             )
+            self.report.record_scene_urls(scene_index=int(idx), urls=visited)
 
         elapsed_s = time.monotonic() - start + (self.config.initial_hold_ms + final_hold_ms) / 1000
         return max(elapsed_s, self.config.min_hold_ms / 1000)
