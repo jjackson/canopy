@@ -103,6 +103,14 @@ class RunReport:
     or CLI ``--prewarm``). ``None`` when prewarm was off — the key is then
     omitted from :meth:`as_dict`, mirroring ``setup``."""
 
+    _scene_timing_index: dict[int, dict] = field(default_factory=dict, repr=False)
+    """``scene_index -> timing entry`` mirror of :attr:`scenes`, kept in sync by
+    :meth:`record_scene_timing`. Lets :meth:`record_scene_urls` and
+    :meth:`scene_timing_for` reach a scene's entry by index in O(1) without
+    re-scanning the list. The mirrored dicts are the SAME objects stored in
+    :attr:`scenes`, so mutations (adding ``urls_visited``) show up in both —
+    and :meth:`as_dict`/`:meth:`to_json` serialize them correctly."""
+
     def record(self, r: ActionResult) -> None:
         """Append one result. Called by ``execute_action`` after each action."""
         self.results.append(r)
@@ -116,14 +124,42 @@ class RunReport:
         duration_seconds: float,
     ) -> None:
         """Append one per-scene timing entry. Called by ``Recorder.run_scene``."""
-        self.scenes.append(
-            {
-                "scene_index": int(scene_index),
-                "title": title,
-                "start_seconds": round(float(start_seconds), 3),
-                "duration_seconds": round(float(duration_seconds), 3),
-            }
-        )
+        entry = {
+            "scene_index": int(scene_index),
+            "title": title,
+            "start_seconds": round(float(start_seconds), 3),
+            "duration_seconds": round(float(duration_seconds), 3),
+        }
+        self.scenes.append(entry)
+        self._scene_timing_index[int(scene_index)] = entry
+
+    def record_scene_urls(self, *, scene_index: int, urls: list[str]) -> None:
+        """Record the URLs a scene navigated to, deduped + order-preserving.
+
+        Stores them under ``urls_visited`` on the scene's timing entry (the
+        same dict held in :attr:`scenes`, so it serializes via
+        :meth:`as_dict`). Called by ``Recorder.run_scene`` with the list of
+        ``page.url`` snapshots collected across the scene's actions. If no
+        timing entry exists yet for ``scene_index`` (e.g. a test calls this
+        before :meth:`record_scene_timing`), a bare entry is created so the
+        URLs aren't dropped."""
+        entry = self._scene_timing_index.get(int(scene_index))
+        if entry is None:
+            entry = {"scene_index": int(scene_index)}
+            self.scenes.append(entry)
+            self._scene_timing_index[int(scene_index)] = entry
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for u in urls or []:
+            if u in seen:
+                continue
+            seen.add(u)
+            deduped.append(u)
+        entry["urls_visited"] = deduped
+
+    def scene_timing_for(self, scene_index: int) -> dict:
+        """Return the timing entry for ``scene_index`` (or ``{}`` if none)."""
+        return self._scene_timing_index.get(int(scene_index), {})
 
     def ok_count(self) -> int:
         return sum(1 for r in self.results if r.ok)
