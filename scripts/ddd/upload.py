@@ -40,7 +40,6 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -68,6 +67,21 @@ class NarrativeMissingError(RuntimeError):
     published package would render as "no narrative" in canopy-web. The fix is
     to run ``/canopy:ddd-narrative-review <run_id>`` first (which stamps
     ``run_state.narrative_review_id``), then re-upload.
+    """
+
+
+class DeckMissingError(RuntimeError):
+    """Raised when ``upload_run`` cannot find a usable render manifest.
+
+    The render engine emits ``walkthrough-run-data.json`` (the canonical
+    manifest built by ``scripts.walkthrough.manifest.build_manifest``) into the
+    run dir. The deck (``role=deck`` slideshow) is built directly from that
+    manifest's scene slides — there is no spec-rebuild fallback. If the manifest
+    is absent or carries zero scene slides, the run was not rendered (or was
+    rendered by a stale path that didn't emit the manifest); the fix is to
+    re-render with ``record_video.py --manifest`` before uploading. Failing loud
+    here is deliberate: a silently-empty "Walkthrough slides" section is the bug
+    this refactor removes.
     """
 
 
@@ -853,74 +867,6 @@ def _default_gate(review_request: ReviewRequest, base_url: str | None, token: st
 
 
 # ---------------------------------------------------------------------------
-# Slideshow deck (role=deck) — rebuilt from captured frames
-# ---------------------------------------------------------------------------
-
-
-def _build_deck_run_data(run_dir: Path, raw_spec: dict, *, generated_at: str) -> dict | None:
-    """Build a ``walkthrough-run-data.json``-shaped dict from a run dir's
-    captured ``scene_<N>.png`` screenshots + the spec.
-
-    ``canopy:walkthrough`` writes that sidecar during rendering; a run rendered
-    directly via ``record_video.py`` does NOT, so no slideshow deck (role=deck)
-    is ever produced and the package page's "Walkthrough slides" section renders
-    empty. Rebuilding the deck data from the captured frames lets ``upload_run``
-    guarantee a deck regardless of how the run was rendered. Returns ``None`` when
-    no scene captures are present (nothing to deck).
-    """
-    scenes = raw_spec.get("scenes", []) or []
-    personas_raw = raw_spec.get("personas", {}) or {}
-    base = (raw_spec.get("base_url") or "").rstrip("/")
-    slides: list[dict] = []
-    for idx, scene in enumerate(scenes, start=1):
-        png = run_dir / f"scene_{idx}.png"
-        if not png.exists():
-            continue
-        persona_key = scene.get("persona") or (next(iter(personas_raw), "") if personas_raw else "")
-        # Scene starting URL: explicit url, else the first goto action's target,
-        # else the spec base. Path-relative urls resolve against base_url.
-        url = scene.get("url")
-        if not url:
-            for action in scene.get("actions", []) or []:
-                if action.get("kind") == "goto" and action.get("target"):
-                    url = action["target"]
-                    break
-        if url and url.startswith("/"):
-            url = base + url
-        slides.append(
-            {
-                "type": "scene",
-                "title": scene.get("title", f"Scene {idx}"),
-                "narration": scene.get("narrative") or scene.get("show") or "",
-                "url": url or base,
-                "screenshot_b64": base64.b64encode(png.read_bytes()).decode(),
-                "scene_index": idx,
-                "scene_total": len(scenes),
-                "persona": persona_key,
-                "persona_key": persona_key,
-            }
-        )
-    if not slides:
-        return None
-    return {
-        "name": raw_spec.get("name", ""),
-        "narrative": raw_spec.get("narrative", ""),
-        "generated_at": generated_at,
-        "duration_seconds": 0,
-        "personas": {
-            key: {
-                "name": val.get("name", key),
-                "role": val.get("role", ""),
-                "color": val.get("color", "#4F46E5"),
-                "intro": val.get("intro", ""),
-            }
-            for key, val in personas_raw.items()
-        },
-        "slides": slides,
-    }
-
-
-# ---------------------------------------------------------------------------
 # upload_run
 # ---------------------------------------------------------------------------
 
@@ -1083,7 +1029,21 @@ def upload_run(
         narrative_review_id=narrative_review_id,
     )
 
-    # 4. Build docs HTML + the external-systems links (live pages the run used).
+    # 4. Read the render manifest ONCE — it drives both the external-systems
+    #    links (step 4) and the slideshow deck (step 6b). The engine emits
+    #    walkthrough-run-data.json (record_video.py --manifest); if it's absent
+    #    the run was never rendered (or by a stale path), so fail LOUD rather than
+    #    fabricate a deck/links from the spec.
+    sidecar_path = run_dir / "walkthrough-run-data.json"
+    if not sidecar_path.exists():
+        raise DeckMissingError(
+            f"no render manifest at {sidecar_path}; render must emit "
+            f"walkthrough-run-data.json (record_video --manifest). "
+            f"Re-render before upload."
+        )
+    deck_run_data = json.loads(sidecar_path.read_text())
+
+    # Build docs HTML + the external-systems links (live pages the run used).
     html_content = build_docs_page(spec, why_brief, video_url)
     external_links = _external_links_from_spec(spec)
 
@@ -1127,41 +1087,28 @@ def upload_run(
         links=external_links,
     )
 
-    # 6b. Ensure a slideshow deck (role=deck) exists. The package page's
-    #     "Walkthrough slides" section reads role=deck; ddd-run Step 2b uploads
-    #     one per iteration when rendered via canopy:walkthrough, but a run
-    #     rendered directly via record_video.py emits no walkthrough-run-data.json
-    #     sidecar, so no deck is ever produced and that section renders empty.
-    #     Prefer an existing sidecar; otherwise rebuild the deck from the run
-    #     dir's captured scene_<N>.png frames so the package is always complete.
-    #     A missing/un-renderable deck must NEVER break the upload — the video +
-    #     docs are already published — so failures here are logged, not raised.
-    try:
-        from scripts.walkthrough.generate_presentation import build_presentation_html
+    # 6b. Upload the slideshow deck (role=deck) — built directly from the render
+    #     manifest the engine emitted (read once at the top of upload_run). The
+    #     package page's "Walkthrough slides" section reads role=deck; the deck is
+    #     the manifest's scene slides rendered by build_presentation_html. There is
+    #     NO spec-rebuild fallback: a missing or empty manifest is a render gap, so
+    #     we fail LOUD (DeckMissingError) rather than silently skip the section.
+    from scripts.walkthrough.generate_presentation import build_presentation_html
 
-        sidecar_path = run_dir / "walkthrough-run-data.json"
-        if sidecar_path.exists():
-            deck_run_data = json.loads(sidecar_path.read_text())
-        else:
-            deck_run_data = _build_deck_run_data(
-                run_dir,
-                raw_spec,
-                generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            )
-        if deck_run_data and deck_run_data.get("slides"):
-            upload_fn(
-                build_presentation_html(deck_run_data),
-                kind="html",
-                title=f"{spec.name} — walkthrough slides",
-                base_url=base_url,
-                token=token,
-                run_id=run_id,
-                narrative_slug=run_state.narrative_slug,
-                role="deck",
-                narrative_review_id=narrative_review_id,
-            )
-    except Exception as exc:  # noqa: BLE001 — deck is best-effort; never block the package
-        print(f"ddd-upload: skipped slideshow deck ({exc})", file=sys.stderr)
+    deck_slides = [s for s in deck_run_data.get("slides", []) if s.get("type") == "scene"]
+    if not deck_slides:
+        raise DeckMissingError(f"manifest {sidecar_path} has zero scene slides")
+    upload_fn(
+        build_presentation_html(deck_run_data),
+        kind="html",
+        title=f"{spec.name} — walkthrough slides",
+        base_url=base_url,
+        token=token,
+        run_id=run_id,
+        narrative_slug=run_state.narrative_slug,
+        role="deck",
+        narrative_review_id=narrative_review_id,
+    )
 
     # 7. Update run state. A release marks the run terminal (uploaded); a stuck
     #    review upload leaves phase unchanged so the run can keep iterating toward
