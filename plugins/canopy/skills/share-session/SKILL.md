@@ -21,11 +21,17 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`, mention it once and continue.
 
 # Share Session
 
-Uploads a Claude Code session's `.jsonl` transcript to canopy-web, which parses
-it into a chat-style view, scrubs obvious secrets, and (by default) mints an
-anyone-with-link share URL rendered at `/share/<token>`. The generic version of
+Uploads a Claude Code session to canopy-web, which renders it as a chat-style
+view, scrubs obvious secrets, and (by default) mints an anyone-with-link share
+URL rendered at `/share/<token>`. The generic version of
 `ace:upload-transcript` — not scoped to any opportunity, just "share what I (or
 some earlier session) did".
+
+**By default the uploader reduces the transcript client-side BEFORE upload** to
+just the conversation — what the human typed plus Claude's final reply per turn.
+Tool calls, tool results, and intermediate steps are dropped on your machine and
+never leave it (smaller, far more readable, and tool output that may carry
+sensitive data isn't transmitted). Pass `--full` to upload the raw transcript.
 
 ## Step 1 — which session?
 
@@ -111,9 +117,10 @@ python3 "$UPLOAD" --private --title "<short title>"
 The uploader prints:
 
 ```
-using transcript: <path>            # stderr — only on auto-discovery
-uploading <N> KB to <api>…          # stderr
-Share: <api>/share/<token>          # stdout — the link to hand out
+using transcript: <path>                        # stderr — only on auto-discovery
+reduced to <N> conversation turn(s) …           # stderr — unless --full
+uploading <N> KB to <api>…                      # stderr
+Share: <api>/share/<token>                      # stdout — the link to hand out
 <N> messages · <N> secrets redacted (best-effort)   # stderr
 ```
 
@@ -135,6 +142,7 @@ Pass the `Share:` line back to the user verbatim.
 | `--title <str>` | no | Defaults to the transcript filename stem. Max 500 chars server-side. |
 | `--project <slug>` | no | Groups the session under a project in the `/sessions` feed. Defaults to the current directory name (set it explicitly in 2B to the shared session's project). |
 | `--private` | no | Upload as private (dimagi-only). Default is link-by-default. |
+| `--full` | no | Upload the raw transcript (all tool calls). Default reduces to the conversation (prompts + final replies) client-side; tool output never leaves the machine. |
 | `--api-url <url>` | no | Override canopy-web base URL (also via `CANOPY_WEB_API_URL`). |
 
 ## Secret scrubbing (best-effort, not a guarantee)
