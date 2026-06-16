@@ -37,6 +37,105 @@ def fail(msg: str, code: int = 1) -> None:
     sys.exit(code)
 
 
+# Harness-authored "user" lines that aren't things the human typed.
+_NOISE_PREFIXES = (
+    "<system-reminder",
+    "<command-name",
+    "<command-message",
+    "<command-args",
+    "<local-command-stdout",
+    "<local-command-stderr",
+    "<local-command-caveat",
+    "<task-notification",
+    "<system>",
+    "Caveat:",
+    "[Request interrupted",
+)
+
+
+def _is_noise(text: str) -> bool:
+    t = text.lstrip()
+    return any(t.startswith(p) for p in _NOISE_PREFIXES)
+
+
+def reduce_transcript(path: Path) -> tuple[bytes, int]:
+    """Reduce a raw Claude .jsonl to a clean conversation, client-side.
+
+    Keeps only what the human typed and the FINAL assistant text of each turn.
+    Drops tool_use / tool_result / sidechain / harness-noise entirely — they
+    are never uploaded. Re-emits a minimal Claude-format .jsonl (init + user/
+    assistant text lines) that the server parses back into exactly these turns.
+
+    The full noisy transcript (and any sensitive tool output it carries) never
+    leaves the machine.
+    """
+    session_id = ""
+    turns: list[tuple[str, str]] = []  # (role, text) in order
+    pending_assistant: str | None = None
+
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            e = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        kind = e.get("type")
+        if kind == "system" and e.get("subtype") == "init":
+            session_id = e.get("session_id", "") or session_id
+            continue
+        if e.get("isSidechain"):
+            continue
+        msg = e.get("message") if isinstance(e.get("message"), dict) else {}
+
+        if kind == "assistant":
+            blocks = msg.get("content", [])
+            if isinstance(blocks, list):
+                texts = [
+                    b.get("text", "")
+                    for b in blocks
+                    if isinstance(b, dict) and b.get("type") == "text"
+                ]
+                joined = "".join(texts).strip()
+                if joined:
+                    pending_assistant = joined  # latest assistant text wins
+            continue
+
+        if kind == "user":
+            content = msg.get("content")
+            if not isinstance(content, str):
+                continue  # list content == tool_result; ignore
+            text = content.strip()
+            if not text or _is_noise(text):
+                continue
+            # flush the previous turn's final assistant reply, then this prompt
+            if pending_assistant:
+                turns.append(("assistant", pending_assistant))
+                pending_assistant = None
+            turns.append(("user", text))
+
+    if pending_assistant:
+        turns.append(("assistant", pending_assistant))
+
+    out = [json.dumps({"type": "system", "subtype": "init", "session_id": session_id})]
+    for i, (role, text) in enumerate(turns):
+        text = text.replace("\x00", "")
+        if role == "user":
+            out.append(json.dumps({"type": "user", "message": {"content": text}}))
+        else:
+            out.append(
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {"id": f"a{i}", "content": [{"type": "text", "text": text}]},
+                    }
+                )
+            )
+    return ("\n".join(out) + "\n").encode("utf-8"), len(turns)
+
+
 def _describe_error(body: dict) -> str:
     if not isinstance(body, dict):
         return str(body)
@@ -149,6 +248,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Upload private (dimagi-only) instead of link-by-default.",
     )
     p.add_argument(
+        "--full",
+        action="store_true",
+        help="Upload the raw transcript (all tool calls). Default reduces to "
+        "the conversation — your prompts + Claude's final reply per turn — "
+        "client-side, so tool output never leaves your machine.",
+    )
+    p.add_argument(
         "--api-url",
         default=os.environ.get("CANOPY_WEB_API_URL", DEFAULT_API),
         help="canopy-web base URL (default: %(default)s)",
@@ -170,7 +276,15 @@ def main(argv: list[str] | None = None) -> int:
     project = args.project_slug or cwd.name
     visibility = "private" if args.private else "link"
 
-    file_bytes = src.read_bytes()
+    if args.full:
+        file_bytes = src.read_bytes()
+    else:
+        file_bytes, n_turns = reduce_transcript(src)
+        print(
+            f"reduced to {n_turns} conversation turn(s) "
+            f"(prompts + final replies; tool calls dropped client-side)",
+            file=sys.stderr,
+        )
     size_kb = len(file_bytes) / 1024
     print(f"uploading {size_kb:.0f} KB to {api}…", file=sys.stderr)
 
