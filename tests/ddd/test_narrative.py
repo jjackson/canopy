@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
 import yaml
 
 from scripts.ddd.schemas.models import Persona, ReviewRequest, Scene, UnifiedSpec
@@ -1683,3 +1684,145 @@ class TestNarrativeSyncUnstampedClean:
         a, _ = decide_narrative_sync(local_present=True, local_changed=False,
                                      local_synced_version=None, web_version=1)
         assert a == "pull"
+
+
+# ---------------------------------------------------------------------------
+# Auto-versioning — any narrative change auto-posts a new version (no pause)
+# ---------------------------------------------------------------------------
+
+
+class _FakeReview:
+    """A fake `scripts.ddd.review` module for auto-version tests.
+
+    Records `post_review_request` calls and serves `get_narrative` with a
+    `current_version.version` that increments on each post — mirroring
+    canopy-web assigning the next monotonic version AT POST TIME and treating
+    the latest-posted version as current (independent of pending/resolved).
+    `web_version_override` simulates web having advanced underneath the run.
+    """
+
+    def __init__(self, start_version: int = 0, web_version_override: int | None = None):
+        self._version = start_version
+        self._web_version_override = web_version_override
+        self.posts: list = []
+
+    # Network-touching API used by post_narrative_version / _stamp_spec_sync.
+    def post_review_request(self, request, **kwargs):
+        self._version += 1
+        self.posts.append(request)
+        rid = f"rev-{self._version}"
+        return {"id": rid, "url": f"https://c/review/{rid}/", "share_token": "t"}
+
+    def get_narrative(self, slug, **kwargs):
+        v = self._web_version_override if self._web_version_override is not None else self._version
+        if v <= 0:
+            return None
+        return {"current_version": {"version": v}}
+
+    def _resolve_base_url(self, base):
+        return "https://c"
+
+
+def _seed_run_state(tmp_path, monkeypatch, run_id: str, narrative_slug: str):
+    import scripts.ddd.runstate as rs
+    from scripts.ddd.schemas.models import RunState
+
+    monkeypatch.setattr(rs, "_resolve_ddd_dir", lambda: tmp_path)
+    rs.save(RunState(run_id=run_id, narrative_slug=narrative_slug, phase="converged"))
+    return rs
+
+
+class TestAutoVersionIfChanged:
+    RUN_ID = "rooftop-surveys-2026-06-04-001"
+    SLUG = "rooftop-surveys"
+
+    def test_noop_when_hash_unchanged(self, tmp_path, monkeypatch):
+        """A spec already in sync (hash == narrative_synced_hash) posts nothing."""
+        from scripts.ddd.narrative import auto_version_if_changed, narrative_content_hash
+
+        self._seed(tmp_path, monkeypatch)
+        spec_path = _write_spec(tmp_path, _make_spec())
+        raw = yaml.safe_load(spec_path.read_text())
+        raw["narrative_synced_version"] = 1
+        raw["narrative_synced_hash"] = narrative_content_hash(raw)
+        spec_path.write_text(yaml.dump(raw, default_flow_style=False, allow_unicode=True))
+
+        fake = _FakeReview(start_version=1)
+        result = auto_version_if_changed(str(spec_path), self.RUN_ID, rv=fake)
+        assert result["action"] == "noop"
+        assert fake.posts == []
+
+    def test_posts_and_stamps_when_changed(self, tmp_path, monkeypatch):
+        """A narrative edit (synced hash now stale) posts a new version, stamps the
+        run, and updates the spec's synced hash/version."""
+        from scripts.ddd.narrative import auto_version_if_changed, narrative_content_hash
+
+        rs = self._seed(tmp_path, monkeypatch)
+        spec_path = _write_spec(tmp_path, _make_spec())
+        raw = yaml.safe_load(spec_path.read_text())
+        raw["narrative_synced_version"] = 1
+        # Stamp a DELIBERATELY stale hash so the current content reads as changed.
+        raw["narrative_synced_hash"] = "stale-hash-does-not-match"
+        spec_path.write_text(yaml.dump(raw, default_flow_style=False, allow_unicode=True))
+
+        fake = _FakeReview(start_version=1)  # web at v1; post → v2
+        result = auto_version_if_changed(str(spec_path), self.RUN_ID, rv=fake)
+        assert result["action"] == "posted"
+        assert result["first_ever"] is False
+        assert len(fake.posts) == 1
+
+        # Run stamped to the new review.
+        reloaded_state = rs.load(self.RUN_ID)
+        assert reloaded_state.narrative_review_id == "rev-2"
+
+        # Spec re-stamped: synced version bumped + hash now matches current content.
+        reloaded_spec = yaml.safe_load(spec_path.read_text())
+        assert reloaded_spec["narrative_synced_version"] == 2
+        assert reloaded_spec["narrative_synced_hash"] == narrative_content_hash(reloaded_spec)
+        assert result["version"] == 2
+
+    def test_first_ever_narrative_posts_v1(self, tmp_path, monkeypatch):
+        """No narrative_synced_version yet → first-ever → post v1 (no conflict check)."""
+        from scripts.ddd.narrative import auto_version_if_changed
+
+        self._seed(tmp_path, monkeypatch)
+        spec_path = _write_spec(tmp_path, _make_spec())  # no synced fields
+
+        fake = _FakeReview(start_version=0)  # nothing on web yet; post → v1
+        result = auto_version_if_changed(str(spec_path), self.RUN_ID, rv=fake)
+        assert result["action"] == "posted"
+        assert result["first_ever"] is True
+        assert len(fake.posts) == 1
+        reloaded_spec = yaml.safe_load(spec_path.read_text())
+        assert reloaded_spec["narrative_synced_version"] == 1
+
+    def test_conflict_preserved_when_web_advanced(self, tmp_path, monkeypatch):
+        """Local changed AND web advanced past the synced version → raise
+        NarrativeConflictError; do NOT auto-clobber, do NOT post."""
+        from scripts.ddd.narrative import auto_version_if_changed, NarrativeConflictError
+
+        self._seed(tmp_path, monkeypatch)
+        spec_path = _write_spec(tmp_path, _make_spec())
+        raw = yaml.safe_load(spec_path.read_text())
+        raw["narrative_synced_version"] = 1
+        raw["narrative_synced_hash"] = "stale-hash"  # local changed
+        spec_path.write_text(yaml.dump(raw, default_flow_style=False, allow_unicode=True))
+
+        # Web is at v3 — advanced underneath a spec that last synced v1.
+        fake = _FakeReview(start_version=3, web_version_override=3)
+        with pytest.raises(NarrativeConflictError):
+            auto_version_if_changed(str(spec_path), self.RUN_ID, rv=fake)
+        assert fake.posts == []
+        # Spec untouched — no auto-clobber.
+        assert yaml.safe_load(spec_path.read_text())["narrative_synced_version"] == 1
+
+    def test_missing_spec_raises(self, tmp_path, monkeypatch):
+        from scripts.ddd.narrative import auto_version_if_changed
+
+        self._seed(tmp_path, monkeypatch)
+        fake = _FakeReview()
+        with pytest.raises(FileNotFoundError):
+            auto_version_if_changed(str(tmp_path / "nope.yaml"), self.RUN_ID, rv=fake)
+
+    def _seed(self, tmp_path, monkeypatch):
+        return _seed_run_state(tmp_path, monkeypatch, self.RUN_ID, self.SLUG)

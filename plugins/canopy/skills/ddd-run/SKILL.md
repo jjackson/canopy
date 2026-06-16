@@ -72,6 +72,42 @@ ddd-run: BLOCKED — ddd-spec-qa must pass before rendering.
 
 Do NOT render a spec that fails the QA gate.
 
+### Step 1b — Auto-version the narrative (no pause)
+
+Any change to the spec's **narrative content** automatically mints a new
+narrative version on canopy-web and attaches this run to it — no per-edit human
+pause. Run this BEFORE render so the run attaches to the exact version it
+renders:
+
+```bash
+SPEC_ABS="$(realpath <unified_spec>)"
+(cd "$DDD_REPO" && uv run python -m scripts.ddd.narrative autoversion "$SPEC_ABS" "<run_id>")
+```
+
+- **`{"action": "noop", ...}`** — narrative unchanged since the last sync;
+  nothing posted, the run keeps pointing at the current version. Continue.
+- **`{"action": "posted", "version": N, ...}`** — the narrative changed, so a new
+  version was posted. It is **immediately the current/active narrative** (canopy-web
+  treats the latest-posted `concept_change` review as `current_version`,
+  independent of pending/resolved status) and the run is now stamped to it. No
+  approve step is needed. Continue.
+- **exit code 2 (`CONFLICT: ...`)** — the local narrative changed AND canopy-web
+  advanced underneath this run. Do NOT auto-clobber. Surface the conflict to the
+  user and stop: reconcile with `narrative pull <slug> "$SPEC_ABS" --force` (take
+  web as truth) or run `/canopy:ddd-narrative-review <run_id>` to push the local
+  edits as the next version on top of the advanced web base, then retry.
+
+The human approval gate stays only at **`external_release`** (upload). The
+first-ever narrative for a slug still posts here (v1) — there is no separate
+"first run posts, later runs auto" branch in this skill; `autoversion` handles
+the first-ever case (no synced version) by posting v1.
+
+> **When to still run `/canopy:ddd-narrative-review`:** that gate is now
+> **opt-in** — use it only for the first-ever narrative for a slug when you want
+> the user to APPROVE the story arc before any build, or when the user explicitly
+> asks to review the narrative. Routine narrative edits between runs do NOT pause
+> on it; `autoversion` posts them silently.
+
 ### Step 2 — Render: invoke the canopy walkthrough engine
 
 Invoke `canopy:walkthrough` (or the equivalent Skill tool call) against
