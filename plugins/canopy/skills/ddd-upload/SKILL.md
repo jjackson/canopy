@@ -125,10 +125,27 @@ filtered scope converged — the "What you can do" section is built per
 scene, and a partial run would publish a docs page missing capabilities
 the spec promises.
 
-### Step 0.5 — Pre-flight: refuse runs with no narrative
+### Step 0.5 — Pre-flight: auto-version, then refuse runs with no narrative
 
-A run must have a narrative before it can be published — otherwise the package
-renders as **"no narrative"** in canopy-web. Check it deterministically:
+**First, auto-version the narrative (backstop, no pause).** A hand-driven upload
+can run on a spec whose narrative was edited since the last version was posted —
+attaching the run to a stale story. Re-version before the narrative check so the
+published package always points at the current narrative:
+
+```bash
+SPEC_ABS="$(realpath "<spec_path>")"   # the run's unified_spec.yaml
+(cd "$DDD_REPO" && uv run python -m scripts.ddd.narrative autoversion "$SPEC_ABS" "<run_id>")
+```
+
+- `{"action": "noop"}` — narrative unchanged; continue to the status check.
+- `{"action": "posted", "version": N}` — narrative changed; a new version was
+  posted, is immediately current, and the run is now stamped to it. Continue.
+- **exit code 2 (`CONFLICT`)** — local narrative changed AND canopy-web advanced
+  underneath. STOP, surface the conflict, and reconcile (pull --force, or run the
+  narrative-review gate) before re-uploading. Do not auto-clobber.
+
+Then check the run has a narrative — otherwise the package renders as **"no
+narrative"** in canopy-web. Check it deterministically:
 
 ```bash
 (cd "$DDD_REPO" && uv run python -m scripts.ddd.narrative status "<run_id>")
