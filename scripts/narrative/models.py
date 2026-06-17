@@ -367,15 +367,6 @@ class Scene(BaseModel):
     show: str
     concept_claim: str
     provenance: str
-    vo: str | None = None
-    """Optional tight voiceover line for this beat — what a narrator SAYS while
-    the scene is on screen. Distinct from ``concept_claim`` (the precise,
-    falsifiable design sentence that doubles as the on-screen caption /
-    lower-third). ``vo`` should fit the beat's on-screen duration at roughly
-    2.5 words/second, so a video renderer narrates the section without
-    stretching the footage past its clip range. When absent, downstream
-    emitters fall back to ``concept_claim`` (which, being longer, may force the
-    renderer to extend the beat and drift the footage)."""
     design_intent: str | None = None
     impressive_because: str | None = None
     features: list[Feature] = []
