@@ -1344,6 +1344,77 @@ def auto_version_if_changed(spec_path_str: str, run_id: str, rv=None) -> dict:
     }
 
 
+def sync(spec_path_str: str, run_id: str, *, rv=None) -> dict:
+    """Reconcile the local narrative spec with canopy-web in ONE step — the bridge
+    that lets WEB edits become versions the way local (canopy) edits already do.
+
+    Two directions, in order:
+
+    1. **Web → local.** If the run's narrative review has been RESOLVED on
+       canopy-web (the reviewer edited the story inline and approved/redrafted),
+       fold that ``response_json`` onto the local spec via
+       :func:`apply_narrative_edits`. This is the missing piece: ``pull`` only
+       hydrates a version's baseline (``request_json``) and never applied the
+       reviewer's inline edits, so a web edit sat dangling on the review until
+       someone hand-ran ``apply``.
+    2. **Local → web.** Then :func:`auto_version_if_changed` posts a new version
+       iff the (now possibly edited) narrative differs from the last-synced one —
+       so the folded-in web edit becomes a real numbered version, not a dangling
+       review response.
+
+    Idempotent: a second ``sync`` re-applies the same edits as a net no-op and
+    versions nothing (the content hash is unchanged). Raises
+    :class:`NarrativeConflictError` if the web advanced under a local edit (same
+    guard as ``autoversion``). ``rv`` is injectable for tests.
+
+    Returns ``{"review_id", "applied", "decision", "version"}``: ``applied`` /
+    ``decision`` are ``None`` when there was no resolved review to fold in;
+    ``version`` is the :func:`auto_version_if_changed` result (``action``
+    ``noop`` | ``posted``).
+    """
+    if rv is None:
+        from scripts.ddd import review as rv  # local import — network-touching
+    from scripts.ddd import runstate as rs
+
+    spec_path = Path(spec_path_str)
+    if not spec_path.exists():
+        raise FileNotFoundError(f"spec file not found: {spec_path}")
+
+    # Resolve the run's review id (the web side of the bridge).
+    review_id = None
+    try:
+        state = rs.load(run_id)
+        review_id = (getattr(state, "narrative_review_id", None) or "").strip() or None
+        if not review_id:
+            review_id = _review_id_from_url(getattr(state, "narrative_review_url", None))
+    except FileNotFoundError:
+        pass
+
+    # 1. Web → local: fold a RESOLVED review's edits onto the spec. apply is
+    #    idempotent and also sets the narrative lock on an approve decision.
+    applied = None
+    decision = None
+    if review_id:
+        try:
+            data = rv.get_review(review_id)
+        except Exception:  # noqa: BLE001 — network/404: degrade to local-only autoversion
+            data = None
+        if isinstance(data, dict) and data.get("status") == "resolved":
+            res = apply_narrative_edits(spec_path, data.get("response_json") or {})
+            applied = res.get("applied")
+            decision = res.get("decision")
+
+    # 2. Local → web: version any change (including the edits just folded in).
+    version = auto_version_if_changed(str(spec_path), run_id, rv=rv)
+
+    return {
+        "review_id": review_id,
+        "applied": applied,
+        "decision": decision,
+        "version": version,
+    }
+
+
 def _cmd_autoversion(spec_path_str: str, run_id: str) -> None:
     """Auto-post a new narrative version iff the narrative changed; print result JSON.
 
@@ -1353,6 +1424,18 @@ def _cmd_autoversion(spec_path_str: str, run_id: str) -> None:
     """
     try:
         result = auto_version_if_changed(spec_path_str, run_id)
+    except NarrativeConflictError as exc:
+        print(f"CONFLICT: {exc}", file=sys.stderr)
+        sys.exit(2)
+    print(json.dumps(result))
+
+
+def _cmd_sync(spec_path_str: str, run_id: str) -> None:
+    """Reconcile local spec <-> canopy-web in one step: fold a resolved review's
+    edits onto the spec, then auto-version any change. Print the result JSON; exit
+    2 on a conflict (web advanced under a local edit)."""
+    try:
+        result = sync(spec_path_str, run_id)
     except NarrativeConflictError as exc:
         print(f"CONFLICT: {exc}", file=sys.stderr)
         sys.exit(2)
@@ -1591,6 +1674,15 @@ def main() -> None:
             sys.exit(2)
         _cmd_autoversion(sys.argv[2], sys.argv[3])
 
+    elif subcmd == "sync":
+        if len(sys.argv) != 4:
+            print(
+                "Usage: python -m scripts.ddd.narrative sync <spec_path> <run_id>",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        _cmd_sync(sys.argv[2], sys.argv[3])
+
     elif subcmd == "status":
         if len(sys.argv) != 3:
             print(
@@ -1635,7 +1727,7 @@ def main() -> None:
 
     else:
         print(
-            f"ERROR: unknown subcommand {subcmd!r}. Use 'post', 'autoversion', 'status', 'pull', 'apply', 'locked', 'lock', or 'unlock'.",
+            f"ERROR: unknown subcommand {subcmd!r}. Use 'post', 'autoversion', 'sync', 'status', 'pull', 'apply', 'locked', 'lock', or 'unlock'.",
             file=sys.stderr,
         )
         sys.exit(2)
