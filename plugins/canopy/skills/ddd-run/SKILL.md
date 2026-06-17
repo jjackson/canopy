@@ -85,11 +85,12 @@ SPEC_ABS="$(realpath <unified_spec>)"
 (cd "$DDD_REPO" && uv run python -m scripts.ddd.narrative sync "$SPEC_ABS" "<run_id>")
 ```
 
-> **Why `sync`, not `autoversion`:** `autoversion` only versions LOCAL edits — it
-> would silently ignore edits the user made on the web review page (those live in
-> the review's `response_json`, not the spec). `sync` = fold resolved web edits →
-> then `autoversion`. It is a strict superset (no web edits pending → it behaves
-> exactly like `autoversion`), so always run `sync` here.
+> **What `sync` does:** it folds any resolved **web** review edits onto the spec
+> (those live in the review's `response_json`, not the spec — so versioning the
+> local spec alone would silently drop them), THEN versions any change. There is
+> deliberately **no separate "version-local-only" command** — that was a footgun
+> that ignored web edits. `sync` is the one entry point; no web edits pending →
+> it just versions the local change.
 
 `sync` returns `{review_id, applied, decision, version}`:
 

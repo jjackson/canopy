@@ -1365,7 +1365,7 @@ def sync(spec_path_str: str, run_id: str, *, rv=None) -> dict:
     Idempotent: a second ``sync`` re-applies the same edits as a net no-op and
     versions nothing (the content hash is unchanged). Raises
     :class:`NarrativeConflictError` if the web advanced under a local edit (same
-    guard as ``autoversion``). ``rv`` is injectable for tests.
+    guard as :func:`auto_version_if_changed`). ``rv`` is injectable for tests.
 
     Returns ``{"review_id", "applied", "decision", "version"}``: ``applied`` /
     ``decision`` are ``None`` when there was no resolved review to fold in;
@@ -1397,7 +1397,7 @@ def sync(spec_path_str: str, run_id: str, *, rv=None) -> dict:
     if review_id:
         try:
             data = rv.get_review(review_id)
-        except Exception:  # noqa: BLE001 — network/404: degrade to local-only autoversion
+        except Exception:  # noqa: BLE001 — network/404: degrade to local-only versioning
             data = None
         if isinstance(data, dict) and data.get("status") == "resolved":
             res = apply_narrative_edits(spec_path, data.get("response_json") or {})
@@ -1413,21 +1413,6 @@ def sync(spec_path_str: str, run_id: str, *, rv=None) -> dict:
         "decision": decision,
         "version": version,
     }
-
-
-def _cmd_autoversion(spec_path_str: str, run_id: str) -> None:
-    """Auto-post a new narrative version iff the narrative changed; print result JSON.
-
-    No-pause: a routine narrative edit mints a new version that is immediately
-    current and to which the run is attached — no human approve step. Exits 2 on
-    a real conflict (web advanced under a local edit) so a skill can surface it.
-    """
-    try:
-        result = auto_version_if_changed(spec_path_str, run_id)
-    except NarrativeConflictError as exc:
-        print(f"CONFLICT: {exc}", file=sys.stderr)
-        sys.exit(2)
-    print(json.dumps(result))
 
 
 def _cmd_sync(spec_path_str: str, run_id: str) -> None:
@@ -1643,7 +1628,7 @@ def main() -> None:
         print(
             "Usage:\n"
             "  python -m scripts.ddd.narrative post <spec_path> <run_id>\n"
-            "  python -m scripts.ddd.narrative autoversion <spec_path> <run_id>   # post a new version ONLY if the narrative changed (no pause); exit 2 on conflict\n"
+            "  python -m scripts.ddd.narrative sync <spec_path> <run_id>   # reconcile: fold any resolved web review edits onto the spec, THEN version any change (no pause); exit 2 on conflict. The 'I edited on the web, now continue' command.\n"
             "  python -m scripts.ddd.narrative apply <spec_path> <response_json_file>\n"
             "  python -m scripts.ddd.narrative status <run_id>     # prints narrative status JSON; exit 1 if upload would refuse\n"
             "  python -m scripts.ddd.narrative pull <slug> <spec_path> [--force]   # hydrate narrative from canopy-web (web→disk); refuses if local is newer\n"
@@ -1664,15 +1649,6 @@ def main() -> None:
             )
             sys.exit(2)
         _cmd_post(sys.argv[2], sys.argv[3])
-
-    elif subcmd == "autoversion":
-        if len(sys.argv) != 4:
-            print(
-                "Usage: python -m scripts.ddd.narrative autoversion <spec_path> <run_id>",
-                file=sys.stderr,
-            )
-            sys.exit(2)
-        _cmd_autoversion(sys.argv[2], sys.argv[3])
 
     elif subcmd == "sync":
         if len(sys.argv) != 4:
@@ -1727,7 +1703,7 @@ def main() -> None:
 
     else:
         print(
-            f"ERROR: unknown subcommand {subcmd!r}. Use 'post', 'autoversion', 'sync', 'status', 'pull', 'apply', 'locked', 'lock', or 'unlock'.",
+            f"ERROR: unknown subcommand {subcmd!r}. Use 'post', 'sync', 'status', 'pull', 'apply', 'locked', 'lock', or 'unlock'.",
             file=sys.stderr,
         )
         sys.exit(2)
