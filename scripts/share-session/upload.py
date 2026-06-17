@@ -23,6 +23,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -56,6 +57,29 @@ _NOISE_PREFIXES = (
 def _is_noise(text: str) -> bool:
     t = text.lstrip()
     return any(t.startswith(p) for p in _NOISE_PREFIXES)
+
+
+_CMD_NAME_RE = re.compile(r"<command-name>\s*(.*?)\s*</command-name>", re.S)
+_CMD_ARGS_RE = re.compile(r"<command-args>\s*(.*?)\s*</command-args>", re.S)
+
+
+def _slash_command(text: str) -> str | None:
+    """If a user message is a slash-command invocation, render it as the human
+    typed it (e.g. ``/reload-plugins`` or ``/loop 5m /foo``). The harness wraps
+    these in <command-name>/<command-args> tags rather than plain text, so they'd
+    otherwise be dropped as noise even though the user typed them.
+    """
+    m = _CMD_NAME_RE.search(text)
+    if not m:
+        return None
+    name = m.group(1).strip()
+    if not name:
+        return None
+    if not name.startswith("/"):
+        name = "/" + name
+    a = _CMD_ARGS_RE.search(text)
+    args = a.group(1).strip() if a else ""
+    return f"{name} {args}".strip()
 
 
 def reduce_transcript(path: Path) -> tuple[bytes, int]:
@@ -107,14 +131,19 @@ def reduce_transcript(path: Path) -> tuple[bytes, int]:
             content = msg.get("content")
             if not isinstance(content, str):
                 continue  # list content == tool_result; ignore
-            text = content.strip()
-            if not text or _is_noise(text):
-                continue
+            # A slash command is something the human typed — surface it even
+            # though the harness wraps it in <command-name> tags.
+            prompt = _slash_command(content)
+            if prompt is None:
+                text = content.strip()
+                if not text or _is_noise(text):
+                    continue
+                prompt = text
             # flush the previous turn's final assistant reply, then this prompt
             if pending_assistant:
                 turns.append(("assistant", pending_assistant))
                 pending_assistant = None
-            turns.append(("user", text))
+            turns.append(("user", prompt))
 
     if pending_assistant:
         turns.append(("assistant", pending_assistant))
