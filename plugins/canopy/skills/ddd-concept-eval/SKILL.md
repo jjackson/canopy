@@ -119,11 +119,24 @@ For each scene in `unified_spec.yaml`:
      treat it as real and do not deduct.
    - `narrative_anchors`: [`scene.concept_claim`, `scene.provenance`, the matching why_brief spine rationale (if resolvable)]
    - `domain`: `unified_spec.name`
-   - `audience.name`: "the program lead about to forward this to the funder/board with their name on it"
-   - `audience.decision`: "whether to send it untouched, or fix something first"
+   - `audience.name`: the person the artifact is FOR — inferred from the scene's
+     `concept_claim` / `design_intent`. For an EVIDENCE / data product (dashboard,
+     monitoring, audit, analytics — the common case here), this is **the
+     practitioner reading the data to decide for themselves**, NOT a stakeholder
+     being persuaded. Only use a "forwarding to a funder / would they send it
+     untouched" framing for artifacts whose job is genuinely persuasion (a pitch
+     deck, a marketing page). The persuasion lens rewards salesmanship — for an
+     evidence product that pushes the demo toward on-screen editorializing, which
+     the OBJECTIVE-DATA STANDING RULE penalizes.
+   - `audience.decision`: for an evidence product, "can I read the objective data
+     clearly and draw my own conclusion, with definitions available on demand?";
+     for a persuasion artifact, "does the argument land?"
    - `domain_expert`: the harshest relevant expert for this domain (e.g. "an M&E statistician" for impact dashboards, "a clinician" for health content) — used by the claim-scrutiny pass
    - `competitors`: best-in-class analogues for this artifact type (e.g. ["a Bloomberg terminal", "a Stripe dashboard", "an FT data graphic"] for a metrics dashboard)
-   - `projector_test_phrasing`: leave unset to use visual-judge's CEO-send default, or sharpen for the domain
+   - `projector_test_phrasing`: for an evidence product, set this to a
+     read-the-data framing (e.g. "could a practitioner read this screen and draw
+     the right conclusion themselves?") rather than the visual-judge CEO-send
+     default, so the judge does not reward a pre-digested verdict.
    - Do NOT pass `blocking_rules` — claim_reality_coherence is non-blocking by spec.
 4. Dispatch `canopy:visual-judge` (as the fresh sub-agent above) with:
    - `screenshot_path`: the scene screenshot
