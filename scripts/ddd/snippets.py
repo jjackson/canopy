@@ -177,9 +177,9 @@ def emit_snippet_manifest(run_id: str, iteration: int | None = None) -> dict[str
 
 
 # --------------------------------------------------------------------------
-# canopy → ACE bridge: snippet manifest → ace-web "connect-explainer" spec.yaml
+# canopy → ACE bridge: snippet manifest → ace-web "connect-walkthrough" spec.yaml
 # --------------------------------------------------------------------------
-# The ACE walkthrough-explainer template (templates/connect-explainer) renders
+# The ACE walkthrough-explainer template (templates/connect-walkthrough) renders
 # ONE master clip narrated section-by-section: a `beats:` list (intro_title →
 # body_walkthrough×N → outro_card) drives the arc, each body_walkthrough beat
 # plays a RANGE of the master clip (walkthrough.<id>.{start_seconds,
@@ -188,7 +188,7 @@ def emit_snippet_manifest(run_id: str, iteration: int | None = None) -> dict[str
 # range, title → lower_third, sentence → VO. See the ace-web template's
 # example.spec.yaml for the canonical shape this mirrors.
 
-# ElevenLabs defaults match ace-web's connect-explainer example.spec.yaml.
+# ElevenLabs defaults match ace-web's connect-walkthrough example.spec.yaml.
 DEFAULT_VOICE_ID = "XB0fDUnXU5powFXDhCwa"
 DEFAULT_VOICE_MODEL = "eleven_turbo_v2"
 
@@ -205,7 +205,7 @@ def build_explainer_spec(
     voice_model: str = DEFAULT_VOICE_MODEL,
     generated_at: str = "1970-01-01T00:00:00Z",
 ) -> dict[str, Any]:
-    """Map a snippet manifest onto an ace-web connect-explainer spec dict."""
+    """Map a snippet manifest onto an ace-web connect-walkthrough spec dict."""
     slug = manifest["narrative_slug"]
     name = manifest.get("name") or slug
     snippets = manifest.get("snippets") or []
@@ -236,7 +236,7 @@ def build_explainer_spec(
     return {
         "provenance": {
             "generator": "video-from-walkthrough",
-            "template": "connect-explainer",
+            "template": "connect-walkthrough",
             "generated_from": f"{slug} DDD run {manifest.get('run_id')}",
             "generated_at": generated_at,
         },
@@ -318,7 +318,7 @@ def main(argv: list[str] | None = None) -> None:
     e.add_argument("--iteration", type=int, default=None)
 
     x = sub.add_parser(
-        "explainer-spec", help="emit an ace-web connect-explainer spec.yaml from a run"
+        "explainer-spec", help="emit an ace-web connect-walkthrough spec.yaml from a run"
     )
     x.add_argument("run_id")
     x.add_argument("--iteration", type=int, default=None)
