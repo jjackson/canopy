@@ -107,6 +107,9 @@ def build_snippets(
         dur = float(rs.get("duration_seconds") or 0.0)
         title = spec_scene.get("title") or rs.get("title") or f"Scene {idx}"
         sentence = (spec_scene.get("concept_claim") or "").strip()
+        # vo = the spoken line (tight, fits the clip range). Falls back to the
+        # concept_claim when the scene doesn't author one — see Scene.vo.
+        vo = (spec_scene.get("vo") or sentence).strip()
         features = spec_scene.get("features") or []
         tags = [narrative_slug] + [
             f.get("id") for f in features if isinstance(f, dict) and f.get("id")
@@ -121,8 +124,10 @@ def build_snippets(
                 "in_seconds": round(start, 3),
                 "out_seconds": round(start + dur, 3),
                 "duration_seconds": round(dur, 3),
-                # Drives BOTH the caption/lower-third and the ElevenLabs VO script.
+                # `sentence` (concept_claim) → caption / lower-third.
+                # `vo` → the spoken ElevenLabs line, fit to the clip range.
                 "sentence": sentence,
+                "vo": vo,
                 "tags": tags,
                 "provenance": spec_scene.get("provenance"),
                 "source_clip": source_clip_local,
@@ -222,7 +227,9 @@ def build_explainer_spec(
             "duration_seconds": sn["duration_seconds"],
             "lower_third": sn["title"],
         }
-        by_beat[bid] = sn.get("sentence") or ""
+        # Spoken line = the tight `vo` (fits the clip range); falls back to the
+        # concept_claim sentence when no vo was authored.
+        by_beat[bid] = sn.get("vo") or sn.get("sentence") or ""
     beats.append({"id": "outro", "kind": "outro_card", "seconds": 5})
     by_beat["outro"] = ""
 
