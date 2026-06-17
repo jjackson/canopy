@@ -204,6 +204,7 @@ def build_explainer_spec(
     voice_id: str = DEFAULT_VOICE_ID,
     voice_model: str = DEFAULT_VOICE_MODEL,
     generated_at: str = "1970-01-01T00:00:00Z",
+    lower_thirds: bool = False,
 ) -> dict[str, Any]:
     """Map a snippet manifest onto an ace-web connect-walkthrough spec dict."""
     slug = manifest["narrative_slug"]
@@ -225,7 +226,10 @@ def build_explainer_spec(
             "asset": "@master",
             "start_seconds": sn["in_seconds"],
             "duration_seconds": sn["duration_seconds"],
-            "lower_third": sn["title"],
+            # Off by default — the recorded dashboard self-labels and the VO
+            # narrates, so a lower-third pill just covers the content. Opt in
+            # with --lower-thirds.
+            "lower_third": sn["title"] if lower_thirds else "",
         }
         # Spoken line = the tight `vo` (fits the clip range); falls back to the
         # concept_claim sentence when no vo was authored.
@@ -273,6 +277,7 @@ def emit_explainer_spec(
     master_ref: str | None = None,
     tagline: str = "",
     country_focus: str = "",
+    lower_thirds: bool = False,
 ) -> dict[str, Any]:
     """Build the explainer spec for *run_id* and write explainer_spec.yaml."""
     manifest = emit_snippet_manifest(run_id, iteration=iteration)
@@ -302,6 +307,7 @@ def emit_explainer_spec(
         base_url=base_url,
         tagline=tagline,
         country_focus=country_focus,
+        lower_thirds=lower_thirds,
     )
     out = run_dir / "explainer_spec.yaml"
     out.write_text(yaml.safe_dump(explainer, sort_keys=False, allow_unicode=True))
@@ -326,6 +332,8 @@ def main(argv: list[str] | None = None) -> None:
     x.add_argument("--master-ref", default=None, help="manifest ref for the master clip (library:/file:/gdrive:/url)")
     x.add_argument("--tagline", default="")
     x.add_argument("--country", dest="country_focus", default="")
+    x.add_argument("--lower-thirds", dest="lower_thirds", action="store_true",
+                   help="overlay a lower-third title pill per section (default off — clean dashboard)")
 
     args = p.parse_args(argv)
 
@@ -340,6 +348,7 @@ def main(argv: list[str] | None = None) -> None:
             master_ref=args.master_ref,
             tagline=args.tagline,
             country_focus=args.country_focus,
+            lower_thirds=args.lower_thirds,
         )
         print(yaml.safe_dump(explainer, sort_keys=False, allow_unicode=True))
 
