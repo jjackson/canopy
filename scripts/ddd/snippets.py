@@ -107,6 +107,10 @@ def build_snippets(
         dur = float(rs.get("duration_seconds") or 0.0)
         title = spec_scene.get("title") or rs.get("title") or f"Scene {idx}"
         sentence = (spec_scene.get("concept_claim") or "").strip()
+        # The per-scene narrative is the spoken line — it's what the author edits
+        # in the narrative review (canopy-web round-trips edits into scene.narrative).
+        # concept_claim is the falsifiable design claim, used only as a fallback.
+        narration = (spec_scene.get("narrative") or sentence).strip()
         features = spec_scene.get("features") or []
         tags = [narrative_slug] + [
             f.get("id") for f in features if isinstance(f, dict) and f.get("id")
@@ -121,9 +125,10 @@ def build_snippets(
                 "in_seconds": round(start, 3),
                 "out_seconds": round(start + dur, 3),
                 "duration_seconds": round(dur, 3),
-                # The concept_claim — the narrative beat. It IS the spoken line
-                # (DDD: the narrative is authored while picturing the demo) AND
-                # the source caption. No separate vo field.
+                # `narration` (scene.narrative) IS the spoken line — the narrative
+                # the author writes/edits while picturing the demo. `sentence`
+                # (concept_claim) is kept as the design claim / caption fallback.
+                "narration": narration,
                 "sentence": sentence,
                 "tags": tags,
                 "provenance": spec_scene.get("provenance"),
@@ -228,10 +233,10 @@ def build_explainer_spec(
             # with --lower-thirds.
             "lower_third": sn["title"] if lower_thirds else "",
         }
-        # Spoken line = the concept_claim (the narrative beat). The renderer
-        # holds the section's last frame if the narration runs longer than the
-        # clip range, so the narrative can be any length without drift.
-        by_beat[bid] = sn.get("sentence") or ""
+        # Spoken line = the scene's narration (what the author edits in review).
+        # The renderer holds the section's last frame if narration runs longer
+        # than the clip range, so the narrative can be any length without drift.
+        by_beat[bid] = sn.get("narration") or sn.get("sentence") or ""
     beats.append({"id": "outro", "kind": "outro_card", "seconds": 5})
     by_beat["outro"] = ""
 
