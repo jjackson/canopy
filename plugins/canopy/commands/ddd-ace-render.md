@@ -1,6 +1,6 @@
 ---
-description: Render a DDD narrative as a narrated connect-ddd-walkthrough video on demand — record a fresh master clip, emit the explainer spec, and hand off to the local ace renderer. Standalone; not the auto loop, does not publish.
-argument-hint: <narrative-slug> [--run=<run-NNN>]
+description: Render a DDD narrative as a narrated connect-ddd-walkthrough video on demand — record a fresh master clip, emit the explainer spec, and hand off to the local ace renderer. Standalone; not the auto loop. Optionally (--upload) attaches the video to the narrative's current version on canopy-web.
+argument-hint: <narrative-slug> [--run=<run-NNN>] [--upload]
 allowed-tools: [Read, Write, Bash, Skill]
 ---
 
@@ -9,11 +9,14 @@ allowed-tools: [Read, Write, Bash, Skill]
 Turn one DDD narrative into a narrated `connect-ddd-walkthrough` MP4:
 **record** a fresh master clip, **emit** the explainer spec (canopy), and
 **hand off** to the local ace renderer (`/ace:video-render-local`). On
-demand — not part of `/canopy:ddd-run`, and it does not publish.
+demand — not part of `/canopy:ddd-run`. By default it does not publish; pass
+`--upload` to attach the rendered video to the narrative's current version on
+canopy-web.
 
 ## Arguments
 - `<narrative-slug>` — the narrative whose spec lives at `docs/walkthroughs/<slug>.yaml` in the current project repo.
 - `--run=<run-NNN>` — optional connect-videos run id for the staged program (default `run-001`).
+- `--upload` — after rendering, attach the mp4 to the narrative's current version on canopy-web (pinned via `narrative_review_id`). Off by default.
 
 ## Process
 

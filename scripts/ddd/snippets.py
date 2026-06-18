@@ -447,6 +447,16 @@ def main(argv: list[str] | None = None) -> None:
     c.add_argument("--country", dest="country_focus", default="")
     c.add_argument("--lower-thirds", dest="lower_thirds", action="store_true")
 
+    u = sub.add_parser(
+        "upload-video",
+        help="upload a rendered mp4 and pin it to the narrative's current "
+             "version on canopy-web (stamps narrative_review_id)",
+    )
+    u.add_argument("slug", help="narrative slug (the unified spec's name)")
+    u.add_argument("video", help="path to the rendered mp4")
+    u.add_argument("--base-url", default=None, help="canopy-web API base URL")
+    u.add_argument("--title", default=None)
+
     args = p.parse_args(argv)
 
     if args.cmd == "emit":
@@ -476,6 +486,16 @@ def main(argv: list[str] | None = None) -> None:
             lower_thirds=args.lower_thirds,
         )
         print(explainer["_written_to"])
+    elif args.cmd == "upload-video":
+        from scripts.ddd.upload import upload_narrative_video
+
+        result = upload_narrative_video(
+            args.slug, args.video, base_url=args.base_url, title=args.title
+        )
+        print(
+            f"attached video to {args.slug} v{result['version']} → {result['narrative_url']}\n"
+            f"  video: {result['video_url']}"
+        )
 
 
 if __name__ == "__main__":
