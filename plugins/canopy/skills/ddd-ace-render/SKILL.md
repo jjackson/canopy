@@ -80,6 +80,20 @@ footage vs rendered duration vs held-frame overrun). If the overrun is large,
 the narration outruns the footage — trim `scene.narrative` (~2.2 words/sec for
 the ElevenLabs voice) and re-run.
 
+**5. Upload to the narrative (only with `--upload`).** Off by default — the
+command stays non-publishing. When `--upload` is passed, attach the **rendered**
+mp4 (the ace renderer's `output.mp4`, not the silent master) to the narrative's
+**current version** on canopy-web:
+```bash
+( cd "$CANOPY" && python3 -m scripts.ddd.snippets upload-video "$SLUG" "<output.mp4>" )
+```
+It resolves the current narrative version, uploads the mp4 as a `kind=video`
+walkthrough stamped with that version's review id (`narrative_review_id`), and
+prints the narrative URL. Pinning to the version means a later narration edit
+can't leave a stale video on a newer version. Refuses if canopy-web has no
+narrative version for the slug — post the narrative through the narrative-review
+gate first.
+
 ## Common mistakes
 - **Wrong cwd** — run from the project repo that owns `docs/walkthroughs/<slug>.yaml`; the recorder's `setup:` reseeds there. The canopy emit is invoked from the canopy checkout with absolute paths (the snippet above handles the `cd`).
 - **Stale narration** — the VO is `scene.narrative` in the live spec; edit it there (or via canopy-web → `narrative pull`) before rendering.
