@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
+import re
 from pathlib import Path
 from typing import Any
 
@@ -318,6 +318,99 @@ def emit_explainer_spec(
     return explainer
 
 
+def _derive_tagline(text: str | None) -> str:
+    """A short tagline fallback from the spec's overview narrative: the first
+    clause (up to a comma or sentence end), capped so it doesn't bloat the
+    4-second intro title card. Authors should set an explicit ``tagline:`` on
+    the spec (or pass --tagline) for a sharper line; this is just a safe,
+    non-empty default so any narrative renders."""
+    t = " ".join((text or "").split())
+    if not t:
+        return ""
+    clause = re.split(r"[,.!?]", t, maxsplit=1)[0].strip()
+    words = clause.split()
+    if len(words) > 12:
+        clause = " ".join(words[:12])
+    return clause
+
+
+def emit_explainer_from_capture(
+    spec_path: str,
+    report_path: str,
+    *,
+    clip_path: str | None = None,
+    master_ref: str | None = None,
+    workspace: str = "dimagi-team",
+    tagline: str = "",
+    country_focus: str = "",
+    lower_thirds: bool = False,
+    out_path: str | None = None,
+) -> dict[str, Any]:
+    """Build a connect-ddd-walkthrough spec from a fresh capture — no run-state.
+
+    This is the run-state-free sibling of :func:`emit_explainer_spec`: it takes
+    a unified spec (``scene.narrative`` = the spoken line) plus the recorder's
+    run report (``record_video.py --report`` — ``scenes[].{scene_index,
+    start_seconds, duration_seconds}``) and the master clip, and writes the
+    explainer ``spec.yaml`` next to the spec (or ``out_path``). The narrative
+    slug is the spec's ``name``. The default master ref is a ``file:`` path so
+    the local renderer (``render_locally.py --local-spec``) copies the clip in.
+
+    Used by ``/canopy:ddd-ace-render``, which records a fresh master clip and
+    hands the emitted spec + clip to ``/ace:video-render-local``.
+    """
+    spec = yaml.safe_load(Path(spec_path).read_text()) or {}
+    report = json.loads(Path(report_path).read_text())
+    slug = spec.get("name") or Path(spec_path).stem
+
+    snippets = build_snippets(
+        narrative_slug=slug,
+        spec=spec,
+        report=report,
+        source_clip_local=str(clip_path) if clip_path else None,
+        source_clip_hosted=None,
+    )
+    manifest = {
+        "schema_version": SCHEMA_VERSION,
+        "narrative_slug": slug,
+        "run_id": None,
+        "iteration": None,
+        "name": spec.get("name") or slug,
+        "source_clip": str(clip_path) if clip_path else None,
+        "source_clip_url": None,
+        "snippet_count": len(snippets),
+        "snippets": snippets,
+    }
+
+    base_url = spec.get("base_url") or "https://labs.connect.dimagi.com/"
+    # The connect-ddd-walkthrough schema requires tagline + country_focus to be
+    # non-empty. Prefer explicit values (CLI / spec); otherwise derive a sane
+    # default so any narrative renders without hand-editing (authors can set
+    # `tagline:` / `country_focus:` on the spec, or pass --tagline / --country,
+    # for a sharper line).
+    if not tagline:
+        tagline = spec.get("tagline") or _derive_tagline(spec.get("narrative")) or str(spec.get("name") or slug)
+    if not country_focus:
+        country_focus = spec.get("country_focus") or "Global"
+    if not master_ref:
+        # file: ref so the local renderer materializes the clip at this path.
+        master_ref = f"file:assets/programs/{slug}-explainer/walkthrough.mp4"
+
+    explainer = build_explainer_spec(
+        manifest,
+        workspace=workspace,
+        master_ref=master_ref,
+        base_url=base_url,
+        tagline=tagline,
+        country_focus=country_focus,
+        lower_thirds=lower_thirds,
+    )
+    out = Path(out_path) if out_path else Path(spec_path).parent / "explainer_spec.yaml"
+    out.write_text(yaml.safe_dump(explainer, sort_keys=False, allow_unicode=True))
+    explainer["_written_to"] = str(out)
+    return explainer
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="scripts.ddd.snippets")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -338,6 +431,22 @@ def main(argv: list[str] | None = None) -> None:
     x.add_argument("--lower-thirds", dest="lower_thirds", action="store_true",
                    help="overlay a lower-third title pill per section (default off — clean dashboard)")
 
+    c = sub.add_parser(
+        "explainer-from-capture",
+        help="emit a connect-ddd-walkthrough spec from a unified spec + a fresh "
+             "record_video.py report (no run-state needed)",
+    )
+    c.add_argument("spec", help="path to the unified spec (docs/walkthroughs/<slug>.yaml)")
+    c.add_argument("report", help="path to record_video.py --report JSON")
+    c.add_argument("--clip", default=None, help="path to the recorded master clip")
+    c.add_argument("--master-ref", default=None,
+                   help="manifest ref for the master clip (default file:assets/programs/<slug>-explainer/walkthrough.mp4)")
+    c.add_argument("--out", default=None, help="where to write explainer_spec.yaml (default: beside the spec)")
+    c.add_argument("--workspace", default="dimagi-team")
+    c.add_argument("--tagline", default="")
+    c.add_argument("--country", dest="country_focus", default="")
+    c.add_argument("--lower-thirds", dest="lower_thirds", action="store_true")
+
     args = p.parse_args(argv)
 
     if args.cmd == "emit":
@@ -354,6 +463,19 @@ def main(argv: list[str] | None = None) -> None:
             lower_thirds=args.lower_thirds,
         )
         print(yaml.safe_dump(explainer, sort_keys=False, allow_unicode=True))
+    elif args.cmd == "explainer-from-capture":
+        explainer = emit_explainer_from_capture(
+            args.spec,
+            args.report,
+            clip_path=args.clip,
+            master_ref=args.master_ref,
+            out_path=args.out,
+            workspace=args.workspace,
+            tagline=args.tagline,
+            country_focus=args.country_focus,
+            lower_thirds=args.lower_thirds,
+        )
+        print(explainer["_written_to"])
 
 
 if __name__ == "__main__":
