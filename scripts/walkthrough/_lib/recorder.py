@@ -349,9 +349,16 @@ def scroll_to(page: Page, target: str, *, config: RecorderConfig | None = None) 
         # If actionability strictness blocks the scroll, the smooth-scroll
         # nudge below still tries; coordinate-based scroll is harmless.
         pass
+    # Re-measure AFTER scroll_into_view_if_needed. That call may have scrolled
+    # the page, changing the element's viewport-relative y. The smooth nudge
+    # below combines this y with the *live* window.scrollY, so both must be read
+    # at the same scroll position — pairing the pre-scroll rt.box.y with the
+    # post-scroll window.scrollY computed a wrong target and left the element
+    # off-screen on tall pages (e.g. a back-check far below the fold).
+    scrolled_box = measure_box(rt.locator) or rt.box
     page.evaluate(
         """([x, y]) => window.scrollTo({top: y + window.scrollY - window.innerHeight / 2, behavior: 'smooth'})""",
-        [rt.box["x"], rt.box["y"]],
+        [scrolled_box["x"], scrolled_box["y"]],
     )
     # The smooth-scroll moved the element under our cursor. Re-measure +
     # short glide so the cursor follows it to its new viewport position —
