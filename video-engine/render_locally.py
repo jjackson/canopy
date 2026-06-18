@@ -56,11 +56,13 @@ def load_dotenv_into_env(extra: Path | None = None) -> None:
 
     The renderer's per-beat voiceover (ElevenLabs) reads
     ``ELEVENLABS_API_KEY`` from process env. We look in, in order:
-    an explicit ``--env-file``, ``./.env`` (cwd), and the engine dir's
-    ``.env``. Existing env values always win. Keys with embedded newlines
-    are skipped (they'd break naive line parsing).
+    an explicit ``--env-file``, ``./.env`` (cwd), the engine dir's ``.env``,
+    and canopy's injected secrets file (``~/.claude/canopy/.env`` — produced by
+    ``op inject -i .env.tpl``, the canopy convention). Existing env values
+    always win. Keys with embedded newlines are skipped.
     """
-    candidates = [p for p in (extra, Path.cwd() / ".env", ENGINE_DIR / ".env") if p]
+    canopy_env = Path.home() / ".claude" / "canopy" / ".env"
+    candidates = [p for p in (extra, Path.cwd() / ".env", ENGINE_DIR / ".env", canopy_env) if p]
     for env_path in candidates:
         if not env_path.is_file():
             continue
