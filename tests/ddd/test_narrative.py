@@ -1826,3 +1826,125 @@ class TestAutoVersionIfChanged:
 
     def _seed(self, tmp_path, monkeypatch):
         return _seed_run_state(tmp_path, monkeypatch, self.RUN_ID, self.SLUG)
+
+
+# ---------------------------------------------------------------------------
+# sync — the web-edit -> version bridge (apply resolved review edits, then
+# auto-version). Composes get_review + apply_narrative_edits + autoversion.
+# ---------------------------------------------------------------------------
+
+
+class _SyncFakeReview(_FakeReview):
+    """`_FakeReview` plus a `get_review` that serves a RESOLVED review carrying
+    inline edits, so `sync` can fold web edits and then auto-version them."""
+
+    def __init__(self, *, response_json, status="resolved", **kw):
+        super().__init__(**kw)
+        self._response_json = response_json
+        self._status = status
+
+    def get_review(self, review_id, **kwargs):
+        return {
+            "request_json": {},
+            "response_json": self._response_json,
+            "status": self._status,
+            "is_owner": True,
+        }
+
+
+def _seed_run_state_with_review(tmp_path, monkeypatch, run_id, slug, review_id):
+    import scripts.ddd.runstate as rs
+    from scripts.ddd.schemas.models import RunState
+
+    monkeypatch.setattr(rs, "_resolve_ddd_dir", lambda: tmp_path)
+    rs.save(
+        RunState(
+            run_id=run_id,
+            narrative_slug=slug,
+            phase="converged",
+            narrative_review_id=review_id,
+        )
+    )
+    return rs
+
+
+class TestSync:
+    RUN_ID = "rooftop-surveys-2026-06-04-001"
+    SLUG = "rooftop-surveys"
+
+    def _edits(self):
+        return {
+            "decisions": {"narrative-verdict": "approve"},
+            "edited_scenes": [
+                {
+                    "id": "area-selection",
+                    "title": "Area Selection",
+                    "narration": "Alice draws a brand-new custom boundary right on the map.",
+                    "deleted": False,
+                    "features": [],
+                },
+                {"id": "sample-generation", "title": "Sample Generation", "narration": "", "deleted": False, "features": []},
+                {"id": "field-assignment", "title": "Field Assignment", "narration": "", "deleted": False, "features": []},
+            ],
+            "build_order": ["area-selection", "sample-generation", "field-assignment"],
+        }
+
+    def _in_sync_spec(self, tmp_path):
+        from scripts.ddd.narrative import narrative_content_hash
+
+        spec_path = _write_spec(tmp_path, _make_spec())
+        raw = yaml.safe_load(spec_path.read_text())
+        raw["narrative_synced_version"] = 1
+        raw["narrative_synced_hash"] = narrative_content_hash(raw)
+        spec_path.write_text(yaml.dump(raw, default_flow_style=False, allow_unicode=True))
+        return spec_path
+
+    def test_web_edit_is_folded_and_versioned(self, tmp_path, monkeypatch):
+        """Resolved review with inline edits: sync folds them onto the spec AND
+        posts a new version — the web-edit -> version bridge end to end."""
+        from scripts.ddd.narrative import sync
+
+        _seed_run_state_with_review(tmp_path, monkeypatch, self.RUN_ID, self.SLUG, "rev-1")
+        spec_path = self._in_sync_spec(tmp_path)
+
+        fake = _SyncFakeReview(response_json=self._edits(), start_version=1)
+        result = sync(str(spec_path), self.RUN_ID, rv=fake)
+
+        # web -> local: the edit landed on the spec
+        assert result["decision"] == "approve"
+        assert result["applied"]["updated"] == 1
+        reloaded = yaml.safe_load(spec_path.read_text())
+        assert "brand-new custom boundary" in reloaded["scenes"][0]["narrative"]
+        # local -> web: it became a real numbered version
+        assert result["version"]["action"] == "posted"
+        assert result["version"]["version"] == 2
+
+    def test_sync_is_idempotent(self, tmp_path, monkeypatch):
+        """A second sync re-folds the same edits as a net no-op and versions nothing."""
+        from scripts.ddd.narrative import sync
+
+        _seed_run_state_with_review(tmp_path, monkeypatch, self.RUN_ID, self.SLUG, "rev-1")
+        spec_path = self._in_sync_spec(tmp_path)
+        fake = _SyncFakeReview(response_json=self._edits(), start_version=1)
+
+        first = sync(str(spec_path), self.RUN_ID, rv=fake)
+        assert first["version"]["action"] == "posted"
+        second = sync(str(spec_path), self.RUN_ID, rv=fake)
+        assert second["version"]["action"] == "noop"
+
+    def test_no_review_stamped_just_autoversions_local(self, tmp_path, monkeypatch):
+        """No review id on the run: sync skips the fold and only auto-versions a
+        local narrative change."""
+        from scripts.ddd.narrative import sync
+
+        _seed_run_state(tmp_path, monkeypatch, self.RUN_ID, self.SLUG)  # no review id
+        spec_path = _write_spec(tmp_path, _make_spec())
+        raw = yaml.safe_load(spec_path.read_text())
+        raw["narrative_synced_version"] = 1
+        raw["narrative_synced_hash"] = "stale-hash-does-not-match"  # local changed
+        spec_path.write_text(yaml.dump(raw, default_flow_style=False, allow_unicode=True))
+
+        fake = _SyncFakeReview(response_json={}, start_version=1)
+        result = sync(str(spec_path), self.RUN_ID, rv=fake)
+        assert result["applied"] is None  # nothing folded (no review to read)
+        assert result["version"]["action"] == "posted"

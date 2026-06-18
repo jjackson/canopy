@@ -32,10 +32,11 @@ judged until the story arc is approved.
 ## When to run this gate (it is now OPT-IN)
 
 Routine narrative edits no longer pause here. `ddd-run` Step 1b
-(`scripts.ddd.narrative autoversion`) auto-posts a new version on any narrative
-change and attaches the run to it with **no human pause** — a posted version is
-immediately the current/active narrative on canopy-web. Run THIS approve/redraft
-gate only when:
+(`scripts.ddd.narrative sync`) folds any resolved **web** review edits onto the
+spec and auto-posts a new version on any narrative change — local OR web — and
+attaches the run to it with **no human pause**. A posted version is immediately
+the current/active narrative on canopy-web. Run THIS approve/redraft gate only
+when:
 
 - **First-ever narrative for a slug** — you want the user to APPROVE the story
   arc before anything is built/rendered for the first time, or
