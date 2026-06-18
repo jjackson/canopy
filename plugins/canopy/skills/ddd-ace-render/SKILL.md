@@ -14,11 +14,11 @@ description: >
 
 Turn one DDD narrative into a narrated `connect-ddd-walkthrough` MP4. This
 command does three things and stops: **record a fresh master clip**, **emit
-the explainer spec** (canopy owns this), and **hand the spec + clip to the
-local ace renderer** (`/ace:video-render-local`, which wraps ace-web's
-`render_locally.py`). The narration is each scene's `scene.narrative`; the
-renderer holds a clip's last frame when its VO overruns, so the timing
-report at the end tells you whether to trim.
+the explainer spec**, and **render it with canopy's own video engine**
+(`video-engine/render_locally.py` — the general Remotion engine; canopy owns
+record → spec → render end-to-end, no ace-web checkout needed). The narration
+is each scene's `scene.narrative`; the renderer holds a clip's last frame when
+its VO overruns, so the timing report at the end tells you whether to trim.
 
 ## When to use
 - You have a DDD narrative spec (`docs/walkthroughs/<slug>.yaml`) and want the narrated video, now.
@@ -28,7 +28,7 @@ report at the end tells you whether to trim.
 ## Prerequisites
 - Run from the **project repo** that owns the narrative (e.g. connect-labs) — the spec's `setup:` reseeds there.
 - A live browse session authenticated to the target app, for session-auth specs (see `/canopy:walkthrough` setup).
-- The **ace side**: an ace-web checkout with connect-videos deps installed + `ELEVENLABS_API_KEY` (the `/ace:video-render-local` skill documents this).
+- The **video engine deps**: `video-engine/node_modules` installed (run `/canopy:setup`, or `cd video-engine && npm ci`) + `ELEVENLABS_API_KEY` in env / `--env-file` / a `.env` (e.g. from 1Password). The renderer refuses to render silent.
 - `ffmpeg` + `playwright` (the canopy recorder's deps).
 
 ## Procedure
@@ -70,12 +70,21 @@ run-state needed — slug comes from the spec's `name`):
 This writes `explainer_spec.yaml`: per-beat clip ranges from the report,
 `scene.narrative` as the per-beat VO, `manifest.master: file:…`, David voice.
 
-**3. Hand off to the local ace renderer.** Invoke the **`/ace:video-render-local`**
-skill in Mode A with the emitted spec + the recorded clip:
+**3. Render with canopy's video engine.** Run canopy's own
+`video-engine/render_locally.py` (Mode A — local spec + master, no Drive, no
+container) with `ELEVENLABS_API_KEY` in the environment:
+```bash
+ELEVENLABS_API_KEY="$(…fetch the key…)" \
+python3 "$CANOPY/video-engine/render_locally.py" \
+  --local-spec "$WORK/explainer_spec.yaml" \
+  --master     "$WORK/master.mp4" \
+  --final            # omit for a faster --draft preview
 ```
-/ace:video-render-local  --local-spec <WORK>/explainer_spec.yaml  --master <WORK>/master.mp4  --final
-```
-(Concretely that runs `python "${ACE_WEB_ROOT:-$HOME/emdash-projects/ace-web}/scripts/render_locally.py" --local-spec … --master … --final`.) Follow that skill — it resolves the checkout, ensures the ElevenLabs key + connect-videos deps, renders, and prints the output path.
+Output lands at
+`video-engine/programs/<slug>/runs/<run>/output.mp4`. The script stages the
+spec + master, runs the host npm render (bare-metal — 1-3 min), and prints a
+timing report (clip footage vs rendered duration vs held-frame VO overrun).
+(`--engine-root` / `$CONNECT_VIDEOS_ROOT` overrides the engine location.)
 
 **4. Report** the output MP4 path and the renderer's timing report (clip
 footage vs rendered duration vs held-frame overrun). If the overrun is large,
@@ -103,5 +112,6 @@ gate first.
 
 ## Relationship to other commands
 - `/canopy:ddd-run` — the auto loop (render + judge); this is the on-demand narrated-video render, separate from it.
-- `/ace:video-render-local` — the general local renderer this hands off to.
+- `video-engine/render_locally.py` — canopy's own general Remotion renderer this calls (Mode A: local spec + master).
+- `/ace:video-render-local` — ace-web's server/Drive-publish render path (Mode B); use it when publishing to Drive/labs, not for the local DDD render.
 - `/canopy:ddd-upload` — publishes a converged run; unaffected (keeps using its own hero video).

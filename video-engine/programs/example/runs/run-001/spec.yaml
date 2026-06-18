@@ -1,0 +1,32 @@
+slug: example
+workspace: dimagi-team
+name: Example Program
+country_focus: Global
+status: Sample
+tagline: "Your product's value proposition in one line."
+program_url: https://example.com/
+
+# Neutral, asset-free sample so the engine renders + previews standalone
+# with no brand pack or program content. It carries its OWN beats: list of
+# content-free framing beats only — so it does NOT inherit the global_style
+# starter timeline (whose body_scene/body_product_beats would require
+# scene/product fields this sample deliberately omits). Replace with your
+# own program spec to author.
+beats:
+  - { id: hook,    kind: intro_hook,    seconds: 4 }
+  - { id: cycle,   kind: intro_cycle,   seconds: 8 }
+  - { id: handoff, kind: intro_handoff, seconds: 3 }
+  - { id: cta,     kind: outro_cta,     seconds: 6 }
+
+narration:
+  generator: manual
+  prompt_version: v1
+  start_seconds: 0
+  script: |
+    This is a sample program video rendered by the canopy video engine.
+    Swap in your own program spec to make your own.
+
+voice:
+  provider: elevenlabs
+  voice_id: "21m00Tcm4TlvDq8ikWAM"
+  model: eleven_turbo_v2
