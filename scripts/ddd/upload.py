@@ -104,6 +104,64 @@ def run_package_url(narrative_slug: str, run_id: str, base_url: str | None = Non
     return f"{api}/ddd/{feat}/{rid}"
 
 
+def narrative_landing_url(narrative_slug: str, base_url: str | None = None) -> str:
+    """The canopy-web narrative landing page (versions list) for a slug."""
+    api = _resolve_base_url(base_url)
+    return f"{api}/ddd/{urllib.parse.quote(narrative_slug, safe='')}"
+
+
+def upload_narrative_video(
+    narrative_slug: str,
+    video_path: str,
+    *,
+    base_url: str | None = None,
+    token: str | None = None,
+    role: str = "hero_video",
+    title: str | None = None,
+    _detail=None,
+    _upload=None,
+) -> dict:
+    """Upload a rendered mp4 and pin it to the narrative's CURRENT version.
+
+    Resolves the current narrative version on canopy-web and stamps the uploaded
+    artifact with its review id (``narrative_review_id``), so the video attaches
+    to that exact story version — a later narration edit can't leave a stale
+    video on a newer version. Returns ``{video_url, version, review_id,
+    narrative_url}``.
+
+    Refuses if canopy-web has no narrative version for the slug: a video must
+    hang off a real version, so the narrative has to be posted first.
+    """
+    from scripts.ddd import review as rv
+
+    detail = (_detail or rv.get_narrative)(narrative_slug, base_url=base_url, token=token)
+    cur = (detail or {}).get("current_version") or {}
+    review_id = cur.get("review_id")
+    version = cur.get("version")
+    if not review_id:
+        raise SystemExit(
+            f"canopy-web has no narrative version for {narrative_slug!r} — post the "
+            "narrative (run the narrative-review gate) before attaching a video."
+        )
+    data = Path(video_path).read_bytes()
+    video_url = (_upload or publish_artifact)(
+        data,
+        kind="video",
+        title=title or f"{narrative_slug} v{version}",
+        narrative_slug=narrative_slug,
+        role=role,
+        narrative_review_id=str(review_id),
+        base_url=base_url,
+        token=token,
+    )
+    return {
+        "video_url": video_url,
+        "version": version,
+        "review_id": str(review_id),
+        "narrative_url": narrative_landing_url(narrative_slug, base_url),
+    }
+
+
 def _resolve_narrative_review_id(run_state: RunState) -> str | None:
     """The narrative version this run rendered, however it was stamped.
 
