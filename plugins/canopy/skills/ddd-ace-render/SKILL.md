@@ -3,9 +3,11 @@ name: ddd-ace-render
 description: >
   Use when you want a DDD narrative turned into a narrated
   connect-ddd-walkthrough video on demand — record a fresh master clip,
-  emit the explainer spec, and hand off to the local ace renderer. This is
-  the standalone "render this narrative as an ace video" command; it is NOT
-  part of the automatic DDD loop and does not publish.
+  emit the explainer spec, hand off to the local ace renderer, and attach the
+  video to the narrative's current version on canopy-web. This is the
+  standalone "render this narrative as an ace video" command; it is NOT part
+  of the automatic DDD loop. The upload is on by default; pass --no-upload to
+  render locally without publishing.
 ---
 
 # DDD → ace render (connect-ddd-walkthrough)
@@ -89,10 +91,10 @@ footage vs rendered duration vs held-frame overrun). If the overrun is large,
 the narration outruns the footage — trim `scene.narrative` (~2.2 words/sec for
 the ElevenLabs voice) and re-run.
 
-**5. Upload to the narrative (only with `--upload`).** Off by default — the
-command stays non-publishing. When `--upload` is passed, attach the **rendered**
-mp4 (the ace renderer's `output.mp4`, not the silent master) to the narrative's
-**current version** on canopy-web:
+**5. Upload to the narrative (default — skip only with `--no-upload`).** Attach
+the **rendered** mp4 (the ace renderer's `output.mp4`, not the silent master) to
+the narrative's **current version** on canopy-web. This runs by default; pass
+`--no-upload` to render locally without publishing:
 ```bash
 ( cd "$CANOPY" && python3 -m scripts.ddd.snippets upload-video "$SLUG" "<output.mp4>" )
 ```
