@@ -47,6 +47,7 @@ def assemble_run_state(
     *,
     concept_path: str = "verdict-concept.yaml",
     user_path: str = "verdict-user.yaml",
+    manifest: dict | None = None,
 ) -> RunState:
     """Assemble both verdict paths and merged findings into *state*.
 
@@ -70,6 +71,12 @@ def assemble_run_state(
     user_path:
         Path (relative to run dir or absolute) of the user-artifact verdict YAML.
         Default: "verdict-user.yaml".
+    manifest:
+        Optional render manifest (walkthrough-run-data.json). When provided, its
+        ``scenes_run`` / ``scene_filter`` are carried onto the run state — the
+        render engine is the single source of truth for which scenes were
+        rendered, so the upload's partial-run guard reads what the engine
+        actually emitted. When ``None``, those fields are left untouched.
 
     Returns
     -------
@@ -82,6 +89,9 @@ def assemble_run_state(
     }
     state.findings = list(findings)
     state.phase = "judged"
+    if manifest is not None:
+        state.scenes_run = manifest.get("scenes_run")
+        state.scene_filter = manifest.get("scene_filter")
     return state
 
 

@@ -7,6 +7,9 @@ dependencies = [
     "pyyaml>=6.0",
     "click>=8.0",
     "pydantic>=2.13.4",
+    # Pillow: downscale per-scene screenshots into inline JPEG data-URIs for the
+    # product_findings review (scripts/ddd/findings_review.py thumbnail helper).
+    "pillow>=10.0",
 ]
 
 [project.optional-dependencies]

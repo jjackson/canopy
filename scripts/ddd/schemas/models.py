@@ -26,7 +26,9 @@ from scripts.narrative.models import (
     Evidence,
     Feature,
     FillAction,
+    Finding,
     Gap,
+    Gate,
     GotoAction,
     HoldAction,
     HoverAction,
@@ -38,6 +40,7 @@ from scripts.narrative.models import (
     ScrollAction,
     ScrollToAction,
     SelectAction,
+    SetupBlock,
     SpineItem,
     TypeAction,
     UnifiedSpec,
@@ -49,6 +52,24 @@ from scripts.narrative.models import (
 
 
 class RunState(BaseModel):
+    """The DDD converge lifecycle for one run (run_id), persisted as run_state.yaml.
+
+    Phase milestones — who writes each ``phase`` value:
+
+      * CODE-set (written by a .py module as the run advances):
+          - ``judged``    — set by ``run_pipeline.assemble_run_state`` after the
+            dual-judge verdict is assembled.
+          - ``uploaded``  — set by ``upload.upload_run`` after the run package is
+            published to canopy-web (terminal).
+      * ORCHESTRATOR-ONLY milestones (NEVER written by .py — they label loop
+        stages the orchestrator narrates): ``phase0``, ``spec``, ``render``,
+        ``converged``. The default is ``phase0``; the Literal accepts them so an
+        orchestrator-authored run_state validates, but no module assigns them.
+      * ``promoted`` is a legacy READ-alias for ``uploaded`` — accepted on read so
+        older on-disk run_state.yaml files still validate; new runs write
+        ``uploaded`` (see ``upload.upload_run``, which treats both as published).
+    """
+
     schema_version: int = 1
     run_id: str
     narrative_slug: str
@@ -122,6 +143,14 @@ class RunState(BaseModel):
     # when it's None, upload re-verifies against canopy-web and refuses to
     # publish a run that has no narrative (see scripts/ddd/upload.py).
     narrative_review_id: str | None = None
+    # Hosted product-findings review (review_mode: human). Stamped by
+    # `python -m scripts.ddd.findings_review post <run_id>` after it posts the
+    # clustered PRODUCT findings to the canopy-web review surface. The id is
+    # the raw ReviewRequest UUID (what the orchestrator polls for resolution);
+    # the url is the token-bearing share link. Overwritten on each judged
+    # iteration that posts a findings review — the run tracks the LATEST one.
+    findings_review_id: str | None = None
+    findings_review_url: str | None = None
 
 
 __all__ = [
@@ -136,7 +165,9 @@ __all__ = [
     "Evidence",
     "Feature",
     "FillAction",
+    "Finding",
     "Gap",
+    "Gate",
     "GotoAction",
     "HoldAction",
     "HoverAction",
@@ -149,6 +180,7 @@ __all__ = [
     "ScrollAction",
     "ScrollToAction",
     "SelectAction",
+    "SetupBlock",
     "SpineItem",
     "TypeAction",
     "UnifiedSpec",

@@ -29,6 +29,24 @@ BEFORE any rendering, judging, or gap-routing**.  The narrative is the north sta
 and the user's irreplaceable-taste call.  Nothing should be built, rendered, or
 judged until the story arc is approved.
 
+## When to run this gate (it is now OPT-IN)
+
+Routine narrative edits no longer pause here. `ddd-run` Step 1b
+(`scripts.ddd.narrative sync`) folds any resolved **web** review edits onto the
+spec and auto-posts a new version on any narrative change — local OR web — and
+attaches the run to it with **no human pause**. A posted version is immediately
+the current/active narrative on canopy-web. Run THIS approve/redraft gate only
+when:
+
+- **First-ever narrative for a slug** — you want the user to APPROVE the story
+  arc before anything is built/rendered for the first time, or
+- **The user explicitly asks** to review the narrative (e.g. "let me approve the
+  story before we render").
+
+For every other narrative change between runs, do NOT run this gate — let
+`ddd-run`'s auto-version step post the new version silently. The only durable
+human approval in the routine loop is the **`external_release`** gate at upload.
+
 The posted review now carries:
 - **Per-scene `features[]`** — the concrete buildable units the author declared,
   so the user can see at a glance what is being committed to.

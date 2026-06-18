@@ -22,7 +22,8 @@ from pathlib import Path
 
 import yaml
 
-from scripts.ddd.schemas.models import Decision, NarrationItem, ReviewRequest, UnifiedSpec
+from scripts.ddd.schemas.models import Decision, Gate, NarrationItem, ReviewRequest, UnifiedSpec
+from scripts.ddd.review import _review_id_from_url
 
 
 # ---------------------------------------------------------------------------
@@ -299,13 +300,13 @@ def build_narrative_review_request(
         ),
         options=["approve", "redraft"],
         recommended="approve",
-        **{"class": "concept_change"},
+        **{"class": Gate.CONCEPT_CHANGE},
     )
 
     return ReviewRequest(
         run_id=run_id,
         narrative_slug=resolved_narrative_slug,
-        gate="concept_change",
+        gate=Gate.CONCEPT_CHANGE,
         video={},
         narration=narration,
         narrative=spec.narrative,
@@ -1128,14 +1129,32 @@ def _stamp_run_state(run_id: str, result: dict) -> None:
     rs.save(state)
 
 
-def _cmd_post(spec_path_str: str, run_id: str) -> None:
-    """Post the narrative review request, stamp run_state, print {id, url, share_token}."""
-    from scripts.ddd import review as rv  # local import — network-touching
+def post_narrative_version(spec_path_str: str, run_id: str, rv=None) -> dict:
+    """Post a narrative version for ``spec_path`` + stamp the run and spec.
+
+    The reusable post+stamp+sync core shared by the interactive ``narrative post``
+    command and the routine ``auto_version_if_changed`` path:
+
+      1. Build the narrative ReviewRequest from the current spec (regenerating
+         the story from the live narrative fields).
+      2. POST it — canopy-web assigns the next monotonic ``version`` AT POST TIME
+         and ``build_narrative`` treats the latest-posted version as
+         ``current_version`` (independent of pending/resolved status), so the
+         posted version is immediately the current/active narrative. No human
+         approval is required for it to become current.
+      3. Stamp ``run_state.narrative_review_id`` so the run attaches to this exact
+         version, and stamp the spec's ``narrative_synced_version`` +
+         ``narrative_synced_hash`` so a later pull/auto-version sees us in sync.
+
+    Returns the raw post result ``{id, url, share_token}`` from canopy-web.
+    Raises if the spec file is missing. ``rv`` is injectable for tests.
+    """
+    if rv is None:
+        from scripts.ddd import review as rv  # local import — network-touching
 
     spec_path = Path(spec_path_str)
     if not spec_path.exists():
-        print(f"ERROR: spec file not found: {spec_path}", file=sys.stderr)
-        sys.exit(1)
+        raise FileNotFoundError(f"spec file not found: {spec_path}")
 
     # The narrative slug this review belongs to: prefer the run's own
     # narrative_slug (handles a run_id whose slug differs from its narrative_slug
@@ -1161,6 +1180,19 @@ def _cmd_post(spec_path_str: str, run_id: str) -> None:
     # diverge from a stale stamp and refuse a clean fast-forward.
     if narrative_slug:
         _stamp_spec_sync(spec_path, narrative_slug, rv)
+    return result
+
+
+def _cmd_post(spec_path_str: str, run_id: str) -> None:
+    """Post the narrative review request, stamp run_state, print {id, url, share_token}."""
+    from scripts.ddd import review as rv  # local import — network-touching
+
+    spec_path = Path(spec_path_str)
+    if not spec_path.exists():
+        print(f"ERROR: spec file not found: {spec_path}", file=sys.stderr)
+        sys.exit(1)
+
+    result = post_narrative_version(spec_path_str, run_id, rv=rv)
     # Surface BOTH link forms explicitly so callers (and skills) never hand the
     # user the no-rail share link by mistake:
     #   internal_url — owner view, opens inside the workbench (LEFT RAIL). Default.
@@ -1208,6 +1240,191 @@ def _stamp_spec_sync(spec_path: Path, slug: str, rv) -> None:
             f"conflict; re-run `narrative pull {slug} <spec> --force` if so.",
             file=sys.stderr,
         )
+
+
+class NarrativeConflictError(RuntimeError):
+    """Raised when auto-versioning can't safely post: the local narrative changed
+    AND canopy-web advanced underneath it (``refuse_conflict``).
+
+    Auto-posting here would clobber the version someone/something else published
+    while this run was editing. The fix is a manual reconcile — ``narrative pull
+    <slug> <spec> --force`` to take web as truth, or run the narrative-review gate
+    to push the local edits as the next version on top of the advanced web base.
+    """
+
+
+def auto_version_if_changed(spec_path_str: str, run_id: str, rv=None) -> dict:
+    """Auto-post a new narrative version iff the spec's narrative content changed.
+
+    This is the routine, no-pause auto-versioning entry point. It compares the
+    spec's current ``narrative_content_hash`` to the ``narrative_synced_hash``
+    recorded at the last sync:
+
+    - **unchanged** → no-op (``{"action": "noop", ...}``). Nothing posted.
+    - **changed, web NOT advanced** → post a new version (reuse
+      ``post_narrative_version``), which is immediately current on canopy-web and
+      to which the run is now stamped. Returns ``{"action": "posted", ...}``.
+    - **changed AND web advanced** (``narrative_synced_version`` < web's current
+      version) → raise :class:`NarrativeConflictError`. We do NOT auto-clobber a
+      version published underneath us.
+    - **first-ever narrative** (no ``narrative_synced_version`` yet) → post v1.
+
+    The crux this resolves: a freshly-POSTED ``concept_change`` review is the
+    current/active narrative version immediately — canopy-web's ``build_narrative``
+    picks ``versions[-1]`` by ``(version, created_at)``, independent of the
+    review's pending/resolved status. So routine auto-versioning never needs a
+    human approve step to make the new version usable; the human gate stays only
+    at ``external_release`` (upload). ``rv`` is injectable for tests.
+    """
+    if rv is None:
+        from scripts.ddd import review as rv  # local import — network-touching
+
+    spec_path = Path(spec_path_str)
+    if not spec_path.exists():
+        raise FileNotFoundError(f"spec file not found: {spec_path}")
+
+    raw = yaml.safe_load(spec_path.read_text()) or {}
+    current_hash = narrative_content_hash(raw)
+    synced_hash = raw.get("narrative_synced_hash")
+    synced_version = raw.get("narrative_synced_version")
+
+    # First-ever narrative for this spec (never synced) → always post (v1).
+    first_ever = synced_version is None or not synced_hash
+
+    if not first_ever and current_hash == synced_hash:
+        return {
+            "action": "noop",
+            "run_id": run_id,
+            "synced_version": synced_version,
+            "reason": "narrative content unchanged since last sync",
+        }
+
+    # Content changed (or first-ever). Before posting, guard the conflict case:
+    # if canopy-web's current version is ahead of what we synced, auto-posting
+    # would clobber a version published underneath us. Resolve manually.
+    if not first_ever:
+        slug = None
+        try:
+            from scripts.ddd import runstate as rs
+
+            slug = rs.load(run_id).narrative_slug
+        except FileNotFoundError:
+            slug = _narrative_slug_from_run_id(run_id)
+        web_version = None
+        try:
+            detail = rv.get_narrative(slug)
+            web_version = ((detail or {}).get("current_version") or {}).get("version")
+        except Exception:  # noqa: BLE001 — a read failure shouldn't masquerade as a conflict
+            web_version = None
+        if web_version is not None and synced_version is not None and web_version > synced_version:
+            raise NarrativeConflictError(
+                f"Refusing to auto-version narrative for run {run_id!r}: the local "
+                f"narrative changed AND canopy-web advanced to v{web_version} "
+                f"(local last synced v{synced_version}). Auto-posting would clobber "
+                f"the newer web version.\n"
+                f"  → Reconcile manually: `narrative pull {slug} {spec_path} --force` "
+                f"to take web as truth, or run the narrative-review gate to push your "
+                f"edits as the next version on top of v{web_version}."
+            )
+
+    result = post_narrative_version(spec_path_str, run_id, rv=rv)
+    # Re-read the freshly-stamped synced version for the return payload.
+    reloaded = yaml.safe_load(spec_path.read_text()) or {}
+    return {
+        "action": "posted",
+        "run_id": run_id,
+        "review_id": (result.get("id") or "").strip() or None,
+        "version": reloaded.get("narrative_synced_version"),
+        "first_ever": first_ever,
+        "reason": (
+            "first narrative version for this spec"
+            if first_ever
+            else "narrative content changed since last sync"
+        ),
+    }
+
+
+def sync(spec_path_str: str, run_id: str, *, rv=None) -> dict:
+    """Reconcile the local narrative spec with canopy-web in ONE step — the bridge
+    that lets WEB edits become versions the way local (canopy) edits already do.
+
+    Two directions, in order:
+
+    1. **Web → local.** If the run's narrative review has been RESOLVED on
+       canopy-web (the reviewer edited the story inline and approved/redrafted),
+       fold that ``response_json`` onto the local spec via
+       :func:`apply_narrative_edits`. This is the missing piece: ``pull`` only
+       hydrates a version's baseline (``request_json``) and never applied the
+       reviewer's inline edits, so a web edit sat dangling on the review until
+       someone hand-ran ``apply``.
+    2. **Local → web.** Then :func:`auto_version_if_changed` posts a new version
+       iff the (now possibly edited) narrative differs from the last-synced one —
+       so the folded-in web edit becomes a real numbered version, not a dangling
+       review response.
+
+    Idempotent: a second ``sync`` re-applies the same edits as a net no-op and
+    versions nothing (the content hash is unchanged). Raises
+    :class:`NarrativeConflictError` if the web advanced under a local edit (same
+    guard as :func:`auto_version_if_changed`). ``rv`` is injectable for tests.
+
+    Returns ``{"review_id", "applied", "decision", "version"}``: ``applied`` /
+    ``decision`` are ``None`` when there was no resolved review to fold in;
+    ``version`` is the :func:`auto_version_if_changed` result (``action``
+    ``noop`` | ``posted``).
+    """
+    if rv is None:
+        from scripts.ddd import review as rv  # local import — network-touching
+    from scripts.ddd import runstate as rs
+
+    spec_path = Path(spec_path_str)
+    if not spec_path.exists():
+        raise FileNotFoundError(f"spec file not found: {spec_path}")
+
+    # Resolve the run's review id (the web side of the bridge).
+    review_id = None
+    try:
+        state = rs.load(run_id)
+        review_id = (getattr(state, "narrative_review_id", None) or "").strip() or None
+        if not review_id:
+            review_id = _review_id_from_url(getattr(state, "narrative_review_url", None))
+    except FileNotFoundError:
+        pass
+
+    # 1. Web → local: fold a RESOLVED review's edits onto the spec. apply is
+    #    idempotent and also sets the narrative lock on an approve decision.
+    applied = None
+    decision = None
+    if review_id:
+        try:
+            data = rv.get_review(review_id)
+        except Exception:  # noqa: BLE001 — network/404: degrade to local-only versioning
+            data = None
+        if isinstance(data, dict) and data.get("status") == "resolved":
+            res = apply_narrative_edits(spec_path, data.get("response_json") or {})
+            applied = res.get("applied")
+            decision = res.get("decision")
+
+    # 2. Local → web: version any change (including the edits just folded in).
+    version = auto_version_if_changed(str(spec_path), run_id, rv=rv)
+
+    return {
+        "review_id": review_id,
+        "applied": applied,
+        "decision": decision,
+        "version": version,
+    }
+
+
+def _cmd_sync(spec_path_str: str, run_id: str) -> None:
+    """Reconcile local spec <-> canopy-web in one step: fold a resolved review's
+    edits onto the spec, then auto-version any change. Print the result JSON; exit
+    2 on a conflict (web advanced under a local edit)."""
+    try:
+        result = sync(spec_path_str, run_id)
+    except NarrativeConflictError as exc:
+        print(f"CONFLICT: {exc}", file=sys.stderr)
+        sys.exit(2)
+    print(json.dumps(result))
 
 
 def _cmd_apply(spec_path_str: str, response_json_file: str) -> None:
@@ -1411,6 +1628,7 @@ def main() -> None:
         print(
             "Usage:\n"
             "  python -m scripts.ddd.narrative post <spec_path> <run_id>\n"
+            "  python -m scripts.ddd.narrative sync <spec_path> <run_id>   # reconcile: fold any resolved web review edits onto the spec, THEN version any change (no pause); exit 2 on conflict. The 'I edited on the web, now continue' command.\n"
             "  python -m scripts.ddd.narrative apply <spec_path> <response_json_file>\n"
             "  python -m scripts.ddd.narrative status <run_id>     # prints narrative status JSON; exit 1 if upload would refuse\n"
             "  python -m scripts.ddd.narrative pull <slug> <spec_path> [--force]   # hydrate narrative from canopy-web (web→disk); refuses if local is newer\n"
@@ -1431,6 +1649,15 @@ def main() -> None:
             )
             sys.exit(2)
         _cmd_post(sys.argv[2], sys.argv[3])
+
+    elif subcmd == "sync":
+        if len(sys.argv) != 4:
+            print(
+                "Usage: python -m scripts.ddd.narrative sync <spec_path> <run_id>",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        _cmd_sync(sys.argv[2], sys.argv[3])
 
     elif subcmd == "status":
         if len(sys.argv) != 3:
@@ -1476,7 +1703,7 @@ def main() -> None:
 
     else:
         print(
-            f"ERROR: unknown subcommand {subcmd!r}. Use 'post', 'status', 'pull', 'apply', 'locked', 'lock', or 'unlock'.",
+            f"ERROR: unknown subcommand {subcmd!r}. Use 'post', 'sync', 'status', 'pull', 'apply', 'locked', 'lock', or 'unlock'.",
             file=sys.stderr,
         )
         sys.exit(2)

@@ -55,6 +55,42 @@ design_findings_output:
   # A wrongly-auto-applied finding is much worse than one extra prompt.
   fix_kind_values: [mechanical, options, redesign]
 
+# ─────────────────────────────────────────────────────────────────────────
+# OBJECTIVE-DATA STANDING RULE (read BEFORE scoring any data / evidence artifact)
+# ─────────────────────────────────────────────────────────────────────────
+# Many products exist to present EVIDENCE the user must judge for themselves —
+# dashboards, monitoring, analytics, audit/QA screens. For these the demo's job
+# is to show the objective data CLEANLY and let the reader draw the conclusion,
+# with explanations available ON DEMAND (info bubbles, tooltips, legends,
+# progressive disclosure). Score accordingly:
+#
+#  • REWARD clean, uncluttered presentation of the raw measures, clear labels,
+#    and explanations the user opts into (an "i" bubble defining a metric, a
+#    legend, a method citation). A demo that shows the numbers plainly and lets
+#    the reader conclude scores HIGHER than one that pre-digests the verdict.
+#  • Do NOT reward — and DEDUCT for — on-screen EDITORIALIZING: derived
+#    "headline" conclusions, verdict banners, interpretive callouts ("the gap is
+#    +17 pts!"), or alarm-coloring that tells the user what to think. A
+#    pre-chewed conclusion stamped on the chart is a FLAW here, not polish. Do
+#    NOT recommend "add a one-line takeaway / headline stat / verdict banner" as
+#    a fix for an evidence artifact — that is the wrong direction. For an
+#    evidence product the takeaway IS the data, legibly shown, not a sentence.
+#  • Color / emphasis is justified ONLY when it encodes an OBJECTIVE fact — a
+#    value crossing a STATED threshold, or two recorded values that literally
+#    differ — never a subjective judgment. A bright "this is bad" fill that
+#    editorializes is a deduction; the same flag shown as a calm, defined marker
+#    with its meaning in a bubble is fine.
+#  • Objective interpretation that is load-bearing (a threshold rule, a metric
+#    definition) belongs in an explanation the user can OPEN, not asserted as a
+#    conclusion on the face of the chart.
+#
+# This rule does NOT apply to artifacts whose job is genuinely persuasion (a
+# pitch, a marketing page) — judge those by whether the argument lands. The
+# discriminator is the product's OWN intent, stated in the scene's
+# concept_claim / design_intent. When the concept is "show the user the
+# evidence and let them decide", reward restraint, not salesmanship.
+# ─────────────────────────────────────────────────────────────────────────
+
 dimensions:
   - id: concept_clarity
     label: "Concept Clarity"
@@ -139,6 +175,7 @@ dimensions:
       - "Real content (not a full-page-strip capture artifact) overflows the viewport or wraps awkwardly: max 3"
       - "Typography hierarchy is flat or arbitrary (no visible H1/H2/body distinction): max 3"
       - "Color usage is decorative rather than semantic (random brand-accent on non-action elements): max 3"
+      - "On-screen EDITORIALIZING of data — a derived verdict/headline callout, an interpretive banner, or alarm-coloring that tells the user the conclusion rather than showing the objective measure (see OBJECTIVE-DATA STANDING RULE): max 3. (Color/emphasis encoding an objective fact — a value crossing a stated threshold, values that literally differ — is NOT this; a 'this is bad' fill that editorializes IS.)"
 
   - id: why_groundedness
     label: "Why Groundedness"

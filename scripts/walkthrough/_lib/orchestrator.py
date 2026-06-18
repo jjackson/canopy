@@ -23,9 +23,11 @@ The orchestrator does NOT own the browser lifecycle — that's the CLI's job. A
 its :class:`RunReport`. Easy to drive from a test that hands in a mocked Page.
 
 **Per-scene snapshots.** Pass ``snapshot_dir=Path(...)`` to capture a steady-state
-PNG + ``document.body.innerText`` JSON per scene. The capture moment is between
-the action loop and the scene's ``final_hold_ms`` — after all scripted actions
-have run and the post-action settle has fired, before the next scene navigates.
+PNG + ``document.body.innerText`` JSON per scene. The capture moment is after
+the action loop AND the scene's ``final_hold_ms`` — all scripted actions have
+run, the post-action settle and final hold have fired, and the next scene is
+about to navigate; full-page captures scroll to top (and restore) so sticky
+headers paint at the document top, with the bounce masked by the crossfade.
 That's the same frame the deck's screenshot strip lifts; downstream judges
 (``canopy:walkthrough`` eval, ``ddd-concept-eval``) read these files directly
 instead of re-driving the page. Action-empty scenes (the narrative-only back-
@@ -125,6 +127,13 @@ class Recorder:
         self._current_viewport: dict[str, int] | None = (
             dict(default_viewport) if default_viewport else None
         )
+        # The recording timeline's zero point (time.monotonic()). The CLI sets
+        # this right after ``context.new_page()`` — the moment Playwright's
+        # video capture starts — so per-scene ``start_seconds`` offsets line up
+        # with the produced mp4 (the webm is re-encoded 1:1). When unset (ad-hoc
+        # callers / tests), it defaults lazily to the first scene's start, so
+        # offsets are still internally consistent.
+        self.recording_epoch: float | None = None
 
     # ---- hooks (override these) -----------------------------------------
 
@@ -155,9 +164,9 @@ class Recorder:
     def take_snapshot(self, page: Page, scene: dict, scene_index: int) -> None:
         """Capture a per-scene PNG + page-text JSON at this scene's steady state.
 
-        Called between the action loop and ``final_hold_ms`` — after the last
-        action's ``post_*_settle`` has fired, before the next scene navigates
-        away. Action-empty scenes (the narrative-only back half of a long
+        Called after the action loop and ``final_hold_ms`` — the last
+        action's ``post_*_settle`` and the final hold have fired, and the next
+        scene is about to navigate away. Action-empty scenes (the narrative-only back half of a long
         spec) are skipped unless ``snapshot_empty_scenes=True`` — there's
         nothing to capture between init and final that a previous-scene
         snapshot didn't already record.
@@ -189,7 +198,29 @@ class Recorder:
         # long enough settle for tiles to paint — no special capture path needed.
         full_page = scene.get("full_page")
         full_page = True if full_page is None else bool(full_page)
+        # Sticky-header artifact guard: Chromium's beyond-viewport capture
+        # paints position:sticky/fixed elements at the LIVE scroll offset, so
+        # a scene that ends scrolled down gets its navbar stamped mid-image
+        # and a bar-less, clipped document top. Scroll to top for the capture
+        # and restore after — capture runs post-final-hold, so the bounce sits
+        # at the scene boundary under the crossfade. Viewport captures
+        # (full_page: false) show the live viewport and need no correction.
+        scroll_y = 0
+        if full_page:
+            try:
+                scroll_y = int(page.evaluate("() => window.scrollY") or 0)
+                if scroll_y:
+                    page.evaluate("() => window.scrollTo(0, 0)")
+                    page.wait_for_timeout(200)
+            except Exception:  # noqa: BLE001 — capture correction is best-effort
+                scroll_y = 0
         png_ok = self._screenshot_with_settle_retry(page, png_path, scene_index, full_page=full_page)
+        if full_page and scroll_y:
+            try:
+                page.evaluate(f"() => window.scrollTo(0, {scroll_y})")
+                page.wait_for_timeout(120)
+            except Exception:  # noqa: BLE001
+                pass
         try:
             inner_text = page.evaluate("() => document.body && document.body.innerText || ''")
         except Exception as e:  # noqa: BLE001
@@ -362,12 +393,27 @@ class Recorder:
         else:
             print(f"  · viewport restored → {target['width']}x{target['height']}")
 
-    def run_scene(self, page: Page, scene: dict, *, scene_index: int | None = None) -> float:
+    def run_scene(
+        self,
+        page: Page,
+        scene: dict,
+        *,
+        scene_index: int | None = None,
+        nav_sink: list[str] | None = None,
+    ) -> float:
         """Record one scene. Returns elapsed seconds (floored by ``min_hold_ms``).
 
         Order: hook ``before_scene`` → resolve nav target → maybe navigate →
         ``initial_hold_ms`` → each action with ``before_action`` / ``after_action``
         → ``final_hold_ms`` → hook ``after_scene``.
+
+        ``nav_sink`` is an optional shared list that the CLI wires to a Playwright
+        ``framenavigated`` listener (main-frame URLs). Action-boundary ``page.url``
+        snapshots miss client-side redirects that fire BETWEEN actions (e.g. an
+        audit→workflow redirect that lands while the recorder is holding). We
+        CLEAR the sink at scene start so it only carries this scene's
+        navigations, then FOLD its contents into the scene's ``urls_visited`` at
+        scene end. ``None`` (the default) is the no-sink path for ad-hoc callers.
 
         ``scene_index`` is the 1-based ORIGINAL spec index of this scene (the
         ``--scene 3`` partial-run case still gets ``scene_index=3``, not
@@ -377,6 +423,21 @@ class Recorder:
         ``scene["scene_index"]`` (set by ``build_scenes_from_spec``).
         """
         idx = scene_index if scene_index is not None else scene.get("scene_index")
+        # Per-scene wall-clock timing for the run report. Captured BEFORE the
+        # nav so ``start_seconds`` marks the moment this scene begins on the
+        # recording timeline (nav + settle + actions + final hold all count
+        # toward its duration). The epoch defaults to this scene's start when
+        # the CLI didn't stamp one (ad-hoc callers).
+        scene_start = time.monotonic()
+        if self.recording_epoch is None:
+            self.recording_epoch = scene_start
+        # Clear the shared nav sink at the TRUE scene start (before the goto) so
+        # it accumulates only THIS scene's main-frame navigations — including
+        # the scene's own goto and any client-side redirect that fires while the
+        # recorder holds. Folded into ``visited`` at scene end. The listener
+        # that fills it is registered once on the page by the CLI.
+        if nav_sink is not None:
+            nav_sink.clear()
         # Per-scene viewport override: apply BEFORE the goto so the freshly-
         # loaded page lays out at the requested size from the first paint.
         # Restored AFTER final_hold_ms below (so the next scene starts at the
@@ -423,6 +484,17 @@ class Recorder:
 
         start = time.monotonic()
         scene_results: list[ActionResult] = []
+        # Collect the URLs this scene actually lands on, one ``page.url``
+        # snapshot per action boundary. Seed with the post-nav URL (so a
+        # nav-only scene still records where it went), then append after each
+        # action (a click can trigger a redirect/SPA route change). Deduped +
+        # order-preserved downstream in ``record_scene_urls``. Guarded because
+        # ``page.url`` can raise on a torn-down page.
+        visited: list[str] = []
+        try:
+            visited.append(page.url)
+        except Exception:  # noqa: BLE001 — URL collection is best-effort telemetry
+            pass
         for action in (scene.get("actions") or []):
             self.before_action(scene, action)
             result = execute_action(page, action, base_url=self.base_url, config=self.config)
@@ -435,16 +507,35 @@ class Recorder:
                 result = dataclasses.replace(result, scene_index=int(idx))
             self.report.record(result)
             scene_results.append(result)
+            try:
+                visited.append(page.url)
+            except Exception:  # noqa: BLE001 — best-effort telemetry
+                pass
             self.after_action(scene, action, result)
 
-        # Steady-state moment: actions are done, their post-action settle has
-        # fired, and we're about to hold + transition. This is the same frame
-        # the deck's screenshot strip lifts; capture it here so downstream
-        # judges read the same surface a viewer sees.
+        # End-of-scene hold. ``scene.video_hold_seconds`` (legacy per-scene
+        # knob) overrides the global ``final_hold_ms`` for THIS scene only —
+        # it dated from the scroll-pan-era recorder and had been a silent
+        # no-op since the orchestrator refactor (passed through by
+        # build_scenes_from_spec, consumed by nothing). Wiring it here gives
+        # it one defined meaning in the timing model: the end-of-scene dwell.
+        # For mid-scene cinematic dwells prefer explicit ``hold`` actions —
+        # see the walkthrough SKILL's "Recording time & dead space" section.
+        hold_override = scene.get("video_hold_seconds")
+        final_hold_ms = (
+            int(float(hold_override) * 1000) if hold_override else self.config.final_hold_ms
+        )
+        page.wait_for_timeout(final_hold_ms)
+
+        # Steady-state moment: actions are done, their post-action settle and
+        # final hold have fired, and we're about to transition. This is the
+        # same frame the deck's screenshot strip lifts; capture it here —
+        # AFTER the hold — so the full-page capture's scroll-to-top bounce
+        # (see take_snapshot) lands at the scene cut, where the crossfade to
+        # the next scene masks it, instead of mid-scene on film.
         if idx is not None:
             self.take_snapshot(page, scene, int(idx))
 
-        page.wait_for_timeout(self.config.final_hold_ms)
         self.after_scene(scene, scene_results)
 
         # Restore the spec-level viewport so the next scene starts at the
@@ -453,10 +544,28 @@ class Recorder:
         if scene_viewport is not None:
             self._apply_viewport(page, None)
 
-        elapsed_s = time.monotonic() - start + (self.config.initial_hold_ms + self.config.final_hold_ms) / 1000
+        # Record this scene's slot on the recording timeline. Raw wall-clock
+        # (nav included), unlike the floored return value below — the report
+        # entry must match where the scene actually sits in the mp4.
+        if idx is not None:
+            self.report.record_scene_timing(
+                scene_index=int(idx),
+                title=scene.get("title", f"Scene {idx}"),
+                start_seconds=scene_start - self.recording_epoch,
+                duration_seconds=time.monotonic() - scene_start,
+            )
+            # Fold the framenavigated sink (client-side redirects) in AFTER the
+            # action-boundary snapshots, then record. ``record_scene_urls``
+            # dedupes order-preserving, so a URL already captured at an action
+            # boundary won't double up.
+            if nav_sink is not None:
+                visited = visited + list(nav_sink)
+            self.report.record_scene_urls(scene_index=int(idx), urls=visited)
+
+        elapsed_s = time.monotonic() - start + (self.config.initial_hold_ms + final_hold_ms) / 1000
         return max(elapsed_s, self.config.min_hold_ms / 1000)
 
-    def run(self, page: Page, scenes: list[dict]) -> float:
+    def run(self, page: Page, scenes: list[dict], *, nav_sink: list[str] | None = None) -> float:
         """Record every scene in ``scenes``. Returns total elapsed seconds.
 
         Each scene's ``scene_index`` (set by ``build_scenes_from_spec`` to the
@@ -464,13 +573,19 @@ class Recorder:
         results get stamped with the right index even on partial (``--scene 3``)
         runs. Scenes without ``scene_index`` fall back to the loop's 1-based
         position — fine for ad-hoc test callers that hand in raw scene dicts.
+
+        ``nav_sink`` (when supplied) is the shared ``framenavigated`` list,
+        passed through to each :meth:`run_scene` so client-side redirects fold
+        into the right scene's ``urls_visited``.
         """
         total = 0.0
         n = len(scenes)
         for i, scene in enumerate(scenes, 1):
             title = scene.get("title", f"(scene {i})")
             print(f"\n=== Scene {i}/{n}: {title}")
-            total += self.run_scene(page, scene, scene_index=scene.get("scene_index", i))
+            total += self.run_scene(
+                page, scene, scene_index=scene.get("scene_index", i), nav_sink=nav_sink
+            )
         return total
 
     def print_summary(self) -> None:

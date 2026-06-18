@@ -14,9 +14,36 @@ The DDD-only ``RunState`` (the converge lifecycle) lives in
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+# ---------------------------------------------------------------------------
+# Gates — the human pause points in the DDD loop
+# ---------------------------------------------------------------------------
+
+
+class Gate(str, Enum):
+    """The three human-pause gates, as a single source of truth.
+
+    A ``str`` subclass so a member drops in anywhere the old string literal was
+    expected — ``ReviewRequest(gate=Gate.CONCEPT_CHANGE)``, equality with the
+    literal (``review.gate == "concept_change"``), and JSON serialization all
+    keep working without a ``.value``.
+
+      * ``concept_change``   — narrative-agreement gate (the irreplaceable-taste
+        pause before any build): ddd-narrative-review.
+      * ``product_findings`` — per-iteration findings review (review_mode: human):
+        ddd-findings-review. A run-child, not a narrative version.
+      * ``external_release`` — publish-this-docs-page gate before a public release:
+        ddd-upload.
+    """
+
+    CONCEPT_CHANGE = "concept_change"
+    PRODUCT_FINDINGS = "product_findings"
+    EXTERNAL_RELEASE = "external_release"
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +99,29 @@ class Feature(BaseModel):
     id: str
     description: str  # concrete buildable unit — what to implement
     verify: str       # how to validate it's done (API assertion, UI state, test command)
+
+
+class Finding(BaseModel):
+    """One judge-emitted design finding (the ddd-concept-eval contract shape).
+
+    The **judge owns ``severity``** (concept judge: score<=1->high, ==2->medium,
+    ==3->low). Downstream consumers (``findings_review``) must treat a present
+    ``severity`` as authoritative and only fall back to a heuristic
+    (``derive_severity``) when it's absent — the judge has the artifact context a
+    route+fix_kind heuristic lacks.
+
+    ``route`` is one of PRODUCT / CONCEPT / RESEARCH / DEFER; ``fix_kind`` is
+    mechanical / options / redesign. ``fix_recommendation`` is optional (a
+    finding can describe the problem without prescribing the fix).
+    """
+
+    scene: str
+    dimension: str
+    route: str
+    fix_kind: str
+    severity: str
+    detail: str
+    fix_recommendation: str = ""
 
 
 # Action verbs the recorder understands. Single source of truth — the recorder
@@ -383,14 +433,86 @@ class Scene(BaseModel):
     by sentence and taking the i-th sentence."""
 
 
+class SetupBlock(BaseModel):
+    """Data-setup contract: the command that puts the world in a recordable state.
+
+    Demos backed by synthetic data need (a) a synthetic-data generation step to
+    run BEFORE rendering, and (b) the dynamic IDs that step mints substituted
+    into scene URLs / action targets (``${var}`` — see
+    ``scripts.narrative.substitution``). Without this contract, specs hardcode
+    IDs that silently go stale on every reseed — and demos that MUTATE state
+    during recording (a manager flow that creates a real audit + task) film the
+    wrong UI on every re-render unless the generator runs again first.
+    """
+
+    command: str
+    """Shell command that generates/reseeds the demo data (the synthetic
+    generator). Run with cwd = the git toplevel containing the spec file
+    (``git rev-parse --show-toplevel`` from the spec's directory; falls back to
+    the spec's directory outside a git repo) — so commands are written
+    repo-root-relative, matching how humans run them."""
+
+    outputs: str | None = None
+    """Repo-root-relative path to a flat JSON object (string/number values) of
+    variables the command emits. Parsed after the command runs; its keys
+    resolve the spec's ``${var}`` placeholders. ``None`` for setup commands
+    that mint nothing dynamic (pure reseed, stable URLs)."""
+
+    rerun: Literal["per_render", "once"] = "per_render"
+    """``per_render`` (default) runs the command before EVERY render
+    invocation — required for state-mutating demos, where recording itself
+    changes the world (the scene that creates an audit must find no audit on
+    the next take). ``once`` skips the command when the outputs file already
+    exists — for expensive, idempotent generators whose data survives
+    re-renders."""
+
+    timeout_seconds: int = 1200
+    """Abort the render (loudly) if the setup command runs longer than this."""
+
+
 class UnifiedSpec(BaseModel):
     name: str
     narrative: str
     base_url: str
     auth: dict | None = None
+    setup: SetupBlock | None = None
+    """Optional data-setup contract — see :class:`SetupBlock`. When present,
+    the recorder runs ``setup.command`` before recording (honoring ``rerun``)
+    and resolves ``${var}`` placeholders in scene URLs / action targets from
+    ``setup.outputs``. When absent, any ``${...}`` placeholder in the spec is
+    a hard error (catches misconfiguration before filming a literal
+    ``${run_id}`` URL)."""
+    prewarm: bool = False
+    """Optional pre-warm pass (default off). When True, the recorder — after
+    ``setup`` has run (so ``${var}`` placeholders are resolved) and auth is
+    available, but BEFORE the recorded context exists — opens a separate
+    NON-recorded browser context with the same cookies/storage_state and
+    visits each unique resolved scene URL once, in spec order. This warms
+    cold caches (first-hit page renders, remote image fetches, JIT/template
+    warm-up) OFF CAMERA, so the filmed pass doesn't freeze-frame through
+    them. Best-effort: a failing pre-warm page is logged and skipped, never
+    fatal. CLI ``--prewarm`` / ``--no-prewarm`` overrides this value. See the
+    walkthrough SKILL's "Recording time & dead space" section."""
     why_brief: str | None = None
     personas: dict[str, Persona]
     scenes: list[Scene]
+    review_mode: Literal["autonomous", "human"] = "autonomous"
+    """How judge findings are handled after each render+judge iteration.
+
+    - ``autonomous`` (default): the orchestrator auto-applies PRODUCT findings
+      with ``fix_kind: mechanical`` and only pauses on the standing gates
+      (``concept_change``, ``external_release``) or a ``stop_unclear``
+      options/redesign finding.
+    - ``human``: after every judged iteration, ALL PRODUCT findings are posted
+      to the canopy-web review surface as ONE ``product_findings`` review
+      (``scripts.ddd.findings_review``) — clustered, each cluster carrying
+      deck ``#scene-<N>`` and video ``#t=<seconds>`` evidence deep-links —
+      and the user picks implement / skip / defer per cluster before the loop
+      continues. Nothing is auto-applied.
+
+    Lives on the spec (not the run) so the preference travels with the
+    narrative artifact; ``narrative pull`` preserves it like the rest of the
+    disk-only recipe."""
     narrative_locked: bool = False
     """When True, this narrative has been approved at the narrative-agreement gate
     and is durable INPUT — ddd-spec must NOT regenerate it, and a new run reuses
@@ -525,6 +647,38 @@ class ReviewRequest(BaseModel):
     from ``UnifiedSpec.why_brief`` (a path relative to the spec file)."""
     autonomous_audit: list[str] = []
     actionability: dict | None = None
+    # ---- product_findings (run-child) gate fields ----------------------------
+    # These four ride only on the ``product_findings`` gate's request_json (the
+    # canopy ↔ canopy-web contract). They are absent/empty on every other gate.
+    # The findings review is a RUN-CHILD, not a narrative version — it carries
+    # NO ``narrative_slug`` (left ""), and canopy-web pins ``version=0`` for it.
+    feature: str = ""
+    """The feature/narrative slug this run belongs to (e.g. ``program-admin-report``).
+    The findings review files under the RUN, keyed by ``run_id`` + ``feature`` —
+    not under a narrative version. Empty on non-findings gates."""
+    iteration: int = 0
+    """1-based judged-iteration number this findings review is for. Lets the
+    surface label "iteration N" and lets evidence resolve the right
+    ``snapshots_iter<N>/`` capture set. Empty (0) on non-findings gates."""
+    deck_url: str = ""
+    """Hosted deck URL (``/w/<deck-id>``) supporting ``#scene-N`` anchors, used
+    by ``clusters[].evidence[].deck_anchor`` deep-links. Empty on non-findings gates."""
+    summary: dict = {}
+    """``{concept_score, user_score, verdict}`` headline for the findings gate —
+    the two judge overall_scores and the gating verdict. Empty on other gates."""
+    findings: list[dict] = Field(default_factory=list, serialization_alias="clusters")
+    """Machine-readable finding clusters for the ``product_findings`` gate.
+
+    Serialized as ``clusters`` in request_json (the canopy ↔ canopy-web contract key);
+    the Python attribute stays ``findings``. Construction by ``findings=`` is unaffected.
+
+    Populated by ``scripts.ddd.findings_review.build_findings_review_request``:
+    one entry per clustered PRODUCT finding in the contract shape — ``id``,
+    ``title``, ``severity``, ``fix_kind``, ``route``, ``scenes`` (1-based spec
+    indices), ``suggested_fix``, ``count``, and ``evidence`` (a list of
+    ``{scene, thumb, deck_anchor, video_t}`` — an inline downscaled JPEG
+    data-URI of that scene's screenshot, the deck ``#scene-<N>`` anchor, and the
+    integer video offset in seconds). Empty for every other gate."""
     build_order: list[str] = []
     """Ordered list of scene-title slugs representing the user's chosen tackle sequence.
 

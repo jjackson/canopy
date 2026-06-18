@@ -44,6 +44,13 @@ nominalized domain claims ("GPS pinning accuracy within 5 meters") while
 accepting articulate-but-empty fluff ("The system is good" — copula + adjective).
 Subtle vacuousness judgment belongs to the LLM concept judge (SP3).
 
+**Layer 2 — QA-specific (data-setup contract):**
+6. If any scene `url` or action `target`/`value` uses a `${...}` placeholder, the
+   spec must declare a `setup:` block with `outputs:` — the synthetic generator
+   that mints those variables (see ddd-spec Step 5, "Data setup contract").
+   Without it the recorder would film a literal `/runs/${run_id}/` URL.  The
+   converse is fine: declared-but-unused outputs are not an error.
+
 These rules exist because concept_claims are the testable hypotheses that the
 concept judge (SP3) will score.  A non-falsifiable claim cannot be judged.
 
@@ -124,5 +131,9 @@ Tell the user to fix the issues in the spec file and re-run `/ddd-spec-qa`.
   match a valid spine id from the linked why_brief.
 - `why_brief declared but not resolvable` → fix the relative path or supply
   `why_brief_path` explicitly.
+- `spec uses ${...} placeholder(s) ... but declares no setup: block` (or
+  `setup.outputs is not declared`) → declare the synthetic generator in
+  `setup.command` + point `setup.outputs` at the flat JSON it emits, or remove
+  the placeholders if the URLs are genuinely static.
 
 Do NOT proceed to the concept judge if this QA returns `verdict: fail`.

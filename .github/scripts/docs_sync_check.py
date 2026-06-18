@@ -58,8 +58,26 @@ TRIGGER_PATHS: dict[str, list[str]] = {
         "plugins/canopy/skills/ddd-spec/SKILL.md",
         "plugins/canopy/skills/walkthrough/SKILL.md",
     ],
+    # The canonical spec-author surface (UnifiedSpec / Scene / Action) lives
+    # here since the narrative-substrate refactor; scripts/ddd/schemas/models.py
+    # above is now a re-export shim. Same audience, same required docs.
+    "scripts/narrative/models.py": [
+        "plugins/canopy/skills/ddd-spec/SKILL.md",
+        "plugins/canopy/skills/walkthrough/SKILL.md",
+    ],
     "scripts/walkthrough/_lib/recorder.py": [
         "plugins/canopy/skills/ddd-spec/SKILL.md",
+        "plugins/canopy/skills/walkthrough/SKILL.md",
+    ],
+    # The timing model: every dwell/settle/timeout knob (config.py) and the
+    # per-scene loop that consumes them (orchestrator.py). Authors tune these
+    # through the spec (video_pace / video_recorder_config / hold actions /
+    # video_hold_seconds); the walkthrough SKILL's "Recording time & dead
+    # space" section is the authoritative map and must move in lockstep.
+    "scripts/walkthrough/_lib/config.py": [
+        "plugins/canopy/skills/walkthrough/SKILL.md",
+    ],
+    "scripts/walkthrough/_lib/orchestrator.py": [
         "plugins/canopy/skills/walkthrough/SKILL.md",
     ],
     "scripts/walkthrough/record_video.py": [

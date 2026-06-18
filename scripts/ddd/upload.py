@@ -40,19 +40,22 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
 import yaml
 
-from scripts.ddd.schemas.models import Decision, ReviewRequest, RunState, UnifiedSpec, WhyBrief
+from scripts.ddd.schemas.models import Decision, Gate, ReviewRequest, RunState, UnifiedSpec, WhyBrief
 from scripts.ddd.runstate import load as load_state
 from scripts.ddd.runstate import save as save_state
 from scripts.ddd.runstate import _resolve_ddd_dir
-
-DEFAULT_API = "https://canopy-web-ujpz2cuyxq-uc.a.run.app"
-TOKEN_FILE = Path.home() / ".claude" / "canopy" / "workbench-token"
+from scripts.ddd.auth import (
+    DEFAULT_API,
+    TOKEN_FILE,
+    resolve_base_url as _resolve_base_url,
+    resolve_token as _resolve_token,
+)
+from scripts.ddd.review import _review_id_from_url
 
 # Escape hatch (emergencies only): set DDD_ALLOW_NO_NARRATIVE=1 to publish a run
 # that has no narrative version on canopy-web. Mirrors the SKIP_TESTS pattern in
@@ -71,18 +74,19 @@ class NarrativeMissingError(RuntimeError):
     """
 
 
-# ---------------------------------------------------------------------------
-# Auth / URL resolution — mirrors review.py exactly
-# ---------------------------------------------------------------------------
+class DeckMissingError(RuntimeError):
+    """Raised when ``upload_run`` cannot find a usable render manifest.
 
-
-def _resolve_base_url(base_url: str | None) -> str:
-    if base_url:
-        return base_url.rstrip("/")
-    from_env = os.environ.get("CANOPY_WEB_API_URL", "").strip()
-    if from_env:
-        return from_env.rstrip("/")
-    return DEFAULT_API
+    The render engine emits ``walkthrough-run-data.json`` (the canonical
+    manifest built by ``scripts.walkthrough.manifest.build_manifest``) into the
+    run dir. The deck (``role=deck`` slideshow) is built directly from that
+    manifest's scene slides — there is no spec-rebuild fallback. If the manifest
+    is absent or carries zero scene slides, the run was not rendered (or was
+    rendered by a stale path that didn't emit the manifest); the fix is to
+    re-render with ``record_video.py --manifest`` before uploading. Failing loud
+    here is deliberate: a silently-empty "Walkthrough slides" section is the bug
+    this refactor removes.
+    """
 
 
 def run_package_url(narrative_slug: str, run_id: str, base_url: str | None = None) -> str:
@@ -100,19 +104,62 @@ def run_package_url(narrative_slug: str, run_id: str, base_url: str | None = Non
     return f"{api}/ddd/{feat}/{rid}"
 
 
-_REVIEW_ID_RE = re.compile(
-    r"/review/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
-    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
-)
+def narrative_landing_url(narrative_slug: str, base_url: str | None = None) -> str:
+    """The canopy-web narrative landing page (versions list) for a slug."""
+    api = _resolve_base_url(base_url)
+    return f"{api}/ddd/{urllib.parse.quote(narrative_slug, safe='')}"
 
 
-def _review_id_from_url(url: str | None) -> str | None:
-    """Extract the ReviewRequest UUID from a narrative-review URL
-    (``.../review/<uuid>/?t=...``), or None."""
-    if not url:
-        return None
-    m = _REVIEW_ID_RE.search(url)
-    return m.group(1) if m else None
+def upload_narrative_video(
+    narrative_slug: str,
+    video_path: str,
+    *,
+    base_url: str | None = None,
+    token: str | None = None,
+    role: str = "hero_video",
+    title: str | None = None,
+    _detail=None,
+    _upload=None,
+) -> dict:
+    """Upload a rendered mp4 and pin it to the narrative's CURRENT version.
+
+    Resolves the current narrative version on canopy-web and stamps the uploaded
+    artifact with its review id (``narrative_review_id``), so the video attaches
+    to that exact story version — a later narration edit can't leave a stale
+    video on a newer version. Returns ``{video_url, version, review_id,
+    narrative_url}``.
+
+    Refuses if canopy-web has no narrative version for the slug: a video must
+    hang off a real version, so the narrative has to be posted first.
+    """
+    from scripts.ddd import review as rv
+
+    detail = (_detail or rv.get_narrative)(narrative_slug, base_url=base_url, token=token)
+    cur = (detail or {}).get("current_version") or {}
+    review_id = cur.get("review_id")
+    version = cur.get("version")
+    if not review_id:
+        raise SystemExit(
+            f"canopy-web has no narrative version for {narrative_slug!r} — post the "
+            "narrative (run the narrative-review gate) before attaching a video."
+        )
+    data = Path(video_path).read_bytes()
+    video_url = (_upload or publish_artifact)(
+        data,
+        kind="video",
+        title=title or f"{narrative_slug} v{version}",
+        narrative_slug=narrative_slug,
+        role=role,
+        narrative_review_id=str(review_id),
+        base_url=base_url,
+        token=token,
+    )
+    return {
+        "video_url": video_url,
+        "version": version,
+        "review_id": str(review_id),
+        "narrative_url": narrative_landing_url(narrative_slug, base_url),
+    }
 
 
 def _resolve_narrative_review_id(run_state: RunState) -> str | None:
@@ -144,22 +191,6 @@ def _default_narrative_check(
     from scripts.ddd import review as rv
 
     return rv.narrative_version_exists(narrative_slug, base_url=base_url, token=token)
-
-
-def _resolve_token(token: str | None) -> str:
-    if token:
-        return token
-    from_env = os.environ.get("CANOPY_WEB_PAT", "").strip()
-    if from_env:
-        return from_env
-    if TOKEN_FILE.exists():
-        stored = TOKEN_FILE.read_text().strip()
-        if stored:
-            return stored
-    raise RuntimeError(
-        f"no canopy-web PAT — run /canopy:canopy-web-pat-mint to mint one, "
-        f"or set CANOPY_WEB_PAT env var. Expected token at {TOKEN_FILE}."
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -688,42 +719,30 @@ def _default_post(
     return json.loads(raw.decode("utf-8")) if raw else {}
 
 
-def _external_links_from_spec(spec) -> list[dict]:
-    """Build "external systems" reference links from a spec: the base app URL
-    plus each scene's concrete page (``scene.url`` or its first ``goto``
-    action's target), resolved against ``base_url`` and de-duped in scene order.
+def _external_links_from_manifest(manifest: dict) -> list[dict]:
+    """Build "external systems" reference links from the render manifest: the
+    base app URL plus each scene's already-resolved ``url`` and ``urls_visited``,
+    de-duped in scene order.
 
-    These are the live systems the run was recorded against — the pages and
-    entities we used/created during the demo — surfaced on the run page so a
-    viewer can go visit them. Returns ``[{label, url, kind: "reference"}, ...]``.
+    These are the live systems the run was actually recorded against — the pages
+    and entities we used/created during the demo (including pages the run
+    NAVIGATED to mid-scene, e.g. a freshly-created audit). Reading them from the
+    manifest (not the spec) means the URLs are fully resolved — no unsubstituted
+    ``${...}`` placeholders — and they include the ``urls_visited`` the engine
+    captured. Returns ``[{label, url, kind: "reference"}, ...]``.
     """
-    base = (getattr(spec, "base_url", "") or "").rstrip("/")
+    base = (manifest.get("base_url") or "").rstrip("/")
     out: list[dict] = []
     seen: set[str] = set()
-
-    def _add(url: str, label: str) -> None:
-        if not url or url in seen:
-            return
-        seen.add(url)
-        out.append({"label": label, "url": url, "kind": "reference"})
-
-    if base:
-        _add(base, "App")
-    for scene in getattr(spec, "scenes", []) or []:
-        raw = getattr(scene, "url", None)
-        if not raw:
-            raw = next(
-                (
-                    a.target
-                    for a in (getattr(scene, "actions", []) or [])
-                    if getattr(a, "kind", None) == "goto" and getattr(a, "target", None)
-                ),
-                None,
-            )
-        if not raw:
+    if base and base not in seen:
+        out.append({"label": "App", "url": base, "kind": "reference"}); seen.add(base)
+    for s in manifest.get("slides", []):
+        if s.get("type") != "scene":
             continue
-        full = raw if raw.startswith("http") else f"{base}/{raw.lstrip('/')}"
-        _add(full, getattr(scene, "title", None) or full)
+        label = s.get("title") or "Scene"
+        for u in [s.get("url"), *s.get("urls_visited", [])]:
+            if u and "${" not in u and u not in seen:
+                out.append({"label": label, "url": u, "kind": "reference"}); seen.add(u)
     return out
 
 
@@ -850,74 +869,6 @@ def _default_gate(review_request: ReviewRequest, base_url: str | None, token: st
                 return str(response_json[decision.id])
     # Fallback: if the server returned a simple string or unexpected shape, hold
     return "hold"
-
-
-# ---------------------------------------------------------------------------
-# Slideshow deck (role=deck) — rebuilt from captured frames
-# ---------------------------------------------------------------------------
-
-
-def _build_deck_run_data(run_dir: Path, raw_spec: dict, *, generated_at: str) -> dict | None:
-    """Build a ``walkthrough-run-data.json``-shaped dict from a run dir's
-    captured ``scene_<N>.png`` screenshots + the spec.
-
-    ``canopy:walkthrough`` writes that sidecar during rendering; a run rendered
-    directly via ``record_video.py`` does NOT, so no slideshow deck (role=deck)
-    is ever produced and the package page's "Walkthrough slides" section renders
-    empty. Rebuilding the deck data from the captured frames lets ``upload_run``
-    guarantee a deck regardless of how the run was rendered. Returns ``None`` when
-    no scene captures are present (nothing to deck).
-    """
-    scenes = raw_spec.get("scenes", []) or []
-    personas_raw = raw_spec.get("personas", {}) or {}
-    base = (raw_spec.get("base_url") or "").rstrip("/")
-    slides: list[dict] = []
-    for idx, scene in enumerate(scenes, start=1):
-        png = run_dir / f"scene_{idx}.png"
-        if not png.exists():
-            continue
-        persona_key = scene.get("persona") or (next(iter(personas_raw), "") if personas_raw else "")
-        # Scene starting URL: explicit url, else the first goto action's target,
-        # else the spec base. Path-relative urls resolve against base_url.
-        url = scene.get("url")
-        if not url:
-            for action in scene.get("actions", []) or []:
-                if action.get("kind") == "goto" and action.get("target"):
-                    url = action["target"]
-                    break
-        if url and url.startswith("/"):
-            url = base + url
-        slides.append(
-            {
-                "type": "scene",
-                "title": scene.get("title", f"Scene {idx}"),
-                "narration": scene.get("narrative") or scene.get("show") or "",
-                "url": url or base,
-                "screenshot_b64": base64.b64encode(png.read_bytes()).decode(),
-                "scene_index": idx,
-                "scene_total": len(scenes),
-                "persona": persona_key,
-                "persona_key": persona_key,
-            }
-        )
-    if not slides:
-        return None
-    return {
-        "name": raw_spec.get("name", ""),
-        "narrative": raw_spec.get("narrative", ""),
-        "generated_at": generated_at,
-        "duration_seconds": 0,
-        "personas": {
-            key: {
-                "name": val.get("name", key),
-                "role": val.get("role", ""),
-                "color": val.get("color", "#4F46E5"),
-                "intro": val.get("intro", ""),
-            }
-            for key, val in personas_raw.items()
-        },
-        "slides": slides,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -1083,9 +1034,24 @@ def upload_run(
         narrative_review_id=narrative_review_id,
     )
 
-    # 4. Build docs HTML + the external-systems links (live pages the run used).
+    # 4. Read the render manifest ONCE — it drives both the external-systems
+    #    links (step 4) and the slideshow deck (step 6b). The engine emits
+    #    walkthrough-run-data.json (record_video.py --manifest); if it's absent
+    #    the run was never rendered (or by a stale path), so fail LOUD rather than
+    #    fabricate a deck/links from the spec.
+    sidecar_path = run_dir / "walkthrough-run-data.json"
+    if not sidecar_path.exists():
+        raise DeckMissingError(
+            f"no render manifest at {sidecar_path}; render must emit "
+            f"walkthrough-run-data.json (record_video --manifest). "
+            f"Re-render before upload."
+        )
+    deck_run_data = json.loads(sidecar_path.read_text())
+
+    # Build docs HTML + the external-systems links (live pages the run used),
+    # both derived from the manifest's fully-resolved URLs.
     html_content = build_docs_page(spec, why_brief, video_url)
-    external_links = _external_links_from_spec(spec)
+    external_links = _external_links_from_manifest(deck_run_data)
 
     # 5. External release gate — ONLY for a public release. A stuck/review upload
     #    (release=False) skips the gate: it's an internal inspection package, not a
@@ -1093,7 +1059,7 @@ def upload_run(
     if release and not auto_approve_for_test:
         review_request = ReviewRequest(
             run_id=run_id,
-            gate="external_release",
+            gate=Gate.EXTERNAL_RELEASE,
             video={"url": video_url},
             decisions=[
                 Decision(
@@ -1101,7 +1067,7 @@ def upload_run(
                     prompt="Publish this docs page for users?",
                     options=["publish", "hold"],
                     recommended="publish",
-                    **{"class": "external_release"},
+                    **{"class": Gate.EXTERNAL_RELEASE},
                 )
             ],
             narration=[{"text": f"Docs page ready for {spec.name}. Review above video and approve to publish."}],
@@ -1127,41 +1093,28 @@ def upload_run(
         links=external_links,
     )
 
-    # 6b. Ensure a slideshow deck (role=deck) exists. The package page's
-    #     "Walkthrough slides" section reads role=deck; ddd-run Step 2b uploads
-    #     one per iteration when rendered via canopy:walkthrough, but a run
-    #     rendered directly via record_video.py emits no walkthrough-run-data.json
-    #     sidecar, so no deck is ever produced and that section renders empty.
-    #     Prefer an existing sidecar; otherwise rebuild the deck from the run
-    #     dir's captured scene_<N>.png frames so the package is always complete.
-    #     A missing/un-renderable deck must NEVER break the upload — the video +
-    #     docs are already published — so failures here are logged, not raised.
-    try:
-        from scripts.walkthrough.generate_presentation import build_presentation_html
+    # 6b. Upload the slideshow deck (role=deck) — built directly from the render
+    #     manifest the engine emitted (read once at the top of upload_run). The
+    #     package page's "Walkthrough slides" section reads role=deck; the deck is
+    #     the manifest's scene slides rendered by build_presentation_html. There is
+    #     NO spec-rebuild fallback: a missing or empty manifest is a render gap, so
+    #     we fail LOUD (DeckMissingError) rather than silently skip the section.
+    from scripts.walkthrough.generate_presentation import build_presentation_html
 
-        sidecar_path = run_dir / "walkthrough-run-data.json"
-        if sidecar_path.exists():
-            deck_run_data = json.loads(sidecar_path.read_text())
-        else:
-            deck_run_data = _build_deck_run_data(
-                run_dir,
-                raw_spec,
-                generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            )
-        if deck_run_data and deck_run_data.get("slides"):
-            upload_fn(
-                build_presentation_html(deck_run_data),
-                kind="html",
-                title=f"{spec.name} — walkthrough slides",
-                base_url=base_url,
-                token=token,
-                run_id=run_id,
-                narrative_slug=run_state.narrative_slug,
-                role="deck",
-                narrative_review_id=narrative_review_id,
-            )
-    except Exception as exc:  # noqa: BLE001 — deck is best-effort; never block the package
-        print(f"ddd-upload: skipped slideshow deck ({exc})", file=sys.stderr)
+    deck_slides = [s for s in deck_run_data.get("slides", []) if s.get("type") == "scene"]
+    if not deck_slides:
+        raise DeckMissingError(f"manifest {sidecar_path} has zero scene slides")
+    upload_fn(
+        build_presentation_html(deck_run_data),
+        kind="html",
+        title=f"{spec.name} — walkthrough slides",
+        base_url=base_url,
+        token=token,
+        run_id=run_id,
+        narrative_slug=run_state.narrative_slug,
+        role="deck",
+        narrative_review_id=narrative_review_id,
+    )
 
     # 7. Update run state. A release marks the run terminal (uploaded); a stuck
     #    review upload leaves phase unchanged so the run can keep iterating toward

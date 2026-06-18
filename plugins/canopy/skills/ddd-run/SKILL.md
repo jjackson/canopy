@@ -72,6 +72,60 @@ ddd-run: BLOCKED — ddd-spec-qa must pass before rendering.
 
 Do NOT render a spec that fails the QA gate.
 
+### Step 1b — Sync the narrative (pull web edits, then auto-version; no pause)
+
+Reconcile the narrative in BOTH directions before render, so the run attaches to
+the user's latest story whether they last edited it **locally** (in the spec) or
+**on the web** (inline on the review surface). `sync` first folds any RESOLVED
+web review edits onto the spec (so a web edit is never silently dropped), then
+auto-versions the result — one command, no per-edit human pause:
+
+```bash
+SPEC_ABS="$(realpath <unified_spec>)"
+(cd "$DDD_REPO" && uv run python -m scripts.ddd.narrative sync "$SPEC_ABS" "<run_id>")
+```
+
+> **What `sync` does:** it folds any resolved **web** review edits onto the spec
+> (those live in the review's `response_json`, not the spec — so versioning the
+> local spec alone would silently drop them), THEN versions any change. There is
+> deliberately **no separate "version-local-only" command** — that was a footgun
+> that ignored web edits. `sync` is the one entry point; no web edits pending →
+> it just versions the local change.
+
+`sync` returns `{review_id, applied, decision, version}`:
+
+- **`applied` / `decision`** — non-null when a resolved web review was folded in
+  (`decision` is `approve` | `redraft`; `applied` counts the folded scenes/
+  features). Null when there was nothing on the web to pull.
+- **`version.action: "noop"`** — narrative unchanged since the last sync; nothing
+  posted, the run keeps pointing at the current version. Continue.
+- **`version.action: "posted", version: N`** — the narrative changed (local edit,
+  or the just-folded web edit), so a new version was posted. It is **immediately
+  the current/active narrative** (canopy-web treats the latest-posted
+  `concept_change` review as `current_version`, independent of pending/resolved
+  status) and the run is now stamped to it. No approve step is needed. Continue.
+- **exit code 2 (`CONFLICT: ...`)** — the local narrative changed AND canopy-web
+  advanced underneath this run. Do NOT auto-clobber. Surface the conflict to the
+  user and stop: reconcile with `narrative pull <slug> "$SPEC_ABS" --force` (take
+  web as truth) or run `/canopy:ddd-narrative-review <run_id>` to push the local
+  edits as the next version on top of the advanced web base, then retry.
+
+The human approval gate stays only at **`external_release`** (upload). The
+first-ever narrative for a slug still posts here (v1) — `sync` handles the
+first-ever case (no synced version, no review to fold) by posting v1.
+
+> **The user's round-trip:** edit narrative on the web → approve → the next
+> `sync` (here, or run it directly) pulls those edits down AND mints the new
+> version in one step, so local and web are born in lockstep — there is never a
+> "web is vN, local is vN−1" stale window. `sync` IS the "I edited on the web,
+> now continue" command.
+
+> **When to still run `/canopy:ddd-narrative-review`:** that gate is now
+> **opt-in** — use it only for the first-ever narrative for a slug when you want
+> the user to APPROVE the story arc before any build, or when the user explicitly
+> asks to review the narrative. Routine narrative edits between runs do NOT pause
+> on it; `sync` folds + posts them silently.
+
 ### Step 2 — Render: invoke the canopy walkthrough engine
 
 Invoke `canopy:walkthrough` (or the equivalent Skill tool call) against
@@ -109,25 +163,33 @@ flags below.
 | `--snapshots <dir>` | **Always** for DDD runs | Concept-eval needs per-scene PNG + page_text JSON inputs. The visual-judge can't dual-judge without them. |
 | `--snapshot-empty-scenes` | Almost never | Empty scenes (narrative-only back-halves) have no meaningful state to snapshot. |
 | `--report <path>` | Always | The accumulator JSON tells you which actions silently failed (and which `must_succeed` ones aborted). |
+| `--manifest <path>` | **Always** for DDD runs | Writes the canonical render manifest (`walkthrough-run-data.json`) — the single artifact the deck (`generate_presentation`), the external-systems links, and `assemble_run_state` read. Without it `ddd-upload` raises `DeckMissingError`. Point it at `<run_dir>/walkthrough-run-data.json`. (Emitted even on a partial render, so a failed scene still leaves an inspectable manifest of what rendered.) |
 | `--skip-empty-scenes` | When the spec has narrative-only back-half scenes (no `actions`) | The mp4 doesn't waste `min_hold_ms` on identical static pages. Deck slides still cover them. |
 | `--skip-same-url` | When the spec uses continue-scene patterns (scenes that operate on the previous scene's URL) | Avoids re-navs that wipe JS state between scenes. |
 | `--input <run.json>` | Only for `--scene` partial runs (when reusing a previous walkthrough's capture set) | Without this, the spec is the only source of truth. |
+| `--skip-setup` | **Never in the iterate loop** | Specs with a `setup:` block run their synthetic generator before every render (`rerun: per_render`) — that reseed is load-bearing for state-mutating demos (a scene that creates an audit must find no audit on the next take). `--skip-setup` is a human escape hatch for one-off re-renders on known-fresh, non-mutating data; the orchestrator must not pass it. |
+| `--prewarm` / `--no-prewarm` | Usually neither — the spec's `prewarm:` value is the right default and the recorder honors it automatically (CLI overrides per invocation, CLI wins) | The pre-warm pass visits each unique resolved scene URL once in a NON-recorded context before filming, so cold caches (first-hit page renders, remote image fetches) are paid off camera instead of as frozen frames mid-scene. Best-effort: failures land in `run-report.json` (`prewarm` key: `{pages, duration_seconds, failures}`), never abort the render. Full model: walkthrough SKILL § "Recording time & dead space". |
 
 **DDD orchestrator default flag set** — what `/canopy:ddd-run` should pass to
 `record_video.py`:
 
 ```bash
 python3 "$REC" \
-  --input "<run_dir>/walkthrough-run-data.json" \
   --spec "<unified_spec>" \
   --output "<run_dir>/iter${state.iteration}_clip.mp4" \
   --cookies "<session-cookies>" \
   --snapshots "<run_dir>/snapshots/" \
   --report "<run_dir>/run-report.json" \
+  --manifest "<run_dir>/walkthrough-run-data.json" \
   --skip-empty-scenes \
   --skip-same-url \
   --ddd-orchestrated
 ```
+
+`--manifest` WRITES the manifest (the deck/links/run-state all read it; upload
+raises `DeckMissingError` without it). Do NOT pass `--input` on a first render —
+`--input` only *consumes* an existing capture and is for `--scene` partial re-runs
+that reuse a prior walkthrough's capture set (see the flag matrix above).
 
 `--ddd-orchestrated` is **required** here: the recorder refuses to write into a
 `.canopy/ddd/runs/<run_id>/` directory without it (the hand-drive guard). That
@@ -136,6 +198,17 @@ dispatching judge sub-agents directly instead of going through THIS skill —
 leaves `run_state.yaml` with no assembled verdict, so the run looks stale/done,
 can't be resumed cleanly, and `ddd-upload` has nothing converged to publish.
 `/canopy:ddd-run` is the only path that should pass this flag.
+
+**Data setup runs inside the recorder — don't pre-run it here.** When the spec
+declares a `setup:` block (the data-setup contract — see ddd-spec Step 5), the
+recorder itself runs the synthetic generator before opening any browser,
+resolves `${var}` placeholders in scene URLs / action targets from its outputs
+JSON, and aborts loudly on failure. The orchestrator's job is only to NOT
+defeat it: never pass `--skip-setup` in the iterate loop (re-renders of
+state-mutating demos need the reseed), and treat a setup failure as a blocked
+render, not a graded run. Provenance lands in `run-report.json` (`setup` key:
+command, exit code, duration, resolved variables) and in
+`<run_dir>/snapshots/setup-vars.json` — part of the run's evidence chain.
 
 After the recorder exits, scan `<run_dir>/run-report.json` for non-zero
 `failed` counts before letting the judges run. A scene whose
@@ -349,8 +422,12 @@ Call `run_pipeline.assemble_run_state` to merge both verdict paths and findings
 into `run_state.yaml`:
 
 ```python
+import json
 from scripts.ddd.run_pipeline import assemble_run_state, compute_convergence
 from scripts.ddd.runstate import load, save
+
+# The render manifest is the single source of truth for what was rendered.
+manifest = json.load(open(f"{run_dir}/walkthrough-run-data.json"))
 
 state = load(run_id)
 state = assemble_run_state(
@@ -360,20 +437,16 @@ state = assemble_run_state(
     findings=<merged findings from design_findings.json>,
     concept_path="<run_dir>/verdict-concept.yaml",
     user_path="<run_dir>/verdict-user.yaml",
+    manifest=manifest,   # fills state.scenes_run / state.scene_filter from the manifest
 )
-
-# Scene-filter metadata: read from the walkthrough sidecar and stamp it
-# onto state. assemble_run_state preserves unknown keys, so a simple
-# attribute set is fine. If your runstate model is stricter, add these as
-# top-level fields on RunState.
-import json
-sidecar = json.load(open(f"{run_dir}/walkthrough-run-data.json"))
-state.scenes_run = sidecar.get("scenes_run")          # e.g. [2] or [1,2,3,4,5]
-state.scene_filter = sidecar.get("scene_filter")      # e.g. "2" or null
 save(state)
 
 converged = compute_convergence(concept_verdict, user_verdict)
 ```
+
+`scenes_run` / `scene_filter` are now populated by `assemble_run_state` from the
+manifest — do NOT hand-stamp them. (The manifest is produced by the render step:
+`record_video.py --manifest <run_dir>/walkthrough-run-data.json`.)
 
 **Upload gate.** `state.scene_filter is not None` means this is a
 partial run — `/canopy:ddd-upload` MUST refuse to upload it. A
@@ -387,76 +460,30 @@ orchestrator (and the human reader) knows whether the next iteration can
 proceed without user input.
 
 ```python
-# Aggregate findings from BOTH sources (concept design_findings + user-artifact dimension findings)
-all_findings = []
-for f in findings:                                    # design_findings.json
-    all_findings.append({"route": f["route"], "fix_kind": f.get("fix_kind", "options")})
-for dim_id, d in user_verdict.dimensions.items():     # user-artifact per-dimension
-    if d.get("fix_kind"):
-        all_findings.append({"route": "PRODUCT", "fix_kind": d["fix_kind"]})
+from scripts.ddd.run_pipeline import compute_auto_iterate
 
-# Decide the next action.
-# Order of precedence: done > concept_change > unclear > stalled/backstop > continue.
-#
-# PROGRESS-AWARE LOOP (not a raw iteration cap). DDD's whole point is to loop
-# autonomously on mechanical findings until they're exhausted. A raw count
-# (the old MAX_ITERATIONS=3) stopped good runs mid-progress AND couldn't tell
-# "improving" (FAIL→WARN→PASS — keep going!) from "thrashing" (score stalled,
-# or a fix REGRESSED something — THAT is when to get a human). So gate on the
-# SCORE TRAJECTORY, not on how many iterations have passed.
-score = min(concept_verdict.overall_score, user_verdict.overall_score)  # gating overall this iteration
-state.score_history = (state.score_history or []) + [score]
-hist = state.score_history
-# "stalled" = the last two iterations produced no NEW best (no progress, or a
-# regression like a fix that broke another scene). Needs >=3 points to judge.
-stalled = len(hist) >= 3 and hist[-1] <= max(hist[:-2]) and hist[-2] <= max(hist[:-2])
-HARD_CAP = 10   # runaway backstop ONLY — not the normal stop
-
-non_defer = [f for f in all_findings if f["route"] != "DEFER"]
-unclear = [f for f in non_defer if f["fix_kind"] in ("options", "redesign")]
-
-if converged and not state.scene_filter:
-    auto_iterate_next_action = "stop_done"
-    reason = "Both judges passed full spec — ready for promotion."
-elif converged and state.scene_filter:
-    auto_iterate_next_action = "stop_partial"
-    reason = "Both judges passed the filtered scope. Drop --scene and re-fire for full-spec promotion."
-elif any(f["route"] == "CONCEPT" and f["fix_kind"] == "redesign" for f in non_defer):
-    auto_iterate_next_action = "stop_concept_change"
-    reason = "Concept-change finding present — fix requires user judgment on direction."
-elif unclear:
-    auto_iterate_next_action = "stop_unclear"
-    reason = f"{len(unclear)} finding(s) with fix_kind='options' or 'redesign' — need user pick."
-elif stalled or len(hist) >= HARD_CAP:
-    # NOT making progress (or hit the runaway backstop) → escalate to a human.
-    auto_iterate_next_action = "stop_max_iter"
-    reason = (
-        f"Score stalled/regressed across the last 2 iterations (history={hist}) — "
-        "autonomous mechanical fixes aren't converging; needs a human look."
-        if stalled else
-        f"Hit the {HARD_CAP}-iteration backstop (history={hist}) without converging."
-    )
-else:
-    # All non-DEFER findings are mechanical AND the score is still climbing →
-    # KEEP LOOPING autonomously. This is the common, correct path. Do NOT stop
-    # just because a few iterations have passed — only a real gate, an
-    # options/redesign finding, a stall, or the backstop stops the loop.
-    auto_iterate_next_action = "continue"
-    reason = f"All findings mechanical and score is still improving (history={hist}) — apply + re-fire."
+# Single source of truth — do NOT re-implement the decision tree here.
+# compute_auto_iterate gates on the SCORE TRAJECTORY (not a raw iteration cap):
+# it appends this iteration's gating score to state.score_history, then returns
+# (action, reason) over: converged -> stop_done/stop_partial; a CONCEPT/redesign
+# finding -> stop_concept_change; any options/redesign -> stop_unclear; score
+# stalled/regressed over the last 2 iters or the hard-cap backstop -> stop_max_iter;
+# else (mechanical + still improving) -> continue. It reads user_verdict.dimensions
+# for per-dimension fix_kinds and honors state.scene_filter for the partial case.
+auto_iterate_next_action, reason = compute_auto_iterate(
+    state, concept_verdict, user_verdict, findings, converged=converged,
+)
 ```
 
-> **Why this replaced the old `MAX_ITERATIONS = 3` hard stop.** A raw count
-> made the orchestrator hand a half-finished run back to the human after three
-> iterations even when every finding was a trivial mechanical fix and each pass
-> was strictly better than the last — the exact opposite of "loop and fix the
-> obvious things." Worse, a count is blind to *regressions*: a fix that breaks
-> another scene should stop the loop immediately (that's a human-judgment
-> moment), but a count happily burns more iterations on it. Trajectory-gating
-> fixes both: keep going while it's getting better, stop the instant it isn't.
+> **Why this is a function call, not inline logic.** The trajectory-gating decision
+> (progress-aware loop, not a raw `MAX_ITERATIONS=3` count) lives in ONE place —
+> `run_pipeline.compute_auto_iterate`, which is unit-tested. Re-implementing it in
+> this SKILL would drift from the code. A raw count stopped good runs mid-progress
+> and was blind to regressions; trajectory-gating keeps looping while the score
+> improves and stops the instant it stalls or regresses.
 
 Stamp `auto_iterate_next_action` and `auto_iterate_reason` onto run_state
-(both are optional fields on RunState — set them after save() or extend the
-model). Then print the summary:
+(both are optional fields on RunState) and `save(state)`. Then print the summary:
 
 ```
 DDD Run — <run_id>
@@ -502,6 +529,38 @@ can see at a glance which findings the orchestrator will auto-apply
 - `stop_unclear` — "Findings with `options`/`redesign` fix_kind block auto-iteration. List them and ask the user to pick or redesign."
 - `stop_max_iter` — "Max iterations reached. Stop and surface remaining findings."
 - `continue` — "Orchestrator can apply mechanical fixes per finding and re-fire `/canopy:ddd-run` on the same scope."
+
+### Step 5b — review_mode gate (human mode posts a findings review instead of auto-applying)
+
+The spec's optional **`review_mode`** key (`UnifiedSpec.review_mode`,
+default `autonomous`) decides what happens to PRODUCT findings after the
+report. Check it before acting on `auto_iterate_next_action`:
+
+```bash
+(cd "$DDD_REPO" && uv run python -m scripts.ddd.findings_review mode "$UNIFIED_SPEC_ABS")
+# prints: autonomous | human
+```
+
+- **`autonomous`** (default): proceed exactly as the tail messages above say —
+  `continue` auto-applies mechanical PRODUCT findings and re-fires.
+- **`human`**: do NOT auto-apply ANY PRODUCT finding (mechanical included).
+  When the run did not converge and PRODUCT findings exist, post the
+  **product-findings review** instead and stop the loop until it resolves:
+
+  ```bash
+  (cd "$DDD_REPO" && uv run python -m scripts.ddd.findings_review post "<run_id>")
+  ```
+
+  It clusters PRODUCT findings (concept `design_findings.json` + user-artifact
+  dimension findings), attaches per-cluster evidence deep-links — the Step 2b
+  deck URL with `#scene-<N>` and the clip URL with `#t=<seconds>` (the scene's
+  start offset from `run-report.json`'s per-scene timings) — posts ONE
+  `gate: product_findings` review, and stamps `findings_review_id` /
+  `findings_review_url` onto run_state. Then present the single review URL +
+  a compact summary table in chat and follow
+  `skills/ddd-findings-review/SKILL.md` (await → `apply` → route the
+  implement/skip/defer selection). CONCEPT / RESEARCH / DEFER findings keep
+  their standard routing in either mode.
 
 ## Output files
 

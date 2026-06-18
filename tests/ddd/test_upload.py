@@ -13,7 +13,7 @@ import yaml
 
 from scripts.ddd.schemas.models import RunState, Scene, UnifiedSpec, WhyBrief, SpineItem, Persona
 from scripts.ddd.upload import (
-    _external_links_from_spec,
+    DeckMissingError,
     build_docs_page,
     publish_artifact,
     upload_run,
@@ -77,38 +77,9 @@ def _make_why_brief() -> WhyBrief:
     )
 
 
-# ---------------------------------------------------------------------------
-# _external_links_from_spec — external systems the run used
-# ---------------------------------------------------------------------------
-
-
-class TestExternalLinksFromSpec:
-    def test_base_url_only_when_scenes_have_no_url(self):
-        links = _external_links_from_spec(_make_spec())
-        assert links == [
-            {"label": "App", "url": "https://example.com", "kind": "reference"}
-        ]
-
-    def test_resolves_scene_urls_against_base_and_dedupes(self):
-        spec = UnifiedSpec(
-            name="Study",
-            narrative="Maya builds a two-arm study from the map.",
-            base_url="https://labs.example.com",
-            personas={"m": Persona(name="Maya", role="PI", color="#000", intro="Maya runs studies.")},
-            scenes=[
-                Scene(persona="m", title="Manage", show="open", concept_claim="See the study manage page clearly.", provenance="SP1", url="/program/133/group/7/manage/"),
-                Scene(persona="m", title="Editor", show="open", concept_claim="Open the plan editor on the map.", provenance="SP2", url="/program/133/new/?group=7"),
-                Scene(persona="m", title="Manage again", show="open", concept_claim="Return to the manage page later.", provenance="SP3", url="/program/133/group/7/manage/"),
-            ],
-        )
-        links = _external_links_from_spec(spec)
-        assert [l["url"] for l in links] == [
-            "https://labs.example.com",
-            "https://labs.example.com/program/133/group/7/manage/",
-            "https://labs.example.com/program/133/new/?group=7",
-        ]  # base first, scene order preserved, duplicate dropped
-        assert all(l["kind"] == "reference" for l in links)
-        assert links[1]["label"] == "Manage"
+# NOTE: _external_links_from_spec was deleted in the manifest refactor — external
+# links now derive from the render manifest (walkthrough-run-data.json). See
+# tests/ddd/test_upload_links.py for _external_links_from_manifest coverage.
 
 
 # ---------------------------------------------------------------------------
@@ -435,7 +406,55 @@ def _write_run_fixtures(tmp_ddd: Path, run_id: str):
         yaml.dump(why.model_dump(), default_flow_style=False, allow_unicode=True)
     )
 
+    # walkthrough-run-data.json — the render manifest. The deck refactor reads
+    # this directly (no spec rebuild), so a run that uploads MUST carry it. One
+    # scene slide is enough to produce a role=deck and external links.
+    _write_manifest(run_dir, spec)
+
     return run_dir
+
+
+def _write_manifest(run_dir: Path, spec: UnifiedSpec) -> None:
+    """Write a minimal render manifest (walkthrough-run-data.json) into *run_dir*
+    matching scripts.walkthrough.manifest.build_manifest's shape."""
+    import json
+
+    base = (spec.base_url or "").rstrip("/")
+    slides = [
+        {
+            "type": "scene",
+            "scene_index": idx,
+            "scene_total": len(spec.scenes),
+            "title": sc.title,
+            "narration": sc.show or "",
+            "persona_key": sc.persona,
+            "url": f"{base}/scene-{idx}",
+            "urls_visited": [f"{base}/scene-{idx}"],
+            "screenshot_path": None,
+            "page_text_path": None,
+            "screenshot_b64": None,
+            "mp4_start_offset": 0.0,
+            "ok": True,
+            "ai_evaluation": None,
+        }
+        for idx, sc in enumerate(spec.scenes, start=1)
+    ]
+    manifest = {
+        "name": spec.name,
+        "narrative": spec.narrative,
+        "generated_at": "2026-06-14T00:00:00Z",
+        "duration_seconds": 0.0,
+        "base_url": base,
+        "scenes_run": list(range(1, len(spec.scenes) + 1)),
+        "scene_filter": None,
+        "substitution_vars": {},
+        "personas": {
+            k: {"name": v.name, "role": v.role, "color": v.color, "intro": v.intro}
+            for k, v in spec.personas.items()
+        },
+        "slides": slides,
+    }
+    (run_dir / "walkthrough-run-data.json").write_text(json.dumps(manifest))
 
 
 class TestUploadRun:
@@ -489,17 +508,11 @@ class TestUploadRun:
         fake_gate.calls = gate_calls
         return fake_gate
 
-    def test_uploads_slideshow_deck_rebuilt_from_captures(self, tmp_run, monkeypatch):
-        """A run rendered via record_video.py (no walkthrough-run-data.json
-        sidecar) still gets a role=deck slideshow: upload_run rebuilds it from
-        the captured scene_<N>.png frames so the package's "Walkthrough slides"
-        section is never empty."""
+    def test_uploads_slideshow_deck_from_manifest(self, tmp_run, monkeypatch):
+        """A run's role=deck slideshow is built directly from the render manifest
+        (walkthrough-run-data.json), which _write_run_fixtures writes. The deck
+        refactor removed the spec-rebuild-from-captured-frames path."""
         monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
-        run_dir = tmp_run["run_dir"]
-        # Frames the recorder left in the run dir (dummy PNG bytes are fine — the
-        # deck just base64-embeds them).
-        (run_dir / "scene_1.png").write_bytes(b"\x89PNG\r\n\x1a\none")
-        (run_dir / "scene_2.png").write_bytes(b"\x89PNG\r\n\x1a\ntwo")
 
         upload_calls: list[dict] = []
         uploader = self._make_uploader(upload_calls)
@@ -522,24 +535,22 @@ class TestUploadRun:
         # video + docs are still uploaded alongside the deck
         assert {"video", "html"} <= {c["kind"] for c in upload_calls}
 
-    def test_no_deck_uploaded_when_no_captures(self, tmp_run, monkeypatch):
-        """No scene_<N>.png captures → no deck upload, and the package still
-        publishes the video + docs (a missing deck never breaks the upload)."""
+    def test_missing_manifest_raises_deck_missing(self, tmp_run, monkeypatch):
+        """A run with NO render manifest is a render gap — DeckMissingError,
+        never a silent skip. (The deck must come from walkthrough-run-data.json.)"""
         monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
+        (tmp_run["run_dir"] / "walkthrough-run-data.json").unlink()
         upload_calls: list[dict] = []
         uploader = self._make_uploader(upload_calls)
 
-        url = upload_run(
-            tmp_run["run_id"],
-            video_path=tmp_run["video_path"],
-            base_url="https://canopy.test",
-            _upload=uploader,
-            release=False,
-        )
-
-        assert not [c for c in upload_calls if c["role"] == "deck"]
-        assert {"video", "html"} <= {c["kind"] for c in upload_calls}
-        assert url.endswith("/ddd/smart-routing/smart-routing-2026-01-01-001")
+        with pytest.raises(DeckMissingError):
+            upload_run(
+                tmp_run["run_id"],
+                video_path=tmp_run["video_path"],
+                base_url="https://canopy.test",
+                _upload=uploader,
+                release=False,
+            )
 
     def test_publish_returns_package_url(self, tmp_run, monkeypatch):
         """On publish we return the navigable run PACKAGE URL
@@ -563,11 +574,14 @@ class TestUploadRun:
         kinds = [c["kind"] for c in upload_calls]
         assert "video" in kinds
         assert "html" in kinds
-        # The docs upload carries the external-systems links built from the spec
-        # (here just the base app, since the fixture scenes have no per-scene url).
+        # The docs upload carries the external-systems links built from the
+        # render manifest: the base app plus each scene's resolved url (the
+        # fixture manifest gives one resolved url per scene).
         docs_call = next(c for c in upload_calls if c["role"] == "docs")
         assert docs_call["links"] == [
-            {"label": "App", "url": "https://example.com", "kind": "reference"}
+            {"label": "App", "url": "https://example.com", "kind": "reference"},
+            {"label": "Scene 1", "url": "https://example.com/scene-1", "kind": "reference"},
+            {"label": "Scene 2", "url": "https://example.com/scene-2", "kind": "reference"},
         ]
 
     def test_already_uploaded_is_noop(self, tmp_run, monkeypatch):

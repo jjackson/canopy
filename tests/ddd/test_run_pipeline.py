@@ -162,6 +162,55 @@ class TestAssembleRunState:
         assert result.verdicts["concept"] == "runs/abc/verdict-concept.yaml"
         assert result.verdicts["user_artifact"] == "runs/abc/verdict-user.yaml"
 
+    def test_scenes_run_and_filter_from_manifest(self) -> None:
+        """When a render manifest is passed, scenes_run/scene_filter are carried
+        from it onto the run state — the engine is the single source of truth for
+        which scenes were rendered."""
+        from scripts.ddd.run_pipeline import assemble_run_state
+
+        state = _stub_state()
+        result = assemble_run_state(
+            state,
+            _stub_verdict(4.0),
+            _stub_verdict(4.0),
+            findings=[],
+            manifest={"scenes_run": [1, 2, 3], "scene_filter": None},
+        )
+
+        assert result.scenes_run == [1, 2, 3]
+        assert result.scene_filter is None
+
+    def test_partial_scene_filter_carried_from_manifest(self) -> None:
+        from scripts.ddd.run_pipeline import assemble_run_state
+
+        state = _stub_state()
+        result = assemble_run_state(
+            state,
+            _stub_verdict(4.0),
+            _stub_verdict(4.0),
+            findings=[],
+            manifest={"scenes_run": [2], "scene_filter": "2"},
+        )
+
+        assert result.scenes_run == [2]
+        assert result.scene_filter == "2"
+
+    def test_no_manifest_leaves_scene_fields_untouched(self) -> None:
+        """Without a manifest, assemble_run_state does not touch scenes_run/
+        scene_filter (backward-compatible default)."""
+        from scripts.ddd.run_pipeline import assemble_run_state
+
+        state = _stub_state()
+        result = assemble_run_state(
+            state,
+            _stub_verdict(4.0),
+            _stub_verdict(4.0),
+            findings=[],
+        )
+
+        assert result.scenes_run is None
+        assert result.scene_filter is None
+
 
 # ---------------------------------------------------------------------------
 # SP4.2 — compute_convergence
