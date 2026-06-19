@@ -67,10 +67,23 @@ const NarrationVariantSchema = z.object({
 // narration.by_beat — works for any beat id the walkthrough's `beats:`
 // list declares. Additive: marketing + connect-explainer specs never
 // carry a `walkthrough:` block, so this is inert for them.
+// One contiguous sub-range of the master clip. A walkthrough beat plays a LIST
+// of these back-to-back; the gaps between them (static load/hold/dwell spans
+// the de-dwell pass removed) become clean jump-cuts. See `segments` below.
+const ClipSegmentSchema = z.object({
+  start_seconds: z.number().nonnegative().default(0),
+  duration_seconds: z.number().positive(),
+});
+
 const WalkthroughBeatSchema = z.object({
   asset: z.string().min(1),
   start_seconds: z.number().nonnegative().default(0),
   duration_seconds: z.number().positive().optional(),
+  // De-dwelled sub-ranges of the master clip, played back-to-back (motion
+  // spans with dead-air gaps collapsed → jump-cuts). When present, the renderer
+  // plays these and IGNORES the single start_seconds/duration_seconds (which
+  // are kept as a bounding fallback for older specs / non-de-dwelled emits).
+  segments: z.array(ClipSegmentSchema).min(1).optional(),
   // Optional: omit (or leave empty) for a clean full-bleed walkthrough with no
   // lower-third pill — the recorded dashboard usually self-labels and the VO
   // narrates, so the pill is opt-in.

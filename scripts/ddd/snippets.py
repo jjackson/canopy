@@ -85,49 +85,84 @@ def _slugify(text: str) -> str:
     return out.strip("-")[:60] or "beat"
 
 
-def trim_trailing_static_seconds(
+def _scene_change_times(clip_path: str, start: float, dur: float, threshold: float) -> list[float] | None:
+    """On-screen-motion timestamps (seconds, relative to the [start, start+dur]
+    window) via ffmpeg ``select=gt(scene,threshold)``. Returns None on failure."""
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-nostats", "-ss", f"{start:.3f}",
+             "-t", f"{dur:.3f}", "-i", clip_path,
+             "-vf", f"select='gt(scene,{threshold})',metadata=print",
+             "-an", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=120,
+        )
+    except Exception:  # noqa: BLE001 — detection is best-effort
+        return None
+    # pts_time is relative to the window (=-ss before -i resets timestamps).
+    return sorted(float(m) for m in re.findall(r"pts_time:([0-9.]+)", proc.stderr or ""))
+
+
+def dedwell_segments(
     clip_path: str,
     start: float,
     dur: float,
     *,
     scene_threshold: float = 0.03,
+    gap_max: float = 6.0,
+    dwell: float = 0.8,
     tail: float = 1.4,
     floor: float = 2.0,
-) -> float:
-    """Trim a scene's trailing static tail to just after its last on-screen motion.
+) -> list[tuple[float, float]]:
+    """De-dwell a scene's master range into motion sub-ranges (absolute
+    ``in_seconds``, ``duration``), collapsing dead-air gaps wherever they sit.
 
-    The recorder's per-scene clip length is wall-clock — it includes time spent
-    waiting on a slow page load, the end-of-scene hold, and the snapshot dwell.
-    When the page is static through that tail (very common: a sparse page that
-    finished loading), those seconds render as dead air ("white still space").
+    The recorder's per-scene clip length is wall-clock — it bakes in slow-load
+    ``wait_for`` time, the end-of-scene hold, and the snapshot dwell. Those show
+    as static dead air, and they can sit anywhere: trailing (page loaded then
+    sat), mid-clip (a slow async load between two actions), or leading.
 
-    We find the last significant scene-change in the range (ffmpeg
-    ``select=gt(scene,threshold)``) — the moment the last real motion happened —
-    and cut the clip to ``last_motion + tail`` (so the settled state is still
-    seen briefly), floored at ``floor`` so a scene is never trimmed to nothing
-    and capped at the original ``dur`` (never extends). A scene that keeps
-    moving to its end (e.g. an animated ranking, a result reveal) has its last
-    motion near the end and is barely trimmed; a static tail is cut.
+    We find on-screen motion (ffmpeg scene-change) across the whole range and
+    keep the moving spans, collapsing any gap with no motion for longer than
+    ``gap_max`` down to ``dwell`` seconds (a brief beat of the settled state),
+    and trimming the trailing static to ``last_motion + tail``. The kept spans
+    are returned as ordered sub-ranges; the renderer plays them back-to-back, so
+    each collapsed gap becomes a clean jump-cut. Generalizes a trailing-only
+    trim to leading / mid / trailing dead air.
 
-    Best-effort: returns ``dur`` unchanged on any ffmpeg/parse failure. A scene
-    with no detected motion at all trims to ``floor``.
+    Best-effort: returns a single full range on any ffmpeg/parse failure. Floors
+    the total kept duration at ``floor``; a range with no detected motion keeps
+    a short ``floor`` of its opening frame.
     """
+    full = [(round(start, 3), round(dur, 3))]
     if not clip_path or dur <= floor:
-        return dur
-    try:
-        proc = subprocess.run(
-            ["ffmpeg", "-hide_banner", "-nostats", "-ss", f"{start:.3f}",
-             "-t", f"{dur:.3f}", "-i", clip_path,
-             "-vf", f"select='gt(scene,{scene_threshold})',metadata=print",
-             "-an", "-f", "null", "-"],
-            capture_output=True, text=True, timeout=120,
-        )
-    except Exception:  # noqa: BLE001 — trimming is best-effort
-        return dur
-    # pts_time is relative to the trimmed segment (=-ss resets timestamps).
-    times = [float(m) for m in re.findall(r"pts_time:([0-9.]+)", proc.stderr or "")]
-    last_motion = times[-1] if times else 0.0
-    return round(max(floor, min(dur, last_motion + tail)), 3)
+        return full
+    times = _scene_change_times(clip_path, start, dur, scene_threshold)
+    if times is None:
+        return full
+    if not times:
+        return [(round(start, 3), round(min(floor, dur), 3))]
+
+    spans: list[tuple[float, float]] = []  # (rel_start, rel_end) within the window
+    seg_start = 0.0
+    prev = 0.0
+    for m in times:
+        if m - prev > gap_max:  # dead span (prev, m) — collapse to `dwell`
+            seg_end = min(prev + dwell, dur)
+            if seg_end > seg_start + 0.05:
+                spans.append((seg_start, seg_end))
+            seg_start = m
+        prev = m
+    seg_end = min(prev + tail, dur)
+    if seg_end > seg_start + 0.05:
+        spans.append((seg_start, seg_end))
+    if not spans:
+        spans = [(0.0, min(floor, dur))]
+
+    total = sum(e - s for s, e in spans)
+    if total < floor:  # extend the last span toward the floor (within the window)
+        s0, e0 = spans[-1]
+        spans[-1] = (s0, min(dur, e0 + (floor - total)))
+    return [(round(start + s, 3), round(e - s, 3)) for s, e in spans]
 
 
 def build_snippets(
@@ -140,10 +175,10 @@ def build_snippets(
 ) -> list[dict[str, Any]]:
     """Pair each rendered scene (timing) with its spec scene (sentence).
 
-    When the master clip is available locally, each scene's clip is trimmed of
-    any trailing static tail (slow-load / hold / snapshot dead air) so the
-    rendered beat shows active footage, not a frozen page. See
-    :func:`trim_trailing_static_seconds`.
+    When the master clip is available locally, each scene's clip is de-dwelled
+    (slow-load / hold / snapshot dead air removed — leading, mid, or trailing)
+    into one or more motion sub-ranges (``segments``), which the renderer plays
+    back-to-back. See :func:`dedwell_segments`.
     """
     clip_for_trim = source_clip_local if (source_clip_local and Path(source_clip_local).exists()) else None
     spec_scenes = spec.get("scenes") or []
@@ -158,8 +193,15 @@ def build_snippets(
         spec_scene = spec_scenes[idx - 1] if 0 < idx <= len(spec_scenes) else {}
         start = float(rs.get("start_seconds") or 0.0)
         dur = float(rs.get("duration_seconds") or 0.0)
+        # De-dwell into motion sub-ranges. Without a local clip, keep one range.
         if clip_for_trim and dur > 0:
-            dur = trim_trailing_static_seconds(clip_for_trim, start, dur)
+            segs = dedwell_segments(clip_for_trim, start, dur)
+        else:
+            segs = [(round(start, 3), round(dur, 3))]
+        segments = [{"start_seconds": s, "duration_seconds": d} for s, d in segs]
+        kept_dur = round(sum(d for _, d in segs), 3)  # summed on-screen length
+        in_seconds = segs[0][0]
+        out_seconds = round(segs[-1][0] + segs[-1][1], 3)
         title = spec_scene.get("title") or rs.get("title") or f"Scene {idx}"
         sentence = (spec_scene.get("concept_claim") or "").strip()
         # The per-scene narrative is the spoken line — it's what the author edits
@@ -176,10 +218,14 @@ def build_snippets(
                 "id": f"{narrative_slug}-scene-{idx}",
                 "scene_index": idx,
                 "title": title,
-                # Logical range into the master clip — NOT a re-cut file.
-                "in_seconds": round(start, 3),
-                "out_seconds": round(start + dur, 3),
-                "duration_seconds": round(dur, 3),
+                # Logical ranges into the master clip — NOT re-cut files.
+                # `segments` are the de-dwelled motion sub-ranges (played
+                # back-to-back); in/out/duration bound them (in=first start,
+                # out=last end, duration=summed on-screen length).
+                "segments": segments,
+                "in_seconds": in_seconds,
+                "out_seconds": out_seconds,
+                "duration_seconds": kept_dur,
                 # `narration` (scene.narrative) IS the spoken line — the narrative
                 # the author writes/edits while picturing the demo. `sentence`
                 # (concept_claim) is kept as the design claim / caption fallback.
@@ -282,6 +328,11 @@ def build_explainer_spec(
         )
         walkthrough[bid] = {
             "asset": "@master",
+            # De-dwelled motion sub-ranges, played back-to-back (dead-air gaps
+            # collapsed → jump-cuts). The renderer prefers `segments`; the
+            # bounding start/duration stay for older specs / non-de-dwelled emits.
+            "segments": sn.get("segments")
+            or [{"start_seconds": sn["in_seconds"], "duration_seconds": sn["duration_seconds"]}],
             "start_seconds": sn["in_seconds"],
             "duration_seconds": sn["duration_seconds"],
             # Off by default — the recorded dashboard self-labels and the VO
