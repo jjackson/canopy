@@ -116,7 +116,45 @@ narrative_anchors:                 # optional; specific claims this judgment can
   - "the headline panel must show ≥3 named FLWs with archetype labels"
   - "Dinesh's coaching arc must be visually called out"
 domain: "turmeric market survey"   # informs brand-fit + content judgment
+narrative: |                       # optional; the scene's FULL narration (not just an anchor)
+  "Dana opens the solicitation builder and fills out the funding terms,
+   then submits — the new solicitation appears in the list."
+action_trace:                      # optional; what the demo ACTUALLY did this scene
+  - { kind: hover, target: "New solicitation", ok: true, must_succeed: false }
+  - { kind: hover, target: "Funding terms",   ok: true, must_succeed: false }
 ```
+
+**`action_trace` (optional) — what the demo ACTUALLY did, not just what it
+shows.** A screenshot is a single still FRAME: a scene that filled and submitted
+a form and a scene that only HOVERED over the same controls produce the *same
+end-frame*. Without the trace you cannot tell "the task was performed" from "the
+task was merely claimed". When the caller passes `action_trace` (the per-scene
+slice of the recorder's run-report — each entry `{kind, target, ok, must_succeed,
+note}`), use it as a SCORING INPUT for action-fidelity:
+
+- **EFFECTING action kinds** — `click`, `click_menu`, `fill`, `select`, `type`,
+  `press`, `draw`. These actually change state (submit a form, pick an option,
+  award a response).
+- **NON-EFFECTING action kinds** — `hover`, `scroll_to`, `scroll`, `wait_for`,
+  `hold`, and `goto` (navigates, but on its own effects no form action). These
+  only move the camera or wait.
+- **The claim↔action check:** if `context.narrative` (or a `narrative_anchor`)
+  asserts an *effecting* act — "create / fill out / submit / select / award /
+  publish / enter / type" — but the `action_trace` for this scene contains **no
+  effecting action** (only hovers/scrolls/waits), the task is CLAIMED, not
+  SHOWN. List it as a top-rank Phase-1 flaw and apply the caller's
+  action-fidelity deduction (the caller's rubric `deduction_rules` say which
+  dimension caps and to what).
+- **The failed-action check:** any `action_trace` entry with `ok: false` means a
+  demo action failed or timed out (e.g. an award click that silently timed out).
+  The captured frame then does NOT show the claimed action's result. List it and
+  apply the caller's deduction. A failed `must_succeed` action is the most
+  severe form.
+
+When `action_trace` is ABSENT, behave exactly as today — score from the
+screenshot + page_text alone, no action-fidelity reasoning. The trace is
+purely additive: it can only *lower* a score that the still frame would have
+let pass, never raise one.
 
 When omitted, defaults are the high-stakes-send lens above (the CEO is
 about to forward it with their name on it; competitors Linear/Notion/etc.;
@@ -272,7 +310,22 @@ don't count — if you can't point at it, you didn't find it.
    "demo readiness" / "shippable" dimension below, AND on whether any
    dimension can reach 5 (see the CEO-send gate above).
 
-Output all five lists as a block. ONLY THEN proceed to scoring.
+6. **Action-fidelity check (ONLY when `context.action_trace` is provided).**
+   Compare what `context.narrative` claims happened against what the
+   `action_trace` actually did this scene. State, in one sentence, the act the
+   narration asserts (e.g. "Dana submits the new solicitation"). Then check the
+   trace:
+   - **Claimed-but-not-performed** — the narration asserts an effecting act
+     (create / fill / submit / select / award / publish / enter / type) but the
+     trace has NO effecting action (`click`/`fill`/`select`/`type`/`press`/
+     `draw`) — only hovers/scrolls/waits. List this as a TOP-RANK flaw: the
+     viewer is told an action happened that the demo never performed.
+   - **Action failed** — any trace entry has `ok: false` (the action failed or
+     timed out). List it, noting whether it was `must_succeed`. The end-frame
+     does not reflect the claimed result.
+   These feed the caller's action-fidelity `deduction_rules` in Phase 2.
+
+Output all lists as a block. ONLY THEN proceed to scoring.
 
 ### Phase 2: Score each dimension, starting from `rubric.default_score`
 
@@ -425,4 +478,5 @@ corpus, and the calibration doc.
 |---|---|---|
 | 2026-05-07 | Initial extraction from canopy:walkthrough Phase 1–4 inline scoring. Methodology preserved verbatim; per-rubric dimensions parameterized via the `rubric` input. canopy:walkthrough now dispatches this skill per scene; ACE polish-eval consumes it for visual dimensions. | canopy team |
 | 2026-06-02 | Harshness pass. Added (1) an **Independence requirement** — judge must run as a fresh sub-agent with no build context; self-assessment forces −1/dimension + `self_assessed` flag. (2) The **CEO-send gate** as the definition of a 5 (would the CEO forward it untouched, with their name on it?). (3) Raised the Phase-1 flaw floor from 3 to **≥8, ≥1 per layout region**, ranked. (4) A **claim-scrutiny** pass (self-disclaiming elements / unsupported claims cap claim_reality_coherence ≤2). (5) A **5-second first-impression** pass and an **internal-chrome / deliverable-readiness** check, each with sanity-floor caps. Motivated by an observed builder-as-judge inflation of ~2 points. | jjackson |
+| 2026-06-18 | **`action_trace` + `narrative` context fields (action-aware judging).** The judge scored ONE still screenshot per scene, so a scene that filled+submitted a form and one that only HOVERED over the same controls (same end-frame) scored identically. Added an optional `action_trace` (the per-scene slice of the recorder's run-report: `{kind, target, ok, must_succeed, note}`) and the scene's full `narrative`. When present, a new Phase-1 action-fidelity check compares the narrated act against what the trace actually did: a narration that asserts an effecting act (create/fill/submit/select/award/publish) while the trace only hovers/scrolls ⇒ "claimed, not shown" (top-rank flaw); any `ok:false` entry ⇒ the action failed/timed out. These feed the caller's action-fidelity `deduction_rules`. Back-compat: absent `action_trace` ⇒ score from the still frame exactly as before; the trace can only LOWER a score, never raise one. | jjackson |
 | 2026-06-03 | **`artifact_kind` context field.** Distinguishes `product_walkthrough` (a frame of a real, shipping web app being driven through a flow) from `standalone_deliverable` (a slide/figure/report meant to stand alone, the default). For a `product_walkthrough` the surrounding product chrome — nav bar, sidebar, breadcrumbs, account menu, the app's own buttons — is EXPECTED and grounding, NOT a flaw: it is the evidence the demo is a real product and not a mockup. The "internal app chrome → max 3" sanity floor no longer fires in walkthrough mode. Test/placeholder DATA (raw primary-key slugs, `test-user`, `Untitled`, lorem) still caps in either mode. Motivated by walkthrough judges wrongly penalizing real-website nav that is the point of a live-product demo. | jjackson |

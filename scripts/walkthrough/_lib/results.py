@@ -50,6 +50,15 @@ class ActionResult:
     error_message: str | None = None
     """Free-form message for logs; not parsed by anything machine-readable."""
 
+    must_succeed: bool = False
+    """Whether the spec marked this action ``must_succeed: true``.
+
+    Mirrored from the action dict onto the result so the run-report persists it
+    — the DDD dual-judge needs to distinguish a failed ``must_succeed`` action
+    (the demo's load-bearing step silently failed) from a failed optional one.
+    Defaults False so old call sites and reports are unchanged.
+    """
+
     scene_index: int | None = None
     """1-based original spec index of the scene this action belongs to.
 
@@ -227,6 +236,95 @@ def scene_timestamps(report: dict) -> dict[int, float]:
         except (TypeError, ValueError):
             continue
     return out
+
+
+# Action kinds that EFFECT a state change the demo is claiming to perform.
+# A scene whose narration asserts "create / fill / submit / select / award /
+# publish" must contain at least one of these in its trace, or the task was
+# CLAIMED but not SHOWN. ``hover`` / ``scroll_to`` / ``scroll`` / ``wait_for`` /
+# ``hold`` only move the camera or wait — they never effect anything. ``goto``
+# navigates but does not, on its own, effect a form action (it's the entry, not
+# the act). The judges use this set to apply action-fidelity deductions.
+EFFECTING_ACTION_KINDS: frozenset[str] = frozenset(
+    {"click", "click_menu", "fill", "select", "type", "press", "draw"}
+)
+
+
+def action_trace_by_scene(report: dict) -> dict[int, list[dict]]:
+    """Group a run-report's ``actions`` by 1-based ``scene_index``.
+
+    ``report`` is the parsed JSON written by ``record_video.py --report``
+    (i.e. :meth:`RunReport.as_dict` output). Returns
+    ``{scene_index: [{kind, target, ok, must_succeed, note}, ...]}`` — the
+    per-scene action trace the DDD dual-judge needs to tell a scene that
+    actually filled+submitted a form from one that only HOVERED (same
+    end-frame, same screenshot, but a different *act*).
+
+    Only the fields a judge reasons over are kept (kind/target/ok/
+    must_succeed/note) — the cursor timing, error_message, and value are
+    dropped so the trace handed to an LLM judge stays compact and free of
+    noise. Actions with no ``scene_index`` (a direct ``execute_action`` test
+    call, never a real scene) are skipped.
+
+    Returns ``{}`` for reports written before action_index existed, or with no
+    actions — callers degrade to "no action_trace, behave as today" rather
+    than crashing on old artifacts. Stdlib-only (no Playwright import), so
+    ``scripts.ddd`` can call it the same way it calls :func:`scene_timestamps`.
+    """
+    out: dict[int, list[dict]] = {}
+    for entry in report.get("actions") or []:
+        if not isinstance(entry, dict):
+            continue
+        idx = entry.get("scene_index")
+        if idx is None:
+            continue
+        try:
+            key = int(idx)
+        except (TypeError, ValueError):
+            continue
+        out.setdefault(key, []).append(
+            {
+                "kind": entry.get("kind"),
+                "target": entry.get("target"),
+                "ok": bool(entry.get("ok", True)),
+                "must_succeed": bool(entry.get("must_succeed", False)),
+                "note": entry.get("note"),
+            }
+        )
+    return out
+
+
+def scene_effecting_summary(trace: list[dict]) -> dict:
+    """Summarize one scene's action trace for action-fidelity judging.
+
+    ``trace`` is one scene's entry from :func:`action_trace_by_scene`. Returns
+    ``{has_effecting, only_non_effecting, any_failed, any_required_failed,
+    kinds}`` — the booleans a judge's deduction rule keys off:
+
+    - ``has_effecting`` — ≥1 action in :data:`EFFECTING_ACTION_KINDS` ran (the
+      scene actually fills/clicks/selects/etc., not just hovers/scrolls).
+    - ``only_non_effecting`` — the scene scripted actions but NONE effect
+      anything (hover/scroll/wait only). This is the "claimed, not shown" smell.
+    - ``any_failed`` — ≥1 action came back ``ok: false`` (a demo action
+      failed/timed out, e.g. the award click that silently timed out).
+    - ``any_required_failed`` — ≥1 ``must_succeed`` action failed.
+    - ``kinds`` — the sorted distinct action kinds present (for the report).
+
+    An empty trace (a narrative-only scene with no actions) returns all-False —
+    such scenes are the legacy scroll-pan case and carry no action claim to
+    deduct against.
+    """
+    kinds = [str(a.get("kind") or "") for a in trace]
+    effecting = [k for k in kinds if k in EFFECTING_ACTION_KINDS]
+    return {
+        "has_effecting": bool(effecting),
+        "only_non_effecting": bool(kinds) and not effecting,
+        "any_failed": any(not a.get("ok", True) for a in trace),
+        "any_required_failed": any(
+            a.get("must_succeed") and not a.get("ok", True) for a in trace
+        ),
+        "kinds": sorted(set(k for k in kinds if k)),
+    }
 
 
 class ActionAssertError(RuntimeError):
