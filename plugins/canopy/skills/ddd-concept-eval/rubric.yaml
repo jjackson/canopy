@@ -123,6 +123,13 @@ dimensions:
     deduction_rules:
       - "A scene shows an error state without explaining it: max 2"
       - "A core action is clicked off-camera or skipped entirely with no narration: max 3"
+      # Action-fidelity (only when context.action_trace is present): a core
+      # interaction the narration calls out is absent from the trace entirely
+      # (the demo never performed it) — incoherent, the shown flow contradicts
+      # the claimed one: max 2. (The capture/timing framing of the same gap is
+      # motion_friction's job; this rule is for when the INTERACTION MODEL the
+      # narration describes was never exercised at all.)
+      - "Narration describes a core interaction the action_trace never performs (no effecting action for the claimed act): max 2"
 
   - id: visual_polish
     label: "Visual Polish"
@@ -235,6 +242,17 @@ dimensions:
     # it wrong — a walkthrough-scripting miss, which is exactly motion_friction's
     # job. Discriminator: fits-but-mis-framed → motion_friction (fix the scene);
     # doesn't-fit → visual_polish (fix the product).
+    #
+    # ACTION-FIDELITY (only when context.action_trace is provided). A scene is
+    # scored from ONE still screenshot — so a scene that filled+submitted a form
+    # and one that only HOVERED over the same controls produce the SAME frame.
+    # When the caller passes the scene's action_trace (the run-report slice:
+    # {kind, target, ok, must_succeed, note}), this dim owns whether the demo
+    # ACTUALLY PERFORMED the act its narration claims, and whether the captured
+    # frame is the legible RESULT of that act. EFFECTING kinds = click /
+    # click_menu / fill / select / type / press / draw; NON-EFFECTING = hover /
+    # scroll_to / scroll / wait_for / hold / goto. When action_trace is ABSENT,
+    # ignore these rules and score motion as before (back-compat).
     anchor:
       "5": "The walkthrough flows naturally — transitions are smooth, every scene is scrolled so the artifact it narrates is fully in frame and settled before the voiceover talks about it; no scene requires the viewer to mentally skip awkward moments; the product looks like a pleasure to use."
       "4": "Flow is mostly smooth; one scene has a noticeable hesitation, slow load, clunky transition, or slightly-off framing (the narrated artifact partly clipped) that a script revision could fix."
@@ -248,3 +266,7 @@ dimensions:
       - "An on-screen action the narration calls out (a toggle, a filter, a tab switch) fires well before or after the words describing it, so the viewer doesn't see the change happen when it is mentioned: max 3 (SCRIPTING fix — time the action's hold so it lands with the voiceover)"
       - "Scene order requires the viewer to go backwards conceptually (later scenes set up earlier ones): max 2"
       - "A navigational dead-end is captured (404, blank page, error) with no recovery shown: max 1"
+      # Action-fidelity (only when context.action_trace is present):
+      - "Narration claims an action the action_trace never performs — hover-only (no fill/click/select/type/press/draw) where a fill/click is implied: max 2"
+      - "A must_succeed action failed (action_trace entry ok:false with must_succeed:true), OR the captured frame doesn't show the claimed action's RESULT (an effecting action came back ok:false): max 2"
+      - "The action sequence is not legible — a viewer can't tell what was done from the capture + trace (e.g. the trace shows only camera moves while the narration describes a multi-step operation): max 3"

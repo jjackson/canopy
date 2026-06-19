@@ -598,6 +598,7 @@ def execute_action(
     result = ActionResult(
         kind=kind, ok=ok, target=target, value=value, note=note,
         elapsed_ms=elapsed_ms, error_kind=error_kind, error_message=error_message,
+        must_succeed=must_succeed,
     )
     if not ok and must_succeed:
         raise ActionAssertError(f"required action failed: {label}: {error_message or error_kind}")

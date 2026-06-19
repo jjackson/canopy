@@ -101,6 +101,19 @@ guarantee that independence, the judge will (per visual-judge's
 Independence requirement) mark the verdict `self_assessed: true` and
 apply −1 to every dimension — so make the dispatch genuinely fresh.
 
+**Build the per-scene action trace once, before the loop**, so the concept
+judge can apply action-fidelity deductions (a scene that only HOVERED where its
+narration claims a fill/submit, or whose `must_succeed` action timed out, must
+not score the same as one that genuinely performed the act):
+
+```python
+import json
+from scripts.walkthrough._lib.results import action_trace_by_scene
+
+report = json.load(open(f"{run_dir}/run-report.json"))   # may be absent on old runs
+traces = action_trace_by_scene(report) if report else {}  # {scene_index: [{kind,target,ok,must_succeed,note}]}
+```
+
 For each scene in `unified_spec.yaml`:
 
 1. Identify the screenshot path: `<run_dir>/scene_<N>.png` (or the path recorded in the run manifest).
@@ -118,6 +131,15 @@ For each scene in `unified_spec.yaml`:
      real record's real name; when unsure whether a slug is fixture or real,
      treat it as real and do not deduct.
    - `narrative_anchors`: [`scene.concept_claim`, `scene.provenance`, the matching why_brief spine rationale (if resolvable)]
+   - `narrative`: `scene.narrative` — the scene's FULL narration (not just the
+     concept_claim), so the judge can compare what the narration CLAIMS happened
+     against what the `action_trace` actually did.
+   - `action_trace`: `traces.get(<N>, [])` — the per-scene action slice built
+     above (each entry `{kind, target, ok, must_succeed, note}`). Pass `[]` for a
+     narrative-only scene; the judge then applies NO action-fidelity deduction.
+     This is what lets `motion_friction` / `design_soundness` catch a hover-only
+     scene whose narration claims a fill/submit, or a `must_succeed` action that
+     timed out (see the rubric's action-fidelity deduction rules).
    - `domain`: `unified_spec.name`
    - `audience.name`: the person the artifact is FOR — inferred from the scene's
      `concept_claim` / `design_intent`. For an EVIDENCE / data product (dashboard,

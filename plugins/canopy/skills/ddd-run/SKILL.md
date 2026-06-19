@@ -316,7 +316,24 @@ parallel:
 Outputs: `verdict-concept.yaml` + `design_findings.json` inside the run dir.
 
 **3b. User-artifact judge** — invoke `canopy:visual-judge` (via Skill tool)
-over the rendered screenshots + page text, with `audience="feature user"`:
+over the rendered screenshots + page text, with `audience="feature user"`.
+
+**Build the per-scene `action_trace` first** so the judge can tell a scene that
+filled+submitted a form from one that only HOVERED (same end-frame, different
+act). Read `run-report.json` and slice its `actions` by `scene_index`:
+
+```python
+import json
+from scripts.walkthrough._lib.results import action_trace_by_scene
+
+report = json.load(open(f"{run_dir}/run-report.json"))
+traces = action_trace_by_scene(report)   # {scene_index: [{kind, target, ok, must_succeed, note}, ...]}
+# For scene N: trace = traces.get(N, [])  — empty for narrative-only scenes.
+```
+
+Pass that scene's `action_trace` AND its full `narrative` into the
+visual-judge `context` (both optional — a scene with no actions passes
+`action_trace: []`, and the judge then behaves exactly as before):
 
 ```python
 Skill('canopy:visual-judge', args={
@@ -341,6 +358,9 @@ Skill('canopy:visual-judge', args={
                 'deduction_rules': [
                     'Broken flow that stops task mid-way: max 1',
                     'Required field unlabelled or missing: max 2',
+                    # Action-fidelity (only bites when context.action_trace is present):
+                    'Scene narration asserts an effecting action (create / fill out / submit / select / award / publish) but action_trace contains no fill/click/select/type/press/draw that effects it (only hover/scroll/wait): max 2 — the task is CLAIMED, not SHOWN.',
+                    'Any action_trace entry has ok:false (the demo action failed or timed out): max 2.',
                 ],
             },
             {
@@ -381,6 +401,12 @@ Skill('canopy:visual-judge', args={
             'decision': 'deciding whether this feature solves their day-to-day problem',
         },
         'domain': '<unified_spec.name>',
+        # Action-aware judging — the scene's FULL narration + what the demo
+        # actually did. The visual-judge compares claim↔action and applies the
+        # task_completion action-fidelity deductions above. Pass [] for a
+        # narrative-only scene (no actions) — the judge then behaves as before.
+        'narrative': '<scene.narrative>',
+        'action_trace': traces.get(<N>, []),   # from action_trace_by_scene above
     },
 })
 ```
