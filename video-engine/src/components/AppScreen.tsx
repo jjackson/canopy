@@ -30,24 +30,25 @@ const isWebScreencast = (s: string) => {
 };
 
 export const AppScreen: React.FC<Props> = ({ asset, caption, showCaption = false, startSeconds = 0 }) => {
-  const { fps } = useVideoConfig();
+  const { fps, width: canvasW, height: canvasH } = useVideoConfig();
   const src = asset.startsWith("http") ? asset : staticFile(asset);
   const startFrom = Math.round(startSeconds * fps);
 
-  // Web screencasts fill ~the whole canvas (16:9 source aspect ratio
-  // matches the 1280×720 video canvas), framed with a subtle rounded
-  // border + drop shadow that echoes the phone bezel without forcing
-  // the wide content into a portrait frame. Mobile clips keep the
-  // 540×960 phone shape.
+  // Web screencasts fill the whole canvas and are shown WHOLE (objectFit
+  // contain) — the capture's own aspect ratio is respected, never cropped.
+  // Dashboards are often taller than 16:9 (e.g. 1280×1000) because a short
+  // 16:9 viewport makes dense tables/maps too small/cut-off to read; contain
+  // shows every captured row at the largest size that fits, with the canvas
+  // background filling any side/letterbox margin (a 16:9 capture fills edge to
+  // edge, a taller capture sits centered with light margins). Mobile clips keep
+  // the 540×960 phone bezel + cover.
   const web = isWebScreencast(asset);
+  const fit: "contain" | "cover" = web ? "contain" : "cover";
   const frameStyle: React.CSSProperties = web
     ? {
-        width: 1100,
-        aspectRatio: "16 / 9",
-        borderRadius: 24,
-        background: "#000",
-        padding: 8,
-        boxShadow: "0 24px 64px rgba(0,0,0,0.25)",
+        width: canvasW,
+        height: canvasH,
+        background: theme.colors.background,
       }
     : {
         width: 540,
@@ -57,7 +58,7 @@ export const AppScreen: React.FC<Props> = ({ asset, caption, showCaption = false
         padding: 16,
         boxShadow: "0 24px 64px rgba(0,0,0,0.25)",
       };
-  const innerRadius = web ? 18 : 40;
+  const innerRadius = web ? 0 : 40;
 
   return (
     <div
@@ -77,13 +78,13 @@ export const AppScreen: React.FC<Props> = ({ asset, caption, showCaption = false
             <Video
               src={src}
               startFrom={startFrom}
-              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              style={{ width: "100%", height: "100%", objectFit: fit }}
               onError={() => {
                 /* Missing asset — render blank frame; drop real file into assets/ to fix */
               }}
             />
           ) : (
-            <Img src={src} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            <Img src={src} style={{ width: "100%", height: "100%", objectFit: fit }} />
           )}
         </div>
       </div>
