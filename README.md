@@ -71,77 +71,39 @@ Canopy targets Python 3.11+ and depends on PyYAML, Click, and Pydantic.
   — the bump is the only signal that tells installed sessions to pick up new work.
   The full discipline lives in `CLAUDE.md`.
 
-## CLI reference
+## Using canopy
 
-Run `canopy <group> --help` for full flags. Grouped by purpose:
+Day to day you run a handful of commands. Everything else is discoverable via
+`canopy <group> --help`.
 
-### Improvement pipeline
-- `canopy improve` — run a full improvement cycle (analyze → propose → implement).
-  `--observe-only` analyzes without proposing; `--dry-run` proposes without
-  implementing.
-- `canopy analyze <transcript.jsonl> [--propose]` — analyze a specific transcript.
-- `canopy brief [--model MODEL]` — generate a strategic brief from recent activity.
-- `canopy patterns [--json-output]` — show cross-session friction patterns.
+```
+canopy improve [--dry-run|--observe-only]   # the core loop: analyze → propose → implement
+canopy patterns                             # recurring friction across your sessions
+canopy proposals list / show <id>           # inspect what canopy wants to build
+canopy brief                                # strategic summary of recent activity
+canopy sessions status                      # is the capture hook logging my work?
+canopy doctor                               # plugin health (hook, token, version)
+canopy serve                                # transcript browser UI on localhost:8484
+```
 
-### Observations & proposals
-- `canopy observations list [...]` / `canopy observations show <id>` — inspect
-  extracted observations.
-- `canopy proposals list [...]` / `canopy proposals show <id>` — inspect generated
-  proposals.
-- `canopy verify-findings` — re-verify findings against the current state of their
-  target repos, dropping any whose fix already shipped.
+Start with `canopy improve --dry-run` until you trust the proposals, then run the
+full cycle — it's gated by a circuit breaker and rate limiter, so it won't run away.
 
-### Sessions & corpus
-- `canopy sessions status` — session log entry count and classification summary.
-- `canopy sessions list [--hours N] [--json-output]` — list recent sessions.
+Canopy also publishes insights, portfolio guidance, shareouts, and DDD run
+packages to **canopy-web**: https://canopy-web-ujpz2cuyxq-uc.a.run.app
 
-### Registry & discovery
-- `canopy registry show [--format summary|skill|json]` — display the loaded
-  capability registry.
-- `canopy registry sync` — scan repos for actual MCP tools and update the registry.
-- `canopy registry validate` — validate `registry.yaml` structure.
-- `canopy portfolio-discover` — discover curated projects across the portfolio.
-
-### Skills
-- `canopy skills list [...]` — list installed skills (plugin + user).
-- `canopy skills find <query>` — fuzzy-match installed skills by name/description.
-- `canopy skills overlap <action text>` — check whether a proposed skill duplicates
-  an existing one (exit non-zero on overlap).
-- `canopy skills budget [...]` — show the description-size budget (per-skill table
-  + aggregate gauge).
-- `canopy skills dropped [...]` — simulate Claude Code's drop logic and list which
-  skills get dropped under the aggregate cap.
-
-### Health & versioning
-- `canopy doctor [--json-output]` — diagnose plugin health (hook registration,
-  session log, repo map, workbench token, plugin version). Exits non-zero on
-  failure so it can gate CI.
-- `canopy structure-drift [--strict] [--json-output]` — self-audit canopy's
-  documented structural invariants (command/skill collisions, reserved-name
-  collisions, version agreement across VERSION/plugin.json/marketplace.json,
-  per-skill description budget).
-- `canopy version verify` — confirm VERSION and plugin.json agree.
-- `canopy version verify-bump` — confirm `plugins/canopy/` changes are accompanied
-  by a version bump past origin/main.
-- `canopy version bump` — bump VERSION + plugin.json to `max(local, origin/main) +
-  patch+1`.
-
-### Test hygiene
-- `canopy test-audit collect` / `canopy test-audit apply` — audit and prune a
-  pytest suite.
-
-### Browser UI
-- `canopy serve` — start the transcript browser web UI on localhost:8484 (a
-  visibility tool, not the primary interface).
+The rest of the surface — `observations`, `registry`, `skills budget`/`dropped`,
+`structure-drift`, `version`, `test-audit` — is grouped under
+`canopy <group> --help`. Contributors will find the versioning and skills-budget
+commands documented in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Contributing
 
-`CLAUDE.md` is the authoritative contributor and skill-authoring guide. It
-documents the worktree rules, the always-PR + version-bump discipline, the git
-hooks (`scripts/hooks/`), skill-authoring foot-guns (command/skill collisions,
-reserved built-in names, description limits, bash positional-parameter gotchas),
-plugin-update rules (never hand-patch the installed cache — use `/canopy:update`),
-and the per-project `.canopy/` state layout. Read it before changing anything under
-`plugins/canopy/` or the orchestrator.
+Start with **[CONTRIBUTING.md](CONTRIBUTING.md)** — the human-readable guide to
+making a change safely: the three-copies model, the version-bump rule (the #1
+mistake), the always-PR + self-merge ship flow, and the skill-authoring foot-guns.
+
+`CLAUDE.md` is the authoritative, exhaustive source those rules are distilled from
+(it's also loaded into every agent session). When the two disagree, CLAUDE.md wins.
 
 Run the test suite with `uv run pytest` from the project root.
