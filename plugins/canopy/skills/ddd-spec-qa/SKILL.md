@@ -51,6 +51,18 @@ Subtle vacuousness judgment belongs to the LLM concept judge (SP3).
    Without it the recorder would film a literal `/runs/${run_id}/` URL.  The
    converse is fine: declared-but-unused outputs are not an error.
 
+**Layer 2 — QA-specific (show, don't tell / action-fidelity):**
+7. A scene that **declares actions** but scripts ONLY non-effecting ones
+   (`hover` / `scroll_to` / `wait_for`) while its `narrative` / `concept_claim`
+   promises an **effecting verb** (create / fill / submit / award / select /
+   publish / enter / type) fails — it is a hover-only "claimed, not shown" demo
+   (the judge sees the same end-frame whether the form was filled or merely
+   hovered over). Fix: add the `fill`/`click` that effects the narrated act, OR
+   soften the narration to match what the demo does. This is **scoped to the
+   actions list** — a scene with NO actions is exempt (a legacy scroll-pan
+   narrative beat), and it is NOT a prose-only verb check (the removed
+   falsifiability verb-check false-positived on nominalized claims).
+
 These rules exist because concept_claims are the testable hypotheses that the
 concept judge (SP3) will score.  A non-falsifiable claim cannot be judged.
 
@@ -135,5 +147,9 @@ Tell the user to fix the issues in the spec file and re-run `/ddd-spec-qa`.
   `setup.outputs is not declared`) → declare the synthetic generator in
   `setup.command` + point `setup.outputs` at the flat JSON it emits, or remove
   the placeholders if the URLs are genuinely static.
+- `scene '...' narrates '<verb>' but performs no effecting action` → the scene's
+  actions are hover/scroll/wait only while the narration promises an effecting
+  act. Add the `fill`/`click`/`select` that effects it, or soften the narration
+  to match what the demo actually does.
 
 Do NOT proceed to the concept judge if this QA returns `verdict: fail`.
