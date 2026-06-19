@@ -63,7 +63,9 @@ Then follow the plugin-update steps below (`/canopy:update` etc.) if
 ## Tech Stack
 - Python 3.11+, PyYAML, Click
 - Claude Code hooks and skills
-- Subprocess invocation of `claude -p` for analysis, proposals, and implementation
+- Subprocess invocation of `claude -p` for analysis and proposals; proposal
+  *implementation* is dispatched to Claude Code agents via `/canopy:improve` (the
+  Python pipeline stops after proposals)
 
 ## Commands
 - `canopy registry show [--format summary|skill|json]` — display loaded registry
@@ -88,6 +90,7 @@ Then follow the plugin-update steps below (`/canopy:update` etc.) if
 - `canopy skills budget [--scope ... --source ... --per-skill-limit N --aggregate-limit N --top N --json-output]` — show description-size budget (per-skill ranked table + aggregate gauge). Use when Claude Code prints "N skills dropped" and you need to know which skills are pushing the system prompt over the cap.
 - `canopy skills dropped [--scope ... --source ... --per-skill-limit N --aggregate-limit N --json-output]` — simulate Claude Code's drop logic and print which skills get dropped under the aggregate cap.
 - `canopy version verify` — confirm VERSION and plugin.json agree (CI-safe)
+- `canopy version verify-bump` — fail if `plugins/canopy/` changed without a VERSION bump past origin/main (the check CI and the push guard run)
 - `canopy version bump` — bump VERSION + plugin.json by `max(local, origin/main) + patch+1`. Fetches origin first so a parallel worktree's bump is visible before deciding the next number. Use this instead of editing the two files by hand.
 - `canopy doctor` — diagnose canopy plugin health (workbench token, repo-map, session log, hook registration)
 - `canopy shareout [...]` — gather a date range of sessions + PRs into a teammate-facing work briefing for the canopy-web /shareouts feed
@@ -102,9 +105,12 @@ Then follow the plugin-update steps below (`/canopy:update` etc.) if
 - `src/orchestrator/pipeline.py` — full improvement cycle (scanner discovery, circuit breaker, rate limiter)
 - `src/orchestrator/analyzer.py` — transcript analysis via claude -p
 - `src/orchestrator/proposer.py` — proposal generation via claude -p
-- `src/orchestrator/implementer.py` — implementation via claude -p in target repos
 - `src/orchestrator/skill_runner.py` — headless invocation of any Claude Code skill
 - `src/orchestrator/paths.py` — shared CANOPY_DIR constant and legacy migration
+- _No implementer module._ Proposal implementation is dispatched to Claude Code
+  agents via the `/canopy:improve` skill; `pipeline.py` stops after saving
+  proposals. (The old `claude -p` implementer was removed in `a6991a6` —
+  "replace claude -p implementation pipeline with agent-based dispatch".)
 
 ### Data models
 - `src/orchestrator/observations.py` — friction, gaps, patterns extracted from sessions
@@ -156,8 +162,8 @@ Then follow the plugin-update steps below (`/canopy:update` etc.) if
 - `src/orchestrator/version_bump.py` — VERSION coordination across worktrees (backs `canopy version bump`)
 
 ### Plugin (Claude Code skills, commands, agents)
-- `plugins/canopy/skills/` — skill definitions (alignment, auth-preflight, brief, canopy-doctor, context-ingestion, ddd-concept-eval, ddd-evidence-audit, ddd-narrative-actionability-eval, ddd-narrative-coherence, ddd-narrative-review, ddd-run, ddd-spec, ddd-spec-qa, ddd-upload, ddd-why-brief, ddd-why-eval, ddd-why-qa, doc-regeneration, find-session, improve, improve-lens, information-architecture, issue-triage, orchestrator, patch-gstack-browse, patterns, portfolio-guide, portfolio-review, product-management, project-status, select-session, share-session, shareout, test-audit, update, verify-findings, visual-judge, walkthrough, walkthrough-defect-creator, walkthrough-eval, walkthrough-share, website-builder)
-- `plugins/canopy/commands/` — slash commands (alignment, auth-preflight, brief, canopy-web-pat-mint, ddd, ddd-concept-eval, ddd-evidence-audit, ddd-narrative-actionability-eval, ddd-narrative-review, ddd-run, ddd-spec, ddd-spec-qa, ddd-upload, ddd-why-brief, ddd-why-eval, ddd-why-qa, doc-regen, find-session, improve, issue-triage, patch-gstack-browse, patterns, pm-autonomous, pm-autonomous-loop, pm-scout, pm-status, portfolio-guide, portfolio-review, project-status, select-session, session-review, setup, test-audit, update, verify-findings, walkthrough, walkthrough-defect-creator, walkthrough-eval, website-builder)
+- `plugins/canopy/skills/` — skill definitions (alignment, auth-preflight, brief, canopy-doctor, context-ingestion, ddd-ace-render, ddd-concept-eval, ddd-evidence-audit, ddd-findings-review, ddd-narrative-actionability-eval, ddd-narrative-coherence, ddd-narrative-review, ddd-run, ddd-spec, ddd-spec-qa, ddd-upload, ddd-why-brief, ddd-why-eval, ddd-why-qa, doc-regeneration, find-session, improve, improve-lens, information-architecture, issue-triage, orchestrator, patch-gstack-browse, patterns, portfolio-guide, portfolio-review, product-management, project-status, select-session, share-session, shareout, test-audit, update, verify-findings, visual-judge, walkthrough, walkthrough-defect-creator, walkthrough-eval, walkthrough-share, website-builder)
+- `plugins/canopy/commands/` — slash commands (alignment, auth-preflight, brief, canopy-web-pat-mint, ddd, ddd-ace-render, ddd-concept-eval, ddd-evidence-audit, ddd-findings-review, ddd-narrative-actionability-eval, ddd-narrative-review, ddd-run, ddd-spec, ddd-spec-qa, ddd-upload, ddd-why-brief, ddd-why-eval, ddd-why-qa, doc-regen, find-session, improve, issue-triage, patch-gstack-browse, patterns, pm-autonomous, pm-autonomous-loop, pm-scout, pm-status, portfolio-guide, portfolio-review, project-status, select-session, session-review, setup, test-audit, update, verify-findings, walkthrough, walkthrough-defect-creator, walkthrough-eval, website-builder)
 - `plugins/canopy/agents/` — autonomous agents (ddd, pm-supervisor, session-review, walkthrough, website-builder)
 - `.claude-plugin/marketplace.json` — plugin marketplace manifest
 
@@ -421,14 +427,22 @@ Outside a git repo, the PM resolver falls back to `$HOME/.canopy/pm/<basename-of
 
 The global "self-improvement brain" (`~/.claude/canopy/observations/`, `proposals/`, `session-log.jsonl`, etc.) stays under `$HOME/.claude/canopy/` — that data is intentionally cross-project on a single machine.
 
-## Repo Notes (DDD)
+## Repo Notes (DDD & rendering)
 
-- `scripts/ddd/` (DDD loop helpers) ships in **this repo**, not the plugin cache. Skills
-  resolve it via `DDD_REPO=$HOME/emdash-projects/canopy` (fallback
+These ship in **this repo**, not the plugin cache:
+
+- `scripts/ddd/` (DDD loop helpers). Skills resolve it via
+  `DDD_REPO=$HOME/emdash-projects/canopy` (fallback
   `~/.claude/plugins/marketplaces/canopy`) and run `uv run python -m scripts.ddd.<mod>`.
+- `scripts/narrative/` — the neutral narrative substrate (schemas, models,
+  `${var}` substitution) extracted out of `scripts.ddd` so non-DDD callers can
+  reuse it (PR #160, repointed in #162). DDD builds on top of it.
+- `video-engine/` — the general Remotion video renderer, relocated into canopy
+  (PR #191). Both the walkthrough and DDD render paths produce video through it;
+  `render_locally.py` is the local entry point.
 - DDD pause gates (`concept_change`, `external_release`, the narrative-agreement gate)
   post to the **canopy-web review surface**, never the built-in `AskUserQuestion` tool.
   See `plugins/canopy/agents/ddd.md` § Pause policy.
 
 ## Testing
-- `uv run pytest` from project root (~1,590 tests across 114 test files). A handful of browser-dep tests error on collection unless the optional extras are installed: `pip install -e '.[browser]'`.
+- `uv run pytest` from project root (~1,900 tests across 137 test files). A handful of browser-dep tests error on collection unless the optional extras are installed: `pip install -e '.[browser]'`.
