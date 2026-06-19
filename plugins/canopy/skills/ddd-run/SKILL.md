@@ -212,6 +212,16 @@ render, not a graded run. Provenance lands in `run-report.json` (`setup` key:
 command, exit code, duration, resolved variables) and in
 `<run_dir>/snapshots/setup-vars.json` — part of the run's evidence chain.
 
+**Late binding (`capture`) needs nothing from the orchestrator.** A spec may
+mint a `${var}` ON CAMERA with a `capture` action (create an entity mid-render,
+read its id off the page, use it in later scenes — a fresh lifecycle each render
+with no fixed IDs). The recorder resolves those vars lazily at runtime; pre-warm
+skips capture-bound URLs automatically. Each capture is recorded in
+`run-report.json` (`kind=capture, var, ok, value`) and printed in the run
+summary — a failed required capture aborts the render like any `must_succeed`
+action, so treat it as a blocked render. See the walkthrough SKILL § "Capture +
+late binding".
+
 After the recorder exits, scan `<run_dir>/run-report.json` for non-zero
 `failed` counts before letting the judges run. A scene whose
 `must_succeed: true` action failed will surface here as an `ok: false`

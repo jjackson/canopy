@@ -87,6 +87,9 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from scripts.narrative.substitution import (  # noqa: E402
     UnresolvedPlaceholderError,
+    has_unresolved,
+    ordered_placeholder_violations,
+    scene_capture_vars,
     scenes_placeholders,
     substitute_scenes,
 )
@@ -163,16 +166,24 @@ def collect_prewarm_urls(scenes: list[dict]) -> list[str]:
     """The unique resolved scene URLs to pre-warm, in spec order.
 
     Takes the scene records ``build_scenes_from_spec`` produced — i.e. AFTER
-    ``${var}`` substitution and URL absolutization, so what gets warmed is
-    exactly what gets filmed. Continuation scenes (``url is None`` — they stay
+    up-front ``${var}`` substitution and URL absolutization, so what gets warmed
+    is exactly what gets filmed. Continuation scenes (``url is None`` — they stay
     on the previous scene's page) contribute nothing; duplicate URLs are
     visited once (first occurrence wins the ordering).
+
+    A URL that STILL contains a ``${var}`` is capture-bound (its id is minted on
+    camera by a ``capture`` action LATER, so it isn't known yet) — pre-warm
+    can't resolve it and must skip it rather than visit a literal placeholder
+    URL. It still films fine; it just stays cold like any pre-prewarm page.
     """
     seen: set[str] = set()
     out: list[str] = []
     for scene in scenes:
         url = scene.get("url")
         if not url or url in seen:
+            continue
+        if has_unresolved(url):
+            print(f"  · prewarm: skipping capture-bound URL (unresolved ${{var}}): {url}")
             continue
         seen.add(url)
         out.append(url)
@@ -716,30 +727,59 @@ def main() -> None:
     # render, and the minted IDs must be substituted into scenes before the
     # first navigation. Never mutates the spec file on disk.
     setup = spec.get("setup") or None
-    placeholders = scenes_placeholders(spec.get("scenes") or [])
+    raw_scenes = spec.get("scenes") or []
+    placeholders = scenes_placeholders(raw_scenes)
+    # Vars minted ON CAMERA by ``capture`` actions — these are bound at RUNTIME
+    # (late binding), not from setup outputs, so they're allowed to be absent
+    # at setup time. The order-aware validator below confirms each is captured
+    # BEFORE it's used.
+    capture_bound: set[str] = set()
+    for s in raw_scenes:
+        capture_bound.update(scene_capture_vars(s))
     setup_provenance: dict | None = None
     if setup:
         try:
             setup_provenance = run_setup(setup, Path(args.spec), skip_setup=args.skip_setup)
         except SetupError as e:
             sys.exit(f"ERROR: {e}")
-    elif placeholders:
-        # ${...} with no setup block is misconfiguration — there is nothing
-        # that could ever resolve these, so filming would navigate to a
-        # literal "/runs/${run_id}/" URL.
+    setup_vars: dict = (setup_provenance or {}).get("variables", {})
+    # A ${...} with neither a setup block NOR an earlier capture to bind it is
+    # misconfiguration — filming would navigate to a literal "/runs/${run_id}/".
+    unbacked = placeholders - set(setup_vars) - capture_bound
+    if unbacked and setup is None:
         sys.exit(
-            "ERROR: spec uses ${...} placeholders but declares no `setup:` block: "
-            f"{', '.join(sorted(placeholders))}. Declare setup.command + setup.outputs "
-            "(the synthetic generator that mints these variables), or remove the placeholders."
+            "ERROR: spec uses ${...} placeholders but declares no `setup:` block and "
+            f"no `capture` action binds them: {', '.join(sorted(unbacked))}. Declare "
+            "setup.command + setup.outputs (the synthetic generator that mints these), "
+            "add a `capture` action that mints them on camera, or remove the placeholders."
+        )
+    # Order-aware validation: every ${var} must be available WHEN USED — a setup
+    # output OR a capture in an EARLIER scene. A var used before any capture/setup
+    # provides it is a hard error (filming a literal placeholder).
+    order_violations = ordered_placeholder_violations(raw_scenes, setup_vars=set(setup_vars))
+    if order_violations:
+        sys.exit(
+            "ERROR: order-aware ${...} validation failed:\n  - "
+            + "\n  - ".join(order_violations)
         )
     if placeholders or setup_provenance:
-        variables = (setup_provenance or {}).get("variables", {})
+        # Substitute ONLY the setup-known vars up front (partial substitution).
+        # Capture-bound ${var} are left intact for the recorder to resolve
+        # lazily at runtime, after the on-camera capture fires.
         try:
-            spec["scenes"] = substitute_scenes(spec.get("scenes") or [], variables)
+            spec["scenes"] = substitute_scenes(
+                raw_scenes, setup_vars, allow_unresolved=capture_bound
+            )
         except UnresolvedPlaceholderError as e:
             sys.exit(f"ERROR: {e}")
-        if placeholders:
-            print(f"Setup: resolved ${{...}} variables: {', '.join(sorted(placeholders))}")
+        resolved_now = sorted(placeholders & set(setup_vars))
+        if resolved_now:
+            print(f"Setup: resolved ${{...}} variables: {', '.join(resolved_now)}")
+        if capture_bound & placeholders:
+            print(
+                "Late binding: ${...} resolved on camera by capture: "
+                f"{', '.join(sorted(capture_bound & placeholders))}"
+            )
 
     # Build the RecorderConfig: pace preset, optional spec override.
     pace = spec.get("video_pace", "fast")
@@ -913,6 +953,11 @@ def main() -> None:
                 # Per-scene viewport overrides (Scene.viewport) are restored
                 # back to this size after each overridden scene's final hold.
                 default_viewport={"width": viewport_w, "height": viewport_h},
+                # Seed the LIVE late-binding ${var} map with the setup outputs.
+                # On-camera ``capture`` actions extend it during the render; the
+                # orchestrator resolves scene urls + action target/value against
+                # it lazily, so an id minted in an earlier scene flows forward.
+                variables=setup_vars,
             )
             recorder.recording_epoch = recording_started
             # Provenance: the data this film is made on is part of the run's

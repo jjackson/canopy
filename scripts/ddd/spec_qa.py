@@ -19,7 +19,10 @@ Rules checked:
         a banned list of pure-marketing phrases, OR is too short to be specific.
     (i) ${...} placeholders in scene URLs / action targets ⇒ the spec must
         declare a `setup:` block with `outputs:` (the synthetic generator that
-        mints those variables). Declared-but-unused outputs are fine.
+        mints those variables) OR bind them on camera with a `capture` action.
+        Validation is ORDER-AWARE: a ${var} is valid iff a setup output OR a
+        `capture` in an EARLIER scene provides it (a var used before anything
+        binds it is a violation). Declared-but-unused outputs are fine.
     (j) "show, don't tell" — a scene that DECLARES actions but scripts ONLY
         non-effecting ones (hover/scroll_to/wait_for) while its narration /
         concept_claim promises an effecting verb (create/fill/submit/award/
@@ -50,7 +53,11 @@ import yaml
 
 from scripts.ddd.schemas.models import UnifiedSpec, Verdict
 from scripts.ddd.validate import validate
-from scripts.narrative.substitution import scenes_placeholders
+from scripts.narrative.substitution import (
+    ordered_placeholder_violations,
+    scene_capture_vars,
+    scenes_placeholders,
+)
 
 # ---------------------------------------------------------------------------
 # Banned marketing phrases (case-insensitive substring match).
@@ -273,25 +280,45 @@ def spec_qa(
 
     # --------------------------------------------------- QA-specific checks
     if spec is not None:
-        # (i) data-setup contract: ${...} placeholders in scene URLs / action
-        # targets are resolved at render time from setup.outputs — a spec that
-        # uses them without declaring where they come from records a literal
-        # "/runs/${run_id}/" URL. (The converse is fine: a setup block whose
-        # outputs declare variables the scenes never use is not an error.)
-        placeholders = scenes_placeholders([s.model_dump() for s in spec.scenes])
+        # (i) data-setup contract + late binding: ${...} placeholders in scene
+        # URLs / action targets are resolved either UP FRONT from setup.outputs
+        # (ids minted before the render) or AT RUNTIME by an on-camera
+        # ``capture`` action (ids minted during the render). A spec that uses a
+        # ${var} with NEITHER source records a literal "/runs/${run_id}/" URL.
+        # (The converse is fine: a setup block whose outputs declare variables
+        # the scenes never use is not an error.)
+        scene_dicts = [s.model_dump() for s in spec.scenes]
+        placeholders = scenes_placeholders(scene_dicts)
+        capture_bound: set[str] = set()
+        for sd in scene_dicts:
+            capture_bound.update(scene_capture_vars(sd))
         if placeholders:
-            if spec.setup is None:
-                violations.append(
-                    f"spec uses ${{...}} placeholder(s) ({', '.join(sorted(placeholders))}) "
-                    "but declares no `setup:` block — declare setup.command + setup.outputs "
-                    "(the synthetic generator that mints these variables) or remove the placeholders"
-                )
-            elif not spec.setup.outputs:
-                violations.append(
-                    f"spec uses ${{...}} placeholder(s) ({', '.join(sorted(placeholders))}) "
-                    "but setup.outputs is not declared — the recorder has no variables file "
-                    "to resolve them from; point setup.outputs at the JSON the command emits"
-                )
+            # Vars NOT bound by any capture must come from setup.outputs.
+            from_setup_needed = placeholders - capture_bound
+            if from_setup_needed:
+                if spec.setup is None:
+                    violations.append(
+                        f"spec uses ${{...}} placeholder(s) ({', '.join(sorted(from_setup_needed))}) "
+                        "that no `capture` action binds, but declares no `setup:` block — declare "
+                        "setup.command + setup.outputs (the synthetic generator that mints these "
+                        "variables), add a `capture` action that mints them on camera, or remove them"
+                    )
+                elif not spec.setup.outputs:
+                    violations.append(
+                        f"spec uses ${{...}} placeholder(s) ({', '.join(sorted(from_setup_needed))}) "
+                        "that no `capture` action binds, but setup.outputs is not declared — the "
+                        "recorder has no variables file to resolve them from; point setup.outputs at "
+                        "the JSON the command emits (or bind them with a `capture` action)"
+                    )
+            # Order-aware: a ${var} used BEFORE any setup/capture provides it is
+            # a violation even if SOME later capture binds the same name. Setup
+            # outputs aren't known structurally (we don't run the command in QA),
+            # so treat any non-capture-bound placeholder as a presumptive setup
+            # output for ordering — only a use-before-capture of a CAPTURE-only
+            # var is a hard order error here.
+            setup_provided = placeholders - capture_bound
+            for v in ordered_placeholder_violations(scene_dicts, setup_vars=setup_provided):
+                violations.append(v)
 
         for scene in spec.scenes:
             title_lower = scene.title.lower()

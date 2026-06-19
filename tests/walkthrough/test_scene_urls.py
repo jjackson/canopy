@@ -38,7 +38,7 @@ def test_orchestrator_records_urls_when_click_navigates(monkeypatch):
     """A click that flips ``page.url`` lands both URLs in ``urls_visited``."""
     page = FakePage(url="https://x/a")
 
-    def fake_execute_action(pg, action, *, base_url="", config=None):
+    def fake_execute_action(pg, action, *, base_url="", config=None, variables=None):
         if action.get("kind") == "click":
             pg.url = "https://x/b"  # the click redirected
         return ActionResult(kind=action.get("kind", "?"), ok=True)
@@ -62,7 +62,7 @@ def test_nav_sink_folds_client_side_redirect_into_urls_visited(monkeypatch):
     page = FakePage(url="https://x/audit")
     nav_sink: list[str] = ["https://x/stale-from-prev-scene"]  # must be cleared
 
-    def fake_execute_action(pg, action, *, base_url="", config=None):
+    def fake_execute_action(pg, action, *, base_url="", config=None, variables=None):
         if action.get("kind") == "click":
             # The click triggers a client-side redirect the listener catches,
             # but page.url at the next boundary still reads the old value.

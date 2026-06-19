@@ -142,6 +142,7 @@ ACTION_KINDS: tuple[str, ...] = (
     "wait_for",    # wait for target text/selector to appear, or value=ms
     "hold",        # dwell in place for seconds (value or seconds)
     "draw",        # draw a polygon on a map/canvas (target=element, points=[[fx,fy],...] fractions)
+    "capture",     # read an id off the live page into ${var} for LATER scenes (source=url|element)
 )
 
 
@@ -337,6 +338,55 @@ class DrawAction(_ActionBase):
     tool: str | None = None
 
 
+class CaptureAction(_ActionBase):
+    """Read a value off the live page into ``${var}`` for LATER scenes/actions.
+
+    This is the half of the late-binding contract that runs ON CAMERA: a demo
+    can mint an entity during recording (click "Create", which navigates to
+    ``/solicitations/207/``), ``capture`` reads the new id off the resulting
+    page, and every scene/action AFTER this one resolves ``${solicitation_id}``
+    to ``207``. No fixed IDs, no per-render state resets — each render mints a
+    fresh entity and threads its real id forward. (Contrast ``setup.outputs``,
+    which only knows ids minted BEFORE the render starts.)
+
+    ``var`` is the variable name to bind (a Python identifier — the same syntax
+    ``${var}`` substitution uses). The captured value overrides nothing from
+    ``setup.outputs`` unless the names collide, in which case the captured value
+    wins (and the recorder warns) — the on-camera value is the fresher truth.
+
+    Two sources:
+
+    - ``source: url`` (default) — read the current page URL. ``pattern`` is a
+      REQUIRED regex whose capture group 1 is the value (e.g.
+      ``'/solicitations/(\\d+)/'`` against ``/solicitations/207/`` binds ``207``).
+    - ``source: element`` — read from a DOM node. ``target`` resolves the node
+      (same prefix syntax as ``click``: ``css:``/``testid:``/``text:``/…).
+      ``attr`` names an attribute to read (e.g. ``href``); omit ``attr`` to read
+      the element's text. ``pattern`` is OPTIONAL here — when given, group 1 is
+      extracted from the attr/text; when omitted, the whole trimmed attr/text is
+      the value.
+
+    The captured value is always trimmed. If nothing is captured (URL/attr/text
+    absent, ``pattern`` has no group, or the regex doesn't match) the capture
+    FAILS. ``must_succeed`` (inherited, but defaulting to ``True`` for capture —
+    see the recorder) decides whether a failed capture aborts the render: a
+    later scene that navigates to ``/solicitations/${solicitation_id}/`` with an
+    unbound var would film a literal ``${...}`` URL, so capture is load-bearing
+    by default.
+    """
+
+    kind: Literal["capture"]
+    var: str
+    source: Literal["url", "element"] = "url"
+    target: str | None = None
+    attr: str | None = None
+    pattern: str | None = None
+    # A capture is load-bearing by design — a later ${var} that never bound
+    # films a literal placeholder URL. Default True (override per-action to
+    # make a capture best-effort), unlike the _ActionBase default of False.
+    must_succeed: bool = True
+
+
 # Discriminated union: Pydantic picks the right subclass from ``kind`` alone.
 # Existing YAML specs (lists of dicts with ``kind: ...`` + the verb's fields)
 # validate against this without any spec edits — all real-world action shapes
@@ -345,7 +395,7 @@ Action = Annotated[
     Union[
         GotoAction, ClickAction, ClickMenuAction, FillAction, SelectAction,
         TypeAction, PressAction, HoverAction, ScrollToAction, ScrollAction,
-        WaitForAction, HoldAction, DrawAction,
+        WaitForAction, HoldAction, DrawAction, CaptureAction,
     ],
     Field(discriminator="kind"),
 ]
@@ -357,7 +407,7 @@ Action = Annotated[
 ACTION_CLASSES: tuple[type[_ActionBase], ...] = (
     GotoAction, ClickAction, ClickMenuAction, FillAction, SelectAction,
     TypeAction, PressAction, HoverAction, ScrollToAction, ScrollAction,
-    WaitForAction, HoldAction, DrawAction,
+    WaitForAction, HoldAction, DrawAction, CaptureAction,
 )
 
 

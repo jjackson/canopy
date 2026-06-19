@@ -1,5 +1,88 @@
 {
   "$defs": {
+    "CaptureAction": {
+      "additionalProperties": false,
+      "description": "Read a value off the live page into ``${var}`` for LATER scenes/actions.\n\nThis is the half of the late-binding contract that runs ON CAMERA: a demo\ncan mint an entity during recording (click \"Create\", which navigates to\n``/solicitations/207/``), ``capture`` reads the new id off the resulting\npage, and every scene/action AFTER this one resolves ``${solicitation_id}``\nto ``207``. No fixed IDs, no per-render state resets \u2014 each render mints a\nfresh entity and threads its real id forward. (Contrast ``setup.outputs``,\nwhich only knows ids minted BEFORE the render starts.)\n\n``var`` is the variable name to bind (a Python identifier \u2014 the same syntax\n``${var}`` substitution uses). The captured value overrides nothing from\n``setup.outputs`` unless the names collide, in which case the captured value\nwins (and the recorder warns) \u2014 the on-camera value is the fresher truth.\n\nTwo sources:\n\n- ``source: url`` (default) \u2014 read the current page URL. ``pattern`` is a\n  REQUIRED regex whose capture group 1 is the value (e.g.\n  ``'/solicitations/(\\d+)/'`` against ``/solicitations/207/`` binds ``207``).\n- ``source: element`` \u2014 read from a DOM node. ``target`` resolves the node\n  (same prefix syntax as ``click``: ``css:``/``testid:``/``text:``/\u2026).\n  ``attr`` names an attribute to read (e.g. ``href``); omit ``attr`` to read\n  the element's text. ``pattern`` is OPTIONAL here \u2014 when given, group 1 is\n  extracted from the attr/text; when omitted, the whole trimmed attr/text is\n  the value.\n\nThe captured value is always trimmed. If nothing is captured (URL/attr/text\nabsent, ``pattern`` has no group, or the regex doesn't match) the capture\nFAILS. ``must_succeed`` (inherited, but defaulting to ``True`` for capture \u2014\nsee the recorder) decides whether a failed capture aborts the render: a\nlater scene that navigates to ``/solicitations/${solicitation_id}/`` with an\nunbound var would film a literal ``${...}`` URL, so capture is load-bearing\nby default.",
+      "properties": {
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "must_succeed": {
+          "default": true,
+          "title": "Must Succeed",
+          "type": "boolean"
+        },
+        "kind": {
+          "const": "capture",
+          "title": "Kind",
+          "type": "string"
+        },
+        "var": {
+          "title": "Var",
+          "type": "string"
+        },
+        "source": {
+          "default": "url",
+          "enum": [
+            "url",
+            "element"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "attr": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attr"
+        },
+        "pattern": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pattern"
+        }
+      },
+      "required": [
+        "kind",
+        "var"
+      ],
+      "title": "CaptureAction",
+      "type": "object"
+    },
     "ClickAction": {
       "additionalProperties": false,
       "description": "Click a visible text label or CSS selector.\n\n``target`` supports the recorder's prefix syntax: ``css:#sel``,\n``testid:foo``, ``aria:Foo``, ``role:button``, ``text:Foo`` (force the\nvisible-text path). Bare strings use a heuristic \u2014 CSS-shaped \u2192 selector\nengine; English \u2192 visible-text ranking.",
@@ -467,6 +550,7 @@
           "items": {
             "discriminator": {
               "mapping": {
+                "capture": "#/$defs/CaptureAction",
                 "click": "#/$defs/ClickAction",
                 "click_menu": "#/$defs/ClickMenuAction",
                 "draw": "#/$defs/DrawAction",
@@ -522,6 +606,9 @@
               },
               {
                 "$ref": "#/$defs/DrawAction"
+              },
+              {
+                "$ref": "#/$defs/CaptureAction"
               }
             ]
           },

@@ -76,7 +76,7 @@ the patterns scan the checklist; authors who don't read the deeper sections.
 - **Map / WebGL scenes capture fine — give the map a `hold` to paint, and set `full_page: false` on map+table pages.** Headless WebGL (Mapbox/deck.gl/three.js) renders via SwiftShader out of the box; a "blank map" is almost always too short a settle (tiles still loading) or a full-page capture of a tall table+map page, not a WebGL failure. (See "Map / WebGL scenes".)
 - **Narrative-only back-half scenes are fine** — the recorder skips them with `--skip-empty-scenes`. Deck slides still cover them; the mp4 doesn't waste `min_hold_ms` on identical static pages.
 - **A scene that omits `url:` continues on whatever page the previous scene's actions navigated to** (continue-scene pattern). This is how a narrative can CREATE an entity in one scene and operate on it in later scenes whose URL can't be known ahead of time.
-- **Synthetic-data demos declare a `setup:` block and reference minted IDs as `${var}` — never hardcode them.** The synthetic generator runs before every render (`rerun: per_render`, the default — required when the demo itself mutates state) and the recorder substitutes `${run_id}` etc. from its outputs JSON into scene `url`s and action `target`/`value` fields. A hardcoded ID silently goes stale on every reseed; a `${...}` placeholder without `setup.outputs` is rejected by spec-qa. (See "Data setup contract" in Step 5.)
+- **Synthetic-data demos declare a `setup:` block and reference minted IDs as `${var}` — never hardcode them.** The synthetic generator runs before every render (`rerun: per_render`, the default — required when the demo itself mutates state) and the recorder substitutes `${run_id}` etc. from its outputs JSON into scene `url`s and action `target`/`value` fields. A hardcoded ID silently goes stale on every reseed; a `${...}` placeholder without `setup.outputs` is rejected by spec-qa. **To mint an id ON CAMERA** (create an entity mid-demo, then use its real id in later scenes — a fresh lifecycle each render), use a `capture` action instead of a setup output. (See "Data setup contract" and "Capture + late binding" in Step 5.)
 
 ## Procedure
 
@@ -269,7 +269,10 @@ narrative first (Step 3) so the two stay in lockstep.
   `actions` records as a static scroll — which scores ~1/5 on "demonstrates using
   the features." Each action is `{kind, target?, value?, seconds?, note?}` where
   `kind` ∈ {goto, click, click_menu, fill, select, type, press, hover, scroll_to,
-  scroll, wait_for, hold, draw} and `target` is visible text or a CSS selector. For
+  scroll, wait_for, hold, draw, capture} and `target` is visible text or a CSS
+  selector. For **`kind: capture`** (mint a `${var}` ON CAMERA so a fresh entity
+  created mid-demo flows into later scenes — see "Capture + late binding" below),
+  read an id off the live page into a variable later scenes resolve. For
   `kind: select` (native `<select>` controls — which `click` can't reliably open
   across platforms), `value` is the option's `value` attribute, OR a digit-only
   string interpreted as the 0-based `index`, OR the option's visible label —
@@ -776,6 +779,49 @@ scenes:
 Recorder mechanics (including the `--skip-setup` escape hatch and why mutating
 demos must not use it) live in the walkthrough skill's "Data setup + `${var}`
 substitution" section.
+
+**Capture + late binding (`${var}` minted ON CAMERA) — for a fresh end-to-end
+lifecycle each render:**
+
+`setup.outputs` only knows ids minted *before* the render. When the demo's whole
+point is to **create an entity on camera and then operate on it** — publish a
+solicitation, then review and award the very record just created — a `capture`
+action reads the new id off the live page mid-render and threads it into LATER
+scenes. No fixed IDs, no per-render state resets.
+
+```yaml
+scenes:
+  - title: "Author publishes the solicitation"
+    url: "/solicitations/new/"
+    actions:
+      - { kind: fill, target: "Title", value: "Q3 outreach" }
+      - { kind: click, target: "Publish" }       # creates the record → redirects to its page
+      - kind: capture
+        var: solicitation_id                       # binds ${solicitation_id} for LATER scenes
+        source: url                                # read the current page URL
+        pattern: '/solicitations/(\d+)/'            # capture GROUP 1 is the value (required for source: url)
+  - title: "Reviewer awards it"
+    url: "/solicitations/${solicitation_id}/review/"   # ← the freshly-minted id
+    actions:
+      - { kind: click, target: "Award ${solicitation_id}" }
+```
+
+- `source: element` reads from a DOM node instead — `target` (same syntax as
+  `click`), `attr` (omit ⇒ element text), optional `pattern` (omit ⇒ whole
+  trimmed attr/text).
+- A scene's `url` resolves at scene START, so it can use a var captured in an
+  EARLIER scene but **not** one its own actions capture. Capture in scene N, use
+  it in scene N's later actions or scene N+1's url.
+- `must_succeed` defaults TRUE for `capture` (a later `${var}` that never bound
+  films a literal placeholder URL). A captured var beats a colliding setup
+  output (captured wins; recorder warns).
+- **spec-qa is order-aware:** a `${var}` is valid iff a setup output OR a
+  `capture` in an EARLIER scene provides it. A var bound only by `capture` needs
+  no `setup:` block at all; a var used before anything binds it is rejected.
+
+Full recorder mechanics (capture sources, pattern semantics, run-report
+debugging, pre-warm skipping capture-bound URLs) live in the walkthrough skill's
+"Capture + late binding" section.
 
 ### Step 6 — Validate and loop
 

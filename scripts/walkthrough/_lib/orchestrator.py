@@ -84,6 +84,21 @@ from .config import RecorderConfig
 from .recorder import execute_action
 from .results import ActionResult, RunReport
 
+# Late-binding ``${var}`` resolution lives in the neutral narrative substrate
+# (single source of the placeholder syntax). Imported defensively — the
+# recorder is built to run in minimal portable installs that may not have
+# scripts.narrative on PYTHONPATH; a missing import degrades to "no late
+# binding" (resolve_string is identity), matching the pre-capture behavior.
+try:
+    from scripts.narrative.substitution import has_unresolved, resolve_string
+except Exception:  # pragma: no cover — portable-install fallback
+
+    def resolve_string(text, variables):  # type: ignore[no-redef]
+        return text
+
+    def has_unresolved(text):  # type: ignore[no-redef]
+        return False
+
 # Action kinds that EFFECT a state change (vs. only moving the camera). A scene
 # with ≥1 of these is one where a before/after frame pair tells the judge what
 # CHANGED. Kept in sync with the recorder vocabulary; defined locally so the
@@ -122,10 +137,18 @@ class Recorder:
         snapshot_empty_scenes: bool = False,
         capture_action_frames: bool = False,
         default_viewport: dict[str, int] | None = None,
+        variables: dict[str, Any] | None = None,
     ) -> None:
         self.config = config or RecorderConfig()
         self.base_url = (base_url or "").rstrip("/")
         self.report = report or RunReport()
+        # LIVE late-binding ``${var}`` map, seeded from setup outputs. A
+        # ``capture`` action extends it DURING the render; scene urls and action
+        # target/value are resolved against it lazily, right before they run, so
+        # an id minted on camera in an earlier scene flows into a later one. The
+        # CLI seeds this with setup.outputs (the vars known before filming);
+        # ad-hoc/test callers get an empty map (no late binding needed).
+        self.variables: dict[str, Any] = dict(variables) if variables else {}
         # When set, ``take_snapshot`` fires at each scene's steady state and
         # writes ``scene_<N>.png`` + ``scene_<N>_page_text.json``. The directory
         # is created lazily on the first snapshot.
@@ -174,9 +197,21 @@ class Recorder:
         Default: always navigate to the scene's ``url`` if it has one.
         Subclasses override to add "skip nav when URL hasn't changed" or
         "never nav, the previous scene's actions already moved us".
+
+        Late binding: the url is resolved against the LIVE ``${var}`` map
+        (``self.variables``) right here, at scene start — so a var an EARLIER
+        scene captured on camera resolves now. If a placeholder is STILL
+        unresolved (no setup output, no earlier capture bound it), we refuse to
+        navigate (return ``None``) rather than film a literal ``/x/${id}/`` URL
+        — the recorder stays on the previous page and the run report shows the
+        missing capture.
         """
         url = scene.get("url")
         if not url:
+            return None
+        url = resolve_string(url, self.variables)
+        if has_unresolved(url):
+            print(f"  ! scene url still has an unresolved ${{var}}: {url!r} — not navigating")
             return None
         return url if url.startswith("http") else self.base_url + url
 
@@ -478,6 +513,24 @@ class Recorder:
         else:
             print(f"  · viewport restored → {target['width']}x{target['height']}")
 
+    def _resolve_action(self, action: dict) -> dict:
+        """Return a copy of *action* with ``${var}`` in target/value resolved.
+
+        Resolves against the LIVE ``self.variables`` (late binding), leaving any
+        still-unknown placeholder verbatim — ``resolve_string`` is partial by
+        design. Shallow-copies so the spec dict on disk is never mutated. A
+        ``capture`` action's ``pattern``/``var`` are NOT substituted (they're
+        capture configuration, not navigation targets); only ``target`` and
+        ``value`` are scanned, matching the up-front substitution scope.
+        """
+        if not isinstance(action, dict):
+            return action
+        out = dict(action)
+        for key in ("target", "value"):
+            if isinstance(out.get(key), str):
+                out[key] = resolve_string(out[key], self.variables)
+        return out
+
     def run_scene(
         self,
         page: Page,
@@ -589,7 +642,17 @@ class Recorder:
             pass
         for action in (scene.get("actions") or []):
             self.before_action(scene, action)
-            result = execute_action(page, action, base_url=self.base_url, config=self.config)
+            # Late binding: resolve this action's ``${var}`` in target/value
+            # against the LIVE vars map, right before it runs — so a var an
+            # EARLIER action in this same scene captured (e.g. capture in
+            # action 1, used in action 3) resolves now. ``capture`` itself
+            # reads/writes ``self.variables`` inside execute_action. Resolution
+            # is a shallow copy so the spec dict on disk is never mutated.
+            resolved = self._resolve_action(action)
+            result = execute_action(
+                page, resolved, base_url=self.base_url, config=self.config,
+                variables=self.variables,
+            )
             # Stamp the 1-based original spec scene index onto the result. We
             # ``dataclasses.replace`` because ActionResult is frozen — keeps
             # ``execute_action`` scene-agnostic (it doesn't know or care which
@@ -683,6 +746,12 @@ class Recorder:
     def print_summary(self) -> None:
         """Print the run's :class:`RunReport` summary + every failure with its tag."""
         print(f"\nRun report: {self.report.summary()}")
+        captures = [r for r in self.report.results if r.kind == "capture"]
+        if captures:
+            print("Captures:")
+            for r in captures:
+                mark = "✓" if r.ok else "✗"
+                print(f"  {mark} ${{{r.capture_var}}} = {r.capture_value!r}")
         failures = self.report.failures()
         if failures:
             print("Failures:")

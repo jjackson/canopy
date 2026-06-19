@@ -720,9 +720,12 @@ reads as a slideshow.
 Declare `actions` per scene in the spec (see `ddd-spec` for authoring + the
 `Action` schema in `scripts/narrative/models.py`). Verbs: `goto`, `click`,
 `click_menu`, `fill`, `select`, `type`, `press`, `hover`, `scroll_to`,
-`scroll`, `wait_for`, `hold`, `draw`. Each action is
+`scroll`, `wait_for`, `hold`, `draw`, `capture`. Each action is
 `{kind, target?, value?, seconds?, note?}`; `target` is visible text OR a CSS
-selector. For `kind: select` (native `<select>` controls — which `click`
+selector. For `kind: capture` (mint a `${var}` on camera — see the **Capture +
+late binding** section below), read an id off the page (`source: url` or
+`source: element`) into a variable that LATER scenes/actions resolve. For
+`kind: select` (native `<select>` controls — which `click`
 can't reliably open across platforms), `value` is the option's `value`
 attribute / a digit-only string as the 0-based index / the visible label —
 recorder tries each in order. For `kind: draw` (drawing a polygon on a
@@ -984,7 +987,7 @@ fix lives in this section. (Code-side map: the module comment in
 
 | Mechanism | Dead space it removes | When to use |
 | --- | --- | --- |
-| `prewarm: true` (spec) / `--prewarm` · `--no-prewarm` (CLI; CLI wins) | Cold-cache waits filmed as frozen frames — a 15s first-hit page render, a 7.5s remote-image cold fetch. The pass visits each **unique resolved** scene URL once off camera (continuation scenes skipped, `${var}` already substituted), with the same cookies/storage_state as the recording. Best-effort: a failing page is logged + recorded in the report's `prewarm` provenance (`{pages, duration_seconds, failures}`), never fatal. | Any spec whose app has cold-start cost (cold page caches, remote images, slow first render). Costs a few off-camera seconds; harmless otherwise. |
+| `prewarm: true` (spec) / `--prewarm` · `--no-prewarm` (CLI; CLI wins) | Cold-cache waits filmed as frozen frames — a 15s first-hit page render, a 7.5s remote-image cold fetch. The pass visits each **unique resolved** scene URL once off camera (continuation scenes skipped, `${var}` already substituted; capture-bound URLs that still hold an unresolved `${var}` are skipped — their id is minted on camera later), with the same cookies/storage_state as the recording. Best-effort: a failing page is logged + recorded in the report's `prewarm` provenance (`{pages, duration_seconds, failures}`), never fatal. | Any spec whose app has cold-start cost (cold page caches, remote images, slow first render). Costs a few off-camera seconds; harmless otherwise. |
 | Leading `wait_for` (automatic) | The recorder skips `goto_settle_ms` + `initial_hold_ms` when a scene's first action is `wait_for` — the wait IS the settle; blind holds on top are pure dead air. | Every scene that opens on a page that takes a moment. This is the default authoring pattern. |
 | No-nav scene (omit `url:`) (automatic) | `initial_hold_ms` skipped — there's no page-load to settle for. | Continuation scenes. |
 | `--skip-same-url` | Re-navigation between same-URL scenes, which films a reload AND wipes JS state. | Specs with continue-on-page flows. |
@@ -1062,6 +1065,71 @@ stale on every reseed.
   copied into the RunReport (`--report`), and with `--snapshots` a
   `setup-vars.json` is written into the snapshots dir — the data a film was
   made on is part of the run's evidence chain.
+
+### Capture + late binding (`${var}` minted ON CAMERA)
+
+`setup.outputs` only knows ids minted **before** the render starts. To film a
+**fresh end-to-end lifecycle each render** — create an entity ON CAMERA, then
+use its real id in LATER scenes, with no fixed IDs and no per-render state
+resets — use a `capture` action. It reads an id off the live page mid-render
+into a `${var}` that every LATER scene/action resolves.
+
+```yaml
+scenes:
+  - title: "Author publishes a solicitation"
+    url: "/solicitations/new/"
+    actions:
+      - { kind: fill, target: "Title", value: "Q3 outreach" }
+      - { kind: click, target: "Publish", note: "creates the record → redirects to its page" }
+      - kind: capture
+        var: solicitation_id           # binds ${solicitation_id} for ALL later scenes
+        source: url                     # read the current page URL
+        pattern: '/solicitations/(\d+)/'  # capture GROUP 1 is the value (REQUIRED for source: url)
+        # must_succeed defaults TRUE for capture — a later ${var} that never bound
+        # would film a literal "/solicitations/${solicitation_id}/" URL.
+  - title: "Reviewer opens it"
+    url: "/solicitations/${solicitation_id}/review/"   # ← resolves to the freshly-minted id
+    actions:
+      - { kind: click, target: "Award ${solicitation_id}" }   # also late-bound
+```
+
+**`source: element`** reads from a DOM node instead of the URL:
+
+```yaml
+      - kind: capture
+        var: response_id
+        source: element
+        target: 'css:tr:first-child a.view'   # same target syntax as click
+        attr: href                            # read this attribute; omit attr ⇒ read element text
+        pattern: 'response/(\d+)/'            # OPTIONAL here; omit ⇒ whole trimmed attr/text
+```
+
+Semantics:
+
+- **Late binding.** A scene's `url` and each action's `target` / `value` are
+  resolved **lazily, right before they execute**, against a live `vars` map
+  seeded from `setup.outputs` and extended by each `capture`. So a var captured
+  in scene 1 flows into scene 5. (Up-front substitution still resolves every
+  var known at setup time, so pre-warm + early scenes are unaffected.)
+- **A scene's `url` can't use its OWN capture** — the url resolves at scene
+  start, before any of that scene's actions run. Capture in scene N, use the
+  var in scene N's later actions or in scene N+1's url.
+- **Value handling.** The captured value is trimmed. `source: url` REQUIRES a
+  `pattern` (group 1). For `source: element`, `pattern` is optional — with it,
+  group 1; without it, the whole trimmed attr/text. A pattern with no group, a
+  non-match, or an empty result is a capture FAILURE.
+- **`must_succeed` defaults TRUE for capture** (override per-action to make it
+  best-effort). A failed required capture aborts the render loudly.
+- **Override rule.** A captured var overrides nothing from `setup.outputs`
+  unless names collide — then the captured value wins and the recorder warns
+  (the on-camera value is the fresher truth).
+- **Validation is order-aware** (`ddd-spec-qa`): a `${var}` is valid iff a
+  setup output OR a `capture` in an EARLIER scene provides it. A var referenced
+  before anything binds it is a hard error.
+- **Pre-warm skips capture-bound URLs** — a URL still holding a `${var}` (its id
+  isn't minted until later) can't be warmed, so it's skipped (films cold, fine).
+- **Run report.** Each capture is recorded (`kind=capture, var, ok, value`) and
+  printed in the run summary, so a failed/empty capture is debuggable.
 
 ### Run
 
