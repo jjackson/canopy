@@ -20,6 +20,13 @@ Rules checked:
     (i) ${...} placeholders in scene URLs / action targets ⇒ the spec must
         declare a `setup:` block with `outputs:` (the synthetic generator that
         mints those variables). Declared-but-unused outputs are fine.
+    (j) "show, don't tell" — a scene that DECLARES actions but scripts ONLY
+        non-effecting ones (hover/scroll_to/wait_for) while its narration /
+        concept_claim promises an effecting verb (create/fill/submit/award/
+        select/publish/enter/type) is a hover-only "claimed, not shown" demo.
+        Scoped to the actions list (NOT a prose-only verb check — a scene with
+        no actions is exempt). Distinct from the removed falsifiability
+        verb-check, which scanned prose alone and false-positived.
 
 Returns the ``Verdict`` model from scripts/ddd/schemas/models.py.
 ``verdict="pass"`` when all rules pass; ``verdict="fail"`` with a
@@ -78,6 +85,63 @@ _BANNED_PHRASES: list[str] = [
 # These leak build-status thinking into the narrative; the build status lives
 # in the why_brief spine + feature provenance, not the title.
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# "Show, don't tell" gate (action-fidelity).
+#
+# A scene that NARRATES an effecting act — "create / fill out / submit / award /
+# select / publish / enter / type" — but scripts only NON-effecting actions
+# (hover / scroll_to / wait_for) is the "claimed, not shown" demo: the
+# walkthrough asserts an action it never performs. The judge can only see one
+# still frame per scene, so a hover-only "create the solicitation" scene scores
+# the same as one that genuinely fills + submits. Catch it structurally, before
+# any render or judge, at the spec gate.
+#
+# SCOPE — deliberately narrow, to stay clear of the removed falsifiability
+# verb-check (which scanned the claim for verbs and caused FALSE POSITIVES):
+#   * This rule is about the ACTIONS LIST, not the prose. It fires ONLY when the
+#     scene DECLARES actions (a non-empty `actions:` block) that are ALL
+#     non-effecting. A scene with NO actions at all is the legacy scroll-pan
+#     narrative beat — exempt (the narration is the whole point; there is no
+#     "action it should have performed").
+#   * The effecting verbs below are matched as whole words in the scene's
+#     narrative / concept_claim only to decide whether the narration PROMISES an
+#     action. The decision to BLOCK is gated on the actions list, never on the
+#     prose alone — so a nominalized claim with no scripted actions never trips.
+# ---------------------------------------------------------------------------
+
+# Action kinds (from scripts.narrative.models.ACTION_KINDS) that EFFECT a state
+# change. Defined locally so this structural gate has no recorder dependency.
+_EFFECTING_ACTION_KINDS: frozenset[str] = frozenset(
+    {"click", "click_menu", "fill", "select", "type", "press", "draw"}
+)
+
+# Concrete effecting verbs a narration uses to PROMISE an action happened.
+# Matched as whole words (case-insensitive) against narrative + concept_claim.
+_EFFECTING_VERBS: list[str] = [
+    "create", "creates", "created", "creating",
+    "fill", "fills", "filled", "filling", "fill out", "fills out",
+    "submit", "submits", "submitted", "submitting",
+    "award", "awards", "awarded", "awarding",
+    "select", "selects", "selected", "selecting",
+    "publish", "publishes", "published", "publishing",
+    "enter", "enters", "entered", "entering",
+    "type", "types", "typed", "typing",
+]
+
+
+def _narrated_effecting_verb(text: str) -> str | None:
+    """Return the first effecting verb the text promises (whole-word), or None."""
+    import re
+
+    lowered = (text or "").lower()
+    for verb in _EFFECTING_VERBS:
+        # whole-word / phrase boundary match so "create" doesn't hit "created"
+        # twice and "type" doesn't hit "prototype".
+        if re.search(rf"(?<!\w){re.escape(verb)}(?!\w)", lowered):
+            return verb
+    return None
+
 
 _BANNED_TITLE_TAGS: list[str] = [
     "(frontier)",
@@ -254,6 +318,31 @@ def spec_qa(
                         f"'{claim[:80]}' uses marketing language or is too short (fewer than 5 words); "
                         "write a specific, observable outcome instead"
                     )
+
+            # "Show, don't tell" gate: a scene that scripts ONLY non-effecting
+            # actions (hover/scroll_to/wait_for) while its narration promises an
+            # effecting act is a hover-only "claimed, not shown" demo. Scoped to
+            # the actions list — a scene with NO actions is exempt (legacy
+            # narrative beat).
+            scene_actions = scene.actions or []
+            if scene_actions:
+                action_kinds = {
+                    (a.kind if hasattr(a, "kind") else (a.get("kind") if isinstance(a, dict) else ""))
+                    for a in scene_actions
+                }
+                has_effecting = bool(action_kinds & _EFFECTING_ACTION_KINDS)
+                if not has_effecting:
+                    narrated = _narrated_effecting_verb(
+                        f"{scene.narrative or ''} {scene.concept_claim or ''}"
+                    )
+                    if narrated:
+                        non_effecting = ", ".join(sorted(k for k in action_kinds if k))
+                        violations.append(
+                            f"scene '{scene.title}' narrates '{narrated}' but performs no "
+                            f"effecting action — its actions are only [{non_effecting}] "
+                            "(hover/scroll/wait). Add the fill/click that effects the "
+                            "narrated act, or soften the narration to match what the demo does."
+                        )
 
             # DDD v3: every scene must have ≥1 feature with a non-vacuous verify
             if not scene.features:

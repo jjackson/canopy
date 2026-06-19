@@ -89,6 +89,60 @@ def _spec_data(
     }
 
 
+def _scene(
+    *,
+    title: str = "Submit Form",
+    persona_key: str = "alice",
+    concept_claim: str = "Users can submit a form and see confirmation within 2 seconds",
+    narrative: str = "",
+    provenance: str = "S1",
+    actions: list[dict] | None = None,
+    features: list[dict] | None = None,
+) -> dict:
+    """Build one scene dict, optionally with an actions list (for rule (j))."""
+    if features is None:
+        features = [
+            {
+                "id": "F1",
+                "description": "Submit button on the form page triggers a POST request",
+                "verify": "pytest: POST /form returns 200 and response contains confirmation_id",
+            }
+        ]
+    scene: dict = {
+        "persona": persona_key,
+        "title": title,
+        "show": "navigate to /form, fill fields, click Submit",
+        "concept_claim": concept_claim,
+        "provenance": provenance,
+        "design_intent": "Test that confirmation feedback is immediate",
+        "features": features,
+    }
+    if narrative:
+        scene["narrative"] = narrative
+    if actions is not None:
+        scene["actions"] = actions
+    return scene
+
+
+def _spec_with_scene(scene: dict, persona_key: str = "alice") -> dict:
+    """Wrap a scene dict in a minimal valid spec (no why_brief link)."""
+    return {
+        "name": "My Feature Walkthrough",
+        "narrative": "Demonstrates the core user journey",
+        "base_url": "http://localhost:8000",
+        "why_brief": None,
+        "personas": {
+            persona_key: {
+                "name": "Alice",
+                "role": "Program Manager",
+                "color": "#3B82F6",
+                "intro": "Alice manages program delivery.",
+            }
+        },
+        "scenes": [scene],
+    }
+
+
 def _write_yaml(tmp_path: Path, name: str, data: dict) -> Path:
     p = tmp_path / name
     p.write_text(yaml.dump(data))
@@ -670,3 +724,155 @@ def test_fix_recommendation_mentions_verify():
     result = spec_qa(spec)
     assert result.fix_recommendation is not None
     assert "verify" in result.fix_recommendation.lower() or "feature" in result.fix_recommendation.lower()
+
+
+# ---------------------------------------------------------------------------
+# "Show, don't tell" gate (rule j): narrated effecting act + hover-only actions
+# ---------------------------------------------------------------------------
+
+def test_hover_only_scene_narrating_create_fails():
+    """A scene that narrates 'create' but only hovers/scrolls → fail.
+
+    This is the core diagnosis: the 'create the solicitation' scene whose
+    actions are hover-only scored 3/5 because the judge saw the same end-frame.
+    The spec gate now blocks it before any render."""
+    from scripts.ddd.spec_qa import spec_qa
+
+    scene = _scene(
+        title="Dana creates the solicitation",
+        concept_claim="Dana creates a new solicitation for the program in under a minute",
+        actions=[
+            {"kind": "hover", "target": "New solicitation"},
+            {"kind": "scroll_to", "target": "Funding terms"},
+            {"kind": "wait_for", "target": "Funding terms"},
+        ],
+    )
+    result = spec_qa(_spec_with_scene(scene))
+    assert result.verdict == "fail", result.blocking_reason
+    assert result.blocking_reason is not None
+    assert "create" in result.blocking_reason.lower()
+    assert "effecting action" in result.blocking_reason.lower()
+
+
+def test_hover_only_scene_narrating_award_fails():
+    """A scene narrating 'award' but only hovering → fail."""
+    from scripts.ddd.spec_qa import spec_qa
+
+    scene = _scene(
+        title="The reviewer awards the response",
+        concept_claim="The reviewer awards the winning response to the chosen LLO",
+        narrative="Maya reviews each response and awards the strongest one.",
+        actions=[{"kind": "hover", "target": "Award"}],
+    )
+    result = spec_qa(_spec_with_scene(scene))
+    assert result.verdict == "fail"
+    assert "award" in result.blocking_reason.lower()
+
+
+def test_scene_narrating_create_with_click_passes():
+    """A scene that narrates 'create' AND actually clicks/fills → pass."""
+    from scripts.ddd.spec_qa import spec_qa
+
+    scene = _scene(
+        title="Dana creates the solicitation",
+        concept_claim="Dana creates a new solicitation for the program in under a minute",
+        actions=[
+            {"kind": "click", "target": "New solicitation"},
+            {"kind": "fill", "target": "Title", "value": "Q3 nutrition program"},
+            {"kind": "click", "target": "Create"},
+        ],
+    )
+    result = spec_qa(_spec_with_scene(scene))
+    assert result.verdict == "pass", result.blocking_reason
+
+
+def test_scene_with_no_actions_is_exempt():
+    """A narrative-only scene (no actions) narrating 'submit' is NOT blocked.
+
+    Empty actions = legacy scroll-pan beat; the narration is the whole point.
+    This is also why the existing happy-path tests (default claim contains
+    'submit', no actions) still pass."""
+    from scripts.ddd.spec_qa import spec_qa
+
+    scene = _scene(
+        concept_claim="Users can submit a form and see confirmation within 2 seconds",
+        actions=None,  # no actions key at all
+    )
+    result = spec_qa(_spec_with_scene(scene))
+    assert result.verdict == "pass", result.blocking_reason
+
+
+def test_hover_only_scene_with_no_effecting_verb_passes():
+    """Hover-only actions are fine when the narration promises no effecting act.
+
+    A scene whose job is genuinely to SHOW something (hover to reveal a tooltip)
+    and whose narration doesn't claim create/fill/submit must not be blocked."""
+    from scripts.ddd.spec_qa import spec_qa
+
+    scene = _scene(
+        title="Maya inspects the coverage map",
+        concept_claim="The coverage map shows every ward shaded by completion rate",
+        actions=[
+            {"kind": "hover", "target": "Kano ward"},
+            {"kind": "scroll_to", "target": "Legend"},
+        ],
+    )
+    result = spec_qa(_spec_with_scene(scene))
+    assert result.verdict == "pass", result.blocking_reason
+
+
+def test_mixed_actions_with_one_effecting_passes():
+    """A scene with hovers AND at least one effecting action passes."""
+    from scripts.ddd.spec_qa import spec_qa
+
+    scene = _scene(
+        concept_claim="Dana submits the completed solicitation form",
+        actions=[
+            {"kind": "hover", "target": "Funding terms"},
+            {"kind": "scroll_to", "target": "Submit"},
+            {"kind": "click", "target": "Submit"},  # the effecting act
+        ],
+    )
+    result = spec_qa(_spec_with_scene(scene))
+    assert result.verdict == "pass", result.blocking_reason
+
+
+def test_narrative_field_triggers_show_dont_tell():
+    """The check reads the scene's `narrative` field, not just concept_claim."""
+    from scripts.ddd.spec_qa import spec_qa
+
+    scene = _scene(
+        title="Dana works on the form",
+        # concept_claim has no effecting verb...
+        concept_claim="The solicitation builder is the heart of the program flow",
+        # ...but the narrative promises the user fills it out
+        narrative="Dana fills out every funding term and submits the solicitation.",
+        actions=[{"kind": "hover", "target": "Title field"}],
+    )
+    result = spec_qa(_spec_with_scene(scene))
+    assert result.verdict == "fail"
+    assert "fill" in result.blocking_reason.lower() or "submit" in result.blocking_reason.lower()
+
+
+def test_show_dont_tell_does_not_false_positive_on_prototype():
+    """'type' must not match inside 'prototype' (whole-word boundary)."""
+    from scripts.ddd.spec_qa import _narrated_effecting_verb
+
+    assert _narrated_effecting_verb("The prototype renders the archetype panel") is None
+    assert _narrated_effecting_verb("Maya types her query into the box") == "types"
+
+
+def test_blocking_reason_names_scene_and_non_effecting_kinds():
+    """The blocking_reason names the scene title and the non-effecting kinds present."""
+    from scripts.ddd.spec_qa import spec_qa
+
+    scene = _scene(
+        title="Dana creates the solicitation",
+        concept_claim="Dana creates the solicitation in the builder",
+        actions=[{"kind": "hover", "target": "X"}, {"kind": "scroll_to", "target": "Y"}],
+    )
+    result = spec_qa(_spec_with_scene(scene))
+    assert result.verdict == "fail"
+    assert "Dana creates the solicitation" in result.blocking_reason
+    assert "hover" in result.blocking_reason
+    assert "scroll_to" in result.blocking_reason
