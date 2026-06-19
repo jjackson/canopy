@@ -35,6 +35,7 @@ walkthrough can import them.
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -55,7 +56,7 @@ try:
 except Exception:  # pragma: no cover — recorder may run without the narrative package on PYTHONPATH
     ACTION_KINDS = (
         "goto", "click", "click_menu", "fill", "select", "type", "press",
-        "hover", "scroll_to", "scroll", "wait_for", "hold", "draw",
+        "hover", "scroll_to", "scroll", "wait_for", "hold", "draw", "capture",
     )
 
 CURSOR_OVERLAY_JS = (Path(__file__).resolve().parent / "cursor_overlay.js").read_text()
@@ -492,6 +493,91 @@ def wait_for(
     return wait_for_target(page, target, timeout_ms=timeout_ms)
 
 
+def _apply_capture_pattern(raw: str, pattern: str | None) -> tuple[bool, str | None]:
+    """Extract the capture value from *raw* (trimmed) per *pattern*.
+
+    - ``pattern is None`` → the whole trimmed string is the value (empty ⇒ fail).
+    - ``pattern`` given → must compile, must MATCH (``re.search``), and must
+      carry at least one capture group; group 1 (trimmed) is the value. A
+      no-group pattern, a non-matching pattern, or an empty group-1 all FAIL.
+
+    Returns ``(ok, value)``. ``ok=False`` ⇒ nothing usable was captured.
+    """
+    text = (raw or "").strip()
+    if pattern is None:
+        if not text:
+            return False, None
+        return True, text
+    try:
+        rx = re.compile(pattern)
+    except re.error as e:
+        print(f"  ! capture pattern is not a valid regex: {pattern!r} ({e})")
+        return False, None
+    if rx.groups < 1:
+        print(f"  ! capture pattern has no capture group: {pattern!r} (need group 1)")
+        return False, None
+    m = rx.search(text)
+    if m is None:
+        print(f"  ! capture pattern {pattern!r} did not match: {text[:120]!r}")
+        return False, None
+    value = (m.group(1) or "").strip()
+    if not value:
+        return False, None
+    return True, value
+
+
+def capture_value(
+    page: Page, action: dict[str, Any], *, config: RecorderConfig | None = None
+) -> tuple[bool, str | None]:
+    """Read a value off the live page per a ``capture`` action.
+
+    ``source: url`` → read ``page.url``; ``pattern`` (REQUIRED) group 1 is the
+    value. ``source: element`` → resolve ``target``, read ``attr`` (or the
+    element's text when ``attr`` is omitted); ``pattern`` is optional (group 1,
+    else the whole trimmed attr/text). The value is always trimmed.
+
+    Returns ``(ok, value)``. ``ok=False`` ⇒ nothing was captured (missing
+    URL/attr/text, bad/non-matching pattern, or an unresolved element). The
+    caller (``execute_action``) decides whether that aborts the render via
+    ``must_succeed`` (which defaults True for capture).
+    """
+    cfg = config or RecorderConfig()
+    source = (action.get("source") or "url").strip()
+    pattern = action.get("pattern")
+
+    if source == "url":
+        if not pattern:
+            print("  ! capture source=url requires a `pattern` (regex with group 1)")
+            return False, None
+        return _apply_capture_pattern(getattr(page, "url", "") or "", pattern)
+
+    if source == "element":
+        target = action.get("target")
+        if not target:
+            print("  ! capture source=element requires a `target`")
+            return False, None
+        rt = resolve_target(page, target, timeout_ms=cfg.glide_timeout_ms)
+        if rt is None:
+            print(f"  ! capture target not found: {target!r}")
+            return False, None
+        attr = action.get("attr")
+        try:
+            if attr:
+                raw = rt.locator.get_attribute(attr, timeout=cfg.interaction_timeout_ms)
+                if raw is None:
+                    print(f"  ! capture element has no attribute {attr!r}: {target!r}")
+                    return False, None
+            else:
+                raw = rt.locator.inner_text(timeout=cfg.interaction_timeout_ms)
+        except Exception as e:  # noqa: BLE001
+            print(f"  ! capture element read failed: {target!r}: {e}")
+            return False, None
+        return _apply_capture_pattern(raw or "", pattern)
+
+    print(f"  ! capture source must be url | element (got: {source!r})")
+    return False, None
+
+
 # --------------------------------------------------------------------------- #
 # dispatcher
 # --------------------------------------------------------------------------- #
@@ -503,6 +589,7 @@ def execute_action(
     *,
     base_url: str = "",
     config: RecorderConfig | None = None,
+    variables: dict[str, Any] | None = None,
 ) -> ActionResult:
     """Execute one declarative ``Action`` (from ``scene.actions``) with the cursor.
 
@@ -513,14 +600,28 @@ def execute_action(
 
     Returning a result (instead of ``None`` as before) lets the orchestrator
     accumulate a :class:`RunReport` so silent failures stop hiding.
+
+    ``variables`` is the LIVE late-binding ``${var}`` map. A ``capture`` action
+    reads an id off the page and writes it here, so a LATER scene/action can
+    resolve ``${that_id}`` against the same dict (the recorder resolves lazily,
+    right before each action). The captured value overrides nothing unless the
+    names collide, in which case the captured value wins and a warning is
+    printed — the on-camera value is the fresher truth. ``None`` ⇒ a private
+    empty map (a direct test call with no later scenes still works).
     """
     cfg = config or RecorderConfig()
+    if variables is None:
+        variables = {}
     kind = (action.get("kind") or "").strip()
     target = action.get("target")
     value = action.get("value")
     seconds = action.get("seconds")
     note = action.get("note")
-    must_succeed = bool(action.get("must_succeed", False))
+    # capture defaults must_succeed True (a later ${var} that never bound films
+    # a literal placeholder URL); every other kind defaults False.
+    must_succeed = bool(action.get("must_succeed", kind == "capture"))
+    captured_var: str | None = None
+    captured_value: str | None = None
 
     label = f"{kind}({target or value or ''})"
     if note:
@@ -583,6 +684,26 @@ def execute_action(
             )
             if not ok:
                 error_kind = "target_not_found"
+        elif kind == "capture":
+            captured_var = action.get("var")
+            if not captured_var:
+                ok = False
+                error_kind = "other"
+                error_message = "capture action missing `var`"
+                print(f"    ! {error_message}")
+            else:
+                ok, captured_value = capture_value(page, action, config=cfg)
+                if ok and captured_value is not None:
+                    if captured_var in variables and str(variables[captured_var]) != captured_value:
+                        print(
+                            f"    ! capture var ${{{captured_var}}} overrides a prior value "
+                            f"({variables[captured_var]!r} → {captured_value!r}) — captured wins"
+                        )
+                    variables[captured_var] = captured_value
+                    print(f"    · captured ${{{captured_var}}} = {captured_value!r}")
+                else:
+                    error_kind = "capture_failed"
+                    error_message = f"capture for ${{{captured_var}}} produced no value"
         else:
             ok = False
             error_kind = "unknown_kind"
@@ -599,6 +720,7 @@ def execute_action(
         kind=kind, ok=ok, target=target, value=value, note=note,
         elapsed_ms=elapsed_ms, error_kind=error_kind, error_message=error_message,
         must_succeed=must_succeed,
+        capture_var=captured_var, capture_value=captured_value,
     )
     if not ok and must_succeed:
         raise ActionAssertError(f"required action failed: {label}: {error_message or error_kind}")

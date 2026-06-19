@@ -44,12 +44,16 @@ nominalized domain claims ("GPS pinning accuracy within 5 meters") while
 accepting articulate-but-empty fluff ("The system is good" — copula + adjective).
 Subtle vacuousness judgment belongs to the LLM concept judge (SP3).
 
-**Layer 2 — QA-specific (data-setup contract):**
+**Layer 2 — QA-specific (data-setup contract + late binding, order-aware):**
 6. If any scene `url` or action `target`/`value` uses a `${...}` placeholder, the
-   spec must declare a `setup:` block with `outputs:` — the synthetic generator
-   that mints those variables (see ddd-spec Step 5, "Data setup contract").
-   Without it the recorder would film a literal `/runs/${run_id}/` URL.  The
-   converse is fine: declared-but-unused outputs are not an error.
+   variable must be provided — either by a `setup:` block's `outputs:` (the
+   synthetic generator that mints it before the render) OR by an on-camera
+   `capture` action in an EARLIER scene (see ddd-spec Step 5, "Data setup
+   contract" + "Capture + late binding"). Validation is **order-aware**: a
+   `${var}` is valid iff a setup output OR an earlier `capture` provides it — a
+   var referenced before anything binds it is rejected (it would film a literal
+   `/runs/${run_id}/` URL). A var bound only by `capture` needs no `setup:` block
+   at all. The converse is fine: declared-but-unused outputs are not an error.
 
 **Layer 2 — QA-specific (show, don't tell / action-fidelity):**
 7. A scene that **declares actions** but scripts ONLY non-effecting ones
@@ -143,10 +147,15 @@ Tell the user to fix the issues in the spec file and re-run `/ddd-spec-qa`.
   match a valid spine id from the linked why_brief.
 - `why_brief declared but not resolvable` → fix the relative path or supply
   `why_brief_path` explicitly.
-- `spec uses ${...} placeholder(s) ... but declares no setup: block` (or
-  `setup.outputs is not declared`) → declare the synthetic generator in
-  `setup.command` + point `setup.outputs` at the flat JSON it emits, or remove
+- `spec uses ${...} placeholder(s) ... that no capture action binds, but
+  declares no setup: block` (or `setup.outputs is not declared`) → declare the
+  synthetic generator in `setup.command` + point `setup.outputs` at the flat
+  JSON it emits, add a `capture` action that mints the var on camera, or remove
   the placeholders if the URLs are genuinely static.
+- `url references ${var} but nothing provides it yet` / `... action references
+  ${var} but nothing provides it yet` → order-aware violation: the var is used
+  before any setup output or earlier `capture` binds it. Move the `capture`
+  before the use, or bind it via `setup.outputs`.
 - `scene '...' narrates '<verb>' but performs no effecting action` → the scene's
   actions are hover/scroll/wait only while the narration promises an effecting
   act. Add the `fill`/`click`/`select` that effects it, or soften the narration

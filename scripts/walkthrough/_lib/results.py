@@ -68,6 +68,18 @@ class ActionResult:
     ``execute_action`` test call).
     """
 
+    capture_var: str | None = None
+    """For a ``capture`` action: the variable name it binds (``var``). ``None``
+    for every other kind. Lets the run-report show what the late-binding
+    capture produced — ``kind=capture, var, ok, value`` — so a failed or empty
+    capture is debuggable from the report alone."""
+
+    capture_value: str | None = None
+    """For a ``capture`` action: the value captured off the live page (the id
+    threaded into ``${var}`` for later scenes), or ``None`` if nothing was
+    captured. Distinct from ``value`` (the action's input field); this is the
+    OUTPUT of the capture."""
+
 
 @dataclass
 class RunReport:

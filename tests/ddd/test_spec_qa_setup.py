@@ -101,3 +101,87 @@ def test_setup_without_placeholders_is_fine():
 def test_static_spec_without_setup_still_passes():
     result = spec_qa(_spec_data(url="/dashboard/"))
     assert result.verdict == "pass"
+
+
+# ---------------------------------------------------------------------------
+# Late binding — ${var} bound on camera by a `capture` action (rule i, order-aware)
+# ---------------------------------------------------------------------------
+
+
+def _scene(persona="alice", **overrides) -> dict:
+    base: dict = {
+        "persona": persona,
+        "title": overrides.pop("title", "A Beat"),
+        "show": "do a thing",
+        "concept_claim": "Users can do a specific observable thing within 2 seconds",
+        "provenance": "S1",
+        "features": [
+            {
+                "id": "F1",
+                "description": "A button triggers a POST request to create a record",
+                "verify": "pytest: POST returns 200 with an id",
+            }
+        ],
+    }
+    base.update(overrides)
+    return base
+
+
+def _multi_scene_spec(scenes: list[dict], setup: dict | None = None) -> dict:
+    data: dict = {
+        "name": "My Feature Walkthrough",
+        "narrative": "Demonstrates the core user journey",
+        "base_url": "http://localhost:8000",
+        "personas": {
+            "alice": {
+                "name": "Alice",
+                "role": "Program Manager",
+                "color": "#3B82F6",
+                "intro": "Alice manages program delivery.",
+            }
+        },
+        "scenes": scenes,
+    }
+    if setup is not None:
+        data["setup"] = setup
+    return data
+
+
+def _capture(var: str) -> dict:
+    return {"kind": "capture", "var": var, "source": "url", "pattern": r"/sol/(\d+)/"}
+
+
+def test_capture_bound_var_after_capture_passes_without_setup():
+    """A ${var} minted on camera by an earlier capture needs no setup block."""
+    spec = _multi_scene_spec(
+        [
+            _scene(
+                title="Create",
+                url="/sol/new/",
+                actions=[{"kind": "click", "target": "Create"}, _capture("sol_id")],
+            ),
+            _scene(title="View", url="/sol/${sol_id}/", actions=[]),
+        ]
+    )
+    result = spec_qa(spec)
+    assert result.verdict == "pass", result.blocking_reason
+
+
+def test_capture_bound_var_used_before_capture_fails():
+    """Using ${sol_id} in a scene BEFORE the capture that binds it is a hard error."""
+    spec = _multi_scene_spec(
+        [
+            _scene(title="View", url="/sol/${sol_id}/", actions=[]),
+            _scene(title="Create", url="/sol/new/", actions=[_capture("sol_id")]),
+        ]
+    )
+    result = spec_qa(spec)
+    assert result.verdict == "fail"
+    assert "sol_id" in result.blocking_reason
+
+
+def test_unbound_var_with_no_setup_and_no_capture_fails():
+    spec = _multi_scene_spec([_scene(title="View", url="/sol/${sol_id}/", actions=[])])
+    result = spec_qa(spec)
+    assert result.verdict == "fail"
+    assert "sol_id" in result.blocking_reason

@@ -111,6 +111,20 @@ def test_collect_empty_when_no_urls():
     assert collect_prewarm_urls(_scenes([{"title": "narrative-only"}])) == []
 
 
+def test_collect_skips_capture_bound_urls():
+    """A URL whose ${var} is minted on camera (capture-bound) can't be resolved
+    pre-render — pre-warm must skip it, not visit a literal placeholder URL."""
+    # Simulate post-up-front-substitution state: run_id resolved, sol_id still
+    # a placeholder (it's captured on camera by a later scene's capture action).
+    scenes = _scenes(
+        [
+            {"title": "create", "url": "/sol/new/"},
+            {"title": "view", "url": "/sol/${sol_id}/"},  # capture-bound, unresolved
+        ]
+    )
+    assert collect_prewarm_urls(scenes) == ["https://app.example.com/sol/new/"]
+
+
 # ---------------------------------------------------------------------------
 # run_prewarm — best-effort visits + provenance
 # ---------------------------------------------------------------------------
