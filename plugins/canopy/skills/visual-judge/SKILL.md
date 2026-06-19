@@ -47,6 +47,33 @@ Returns a verdict object (see `## Output verdict shape`).
 Absolute path to a PNG. The skill reads it via the Read tool so the
 captured image is in the judge's context window during scoring.
 
+### `frames` (optional) — a before/after pair for action scenes
+
+For a scene that EFFECTS a state change (fills a form, submits, awards), one
+still frame can't show what CHANGED — the before state is gone by the time the
+end-frame is taken. When the caller has captured a before/after pair (the
+recorder's `--capture-action-frames` writes `scene_<N>_before.png` alongside
+the canonical `scene_<N>.png`), pass them as:
+
+```yaml
+frames:
+  before: '/abs/path/to/scene_2_before.png'   # state at the action loop's start
+  after:  '/abs/path/to/scene_2.png'          # state after the actions ran (== screenshot_path)
+```
+
+When `frames` is provided, Read BOTH images and judge the **change**: does the
+after-frame show the RESULT of the act the narration claims (a new row in the
+list, a confirmation, an awarded badge)? An after-frame identical to the
+before-frame means the actions effected nothing visible — the task was claimed,
+not shown (combine with `action_trace` if present). Score the dimensions over
+the after-frame (it is the steady-state the user lands on), but let the
+before→after delta INFORM the action-fidelity check: no visible change where
+the narration claims an effecting act caps the relevant dimension per the
+caller's `deduction_rules`.
+
+**Back-compat:** `frames` absent ⇒ judge the single `screenshot_path` exactly
+as today. `screenshot_path` remains REQUIRED and is always the after-frame.
+
 ### `page_text` (optional but strongly recommended)
 
 The output of `$B text` (or equivalent) for the page that was screenshotted.
@@ -325,7 +352,15 @@ don't count — if you can't point at it, you didn't find it.
      does not reflect the claimed result.
    These feed the caller's action-fidelity `deduction_rules` in Phase 2.
 
-Output all lists as a block. ONLY THEN proceed to scoring.
+7. **The change test (ONLY when `context.frames` is provided).** Read BOTH the
+   before- and after-frame. State, in one sentence, what VISIBLY changed
+   between them. If the scene's narration claims an effecting act (create /
+   fill / submit / award) but the after-frame is visually unchanged from the
+   before-frame, list it as a top-rank flaw — the act effected nothing the
+   viewer can see. This is the single-still-frame blind spot this input exists
+   to close, and it feeds the caller's action-fidelity `deduction_rules`.
+
+Output all the lists above as a block. ONLY THEN proceed to scoring.
 
 ### Phase 2: Score each dimension, starting from `rubric.default_score`
 
@@ -479,4 +514,5 @@ corpus, and the calibration doc.
 | 2026-05-07 | Initial extraction from canopy:walkthrough Phase 1–4 inline scoring. Methodology preserved verbatim; per-rubric dimensions parameterized via the `rubric` input. canopy:walkthrough now dispatches this skill per scene; ACE polish-eval consumes it for visual dimensions. | canopy team |
 | 2026-06-02 | Harshness pass. Added (1) an **Independence requirement** — judge must run as a fresh sub-agent with no build context; self-assessment forces −1/dimension + `self_assessed` flag. (2) The **CEO-send gate** as the definition of a 5 (would the CEO forward it untouched, with their name on it?). (3) Raised the Phase-1 flaw floor from 3 to **≥8, ≥1 per layout region**, ranked. (4) A **claim-scrutiny** pass (self-disclaiming elements / unsupported claims cap claim_reality_coherence ≤2). (5) A **5-second first-impression** pass and an **internal-chrome / deliverable-readiness** check, each with sanity-floor caps. Motivated by an observed builder-as-judge inflation of ~2 points. | jjackson |
 | 2026-06-18 | **`action_trace` + `narrative` context fields (action-aware judging).** The judge scored ONE still screenshot per scene, so a scene that filled+submitted a form and one that only HOVERED over the same controls (same end-frame) scored identically. Added an optional `action_trace` (the per-scene slice of the recorder's run-report: `{kind, target, ok, must_succeed, note}`) and the scene's full `narrative`. When present, a new Phase-1 action-fidelity check compares the narrated act against what the trace actually did: a narration that asserts an effecting act (create/fill/submit/select/award/publish) while the trace only hovers/scrolls ⇒ "claimed, not shown" (top-rank flaw); any `ok:false` entry ⇒ the action failed/timed out. These feed the caller's action-fidelity `deduction_rules`. Back-compat: absent `action_trace` ⇒ score from the still frame exactly as before; the trace can only LOWER a score, never raise one. | jjackson |
+| 2026-06-18 | **`frames` input (before/after change-judging).** A scene that EFFECTS a state change (fills/submits/awards) can't be judged from one still — the before state is gone by the end-frame. Added an optional `frames: {before, after}` pair (the recorder's `--capture-action-frames` writes `scene_<N>_before.png` beside the canonical `scene_<N>.png`). When provided, the judge reads both and a new Phase-1 "change test" lists it as a flaw when the narration claims an effecting act but the after-frame is visually unchanged — feeding action-fidelity deductions. Back-compat: `frames` absent ⇒ judge the single `screenshot_path` (still required; always the after-frame) exactly as before. | jjackson |
 | 2026-06-03 | **`artifact_kind` context field.** Distinguishes `product_walkthrough` (a frame of a real, shipping web app being driven through a flow) from `standalone_deliverable` (a slide/figure/report meant to stand alone, the default). For a `product_walkthrough` the surrounding product chrome — nav bar, sidebar, breadcrumbs, account menu, the app's own buttons — is EXPECTED and grounding, NOT a flaw: it is the evidence the demo is a real product and not a mockup. The "internal app chrome → max 3" sanity floor no longer fires in walkthrough mode. Test/placeholder DATA (raw primary-key slugs, `test-user`, `Untitled`, lorem) still caps in either mode. Motivated by walkthrough judges wrongly penalizing real-website nav that is the point of a live-product demo. | jjackson |

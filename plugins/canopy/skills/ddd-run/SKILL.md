@@ -166,6 +166,7 @@ flags below.
 | `--manifest <path>` | **Always** for DDD runs | Writes the canonical render manifest (`walkthrough-run-data.json`) — the single artifact the deck (`generate_presentation`), the external-systems links, and `assemble_run_state` read. Without it `ddd-upload` raises `DeckMissingError`. Point it at `<run_dir>/walkthrough-run-data.json`. (Emitted even on a partial render, so a failed scene still leaves an inspectable manifest of what rendered.) |
 | `--skip-empty-scenes` | When the spec has narrative-only back-half scenes (no `actions`) | The mp4 doesn't waste `min_hold_ms` on identical static pages. Deck slides still cover them. |
 | `--skip-same-url` | When the spec uses continue-scene patterns (scenes that operate on the previous scene's URL) | Avoids re-navs that wipe JS state between scenes. |
+| `--capture-action-frames` | **Always** for DDD runs | For each scene with an effecting action, also writes `scene_<N>_before.png` (the action loop's starting line). The dual-judge passes the `{before, after}` pair to `canopy:visual-judge` so it can judge the state CHANGE, not just the end-frame — closing the single-still-frame blind spot. Single-frame scenes (no effecting action) are unaffected. |
 | `--input <run.json>` | Only for `--scene` partial runs (when reusing a previous walkthrough's capture set) | Without this, the spec is the only source of truth. |
 | `--skip-setup` | **Never in the iterate loop** | Specs with a `setup:` block run their synthetic generator before every render (`rerun: per_render`) — that reseed is load-bearing for state-mutating demos (a scene that creates an audit must find no audit on the next take). `--skip-setup` is a human escape hatch for one-off re-renders on known-fresh, non-mutating data; the orchestrator must not pass it. |
 | `--prewarm` / `--no-prewarm` | Usually neither — the spec's `prewarm:` value is the right default and the recorder honors it automatically (CLI overrides per invocation, CLI wins) | The pre-warm pass visits each unique resolved scene URL once in a NON-recorded context before filming, so cold caches (first-hit page renders, remote image fetches) are paid off camera instead of as frozen frames mid-scene. Best-effort: failures land in `run-report.json` (`prewarm` key: `{pages, duration_seconds, failures}`), never abort the render. Full model: walkthrough SKILL § "Recording time & dead space". |
@@ -183,6 +184,7 @@ python3 "$REC" \
   --manifest "<run_dir>/walkthrough-run-data.json" \
   --skip-empty-scenes \
   --skip-same-url \
+  --capture-action-frames \
   --ddd-orchestrated
 ```
 
@@ -333,11 +335,22 @@ traces = action_trace_by_scene(report)   # {scene_index: [{kind, target, ok, mus
 
 Pass that scene's `action_trace` AND its full `narrative` into the
 visual-judge `context` (both optional — a scene with no actions passes
-`action_trace: []`, and the judge then behaves exactly as before):
+`action_trace: []`, and the judge then behaves exactly as before).
+
+When the render used `--capture-action-frames`, a `scene_<N>_before.png` exists
+beside the canonical `scene_<N>.png` for each effecting scene. Pass it as the
+`frames` before/after pair so the judge can also score the CHANGE the actions
+produced, not just the end-frame (omit `frames` for a scene with no
+before-frame — single-still behavior):
 
 ```python
+import os
+before = f'{run_dir}/scene_{N}_before.png'
+frames = {'before': before, 'after': f'{run_dir}/scene_{N}.png'} if os.path.exists(before) else None
+
 Skill('canopy:visual-judge', args={
-    'screenshot_path': '<run_dir>/scene_<N>.png',   # per scene, or the summary scene
+    'screenshot_path': '<run_dir>/scene_<N>.png',   # per scene; always the after-frame
+    **({'frames': frames} if frames else {}),
     'page_text': '<captured page text from scene_<N>_page_text.json>',
     'rubric': {
         'name': 'user-artifact',

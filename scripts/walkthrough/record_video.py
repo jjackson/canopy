@@ -597,6 +597,17 @@ def main() -> None:
         ),
     )
     ap.add_argument(
+        "--capture-action-frames",
+        action="store_true",
+        help=(
+            "for each scene with an effecting action (click/fill/select/type/"
+            "press/draw), ALSO capture a before-frame (scene_<N>_before.png) at "
+            "the action loop's starting line, so a judge can see the state "
+            "CHANGE the actions produced (the canonical scene_<N>.png is the "
+            "after frame). Single-frame scenes are unchanged."
+        ),
+    )
+    ap.add_argument(
         "--skip-empty-scenes",
         action="store_true",
         help=(
@@ -898,6 +909,7 @@ def main() -> None:
                 base_url=base_url,
                 snapshot_dir=Path(args.snapshots) if args.snapshots else None,
                 snapshot_empty_scenes=bool(args.snapshot_empty_scenes),
+                capture_action_frames=bool(args.capture_action_frames),
                 # Per-scene viewport overrides (Scene.viewport) are restored
                 # back to this size after each overridden scene's final hold.
                 default_viewport={"width": viewport_w, "height": viewport_h},
