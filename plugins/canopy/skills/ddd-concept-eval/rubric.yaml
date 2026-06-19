@@ -216,13 +216,35 @@ dimensions:
     weight: 0.15
     default_score: 3
     # Weight trimmed from 0.20 → 0.15 in v0.2.153 to make room for visual_polish.
+    #
+    # NARRATED-SUBJECT FRAMING (the camera/scripting axis — distinct from
+    # visual_polish). This dim owns how the WALKTHROUGH frames the product over
+    # time: where each scene is scrolled, what is on-screen while the narration
+    # talks about it, and whether the viewer sees a settled frame or a
+    # half-loaded/mis-scrolled one. The litmus the user keeps hitting:
+    #   "If the UI CAN fully show the area we are narrating on, it SHOULD."
+    # When a scene's narration is ABOUT a specific artifact (a chart, a map, a
+    # table, a panel) and that artifact would fit in one viewport, the scene must
+    # scroll so it is FULLY in frame before/while it is narrated — not clipped at
+    # the top/bottom nor pushed into a corner under unrelated content. The fix is
+    # always a SCRIPTING change (scroll_to / scroll / a settle-hold / trim the
+    # clip to content-ready), never a product change. This does NOT contradict
+    # visual_polish standing-rule 2 ("findings drive the product, never the
+    # camera"): that rule applies when the artifact is too DENSE to fit a viewport
+    # (a real product gap). Here the artifact DOES fit and the scene simply framed
+    # it wrong — a walkthrough-scripting miss, which is exactly motion_friction's
+    # job. Discriminator: fits-but-mis-framed → motion_friction (fix the scene);
+    # doesn't-fit → visual_polish (fix the product).
     anchor:
-      "5": "The walkthrough flows naturally — transitions are smooth, no scene requires the viewer to mentally skip awkward moments; the product looks like a pleasure to use."
-      "4": "Flow is mostly smooth; one scene has a noticeable hesitation, slow load, or clunky transition that a script revision could fix."
-      "3": "There are rough edges visible (slow loads, jarring page transitions, confusing navigation order) but they don't stop the demo. (DEFAULT)"
-      "2": "Multiple scenes have friction points that would cause a live demo presenter to stutter or skip ahead; the product looks hard to use."
+      "5": "The walkthrough flows naturally — transitions are smooth, every scene is scrolled so the artifact it narrates is fully in frame and settled before the voiceover talks about it; no scene requires the viewer to mentally skip awkward moments; the product looks like a pleasure to use."
+      "4": "Flow is mostly smooth; one scene has a noticeable hesitation, slow load, clunky transition, or slightly-off framing (the narrated artifact partly clipped) that a script revision could fix."
+      "3": "There are rough edges visible (slow loads, jarring page transitions, confusing navigation order, a narrated element only partly in frame) but they don't stop the demo. (DEFAULT)"
+      "2": "Multiple scenes have friction points that would cause a live demo presenter to stutter or skip ahead — including narrating an artifact that is half off-screen when it would have fit; the product looks hard to use."
       "1": "The walkthrough is so friction-laden that the product appears broken or unusable to a viewer watching cold."
     deduction_rules:
       - "A scene shows a loading spinner dominating the frame: max 3"
+      - "A scene opens on a blank/white or still-painting frame (navigation not yet rendered) that lingers more than ~1s before content appears, or the voiceover starts over a blank/half-loaded screen: max 2 (SCRIPTING fix — trim the scene's clip to content-ready, add a settle-hold, or prewarm; never narrate over a white screen)"
+      - "A scene's narration is ABOUT a specific UI artifact (chart, map, table, panel) that fits in one viewport, but the capture is scrolled so that artifact is partially out of frame / clipped top or bottom / buried under unrelated content when the scene could have framed it fully: max 2 (SCRIPTING fix — scroll_to / scroll the scene so the narrated artifact is fully visible before it is narrated; this is the fits-but-mis-framed case, NOT a visual_polish density finding)"
+      - "An on-screen action the narration calls out (a toggle, a filter, a tab switch) fires well before or after the words describing it, so the viewer doesn't see the change happen when it is mentioned: max 3 (SCRIPTING fix — time the action's hold so it lands with the voiceover)"
       - "Scene order requires the viewer to go backwards conceptually (later scenes set up earlier ones): max 2"
       - "A navigational dead-end is captured (404, blank page, error) with no recovery shown: max 1"
