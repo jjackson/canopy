@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +85,51 @@ def _slugify(text: str) -> str:
     return out.strip("-")[:60] or "beat"
 
 
+def trim_trailing_static_seconds(
+    clip_path: str,
+    start: float,
+    dur: float,
+    *,
+    scene_threshold: float = 0.03,
+    tail: float = 1.4,
+    floor: float = 2.0,
+) -> float:
+    """Trim a scene's trailing static tail to just after its last on-screen motion.
+
+    The recorder's per-scene clip length is wall-clock — it includes time spent
+    waiting on a slow page load, the end-of-scene hold, and the snapshot dwell.
+    When the page is static through that tail (very common: a sparse page that
+    finished loading), those seconds render as dead air ("white still space").
+
+    We find the last significant scene-change in the range (ffmpeg
+    ``select=gt(scene,threshold)``) — the moment the last real motion happened —
+    and cut the clip to ``last_motion + tail`` (so the settled state is still
+    seen briefly), floored at ``floor`` so a scene is never trimmed to nothing
+    and capped at the original ``dur`` (never extends). A scene that keeps
+    moving to its end (e.g. an animated ranking, a result reveal) has its last
+    motion near the end and is barely trimmed; a static tail is cut.
+
+    Best-effort: returns ``dur`` unchanged on any ffmpeg/parse failure. A scene
+    with no detected motion at all trims to ``floor``.
+    """
+    if not clip_path or dur <= floor:
+        return dur
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-nostats", "-ss", f"{start:.3f}",
+             "-t", f"{dur:.3f}", "-i", clip_path,
+             "-vf", f"select='gt(scene,{scene_threshold})',metadata=print",
+             "-an", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=120,
+        )
+    except Exception:  # noqa: BLE001 — trimming is best-effort
+        return dur
+    # pts_time is relative to the trimmed segment (=-ss resets timestamps).
+    times = [float(m) for m in re.findall(r"pts_time:([0-9.]+)", proc.stderr or "")]
+    last_motion = times[-1] if times else 0.0
+    return round(max(floor, min(dur, last_motion + tail)), 3)
+
+
 def build_snippets(
     *,
     narrative_slug: str,
@@ -92,7 +138,14 @@ def build_snippets(
     source_clip_local: str | None,
     source_clip_hosted: str | None,
 ) -> list[dict[str, Any]]:
-    """Pair each rendered scene (timing) with its spec scene (sentence)."""
+    """Pair each rendered scene (timing) with its spec scene (sentence).
+
+    When the master clip is available locally, each scene's clip is trimmed of
+    any trailing static tail (slow-load / hold / snapshot dead air) so the
+    rendered beat shows active footage, not a frozen page. See
+    :func:`trim_trailing_static_seconds`.
+    """
+    clip_for_trim = source_clip_local if (source_clip_local and Path(source_clip_local).exists()) else None
     spec_scenes = spec.get("scenes") or []
     report_scenes = report.get("scenes") or []
     snippets: list[dict[str, Any]] = []
@@ -105,6 +158,8 @@ def build_snippets(
         spec_scene = spec_scenes[idx - 1] if 0 < idx <= len(spec_scenes) else {}
         start = float(rs.get("start_seconds") or 0.0)
         dur = float(rs.get("duration_seconds") or 0.0)
+        if clip_for_trim and dur > 0:
+            dur = trim_trailing_static_seconds(clip_for_trim, start, dur)
         title = spec_scene.get("title") or rs.get("title") or f"Scene {idx}"
         sentence = (spec_scene.get("concept_claim") or "").strip()
         # The per-scene narrative is the spoken line — it's what the author edits
@@ -215,9 +270,10 @@ def build_explainer_spec(
 
     beats: list[dict[str, Any]] = [{"id": "title", "kind": "intro_title", "seconds": 4}]
     walkthrough: dict[str, Any] = {}
-    by_beat: dict[str, str] = {
-        "title": f"{name}: {tagline}".strip().rstrip(":") if tagline else name
-    }
+    # The spoken intro is the tagline (a real headline) — NOT "<slug>: …",
+    # which read the raw narrative slug aloud. The title CARD still shows the
+    # program name (humanized) above the tagline subtitle (see TitleCard).
+    by_beat: dict[str, str] = {"title": tagline or _humanize_slug(name)}
 
     for sn in snippets:
         bid = f"s{sn['scene_index']}"
@@ -318,20 +374,18 @@ def emit_explainer_spec(
     return explainer
 
 
-def _derive_tagline(text: str | None) -> str:
-    """A short tagline fallback from the spec's overview narrative: the first
-    clause (up to a comma or sentence end), capped so it doesn't bloat the
-    4-second intro title card. Authors should set an explicit ``tagline:`` on
-    the spec (or pass --tagline) for a sharper line; this is just a safe,
-    non-empty default so any narrative renders."""
-    t = " ".join((text or "").split())
-    if not t:
-        return ""
-    clause = re.split(r"[,.!?]", t, maxsplit=1)[0].strip()
-    words = clause.split()
-    if len(words) > 12:
-        clause = " ".join(words[:12])
-    return clause
+def _humanize_slug(slug: str | None) -> str:
+    """A safe tagline fallback: the narrative slug as Title Case words
+    (``microplans-study-groups`` → ``Microplans Study Groups``).
+
+    Deliberately NOT derived from the narrative text. The old fallback took the
+    narrative's first clause, which is scene 1's opening line — so the intro
+    title card just repeated the first thing the narration says. Authors should
+    set an explicit ``tagline:`` on the spec (or pass --tagline) for a real
+    headline; this humanized-name default is only there so the (schema-required,
+    non-empty) tagline never silently becomes a duplicate of the narration."""
+    words = re.split(r"[-_\s]+", (slug or "").strip())
+    return " ".join(w[:1].upper() + w[1:] for w in words if w)
 
 
 def emit_explainer_from_capture(
@@ -389,7 +443,7 @@ def emit_explainer_from_capture(
     # `tagline:` / `country_focus:` on the spec, or pass --tagline / --country,
     # for a sharper line).
     if not tagline:
-        tagline = spec.get("tagline") or _derive_tagline(spec.get("narrative")) or str(spec.get("name") or slug)
+        tagline = spec.get("tagline") or _humanize_slug(slug)
     if not country_focus:
         country_focus = spec.get("country_focus") or "Global"
     if not master_ref:
