@@ -1,7 +1,42 @@
 import { describe, it, expect } from "vitest";
-import { freezeRangeFrames } from "./Walkthrough";
+import { freezeRangeFrames, beatSegments } from "./Walkthrough";
+import type { WalkthroughBeat } from "../lib/spec";
 
 const FPS = 30;
+
+describe("beatSegments (de-dwelled sub-ranges vs single-range fallback)", () => {
+  it("returns the explicit segments when present (de-dwelled beat)", () => {
+    const wt = {
+      asset: "@master",
+      start_seconds: 0,
+      duration_seconds: 40,
+      segments: [
+        { start_seconds: 0, duration_seconds: 2 },
+        { start_seconds: 30, duration_seconds: 3 },
+      ],
+      lower_third: "",
+    } as unknown as WalkthroughBeat;
+    expect(beatSegments(wt)).toEqual([
+      { start_seconds: 0, duration_seconds: 2 },
+      { start_seconds: 30, duration_seconds: 3 },
+    ]);
+  });
+
+  it("falls back to the single start/duration range when no segments", () => {
+    const wt = {
+      asset: "@master",
+      start_seconds: 5,
+      duration_seconds: 8,
+      lower_third: "",
+    } as unknown as WalkthroughBeat;
+    expect(beatSegments(wt)).toEqual([{ start_seconds: 5, duration_seconds: 8 }]);
+  });
+
+  it("falls back to an open-ended range (whole beat) when duration is absent", () => {
+    const wt = { asset: "@master", start_seconds: 0, lower_third: "" } as unknown as WalkthroughBeat;
+    expect(beatSegments(wt)).toEqual([{ start_seconds: 0, duration_seconds: undefined }]);
+  });
+});
 
 describe("freezeRangeFrames (hold-last-frame on overflow)", () => {
   it("freezes when the beat runs longer than the selected range", () => {

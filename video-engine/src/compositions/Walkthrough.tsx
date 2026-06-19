@@ -1,4 +1,4 @@
-import { AbsoluteFill, Freeze, Video, staticFile, useVideoConfig } from "remotion";
+import { AbsoluteFill, Freeze, Sequence, Video, staticFile, useVideoConfig } from "remotion";
 import { theme } from "../theme";
 import { Lower3rd } from "../components/Lower3rd";
 import type { ProgramSpec, WalkthroughBeat } from "../lib/spec";
@@ -46,15 +46,29 @@ export function freezeRangeFrames(
   return rangeFrames < beatFrames ? rangeFrames : null;
 }
 
+/**
+ * The sub-ranges of the master clip a beat plays, in order. Prefers the
+ * de-dwelled ``segments`` list (motion spans with dead-air gaps collapsed →
+ * jump-cuts); falls back to the single ``start_seconds``/``duration_seconds``
+ * range for older / non-de-dwelled specs. ``duration_seconds`` may be
+ * undefined in the single-range fallback (= play the whole beat).
+ */
+export function beatSegments(
+  wt: WalkthroughBeat
+): { start_seconds: number; duration_seconds?: number }[] {
+  if (wt.segments && wt.segments.length > 0) return wt.segments;
+  return [{ start_seconds: wt.start_seconds ?? 0, duration_seconds: wt.duration_seconds }];
+}
+
 export const Walkthrough: React.FC<{ wt: WalkthroughBeat }> = ({ wt }) => {
   const { fps, durationInFrames } = useVideoConfig();
   const src = wt.asset.startsWith("http") ? wt.asset : staticFile(wt.asset);
-  const startFrom = Math.round((wt.start_seconds ?? 0) * fps);
+  const segs = beatSegments(wt);
 
-  const video = (
+  const videoFrom = (startSeconds: number) => (
     <Video
       src={src}
-      startFrom={startFrom}
+      startFrom={Math.round(startSeconds * fps)}
       style={{ width: "100%", height: "100%", objectFit: "cover" }}
       onError={() => {
         /* Missing asset — render blank; drop the real file in the cache to fix */
@@ -62,23 +76,48 @@ export const Walkthrough: React.FC<{ wt: WalkthroughBeat }> = ({ wt }) => {
     />
   );
 
-  // The selected range, in frames, when shorter than the on-screen beat.
-  const rangeFrames = freezeRangeFrames(wt.duration_seconds, fps, durationInFrames);
-  const shouldFreeze = rangeFrames != null;
+  // Single open-ended range (no duration): the original whole-beat playback.
+  if (segs.length === 1 && segs[0].duration_seconds == null) {
+    return (
+      <AbsoluteFill style={{ background: theme.colors.foreground }}>
+        {videoFrom(segs[0].start_seconds)}
+        {wt.lower_third ? <Lower3rd text={wt.lower_third} /> : null}
+      </AbsoluteFill>
+    );
+  }
+
+  // De-dwelled (or single ranged) playback: lay each segment back-to-back via
+  // nested Sequences. The dropped gaps between segments are clean jump-cuts.
+  // The LAST segment holds its final frame for any beat time beyond the summed
+  // segment length (VO overrun) — same hold-last-frame contract as before.
+  const segFrames = segs.map((s) => Math.max(1, Math.round((s.duration_seconds as number) * fps)));
+  let offset = 0;
+  const nodes = segs.map((s, i) => {
+    const sf = segFrames[i];
+    const isLast = i === segs.length - 1;
+    const seqLen = isLast ? Math.max(sf, durationInFrames - offset) : sf;
+    const vid = videoFrom(s.start_seconds);
+    // Hold the last frame only on the final segment when the beat outruns it.
+    const child =
+      isLast && seqLen > sf ? (
+        <Freeze frame={sf - 1} active={(f) => f >= sf}>
+          {vid}
+        </Freeze>
+      ) : (
+        vid
+      );
+    const node = (
+      <Sequence key={i} from={offset} durationInFrames={seqLen}>
+        {child}
+      </Sequence>
+    );
+    offset += sf;
+    return node;
+  });
 
   return (
     <AbsoluteFill style={{ background: theme.colors.foreground }}>
-      {shouldFreeze ? (
-        // active while we're past the end of the range: pin to the range's
-        // last frame (rangeFrames - 1, relative to the Video's own
-        // startFrom-offset timeline) so the footage holds instead of
-        // bleeding into the next section.
-        <Freeze frame={rangeFrames - 1} active={(f) => f >= rangeFrames}>
-          {video}
-        </Freeze>
-      ) : (
-        video
-      )}
+      {nodes}
       {wt.lower_third ? <Lower3rd text={wt.lower_third} /> : null}
     </AbsoluteFill>
   );
