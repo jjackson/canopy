@@ -234,6 +234,19 @@ function renderMarketing(
  * beats list shaped this way renders. The per-beat CaptionBar + VO ride on
  * top via the shared ProgramVideo path.
  */
+// Humanize a slug-style program name for the title card ("microplans-study-
+// groups" → "Microplans Study Groups"). Left untouched when the name already
+// reads as a title (contains a space) so hand-authored names like
+// "Mother-Baby Wellness" keep their hyphens.
+function humanizeProgramName(name: string): string {
+  if (!name || /\s/.test(name)) return name;
+  return name
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 function renderWalkthrough(spec: ProgramSpec, beats: ResolvedBeat[]) {
   const titleBeat = beats.find((b) => b.kind === "intro_title");
   const bodyBeats = beats.filter((b) => b.kind === "body_walkthrough");
@@ -242,7 +255,7 @@ function renderWalkthrough(spec: ProgramSpec, beats: ResolvedBeat[]) {
     <>
       {titleBeat && (
         <Sequence from={titleBeat.startFrame} durationInFrames={titleBeat.durationFrames}>
-          <TitleCard title={spec.name} subtitle={spec.tagline} />
+          <TitleCard title={humanizeProgramName(spec.name)} subtitle={spec.tagline} />
         </Sequence>
       )}
       {bodyBeats.length > 0 && (
