@@ -116,7 +116,11 @@ traces = action_trace_by_scene(report) if report else {}  # {scene_index: [{kind
 
 For each scene in `unified_spec.yaml`:
 
-1. Identify the screenshot path: `<run_dir>/scene_<N>.png` (or the path recorded in the run manifest).
+1. Identify the screenshot path: `<run_dir>/scene_<N>.png` (the after-frame; or
+   the path recorded in the run manifest). If a `<run_dir>/scene_<N>_before.png`
+   exists (the render used `--capture-action-frames` and this scene effects a
+   change), keep it — you'll pass the `{before, after}` pair as `frames` in
+   step 4 so the judge can score the CHANGE, not just the end-frame.
 2. Load the captured page text: `<run_dir>/scene_<N>_page_text.json`.
 3. Build the `context` object for canopy:visual-judge:
    - `artifact_kind`: **`product_walkthrough`** — a DDD scene is a frame of a
@@ -161,7 +165,11 @@ For each scene in `unified_spec.yaml`:
      default, so the judge does not reward a pre-digested verdict.
    - Do NOT pass `blocking_rules` — claim_reality_coherence is non-blocking by spec.
 4. Dispatch `canopy:visual-judge` (as the fresh sub-agent above) with:
-   - `screenshot_path`: the scene screenshot
+   - `screenshot_path`: the scene screenshot (always the after-frame)
+   - `frames`: `{before: <run_dir>/scene_<N>_before.png, after: <run_dir>/scene_<N>.png}`
+     ONLY when the before-frame exists (step 1) — omit otherwise (single-still
+     behavior). Lets the judge's "change test" catch a scene whose effecting
+     actions produced no visible change.
    - `page_text`: the captured page text
    - `rubric`: the ddd-concept-eval rubric (from Step 1)
    - `context`: the context object from step 3

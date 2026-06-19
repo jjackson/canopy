@@ -84,6 +84,24 @@ from .config import RecorderConfig
 from .recorder import execute_action
 from .results import ActionResult, RunReport
 
+# Action kinds that EFFECT a state change (vs. only moving the camera). A scene
+# with ≥1 of these is one where a before/after frame pair tells the judge what
+# CHANGED. Kept in sync with the recorder vocabulary; defined locally so the
+# orchestrator has no scripts.ddd dependency. (scripts.ddd.spec_qa and
+# scripts.walkthrough._lib.results carry the same set for their own gates.)
+_EFFECTING_ACTION_KINDS: frozenset[str] = frozenset(
+    {"click", "click_menu", "fill", "select", "type", "press", "draw"}
+)
+
+
+def _scene_has_effecting_action(scene: dict) -> bool:
+    """True if the scene scripts ≥1 effecting action (worth a before/after pair)."""
+    for action in scene.get("actions") or []:
+        kind = action.get("kind") if isinstance(action, dict) else getattr(action, "kind", None)
+        if kind in _EFFECTING_ACTION_KINDS:
+            return True
+    return False
+
 
 class Recorder:
     """Run a sequence of scenes against a Playwright Page.
@@ -102,6 +120,7 @@ class Recorder:
         report: RunReport | None = None,
         snapshot_dir: Path | None = None,
         snapshot_empty_scenes: bool = False,
+        capture_action_frames: bool = False,
         default_viewport: dict[str, int] | None = None,
     ) -> None:
         self.config = config or RecorderConfig()
@@ -114,8 +133,20 @@ class Recorder:
         self.snapshot_empty_scenes = snapshot_empty_scenes
         # Records the indices snapshotted, in order. Useful in tests +
         # downstream tooling that wants to enumerate captured scenes without
-        # rescanning the directory.
+        # rescanning the directory. Tracks the CANONICAL end-frame
+        # (``scene_<N>.png``) only — the optional before-frames live in
+        # ``before_frames_taken`` so back-compat consumers of ``snapshots_taken``
+        # are unchanged.
         self.snapshots_taken: list[int] = []
+        # When True, a scene with ≥1 EFFECTING action also captures a BEFORE
+        # frame (``scene_<N>_before.png``) right before its action loop, so a
+        # judge can see the state CHANGE the actions produced (the canonical
+        # ``scene_<N>.png`` is the after/end frame). Default off → single-frame
+        # capture exactly as before.
+        self.capture_action_frames = bool(capture_action_frames)
+        # Indices for which a before-frame PNG was written, in order. Separate
+        # from ``snapshots_taken`` (which stays the canonical end-frame list).
+        self.before_frames_taken: list[int] = []
         # Spec-level viewport — restored after any per-scene viewport override.
         # None → no restore (tests / callers that don't track viewport at all).
         self.default_viewport: dict[str, int] | None = (
@@ -161,6 +192,57 @@ class Recorder:
     def after_action(self, scene: dict, action: dict, result: ActionResult) -> None:
         """Hook fired after each action runs (success or failure)."""
 
+    def take_before_frame(self, page: Page, scene: dict, scene_index: int) -> None:
+        """Capture a BEFORE frame for an action scene, pre-action-loop.
+
+        Writes ``scene_<scene_index>_before.png`` so a judge can compare the
+        page's state BEFORE the scene's effecting actions ran against the
+        canonical ``scene_<scene_index>.png`` (the after/end frame). No-op
+        unless ``capture_action_frames`` is on AND the scene has ≥1 effecting
+        action. Records the index in ``before_frames_taken`` (NOT
+        ``snapshots_taken``, which stays the canonical end-frame list). Writes
+        no page_text — the end-frame's text dump is the per-scene anchor; the
+        before-frame is purely visual evidence of the change.
+        """
+        if self.snapshot_dir is None or not self.capture_action_frames:
+            return
+        if not _scene_has_effecting_action(scene):
+            return
+        self.snapshot_dir.mkdir(parents=True, exist_ok=True)
+        png_path = self.snapshot_dir / f"scene_{scene_index}_before.png"
+        if self._capture_scene_png(page, scene, png_path, scene_index):
+            self.before_frames_taken.append(scene_index)
+            print(f"  · before-frame scene_{scene_index}_before.png")
+
+    def _capture_scene_png(
+        self, page: Page, scene: dict, png_path: Path, scene_index: int
+    ) -> bool:
+        """Screenshot the current page to ``png_path`` with the scroll-to-top +
+        settle-retry correction shared by every per-scene capture. Returns True
+        on success. Factored out of ``take_snapshot`` so before/after frames
+        share one capture path."""
+        full_page = scene.get("full_page")
+        full_page = True if full_page is None else bool(full_page)
+        scroll_y = 0
+        if full_page:
+            try:
+                scroll_y = int(page.evaluate("() => window.scrollY") or 0)
+                if scroll_y:
+                    page.evaluate("() => window.scrollTo(0, 0)")
+                    page.wait_for_timeout(200)
+            except Exception:  # noqa: BLE001 — capture correction is best-effort
+                scroll_y = 0
+        png_ok = self._screenshot_with_settle_retry(
+            page, png_path, scene_index, full_page=full_page
+        )
+        if full_page and scroll_y:
+            try:
+                page.evaluate(f"() => window.scrollTo(0, {scroll_y})")
+                page.wait_for_timeout(120)
+            except Exception:  # noqa: BLE001
+                pass
+        return png_ok
+
     def take_snapshot(self, page: Page, scene: dict, scene_index: int) -> None:
         """Capture a per-scene PNG + page-text JSON at this scene's steady state.
 
@@ -174,7 +256,10 @@ class Recorder:
         Files are named ``scene_<scene_index>.png`` and
         ``scene_<scene_index>_page_text.json`` so a ``--scene 3`` partial run
         produces ``scene_3.*``, not ``scene_1.*`` — matches the deck +
-        actionability eval indexing.
+        actionability eval indexing. This is the canonical (after/end) frame;
+        when ``capture_action_frames`` is on, the matching BEFORE frame
+        (``scene_<N>_before.png``) was written by ``take_before_frame`` before
+        the action loop.
 
         Overridable: subclasses can switch to viewport-only screenshots,
         write to S3, or grab additional artifacts (network HAR, ARIA tree)
@@ -481,6 +566,13 @@ class Recorder:
             print("  · deferring initial_hold_ms (no nav for this scene)")
         else:
             page.wait_for_timeout(self.config.initial_hold_ms)
+
+        # BEFORE frame: capture the page state at the action loop's starting
+        # line (post-nav + initial hold, no action has run yet) so a judge can
+        # see the CHANGE the scene's effecting actions produce. No-op unless
+        # capture_action_frames is on and the scene has an effecting action.
+        if idx is not None:
+            self.take_before_frame(page, scene, int(idx))
 
         start = time.monotonic()
         scene_results: list[ActionResult] = []
