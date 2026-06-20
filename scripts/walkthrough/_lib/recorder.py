@@ -677,7 +677,14 @@ def execute_action(
             if not ok:
                 error_kind = "timeout"
         elif kind == "hold":
-            page.wait_for_timeout(int(float(seconds or value or 1.0) * 1000))
+            hold_ms = int(float(seconds or value or 1.0) * 1000)
+            # A flow scene caps explicit holds so a deliberate `hold 4` dropped
+            # in a beat later marked `pace: flow` doesn't freeze a connective
+            # scene (cfg.hold_action_ceiling_ms is None for teach scenes → no cap).
+            ceiling = getattr(cfg, "hold_action_ceiling_ms", None)
+            if ceiling is not None:
+                hold_ms = min(hold_ms, int(ceiling))
+            page.wait_for_timeout(hold_ms)
         elif kind == "draw":
             ok = draw_polygon(
                 page, target or "", action.get("points") or [], tool=action.get("tool"), config=cfg

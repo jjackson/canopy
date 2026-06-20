@@ -503,6 +503,12 @@ def build_scenes_from_spec(spec: dict, base_url: str, *, run_data: dict | None) 
             # full-page) for normal pages. Stripping this here was the bug that made
             # map+table scenes capture as unreadable strips.
             "full_page": s.get("full_page"),
+            # Per-scene tempo (Scene.pace in the schema): "teach" (default — full
+            # read-time pacing, unchanged behavior) or "flow" (this beat is just
+            # continuity, so the recorder compresses holds/settles and speeds the
+            # cursor — see _lib.config.apply_scene_pace). Absent → teach. Threaded
+            # through so the orchestrator can adjust THIS scene's config.
+            "pace": s.get("pace"),
             # 1-based ORIGINAL spec index — preserved even when ``--input`` /
             # ``--scene`` filters narrow the list (so ``scene_index=3`` on a
             # partial run still means "spec scene 3", not "third in the
