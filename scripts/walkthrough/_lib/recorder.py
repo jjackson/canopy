@@ -56,7 +56,7 @@ try:
 except Exception:  # pragma: no cover — recorder may run without the narrative package on PYTHONPATH
     ACTION_KINDS = (
         "goto", "click", "click_menu", "fill", "select", "type", "press",
-        "hover", "scroll_to", "scroll", "wait_for", "hold", "draw", "capture",
+        "hover", "scroll_to", "scroll", "wait_for", "hold", "draw", "map_click", "capture",
     )
 
 CURSOR_OVERLAY_JS = (Path(__file__).resolve().parent / "cursor_overlay.js").read_text()
@@ -436,6 +436,226 @@ def draw_polygon(
     return True
 
 
+# --------------------------------------------------------------------------- #
+# map feature click (named Mapbox polygon → real on-canvas click)
+# --------------------------------------------------------------------------- #
+
+# Resolve the Mapbox map in the page. The microplans editor exposes it at
+# ``window.__review.map``; a generic fallback walks ``window`` for any object that
+# quacks like a Mapbox GL map (has ``queryRenderedFeatures`` + ``project``). Kept
+# as a JS string so ``map_click`` and any future map verb share ONE resolver.
+_FIND_MAP_JS = """() => {
+  const looksLikeMap = (m) => m
+    && typeof m.queryRenderedFeatures === 'function'
+    && typeof m.project === 'function'
+    && typeof m.getCanvas === 'function';
+  try { if (window.__review && looksLikeMap(window.__review.map)) return window.__review.map; } catch (e) {}
+  try { if (looksLikeMap(window.map)) return window.map; } catch (e) {}
+  for (const k of Object.keys(window)) {
+    try { const v = window[k]; if (looksLikeMap(v)) return v; } catch (e) {}
+  }
+  return null;
+}"""
+
+
+def _ring_centroid(ring: list) -> tuple[float, float]:
+    """Area-weighted centroid of one polygon ring (``[[lng,lat], ...]``).
+
+    The standard shoelace centroid. Degenerate (zero-area) rings fall back to the
+    arithmetic mean of the vertices so a thin/collinear ring still yields a point.
+    Pure — unit-tested directly (no browser).
+    """
+    pts = [(float(x), float(y)) for x, y in ring]
+    if len(pts) >= 2 and pts[0] == pts[-1]:
+        pts = pts[:-1]
+    if not pts:
+        raise ValueError("empty ring")
+    n = len(pts)
+    a = cx = cy = 0.0
+    for i in range(n):
+        x0, y0 = pts[i]
+        x1, y1 = pts[(i + 1) % n]
+        cross = x0 * y1 - x1 * y0
+        a += cross
+        cx += (x0 + x1) * cross
+        cy += (y0 + y1) * cross
+    a *= 0.5
+    if abs(a) < 1e-12:  # degenerate ring → arithmetic mean
+        return (sum(p[0] for p in pts) / n, sum(p[1] for p in pts) / n)
+    return (cx / (6 * a), cy / (6 * a))
+
+
+def _point_in_ring(pt: tuple[float, float], ring: list) -> bool:
+    """Ray-casting point-in-polygon test for one ring. Pure — unit-tested."""
+    x, y = pt
+    inside = False
+    n = len(ring)
+    j = n - 1
+    for i in range(n):
+        xi, yi = float(ring[i][0]), float(ring[i][1])
+        xj, yj = float(ring[j][0]), float(ring[j][1])
+        if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / ((yj - yi) or 1e-30) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+
+def polygon_interior_point(rings: list) -> tuple[float, float]:
+    """Return a [lng, lat] point guaranteed to fall INSIDE the polygon's outer ring.
+
+    ``rings`` is GeoJSON Polygon coordinates (``[outer, hole1, ...]``). The
+    area-weighted centroid is used when it lands inside the outer ring (and outside
+    every hole); a CONCAVE polygon whose centroid falls outside gets a representative
+    interior point instead — we scan a small grid over the ring's bbox and pick the
+    in-ring sample closest to the centroid. This is the bit a ``map_click`` must get
+    right: a click on a point OUTSIDE the polygon hits the wrong ward (or nothing),
+    so the helper is isolated and unit-tested without a browser.
+    """
+    if not rings or not rings[0]:
+        raise ValueError("polygon has no outer ring")
+    outer = [(float(x), float(y)) for x, y in rings[0]]
+    holes = [[(float(x), float(y)) for x, y in r] for r in rings[1:]]
+
+    def good(p: tuple[float, float]) -> bool:
+        return _point_in_ring(p, outer) and not any(_point_in_ring(p, h) for h in holes)
+
+    c = _ring_centroid(rings[0])
+    if good(c):
+        return c
+    # Concave / hole case: grid-scan the bbox for the in-ring sample nearest the centroid.
+    xs = [p[0] for p in outer]
+    ys = [p[1] for p in outer]
+    minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
+    best: tuple[float, float] | None = None
+    best_d = float("inf")
+    steps = 24
+    for i in range(1, steps):
+        for j in range(1, steps):
+            px = minx + (maxx - minx) * i / steps
+            py = miny + (maxy - miny) * j / steps
+            if good((px, py)):
+                d = (px - c[0]) ** 2 + (py - c[1]) ** 2
+                if d < best_d:
+                    best_d, best = d, (px, py)
+    if best is not None:
+        return best
+    # Last resort: midpoint of the longest diagonal of the first two vertices.
+    return outer[0]
+
+
+def map_click(
+    page: Page,
+    target: str,
+    *,
+    layer: str | None = None,
+    source: str | None = None,
+    config: RecorderConfig | None = None,
+) -> bool:
+    """Click a NAMED Mapbox feature on the main map by its ``name`` property.
+
+    The other verbs resolve a labelled DOM element; a ward polygon is a feature
+    *inside* the map canvas with no DOM node of its own. ``map_click`` bridges that:
+    it finds the Mapbox map in the page (``window.__review.map`` for the microplans
+    editor, else any map-shaped global), looks up the feature whose ``name`` matches
+    ``target`` — preferring rendered features on the boundary FILL layer
+    (``mp-admin-fill``), falling back to ``querySourceFeatures`` on the source
+    (``mp-admin``) when the feature is loaded but not currently painted — computes a
+    point guaranteed to lie INSIDE the polygon (centroid, or a representative interior
+    point for a concave ward), and ``map.project()``s it to screen pixels. The
+    synthetic cursor then glides to those pixels and dispatches a REAL mouse click, so
+    the app's own ``map.on('click', FILL, …)`` handler fires and the ward is added —
+    exactly as if a person clicked it.
+
+    ``layer`` / ``source`` override the defaults for non-microplans maps. Returns
+    ``True`` when a click was dispatched at an in-polygon pixel, ``False`` when the
+    map or the named feature couldn't be resolved (so a ``must_succeed`` map_click
+    aborts the render cleanly rather than silently clicking empty canvas).
+    """
+    cfg = config or RecorderConfig()
+    name = (target or "").strip()
+    if not name:
+        return False
+    fill_layer = layer or "mp-admin-fill"
+    src = source or "mp-admin"
+
+    # Pull the named feature's polygon coordinates out of the live map. We do the
+    # geometry lookup in the page (the map owns the features) but compute the
+    # interior point in Python so the tricky concave-polygon logic is unit-testable.
+    geom = page.evaluate(
+        """({name, fillLayer, src, findMap}) => {
+            const map = (new Function('return (' + findMap + ')'))()();
+            if (!map) return {error: 'no-map'};
+            const lname = String(name).trim().toLowerCase();
+            const nameOf = (f) => String((f.properties && f.properties.name) || '').trim().toLowerCase();
+            let feats = [];
+            try { feats = map.queryRenderedFeatures({layers: [fillLayer]}) || []; } catch (e) { feats = []; }
+            let hit = feats.find((f) => nameOf(f) === lname);
+            if (!hit) {
+                // Loaded-but-not-painted fallback: query the SOURCE directly.
+                try {
+                    const sf = map.querySourceFeatures(src) || [];
+                    hit = sf.find((f) => nameOf(f) === lname);
+                } catch (e) {}
+            }
+            if (!hit || !hit.geometry) return {error: 'no-feature'};
+            const g = hit.geometry;
+            // Normalise to a single polygon's ring list (Polygon or first part of MultiPolygon).
+            let rings = null;
+            if (g.type === 'Polygon') rings = g.coordinates;
+            else if (g.type === 'MultiPolygon') {
+                // Largest part by outer-ring vertex count — the ward's main body.
+                let best = null, bestN = -1;
+                for (const part of g.coordinates) {
+                    const n = (part && part[0] && part[0].length) || 0;
+                    if (n > bestN) { bestN = n; best = part; }
+                }
+                rings = best;
+            }
+            if (!rings) return {error: 'not-polygon', gtype: g.type};
+            return {rings};
+        }""",
+        {"name": name, "fillLayer": fill_layer, "src": src, "findMap": _FIND_MAP_JS},
+    )
+    if not isinstance(geom, dict) or geom.get("error") or not geom.get("rings"):
+        why = (geom or {}).get("error") if isinstance(geom, dict) else "no-result"
+        print(f"  ! map_click could not resolve feature {name!r} ({why})")
+        return False
+
+    try:
+        lng, lat = polygon_interior_point(geom["rings"])
+    except Exception as e:  # noqa: BLE001
+        print(f"  ! map_click interior-point failed for {name!r}: {e}")
+        return False
+
+    # Project the interior lng/lat to PAGE pixels (project() gives canvas-relative
+    # coords; add the canvas's bounding-rect origin to get viewport pixels the
+    # Playwright mouse uses). Returned so a failure here is visible too.
+    px = page.evaluate(
+        """({lng, lat, findMap}) => {
+            const map = (new Function('return (' + findMap + ')'))()();
+            if (!map) return null;
+            const p = map.project([lng, lat]);
+            const rect = map.getCanvas().getBoundingClientRect();
+            return {x: rect.left + p.x, y: rect.top + p.y};
+        }""",
+        {"lng": lng, "lat": lat, "findMap": _FIND_MAP_JS},
+    )
+    if not isinstance(px, dict) or "x" not in px or "y" not in px:
+        print(f"  ! map_click could not project {name!r} to screen pixels")
+        return False
+
+    x, y = float(px["x"]), float(px["y"])
+    # Mirror the draw coordinate-click path: glide the visible cursor to the pixel,
+    # dwell so the viewer registers WHERE the click lands, then a real mouse click
+    # the app's `map.on('click', FILL)` handler receives.
+    slow_move(page, x, y, steps=cfg.cursor_steps)
+    page.wait_for_timeout(cfg.click_dwell_ms)
+    page.mouse.click(x, y)
+    page.wait_for_timeout(cfg.glide_dwell_ms)
+    print(f"  · map_click {name!r} → in-polygon pixel ({x:.0f}, {y:.0f})")
+    return True
+
+
 def scroll_page(page: Page, to: str = "bottom", *, max_duration_ms: int = 4000) -> None:
     """Eased scroll to ``"top"``, ``"bottom"``, or a pixel offset."""
     if to == "top":
@@ -688,6 +908,13 @@ def execute_action(
         elif kind == "draw":
             ok = draw_polygon(
                 page, target or "", action.get("points") or [], tool=action.get("tool"), config=cfg
+            )
+            if not ok:
+                error_kind = "target_not_found"
+        elif kind == "map_click":
+            ok = map_click(
+                page, target or value or "",
+                layer=action.get("layer"), source=action.get("source"), config=cfg,
             )
             if not ok:
                 error_kind = "target_not_found"

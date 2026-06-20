@@ -142,6 +142,7 @@ ACTION_KINDS: tuple[str, ...] = (
     "wait_for",    # wait for target text/selector to appear, or value=ms
     "hold",        # dwell in place for seconds (value or seconds)
     "draw",        # draw a polygon on a map/canvas (target=element, points=[[fx,fy],...] fractions)
+    "map_click",   # click a NAMED Mapbox feature (target=feature name; layer/source override defaults)
     "capture",     # read an id off the live page into ${var} for LATER scenes (source=url|element)
 )
 
@@ -338,6 +339,32 @@ class DrawAction(_ActionBase):
     tool: str | None = None
 
 
+class MapClickAction(_ActionBase):
+    """Click a NAMED Mapbox feature on the main map by its ``name`` property.
+
+    The labelled-element verbs can't express it: a ward polygon is a feature INSIDE
+    the map canvas with no DOM node of its own. ``map_click`` finds the map in the
+    page (``window.__review.map`` for the microplans editor, else any map-shaped
+    global), looks up the feature whose ``name`` equals ``target`` on the boundary
+    FILL layer (falling back to the source when it's loaded-but-not-painted),
+    computes a point guaranteed to lie INSIDE the polygon (a concave-safe interior
+    point, not a naive centroid), projects it to screen pixels, and dispatches a REAL
+    cursor click there — so the app's own ``map.on('click', FILL, …)`` handler fires
+    and the boundary is added, exactly as if a person clicked the ward.
+
+    ``target`` is the feature name (e.g. ``Attakar``); ``${var}`` substitution
+    applies. ``layer`` / ``source`` override the microplans defaults
+    (``mp-admin-fill`` / ``mp-admin``) for other maps. Set ``must_succeed: true``
+    when the rest of the scene is nonsense without the boundary added — the recorder
+    then aborts cleanly if the named feature can't be resolved.
+    """
+
+    kind: Literal["map_click"]
+    target: str
+    layer: str | None = None
+    source: str | None = None
+
+
 class CaptureAction(_ActionBase):
     """Read a value off the live page into ``${var}`` for LATER scenes/actions.
 
@@ -395,7 +422,7 @@ Action = Annotated[
     Union[
         GotoAction, ClickAction, ClickMenuAction, FillAction, SelectAction,
         TypeAction, PressAction, HoverAction, ScrollToAction, ScrollAction,
-        WaitForAction, HoldAction, DrawAction, CaptureAction,
+        WaitForAction, HoldAction, DrawAction, MapClickAction, CaptureAction,
     ],
     Field(discriminator="kind"),
 ]
@@ -407,7 +434,7 @@ Action = Annotated[
 ACTION_CLASSES: tuple[type[_ActionBase], ...] = (
     GotoAction, ClickAction, ClickMenuAction, FillAction, SelectAction,
     TypeAction, PressAction, HoverAction, ScrollToAction, ScrollAction,
-    WaitForAction, HoldAction, DrawAction, CaptureAction,
+    WaitForAction, HoldAction, DrawAction, MapClickAction, CaptureAction,
 )
 
 
