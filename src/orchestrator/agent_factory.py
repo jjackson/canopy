@@ -268,6 +268,14 @@ Add a new outbound action? Add an `approve` (or `deny`) rule — do not just wri
 at the start of every turn and follow it in order.** Running a turn from memory is exactly how
 steps get dropped under load.
 
+## Canopy is installed alongside this agent
+{{AGENT_NAME}} runs with the **canopy plugin + CLI** available. Shared infra lives in canopy, not
+here: the gating *engine*, channel adapters, the canopy-web client (`canopy agent-publish`), and
+the fleet self-improvement loop. This repo holds only what is {{AGENT_NAME}}-specific — persona,
+domain skills, gating *rules* (`config/gating.json`), allowlist, secrets. When something is pure
+infra you'd want every agent to get, it belongs in canopy; raise it there, don't fork it here.
+{{AGENT_NAME}}'s web workspace is `/agents/{{AGENT_SLUG}}` on canopy-web.
+
 ## Conventions
 - Capability logic belongs in CLIs / MCP tools; skills (`SKILL.md`) orchestrate. That keeps the
   agent portable to the Claude Agent SDK later (MCP is the portability boundary).
@@ -352,8 +360,19 @@ Give the human ONE combined summary: per counterpart — proposed action, what w
 what is parked; plus anything still blocked from preflight. Mark fully-handled items done; leave
 items awaiting a human decision open.
 
+Then refresh {{AGENT_NAME}}'s canopy-web workspace so `/agents/{{AGENT_SLUG}}` reflects this turn
+(provided by the installed canopy plugin — no per-agent client to maintain):
+```
+canopy agent-publish skills        # mirror the skill catalog (registers the agent if new)
+```
+If this turn produced a shareable deliverable, also `canopy agent-publish work <items.json>`. The
+board at `/agents/{{AGENT_SLUG}}` is the shared trigger + approval surface — where teammates queue
+work and approve outbound actions.
+
 ## Related skills
 - `self-review` — gate every outbound reply against the original request before sending.
+- canopy plugin (installed alongside this agent) — `create-agent`, `agent-publish`, `improve`, and
+  the fleet self-improvement loop. {{AGENT_NAME}} has canopy's skills available; use them.
 '''
 
 _SELF_REVIEW_SKILL = '''---
@@ -420,6 +439,15 @@ __pycache__/
 .DS_Store
 '''
 
+_AGENT_JSON = '''{
+  "_doc": "{{AGENT_NAME}}'s identity for its canopy-web workspace (/agents/{{AGENT_SLUG}}). Read by `canopy agent-publish`. slug + description come from .claude-plugin/plugin.json; these override/extend.",
+  "name": "{{AGENT_NAME}}",
+  "email": "{{MAILBOX}}",
+  "persona": "{{MANDATE}}",
+  "avatar_url": ""
+}
+'''
+
 _TEMPLATES: dict[str, str] = {
     ".claude-plugin/plugin.json": _PLUGIN_JSON,
     "CLAUDE.md": _CLAUDE_MD,
@@ -429,6 +457,7 @@ _TEMPLATES: dict[str, str] = {
     ".env.tpl": _ENV_TPL,
     "config/gating.json": _GATING_JSON,
     "config/allowlist.txt": _ALLOWLIST,
+    "config/agent.json": _AGENT_JSON,
     ".claude/settings.json": _SETTINGS_JSON,
     "hooks/gating_guard.py": _GATING_GUARD,
     "skills/turn/SKILL.md": _TURN_SKILL,

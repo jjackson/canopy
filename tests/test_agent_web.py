@@ -1,0 +1,80 @@
+"""Tests for the canopy-web agent client (identity resolution + catalog; no live network)."""
+import json
+import subprocess
+
+import pytest
+
+from orchestrator.agent_factory import AgentSpec, create_agent
+from orchestrator.agent_web import (
+    AgentWebError,
+    catalog_from_repo,
+    gh_blob_base,
+    resolve_identity,
+)
+
+
+def _agent(tmp_path):
+    spec = AgentSpec(
+        slug="echo", display_name="Echo", mandate="be the marketing agent.",
+        mailbox="echo@dimagi-ai.com",
+    )
+    create_agent(spec, tmp_path / "echo")
+    return tmp_path / "echo"
+
+
+def test_resolve_identity_from_generated_agent(tmp_path):
+    repo = _agent(tmp_path)
+    ident = resolve_identity(repo)
+    assert ident["slug"] == "echo"
+    # config/agent.json overrides apply
+    assert ident["email"] == "echo@dimagi-ai.com"
+    assert ident["name"] == "Echo"
+    assert ident["persona"]
+
+
+def test_resolve_identity_requires_plugin_json(tmp_path):
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(AgentWebError):
+        resolve_identity(tmp_path / "empty")
+
+
+def test_resolve_identity_without_agent_json_falls_back(tmp_path):
+    repo = _agent(tmp_path)
+    (repo / "config" / "agent.json").unlink()
+    ident = resolve_identity(repo)
+    assert ident["slug"] == "echo"
+    assert ident["name"] == "Echo"          # derived from slug
+    assert ident["email"] == ""             # no override available
+
+
+def test_catalog_from_repo_lists_skills(tmp_path):
+    repo = _agent(tmp_path)
+    cat = {e["name"] for e in catalog_from_repo(repo)}
+    assert "turn" in cat
+    assert "self-review" in cat
+
+
+def test_gh_blob_base_parses_github_remotes(tmp_path):
+    repo = _agent(tmp_path)
+    # no remote yet -> empty
+    assert gh_blob_base(repo) == ""
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "remote", "add", "origin", "git@github.com:dimagi-internal/echo.git"],
+        cwd=repo, check=True,
+    )
+    base = gh_blob_base(repo)
+    assert base == "https://github.com/dimagi-internal/echo/blob/main/skills/{name}/SKILL.md"
+    # catalog uses it to build per-skill URLs
+    urls = {e["name"]: e["url"] for e in catalog_from_repo(repo)}
+    assert urls["turn"].endswith("/skills/turn/SKILL.md")
+
+
+def test_gh_blob_base_handles_https_remote(tmp_path):
+    repo = _agent(tmp_path)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "remote", "add", "origin", "https://github.com/foo/bar.git"],
+        cwd=repo, check=True,
+    )
+    assert gh_blob_base(repo).startswith("https://github.com/foo/bar/blob/main/")

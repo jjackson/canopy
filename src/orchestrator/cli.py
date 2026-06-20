@@ -1494,3 +1494,83 @@ def create_agent_cmd(slug, name, mandate, mailbox, stakeholders, target, force, 
     click.echo("  2. Add domain skills under skills/<name>/SKILL.md.")
     click.echo("  3. Add outbound actions as approve/deny rules in config/gating.json.")
     click.echo("  4. Wire a channel adapter + setup/preflight for your secrets.")
+
+
+@main.group("agent-publish")
+def agent_publish():
+    """Publish an agent repo to its canopy-web workspace (/agents/<slug>).
+
+    Run from an agent repo root (or pass --repo). Resolves identity from the repo's
+    .claude-plugin/plugin.json + optional config/agent.json. Needs a canopy-web PAT
+    (CANOPY_WEB_PAT or ~/.claude/canopy/workbench-token).
+    """
+
+
+def _agent_repo(repo):
+    from pathlib import Path
+    return Path(repo).expanduser() if repo else Path.cwd()
+
+
+@agent_publish.command("register")
+@click.option("--repo", default=None, type=click.Path(), help="Agent repo (default: cwd)")
+def agent_publish_register(repo):
+    """Register (idempotent) the agent as a first-class canopy-web agent."""
+    import json as json_mod
+    from orchestrator.agent_web import register, AgentWebError
+    try:
+        click.echo(json_mod.dumps(register(_agent_repo(repo))))
+    except AgentWebError as e:
+        raise click.ClickException(str(e))
+
+
+@agent_publish.command("skills")
+@click.option("--repo", default=None, type=click.Path(), help="Agent repo (default: cwd)")
+def agent_publish_skills(repo):
+    """Mirror the agent's skills/*/SKILL.md into its canopy-web skill catalog."""
+    import json as json_mod
+    from orchestrator.agent_web import put_skills, register, AgentWebError
+    try:
+        register(_agent_repo(repo))            # ensure the agent exists first
+        click.echo(json_mod.dumps(put_skills(_agent_repo(repo))))
+    except AgentWebError as e:
+        raise click.ClickException(str(e))
+
+
+@agent_publish.command("sync")
+@click.option("--repo", default=None, type=click.Path(), help="Agent repo (default: cwd)")
+@click.option("--doc-url", required=True)
+@click.option("--title", required=True)
+@click.option("--summary", default="")
+@click.option("--grades", default="{}", help='JSON, e.g. \'{"work":"B+","skills":"A-"}\'')
+@click.option("--period-start", required=True)
+@click.option("--period-end", required=True)
+@click.option("--source", default="manager-sync")
+def agent_publish_sync(repo, doc_url, title, summary, grades, period_start, period_end, source):
+    """Post a sync (the gdoc is the body; grades + summary land on the feed card)."""
+    import json as json_mod
+    from orchestrator.agent_web import post_sync, register, AgentWebError
+    try:
+        register(_agent_repo(repo))
+        out = post_sync(
+            _agent_repo(repo), doc_url=doc_url, title=title, summary=summary,
+            grades=json_mod.loads(grades), period_start=period_start,
+            period_end=period_end, source=source,
+        )
+        click.echo(json_mod.dumps(out))
+    except AgentWebError as e:
+        raise click.ClickException(str(e))
+
+
+@agent_publish.command("work")
+@click.option("--repo", default=None, type=click.Path(), help="Agent repo (default: cwd)")
+@click.argument("items_json", type=click.Path(exists=True))
+def agent_publish_work(repo, items_json):
+    """Push work products from a JSON file: [{title,kind,url,description,tags,source}]."""
+    import json as json_mod
+    from orchestrator.agent_web import push_work, register, AgentWebError
+    try:
+        register(_agent_repo(repo))
+        items = json_mod.load(open(items_json))
+        click.echo(json_mod.dumps(push_work(_agent_repo(repo), items)))
+    except AgentWebError as e:
+        raise click.ClickException(str(e))
