@@ -1496,6 +1496,63 @@ def create_agent_cmd(slug, name, mandate, mailbox, stakeholders, target, force, 
     click.echo("  4. Wire a channel adapter + setup/preflight for your secrets.")
 
 
+@main.command("agent-review")
+@click.argument("agent")
+@click.option("--hours", default=168, type=int, help="Look back this many hours (default: 7 days)")
+@click.option("--no-llm", is_flag=True, help="Deterministic friction signals only; skip claude -p")
+@click.option("--model", default="sonnet", help="Model for the synthesis pass")
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def agent_review_cmd(agent, hours, no_llm, model, as_json):
+    """Review an agent's recent TURNS for operating-model friction and recommend fixes.
+
+    AGENT is a slug (e.g. `echo`) or a path to the agent repo. Build 2 of the agent operating
+    model — points canopy's analyze→propose loop at an agent's own turns. See
+    docs/agent-operating-model.md §4 Build 2.
+    """
+    import json as json_mod
+    from orchestrator.agent_review import run_review, FRICTION_TYPES
+
+    result = run_review(agent, hours=hours, use_llm=not no_llm, model=model)
+
+    if as_json:
+        click.echo(json_mod.dumps(result, indent=2, default=str))
+        return
+    if result.get("error") and not result.get("turns"):
+        raise click.ClickException(result["error"])
+
+    click.echo(f"Agent: {result['agent']}  ({result['repo']})")
+    click.echo(f"Turns reviewed (last {hours}h): {result['turns']}")
+    # Deterministic signal rollup
+    sig = result.get("signals", [])
+    fails = sum(len(s["failures"]) for s in sig)
+    blocks = sum(len(s["gating_blocks"]) for s in sig)
+    auth = sum(len(s["auth_friction"]) for s in sig)
+    gaps = {}
+    for s in sig:
+        for g in s["checklist_gaps"]:
+            gaps[g] = gaps.get(g, 0) + 1
+    click.echo(f"  tool failures: {fails}  •  gating blocks: {blocks}  •  auth friction: {auth}")
+    if gaps:
+        click.echo("  checklist gaps: " + ", ".join(f"{k}×{v}" for k, v in sorted(gaps.items())))
+
+    findings = result.get("findings", [])
+    if findings:
+        click.echo(f"\nFindings ({len(findings)}):")
+        for f in findings:
+            if not isinstance(f, dict):
+                continue
+            conf = f.get("confidence", "?")
+            click.echo(f"  [{f.get('friction_type','?')}/{conf}] {f.get('title','')}")
+            if f.get("target"):
+                click.echo(f"      fix: {f.get('fix_kind','?')} → {f['target']}")
+            if f.get("recommendation"):
+                click.echo(f"      {str(f['recommendation'])[:160]}")
+    elif result.get("error"):
+        click.echo(f"\n(no LLM findings — {result['error']})")
+    elif not no_llm:
+        click.echo("\nNo findings synthesized.")
+
+
 @main.group("agent-publish")
 def agent_publish():
     """Publish an agent repo to its canopy-web workspace (/agents/<slug>).
