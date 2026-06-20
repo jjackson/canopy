@@ -723,7 +723,7 @@ reads as a slideshow.
 Declare `actions` per scene in the spec (see `ddd-spec` for authoring + the
 `Action` schema in `scripts/narrative/models.py`). Verbs: `goto`, `click`,
 `click_menu`, `fill`, `select`, `type`, `press`, `hover`, `scroll_to`,
-`scroll`, `wait_for`, `hold`, `draw`, `capture`. Each action is
+`scroll`, `wait_for`, `hold`, `draw`, `map_click`, `capture`. Each action is
 `{kind, target?, value?, seconds?, note?}`; `target` is visible text OR a CSS
 selector. For `kind: capture` (mint a `${var}` on camera — see the **Capture +
 late binding** section below), read an id off the page (`source: url` or
@@ -734,7 +734,10 @@ attribute / a digit-only string as the 0-based index / the visible label —
 recorder tries each in order. For `kind: draw` (drawing a polygon on a
 map / canvas — see the `draw` section below), `target` is the canvas
 element, `points` is a list of `[fx, fy]` fractions (0-1) within its box,
-and `tool` is the draw-tool button to activate first. Example:
+and `tool` is the draw-tool button to activate first. For `kind: map_click`
+(click a NAMED map feature — see the `map_click` section below), `target` is the
+feature's `name` (e.g. a ward) and the app's own click handler does the rest.
+Example:
 
 ```yaml
 scenes:
@@ -937,6 +940,32 @@ buttons.
 - { kind: draw, target: "css:#map", tool: "css:.mapbox-gl-draw_polygon", points: [[0.35,0.4],[0.6,0.4],[0.6,0.7],[0.35,0.7]] }
 - { kind: draw, target: "css:#leaflet-map", tool: "css:.leaflet-draw-draw-polygon", points: [[0.2,0.2],[0.8,0.2],[0.8,0.8],[0.2,0.8]] }
 - { kind: draw, target: "css:#custom-canvas", tool: "testid:rectangle-tool", points: [[0.1,0.1],[0.9,0.9]] }
+```
+
+**`kind: map_click` for clicking a NAMED map feature.** When the persona clicks a
+specific *labelled* polygon on the main map — a ward, district, or any feature the
+app's own `map.on('click', LAYER, …)` handler turns into a selection — `draw` is the
+wrong verb (that sketches a new shape) and `click` can't reach it (a polygon is a
+feature inside the canvas, not a DOM node). `map_click` clicks it by name: it finds
+the Mapbox map in the page (`window.__review.map` for the microplans editor, else any
+map-shaped global), looks up the feature whose `name` property equals `target` on the
+boundary FILL layer (falling back to the SOURCE when the feature is loaded but not
+currently painted), computes a point guaranteed to lie **inside** the polygon (a
+concave-safe interior point, not a naive centroid that can fall outside an L-shaped
+ward), `map.project()`s it to screen pixels, and dispatches a **real** cursor click
+there — so the app's click handler fires and the boundary is added, exactly as if a
+person clicked the ward. `target` is the feature name (`${var}` substitution applies);
+`layer` / `source` override the microplans defaults (`mp-admin-fill` / `mp-admin`) for
+other maps. Set `must_succeed: true` when the rest of the scene depends on the
+boundary being added — the recorder then aborts cleanly if the named feature can't be
+resolved, instead of silently clicking empty canvas.
+
+```yaml
+# microplans editor: click the Attakar ward polygon to add it as the intervention arm
+- { kind: click, target: "css:#btn-area-admin", note: "ensure the Boundaries layer is on" }
+- { kind: map_click, target: "Attakar", must_succeed: true, note: "click the ward on the map → auto-adds" }
+# another map: override layer/source for a non-microplans Mapbox map
+- { kind: map_click, target: "District 7", layer: "districts-fill", source: "districts" }
 ```
 
 **Per-scene viewport override.** Most specs render at one viewport (the
