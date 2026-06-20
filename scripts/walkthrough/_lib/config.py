@@ -62,6 +62,113 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields, replace
 
+# --------------------------------------------------------------------------- #
+# Scene pace — teach vs flow (per-scene tempo, orthogonal to video_pace)
+# ===========================================================================
+#
+# ``video_pace`` (fast | medium | slow) is the WHOLE video's tempo — it picks a
+# RecorderConfig preset. ``Scene.pace`` (teach | flow) is a PER-SCENE modifier
+# layered on top of whatever preset is in force, so an author can mark which
+# individual beats need full read-time and which are just connective tissue:
+#
+#   • teach  — explain the mechanic. Full read-time pacing: the viewer is
+#              meeting this UI / concept for the first time, so holds, settles,
+#              and a deliberate cursor glide all matter. This is the DEFAULT and
+#              is byte-for-byte the pre-existing behavior — a scene with no
+#              ``pace:`` field is a teach scene.
+#
+#   • flow   — the feature is already established; this beat just shows
+#              CONTINUITY (navigate there, glance, move on). Compress it:
+#              clamp the blind holds to a small ceiling, drop the post-nav
+#              settle dwell, and move the cursor faster. Pair with terse or no
+#              VO — a flow scene is a transition, not a lesson.
+#
+# Only ``flow`` transforms the config; ``teach`` / ``None`` / unknown return the
+# config unchanged (fully backward-compatible). The transform is a pure function
+# (:func:`apply_scene_pace`) so it's unit-testable without a browser.
+
+#: The ceiling (ms) every blind hold is clamped to in a ``flow`` scene —
+#: ``initial_hold_ms``, ``final_hold_ms``, ``goto_settle_ms``, the per-primitive
+#: ``post_*_settle`` dwells, and an explicit ``hold`` action's duration (see
+#: ``HOLD_ACTION_FLOW_CEILING_MS``). 600ms is long enough that a frame doesn't
+#: read as a jump-cut but short enough to feel like brisk forward motion. Holds
+#: already SHORTER than this (a fast-preset 400ms settle) are left alone — flow
+#: only ever clamps DOWN, never pads up.
+FLOW_HOLD_CEILING_MS: int = 600
+
+#: ``goto_settle_ms`` is dropped to this in a flow scene — a flow beat doesn't
+#: need the post-navigation dwell to let a first-time viewer orient; the
+#: crossfade already hides the nav flash, so cut almost all of it.
+FLOW_GOTO_SETTLE_MS: int = 200
+
+#: Explicit ``hold`` actions in a flow scene are clamped to this ceiling. An
+#: author who dropped a ``hold 4`` in a beat they later mark ``flow`` shouldn't
+#: get a 4s freeze in a connective scene — but a hold is still an INTENTIONAL
+#: dwell, so flow keeps a touch more than the generic ``FLOW_HOLD_CEILING_MS``.
+HOLD_ACTION_FLOW_CEILING_MS: int = 700
+
+#: Cursor travel speed multiplier for a flow scene. ``slow_move`` animates the
+#: glide one mouse-move step at a time, so FEWER steps == a FASTER-reading
+#: cursor. 1.8x means ``cursor_steps`` (and the short re-centre count) are
+#: divided by 1.8 (floored at a small minimum so the glide still animates rather
+#: than teleports). Within the requested 1.6–2x band.
+FLOW_CURSOR_SPEEDUP: float = 1.8
+
+#: Floor on the divided cursor-step counts — below this the glide reads as a
+#: teleport (a jump-cut) instead of fast travel. Keeps flow brisk, not janky.
+FLOW_CURSOR_STEPS_MIN: int = 6
+
+
+def apply_scene_pace(config: "RecorderConfig", pace: str | None) -> "RecorderConfig":
+    """Return a per-scene config for ``pace`` ∈ {``teach``, ``flow``, ``None``}.
+
+    ``teach`` / ``None`` / any unknown value → the input config unchanged (so a
+    spec that never sets ``pace`` records identically to before this field
+    existed — full backward compatibility).
+
+    ``flow`` → a compressed copy: every blind hold/settle clamped DOWN to
+    :data:`FLOW_HOLD_CEILING_MS` (the post-nav settle to the tighter
+    :data:`FLOW_GOTO_SETTLE_MS`), and the cursor-step counts divided by
+    :data:`FLOW_CURSOR_SPEEDUP` (floored at :data:`FLOW_CURSOR_STEPS_MIN`) so the
+    cursor travels ~1.8x faster. Clamps are ``min(...)`` — a hold already shorter
+    than the ceiling (e.g. under the fast preset) is left as-is; flow never pads.
+
+    Pure function — no I/O, no Page — so the pace→durations resolution is unit
+    tested directly (see test_config_pace.py).
+    """
+    if pace != "flow":
+        return config
+
+    def _clamp(value: int, ceiling: int) -> int:
+        return min(int(value), ceiling)
+
+    def _faster_steps(steps: int) -> int:
+        return max(FLOW_CURSOR_STEPS_MIN, int(int(steps) / FLOW_CURSOR_SPEEDUP))
+
+    return replace(
+        config,
+        # scene-level blind holds → flow ceiling
+        initial_hold_ms=_clamp(config.initial_hold_ms, FLOW_HOLD_CEILING_MS),
+        final_hold_ms=_clamp(config.final_hold_ms, FLOW_HOLD_CEILING_MS),
+        min_hold_ms=_clamp(config.min_hold_ms, FLOW_HOLD_CEILING_MS),
+        # post-nav settle → tighter flow goto ceiling (crossfade hides the flash)
+        goto_settle_ms=_clamp(config.goto_settle_ms, FLOW_GOTO_SETTLE_MS),
+        # explicit `hold` actions get a (slightly looser) ceiling in flow scenes
+        hold_action_ceiling_ms=HOLD_ACTION_FLOW_CEILING_MS,
+        # per-primitive settle dwells → flow ceiling
+        post_click_settle_ms=_clamp(config.post_click_settle_ms, FLOW_HOLD_CEILING_MS),
+        menu_click_settle_ms=_clamp(config.menu_click_settle_ms, FLOW_HOLD_CEILING_MS),
+        post_fill_settle_ms=_clamp(config.post_fill_settle_ms, FLOW_HOLD_CEILING_MS),
+        post_select_settle_ms=_clamp(config.post_select_settle_ms, FLOW_HOLD_CEILING_MS),
+        scroll_settle_ms=_clamp(config.scroll_settle_ms, FLOW_HOLD_CEILING_MS),
+        glide_dwell_ms=_clamp(config.glide_dwell_ms, FLOW_HOLD_CEILING_MS),
+        click_dwell_ms=_clamp(config.click_dwell_ms, FLOW_HOLD_CEILING_MS),
+        pre_click_dwell_ms=_clamp(config.pre_click_dwell_ms, FLOW_HOLD_CEILING_MS),
+        # faster cursor travel
+        cursor_steps=_faster_steps(config.cursor_steps),
+        cursor_steps_short=_faster_steps(config.cursor_steps_short),
+    )
+
 
 @dataclass(frozen=True)
 class RecorderConfig:
@@ -132,6 +239,14 @@ class RecorderConfig:
     """Crossfade the outgoing scene's frame over the incoming page to hide the
     browser's white navigation flash. Set False to disable (e.g. when debugging
     raw page state, or for specs where the flash is wanted)."""
+
+    hold_action_ceiling_ms: int | None = None
+    """Optional cap (ms) on an explicit ``hold`` action's duration. ``None`` (the
+    default) = unbounded: a ``hold 4`` waits the full 4s, exactly as before. Set
+    to a ceiling and any longer ``hold`` is clamped DOWN to it. Used only by a
+    ``flow`` scene's per-scene config (``apply_scene_pace`` sets it to
+    ``HOLD_ACTION_FLOW_CEILING_MS``) so a deliberate dwell in a beat later marked
+    ``flow`` doesn't freeze a connective scene; teach scenes leave it ``None``."""
 
     # ---- action-level: native <select> reveal ----------------------------
     select_reveal: bool = True

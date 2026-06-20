@@ -80,7 +80,7 @@ _CROSSFADE_JS = r"""
 }
 """
 
-from .config import RecorderConfig
+from .config import RecorderConfig, apply_scene_pace
 from .recorder import execute_action
 from .results import ActionResult, RunReport
 
@@ -561,6 +561,35 @@ class Recorder:
         ``scene["scene_index"]`` (set by ``build_scenes_from_spec``).
         """
         idx = scene_index if scene_index is not None else scene.get("scene_index")
+        # Per-scene pace (teach | flow). ``flow`` compresses THIS scene only:
+        # clamped holds/settles + a faster cursor (see apply_scene_pace). We swap
+        # ``self.config`` for the scene's effective config so every config reader
+        # below — goto_and_settle, the initial/final holds, and execute_action's
+        # per-primitive settles + cursor steps + hold-action ceiling — sees the
+        # compressed values, then restore the base config in the finally so the
+        # next (possibly teach) scene is unaffected. ``teach`` / absent → the
+        # base config is returned unchanged, so this is a no-op for every existing
+        # spec.
+        base_config = self.config
+        self.config = apply_scene_pace(base_config, scene.get("pace"))
+        try:
+            return self._run_scene_body(
+                page, scene, idx=idx, nav_sink=nav_sink
+            )
+        finally:
+            self.config = base_config
+
+    def _run_scene_body(
+        self,
+        page: Page,
+        scene: dict,
+        *,
+        idx: int | None,
+        nav_sink: list[str] | None,
+    ) -> float:
+        """The per-scene record loop, run under the scene's effective (pace-adjusted)
+        ``self.config``. Split out of :meth:`run_scene` so the pace swap/restore
+        is a clean try/finally wrapper rather than indenting the whole body."""
         # Per-scene wall-clock timing for the run report. Captured BEFORE the
         # nav so ``start_seconds`` marks the moment this scene begins on the
         # recording timeline (nav + settle + actions + final hold all count

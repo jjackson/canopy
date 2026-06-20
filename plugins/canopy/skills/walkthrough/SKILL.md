@@ -223,6 +223,9 @@ scenes:
     ai_quality: "KPI descriptions should be specific to the program, not generic"  # optional
     video_hold_seconds: 8         # optional, legacy — end-of-scene hold override; prefer a
                                   # `hold` action (see "Recording time & dead space")
+    pace: flow                    # optional — teach (default; full read-time) | flow
+                                  # (this beat is just continuity → compressed holds +
+                                  # faster cursor; pair with terse/no narration)
     viewport: { width: 1440, height: 900 }  # optional — per-scene viewport override
                                             # (this scene only; other scenes stay at the
                                             # spec-level video_viewport_width/height)
@@ -1007,6 +1010,28 @@ post-click settles:
 
 Any individual knob can be overridden via `video_recorder_config: {<field>: <ms>}`
 (see `scripts/walkthrough/_lib/config.py` for the full field list).
+
+**Per-scene `pace: teach | flow`** is a tempo modifier layered on top of the
+global preset, set on an individual scene (not the whole video like `video_pace`):
+
+- **`teach`** (default — absent `pace:` is `teach`) — explain the mechanic. Full
+  read-time pacing, because the viewer is meeting this UI/concept for the first
+  time. Identical to behavior before this field existed; every existing spec is
+  all-teach and records byte-for-byte the same.
+- **`flow`** — the feature is already established and this beat just shows
+  **continuity** (navigate there, glance, move on). The recorder compresses the
+  scene: blind holds/settles clamped to a ~600ms ceiling, the post-nav settle
+  cut to ~200ms (the crossfade already hides the flash), explicit `hold` actions
+  capped at ~700ms, and the cursor ~1.8x faster. Pair it with terse or no
+  narration — a flow scene is a transition, not a lesson.
+
+Use `flow` for the connective beats of a long demo (returning to a list,
+hopping to an already-shown screen) and `teach` (or just omit it) for the beats
+that introduce something. The compression is per-scene — a `flow` scene never
+affects the `teach` scene before or after it. The pace→durations resolution
+lives in `apply_scene_pace` (`scripts/walkthrough/_lib/config.py`), and the
+named ceiling/speedup constants (`FLOW_HOLD_CEILING_MS`, `FLOW_GOTO_SETTLE_MS`,
+`HOLD_ACTION_FLOW_CEILING_MS`, `FLOW_CURSOR_SPEEDUP`) are documented there.
 
 **The dwell hierarchy — which knob to reach for when you want the viewer to
 sit with a screen.** Three knobs hold a frame on purpose; use them in this

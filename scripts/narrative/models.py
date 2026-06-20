@@ -474,6 +474,18 @@ class Scene(BaseModel):
     so this only matters for table-dominant pages. WebGL/Mapbox itself renders +
     composites headlessly via the recorder's SwiftShader flags given a long
     enough ``hold`` for tiles to paint — see ddd-spec "Map / WebGL scenes"."""
+    pace: Literal["teach", "flow"] | None = None
+    """Optional per-scene tempo. ``teach`` (the default — ``None`` is treated as
+    ``teach``) gives the beat full read-time pacing: deliberate holds, settles,
+    and cursor glide, for a UI/concept the viewer is meeting for the FIRST time.
+    ``flow`` marks a beat where the feature is already established and this scene
+    is just CONTINUITY — the recorder compresses it (holds/settles clamped to a
+    small ceiling, the post-nav settle dropped, the cursor ~1.8x faster) so it
+    reads as brisk forward motion, not another lesson. Pair ``flow`` with terse
+    or no narration. Compression is per-scene and applied by
+    ``scripts.walkthrough._lib.config.apply_scene_pace``; teach scenes record
+    byte-for-byte as before this field existed."""
+
     narrative: str = ""
     """Canonical per-scene narrative text — the story beat the reviewer reads.
     May be one OR MORE sentences (per gap-flexible-scene-length). When set, it
