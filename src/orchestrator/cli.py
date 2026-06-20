@@ -1631,3 +1631,118 @@ def agent_publish_work(repo, items_json):
         click.echo(json_mod.dumps(push_work(_agent_repo(repo), items)))
     except AgentWebError as e:
         raise click.ClickException(str(e))
+
+
+@main.group("openclaw-harvest")
+def openclaw_harvest():
+    """Bridge a live OpenClaw into the canopy fleet — snapshot, compare to its GitHub repo, and
+    bootstrap a new agent or reconcile its latest skills/ideas in. OpenClaw content is read-safe;
+    credential files are never pulled. See docs/agent-operating-model.md."""
+
+
+@openclaw_harvest.command("snapshot")
+@click.argument("host")
+@click.option("--into", "into", required=True, type=click.Path(), help="Local dir to pull into")
+@click.option("--root", default="~/.openclaw", help="OpenClaw root on the host")
+def openclaw_snapshot(host, into, root):
+    """rsync an OpenClaw's readable workspace (persona/skills/memory, NOT creds) from HOST."""
+    from orchestrator.openclaw_harvest import snapshot_via_ssh, HarvestError
+    from pathlib import Path
+    try:
+        pulled = snapshot_via_ssh(host, Path(into), openclaw_root=root)
+    except HarvestError as e:
+        raise click.ClickException(str(e))
+    click.echo(f"Pulled {len(pulled)} file(s) to {into}")
+    for p in pulled[:40]:
+        click.echo(f"  {p}")
+
+
+@openclaw_harvest.command("inventory")
+@click.argument("snapshot_dir", type=click.Path(exists=True))
+@click.option("--json-output", "as_json", is_flag=True)
+def openclaw_inventory(snapshot_dir, as_json):
+    """Inventory a local OpenClaw snapshot (persona, skills, memory)."""
+    import json as json_mod
+    from orchestrator.openclaw_harvest import inventory_snapshot, HarvestError
+    try:
+        inv = inventory_snapshot(snapshot_dir)
+    except HarvestError as e:
+        raise click.ClickException(str(e))
+    if as_json:
+        click.echo(json_mod.dumps(inv, indent=2, default=str)); return
+    click.echo(f"persona: {'present' if inv['has_persona'] else 'none'}  •  "
+               f"skills: {len(inv['skills'])}  •  memory files: {len(inv['memory'])}")
+    for s in inv["skills"]:
+        click.echo(f"  skill {s['key']:<24} {s['description'][:70]}")
+
+
+@openclaw_harvest.command("compare")
+@click.argument("snapshot_dir", type=click.Path(exists=True))
+@click.argument("agent")
+@click.option("--json-output", "as_json", is_flag=True)
+def openclaw_compare(snapshot_dir, agent, as_json):
+    """Compare an OpenClaw snapshot to AGENT's canopy repo (slug or path). Says bootstrap vs reconcile."""
+    import json as json_mod
+    from orchestrator.openclaw_harvest import inventory_snapshot, compare, HarvestError
+    from orchestrator.agent_review import resolve_agent_repo
+    try:
+        inv = inventory_snapshot(snapshot_dir)
+    except HarvestError as e:
+        raise click.ClickException(str(e))
+    repo = resolve_agent_repo(agent)
+    result = compare(inv, repo)
+    if as_json:
+        click.echo(json_mod.dumps(result, indent=2, default=str)); return
+    click.echo(f"recommendation: {result['recommendation'].upper()}")
+    click.echo(f"  {result['summary']}")
+    if result["only_in_openclaw"]:
+        click.echo("  only on the OpenClaw: " + ", ".join(result["only_in_openclaw"]))
+
+
+@openclaw_harvest.command("bootstrap")
+@click.argument("snapshot_dir", type=click.Path(exists=True))
+@click.argument("slug")
+@click.option("--name", default=None)
+@click.option("--mandate", required=True)
+@click.option("--mailbox", default="")
+@click.option("--into", default=None, type=click.Path(), help="Target dir (default: ./<slug>)")
+@click.option("--force", is_flag=True)
+def openclaw_bootstrap(snapshot_dir, slug, name, mandate, mailbox, into, force):
+    """Scaffold a NEW canopy agent repo seeded from an OpenClaw snapshot (persona + ported skills)."""
+    import json as json_mod
+    from pathlib import Path
+    from orchestrator.openclaw_harvest import inventory_snapshot, bootstrap_from_snapshot, HarvestError
+    from orchestrator.agent_factory import normalize_slug, AgentFactoryError
+    try:
+        slug = normalize_slug(slug)
+        inv = inventory_snapshot(snapshot_dir)
+        dest = Path(into).expanduser() if into else Path.cwd() / slug
+        out = bootstrap_from_snapshot(
+            inv, slug=slug, display_name=(name or slug.replace("-", " ").title()),
+            mandate=mandate.strip(), into=dest, mailbox=mailbox, force=force,
+        )
+    except (HarvestError, AgentFactoryError) as e:
+        raise click.ClickException(str(e))
+    click.echo(json_mod.dumps(out, indent=2))
+    click.echo(f"\nSeeded {out['repo']} — ported {len(out['ported_skills'])} OpenClaw skill(s). "
+               "Refine persona.md, then ship.")
+
+
+@openclaw_harvest.command("reconcile")
+@click.argument("snapshot_dir", type=click.Path(exists=True))
+@click.argument("agent")
+def openclaw_reconcile(snapshot_dir, agent):
+    """Port OpenClaw skills missing from AGENT's existing repo into it (stage a PR)."""
+    from orchestrator.openclaw_harvest import inventory_snapshot, port_new_skills, HarvestError
+    from orchestrator.agent_review import resolve_agent_repo
+    try:
+        inv = inventory_snapshot(snapshot_dir)
+    except HarvestError as e:
+        raise click.ClickException(str(e))
+    repo = resolve_agent_repo(agent)
+    if not repo:
+        raise click.ClickException(f"could not resolve agent repo for {agent!r}")
+    ported = port_new_skills(inv, repo)
+    click.echo(f"Ported {len(ported)} skill(s) into {repo}: {', '.join(ported) or '(none)'}")
+    if ported:
+        click.echo("Review the bodies, then branch → PR → merge in the agent repo.")
