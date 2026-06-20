@@ -288,10 +288,11 @@ substrate (proving the extraction is real) → Build 2 loop → Build 3 falls ou
 > numbers ⚠, and marked framing-only sources. The web search did **not** surface verified
 > OpenClaw-specific detail, so §6.1 leans on the firsthand reef evidence instead.
 >
-> *Redo status (2026-06-20):* a re-run was attempted twice; both hit a live server-side
-> throttle on web fetch ("temporarily limiting requests", not our usage limit) — the second got
-> 0 sources. The synthesis below stands on the first run's corroborated claims; an independent
-> re-verification is still pending a throttle clear and can be re-run later.
+> *Redo status (2026-06-20):* re-run. Attempts 1-2 were throttled at the fetch layer (0 sources);
+> attempt 3 **fetched cleanly** — a richer, 11-source all-primary harvest (25 claims) — but the
+> *verification* stage throttled again (same 0-0 abstain). So we now have better-cited material
+> (folded into §6.8), still machine-unverified. The verifier keeps tripping the limit because it
+> fires ~75 calls at once; a future re-run should throttle the verify fan-out.
 
 ### 6.1 OpenClaw — what it is, and why it's opaque (firsthand, via reef)
 
@@ -445,6 +446,60 @@ Nothing reverses; three things sharpen:
    (Voyager + reef agree); memory is narrow (per-contact factual + experiential), temporal-graph
    shaped if/when built. (§6.2, §6.4)
 
+### 6.8 Re-run corroboration (11 primary sources, cited)
+
+A second research pass (2026-06-20) pulled a richer, fully-primary harvest — 11 sources, 25
+claims. Verification was throttled *again* (same 0-0 abstain failure), so these are
+unverified-not-refuted, but every one is corroborable against the primary doc named. Three of
+them are sharp enough to change how we talk about the system:
+
+- **The unit of self-improvement is the *scaffolding*, not the model.** STOP (Zelikman et al.,
+  arXiv `2310.02304`) shows a *fixed* LLM writing code that recursively improves its own
+  *scaffolding program* — and is explicit that this is **not** model-weight self-improvement.
+  This is the academic spine of our whole thesis: canopy improves skills/hooks/CLAUDE (the
+  scaffold), never the model. Build 2 is a scaffolding-improvement loop, which is exactly the
+  tractable, proven layer to operate at.
+- **Today's best-practice self-improvement is *human-prompted capture*, with agent self-authoring
+  as the stated *future*.** Anthropic's Agent Skills engineering post frames agents
+  authoring/editing/evaluating their own skills as a future direction; *today* it's
+  human-prompted capture of successes and mistakes into a skill. So canopy's loop (surface
+  friction → human-gated authoring of a skill/hook fix → ship) isn't a stopgap — it's the
+  current frontier done systematically. Keeping a human/gate in the loop is correct, not a
+  limitation. [anthropic.com/engineering — primary]
+- **A textual-gradient optimization loop measurably works.** APO/ProTeGi (arXiv `2305.03495`)
+  improves a prompt by up to **+31%** using natural-language "gradients" (critiques) + beam
+  search — no weight access. It's the prompt-layer analog of what Build 2 does to skills/hooks,
+  and it quantifies that an automated critique→edit loop yields real gains. [arXiv — primary]
+
+The rest reinforce existing subsections, now with citations:
+
+- **Skills as the capability unit (§6.2)** — a skill is a `SKILL.md` folder (name+description
+  frontmatter + bundled scripts); **three-level progressive disclosure** (metadata always
+  loaded → SKILL.md on demand → bundled files by name); **model-discovered/auto-invoked**; and
+  **portable across surfaces** (one format → Claude apps, Claude Code, API/Agent SDK) — which is
+  literally the "spread a capability across the fleet" mechanism. Voyager (arXiv `2305.16291`)
+  adds: skills are executable code in an ever-growing library, **compositional and compounding**.
+  [anthropic.com/engineering, claude.com/blog/skills, arXiv — primary]
+- **MCP is the integration/portability boundary (§5, §6.2)** — open standard; three capability
+  units (data / tools / workflows); transports (stdio, streamable HTTP, SSE, hosted). Confirms
+  "capability in MCP/CLI, skills orchestrate." [modelcontextprotocol.io — primary]
+- **Self-improvement via verbal feedback (§6.3)** — Reflexion (arXiv `2303.11366`): convert task
+  feedback into self-reflective text in an **episodic memory buffer** that guides the next
+  attempt; no fine-tuning. The in-loop analog of canopy persisting a fix as a durable skill/hook.
+- **Memory architecture (§6.4)** — Generative Agents (arXiv `2304.03442`): memory stream (full
+  NL record) + **reflection** (synthesize memories into higher-level inferences) + retrieval.
+  Note the *reflection* step — even memory-heavy designs convert raw episodes into higher-level
+  learnings, which in our model become skills, not more memories.
+- **Fleet orchestration + gating (§6.5, §6.6)** — Anthropic's multi-agent research system
+  (orchestrator-workers at scale); OpenAI Agents SDK: handoffs *vs.* manager/supervisor
+  orchestration, guardrails that run **in parallel and fail fast**, and `require_approval`
+  (`always`/`never`/bool/per-tool) — invariants-as-config, the same shape as our gating.json.
+  [anthropic.com/engineering, openai.github.io — primary]
+
+**Net:** the re-run didn't change a single recommendation — it *cited* them. The strongest
+addition is STOP + Anthropic Skills jointly: **improve the scaffolding (skills/hooks), human-gate
+the authoring today, and that is the actual frontier — not a compromise.**
+
 ---
 
 ## Appendix — evidence base
@@ -471,5 +526,10 @@ Nothing reverses; three things sharpen:
   - *Agent memory survey* (arXiv `2512.13564`) — primary
   - Neo4j — *Graphiti knowledge-graph memory* — secondary
   - MindStudio — *progressive autonomy* — blog/framing ⚠
-  - *From training knowledge (not in run):* Voyager (arXiv `2305.16291`), Reflexion
-    (arXiv `2303.11366`), Anthropic *Building Effective Agents*.
+  - *From training knowledge (not in run):* Anthropic *Building Effective Agents*.
+- **deep-research re-run** (`wf_096855c9-527`, 2026-06-20, 11 primary sources, 25 claims;
+  verification throttled — see §6.8 caveat): Anthropic *Agent Skills* (engineering) + *Skills*
+  (blog); *Model Context Protocol* intro; OpenAI *Agents SDK* + its *MCP* guide; Reflexion
+  (arXiv `2303.11366`); Voyager (arXiv `2305.16291`); APO/ProTeGi (arXiv `2305.03495`); STOP
+  (arXiv `2310.02304`); Generative Agents (arXiv `2304.03442`); Anthropic *multi-agent research
+  system* — all primary.
