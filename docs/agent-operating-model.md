@@ -178,29 +178,85 @@ Two new first-class requirements drive this:
 - **Channels over time.** Each agent mounts the comms channels it needs (email today; Slack,
   Telegram, etc. later) from a shared adapter interface.
 
-**The hybrid:**
+**Canopy IS the kit.** The "common framework" is not a new package to invent — **canopy itself
+is installed in every agent's environment, as both a Claude Code plugin and a Python package.**
+That single decision answers "where does the shared substrate live" *and* "what stays common vs.
+what goes in the agent's repo":
 
-| Layer | Lives where | Propagation |
-|---|---|---|
-| **Logic** — gating engine, hook library, canopy-web client, **channel adapters**, setup/preflight | **Versioned kit, provided by canopy** (installable package; agents pin a version) | Kit version bump → every agent inherits the fix. *This is the "spread" verb (§6.5) for infrastructure.* |
-| **Editable surface** — persona, the `turn` checklist, domain skills, allowlist, `.env.tpl`, channel *mounts* | **Copied into the agent repo** by `create-agent` | Refreshed via `canopy:agent-sync` (cf. `/canopy:update`). Domain-skill improvements arrive as canopy-authored PRs to the agent repo. |
+- **As a plugin**, canopy gives every agent its cross-agent *skills/commands* — `create-agent`,
+  `improve`, `session-review`, the agent-web publisher, future fleet tooling — available from
+  inside any agent's Claude Code session.
+- **As a package** (`orchestrator.*`, on PATH as the `canopy` CLI), canopy gives every agent's
+  hooks/CLIs the shared *logic* — the gating engine, channel adapters, the canopy-web client —
+  callable via the stable `canopy <subcommand>` interface. Fix it once in canopy, bump, every
+  agent inherits it. *(This is the "spread" verb of §6.5, for infrastructure.)*
 
-**Why the split, not a pure dependency or a pure fork:** skills/hooks must be readable and
-editable *in the agent repo* to be both "forced" (§1a) and improvable by canopy's loop — you
-can't hide them in a package. But channel adapters and the gating engine are pure infra you want
-to fix once and propagate. So: **logic in a versioned kit, the editable agent surface copied and
-sync-refreshed.** The common framework thereby becomes the *spreading mechanism* a fleet needs —
-infra capability propagates through the kit version; domain capability propagates as PRs.
+**The common-vs-agent boundary** (the line you draw when deciding what to extract):
 
-**Channels as a shared adapter interface.** The kit defines an inbound (`reads-free`) /
-outbound (`writes-gated`, per the §6.6 gating table) adapter contract. Adding Telegram later =
-write one adapter in the kit + mount it in the agents that want it — not a per-agent rebuild.
-Echo's `email-communicator` is the first adapter; it gets generalized into the kit.
+| Stays **common** (canopy plugin + package) | Lives **in the agent's repo** |
+|---|---|
+| Gating *engine* (the hook logic) | Gating *rules* (`config/gating.json`) + the thin hook shim + `.claude/settings.json` wiring |
+| Channel *adapters* (email→slack→telegram) | Channel *mounts* (which channels this agent uses) |
+| canopy-web client; self-improvement loop; `create-agent`; cross-agent skills | Persona, domain skills, allowlist, `.env`, the `turn` checklist text |
+| The operating-model invariants (as enforced defaults) | This agent's identity, mandate, secrets |
 
-*v1 pragmatism:* don't block the first factory cut on a perfect package boundary. Start by
-having `create-agent` scaffold a self-contained repo, and extract the shared logic into the kit
-incrementally — beginning with the highest-share pieces (canopy-web client, gating/hook helpers,
-the email adapter), since those are the ones that most want version-propagation.
+Rule of thumb: **logic, adapters, and cross-agent skills are common; identity, rules, secrets,
+and domain skills are the agent's.** Anything an operator must read or edit to understand/steer
+*this* agent stays in the repo (so it's "forced" per §1a and improvable by canopy's loop);
+anything that's pure infra you'd want to fix fleet-wide goes in canopy.
+
+*v1 vs. target:* the factory today **copies** a self-contained gating hook into the agent
+(robust even before canopy is installed as a dependency). The target is a **thin shim** that
+calls canopy's installed engine, leaving only `gating.json` in the repo — so engine fixes
+propagate by bumping canopy. Same pattern for the canopy-web client and channel adapters: copied
+now, thinned to canopy-backed as the package boundary firms up.
+
+**Channels as a shared adapter interface.** Canopy defines an inbound (`reads-free`) / outbound
+(`writes-gated`, per the §6.6 gating table) adapter contract. Adding Telegram later = write one
+adapter in canopy + mount it in the agents that want it — not a per-agent rebuild. Echo's
+`email-communicator` is the first adapter; it gets generalized into canopy.
+
+## 4b. canopy-web — the agent web interface & multi-player (decided direction)
+
+**canopy-web is the web surface for the whole fleet**, not just a per-project dashboard. Echo
+already proved the shape: a first-class `/agents/<slug>` workspace with a kanban **board**,
+**syncs** (with self-grades), **work products**, and a mirrored **skill catalog**, fed by a
+canopy-web client (echo's `bin/echo_canopy.py` against `/api/agents/*`). Generalize that client
+into canopy so **every** agent gets a workspace for free, and canopy-web becomes:
+
+- **The fleet console** — a roster of agents, each with its workspace, turn history, and grades.
+- **The trigger + approval surface** — the board is where humans queue work ("Accept", "do this
+  now", "decline with reason") and, crucially, where **outbound actions get approved** (the
+  run-time HITL gate of §6.6, surfaced to a browser instead of a terminal).
+- **The visibility layer for the self-improvement loop** (Build 2) — observations, proposals, and
+  the PRs canopy ships into an agent's repo show up here as the agent's "getting better" feed.
+
+### Multi-player — why an *agent* is the right place to crack it
+
+Multi-player has been the persistent pain point (and unsolved in ace-web — in practice everyone
+works solo). The structural insight: **collaborating *through an agent* is fundamentally easier
+than collaborating *on a document*, because the agent is a serialization point.** The hardest
+part of multi-player — concurrent conflicting edits to shared state — largely disappears when:
+
+- **The agent is the single-threaded actor.** It runs **one turn at a time**; the "one
+  counterpart / one memory scope per turn" cardinal rule (§1) already forbids the cross-context
+  bleed that sank the shared-OpenClaw topology. Humans don't edit shared state concurrently —
+  they **queue intents** (board tasks) that the agent serializes.
+- **The board is a CRDT-friendly work queue, not a shared canvas.** Append-only task cards +
+  per-card state transitions + per-action approvals compose cleanly across many humans without
+  merge conflicts. Two people can queue two tasks; the agent drains them in order.
+- **Attribution is per-intent.** Who queued a task, who approved a send — recorded on the card.
+  This is the one piece worth building beyond echo's current board (see §5 open Q4).
+
+So the multi-player bet is narrow and tractable: **make canopy-web's agent board the shared
+queue+approval surface, with per-operator attribution, and let the agent's serialized turn be the
+conflict-resolution mechanism.** That sidesteps the part of multi-player that's genuinely hard,
+and it's a different (easier) problem than multi-player editing in ace-web — worth validating
+here precisely because the agent removes the concurrency.
+
+*v1:* generalize the canopy-web client into canopy + have `create-agent` register a workspace and
+add a board-drain step to the generated `turn`. Per-operator attribution and browser-side
+approval come next.
 
 ## 5. Sequencing & open questions
 
@@ -231,6 +287,11 @@ substrate (proving the extraction is real) → Build 2 loop → Build 3 falls ou
 > I've kept claims I can corroborate against the primary docs directly, flagged vendor-reported
 > numbers ⚠, and marked framing-only sources. The web search did **not** surface verified
 > OpenClaw-specific detail, so §6.1 leans on the firsthand reef evidence instead.
+>
+> *Redo status (2026-06-20):* a re-run was attempted twice; both hit a live server-side
+> throttle on web fetch ("temporarily limiting requests", not our usage limit) — the second got
+> 0 sources. The synthesis below stands on the first run's corroborated claims; an independent
+> re-verification is still pending a throttle clear and can be re-run later.
 
 ### 6.1 OpenClaw — what it is, and why it's opaque (firsthand, via reef)
 
