@@ -1438,3 +1438,59 @@ def _print_cycle_result(result: dict) -> None:
         click.echo("Errors:")
         for err in result["errors"]:
             click.echo(f"  - {err}")
+
+
+@main.command("create-agent")
+@click.argument("slug")
+@click.option("--name", default=None, help="Display name (default: derived from slug)")
+@click.option("--mandate", required=True, help="One-line mission for the agent")
+@click.option("--mailbox", default="", help="Primary channel address, e.g. name@dimagi-ai.com")
+@click.option("--stakeholders", default="", help="Who the agent serves")
+@click.option("--into", "target", default=None, type=click.Path(),
+              help="Target directory (default: ./<slug>)")
+@click.option("--force", is_flag=True, help="Scaffold into a non-empty directory")
+@click.option("--git-init/--no-git-init", default=True,
+              help="git init + initial commit in the new repo (default: on)")
+def create_agent_cmd(slug, name, mandate, mailbox, stakeholders, target, force, git_init):
+    """Scaffold a new Claude Code agent from the canopy operating model.
+
+    Generates a self-contained agent repo (persona, the `turn` orchestrator, a reads-free /
+    writes-gated gating hook, canopy-web-ready layout) grounded in the primitives proven by
+    echo. See docs/agent-operating-model.md.
+    """
+    import subprocess
+    from orchestrator.agent_factory import (
+        AgentSpec, create_agent, normalize_slug, AgentFactoryError,
+    )
+
+    try:
+        slug = normalize_slug(slug)
+    except AgentFactoryError as e:
+        raise click.ClickException(str(e))
+
+    display = name or slug.replace("-", " ").title()
+    dest = Path(target).expanduser() if target else Path.cwd() / slug
+    spec = AgentSpec(
+        slug=slug, display_name=display, mandate=mandate.strip(),
+        mailbox=mailbox, stakeholders=stakeholders,
+    )
+    try:
+        written = create_agent(spec, dest, force=force)
+    except AgentFactoryError as e:
+        raise click.ClickException(str(e))
+
+    click.echo(f"Scaffolded {display} — {len(written)} files at {dest}")
+    if git_init and not (dest / ".git").exists():
+        subprocess.run(["git", "init", "-q"], cwd=dest, check=False)
+        subprocess.run(["git", "add", "-A"], cwd=dest, check=False)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", f"scaffold {display} from canopy agent factory"],
+            cwd=dest, check=False,
+        )
+        click.echo("Initialized git repo + initial commit.")
+    click.echo()
+    click.echo("Next:")
+    click.echo("  1. Fill in persona.md (voice, mandate detail, memory scope).")
+    click.echo("  2. Add domain skills under skills/<name>/SKILL.md.")
+    click.echo("  3. Add outbound actions as approve/deny rules in config/gating.json.")
+    click.echo("  4. Wire a channel adapter + setup/preflight for your secrets.")
