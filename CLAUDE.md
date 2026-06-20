@@ -74,6 +74,7 @@ Then follow the plugin-update steps below (`/canopy:update` etc.) if
 - `canopy sessions status` — show session log entry count and classification summary
 - `canopy sessions list [--hours N] [--json-output]` — list recent sessions
 - `canopy create-agent <slug> --mandate "..." [--name --mailbox --stakeholders --into --force]` — scaffold a new Claude Code agent (its own git repo) from the operating model: persona, `turn` orchestrator, reads-free/writes-gated gating hook, canopy-web-ready layout. See `docs/agent-operating-model.md`.
+- `canopy agent-publish {register|skills|sync|work} [--repo DIR ...]` — publish an agent repo to its canopy-web workspace (`/agents/<slug>`): register, mirror the skill catalog, post a sync, or push work products. Run from an agent repo root; identity resolved from its `.claude-plugin/plugin.json` + `config/agent.json`. The shared generalization of echo's `bin/echo_canopy.py`.
 - `canopy improve` — run a full improvement cycle (analyze → propose → implement)
 - `canopy improve --observe-only` — analyze transcripts without proposing
 - `canopy improve --dry-run` — analyze and propose without implementing
@@ -162,6 +163,7 @@ Then follow the plugin-update steps below (`/canopy:update` etc.) if
 - `src/orchestrator/verify_findings.py` — re-verifies session-review proposals against current repo state (backs `canopy verify-findings`)
 - `src/orchestrator/version_bump.py` — VERSION coordination across worktrees (backs `canopy version bump`)
 - `src/orchestrator/agent_factory.py` — agent factory: stamps out a new agent repo from the operating-model templates (persona, turn, the config-driven gating hook). Backs `canopy create-agent`. Templates are embedded as the editable starting point every agent inherits. See `docs/agent-operating-model.md` (§4 Build 1, §4a topology).
+- `src/orchestrator/agent_web.py` — canopy-web agent-workspace client (stdlib urllib): register an agent + mirror its skill catalog / post syncs / push work products to `/api/agents/*`. Slug-agnostic generalization of echo's `bin/echo_canopy.py`; backs `canopy agent-publish`. The "common" half of the §4a boundary — canopy owns the client, the agent repo owns only its identity (`config/agent.json`).
 
 ### Plugin (Claude Code skills, commands, agents)
 - `plugins/canopy/skills/` — skill definitions (alignment, auth-preflight, brief, canopy-doctor, context-ingestion, create-agent, ddd-ace-render, ddd-concept-eval, ddd-evidence-audit, ddd-findings-review, ddd-narrative-actionability-eval, ddd-narrative-coherence, ddd-narrative-review, ddd-run, ddd-spec, ddd-spec-qa, ddd-upload, ddd-why-brief, ddd-why-eval, ddd-why-qa, doc-regeneration, find-session, improve, improve-lens, information-architecture, issue-triage, orchestrator, patch-gstack-browse, patterns, portfolio-guide, portfolio-review, product-management, project-status, select-session, share-session, shareout, test-audit, update, verify-findings, visual-judge, walkthrough, walkthrough-defect-creator, walkthrough-eval, walkthrough-share, website-builder)
