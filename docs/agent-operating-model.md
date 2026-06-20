@@ -1,0 +1,414 @@
+# The Agent Operating Model — building and self-improving a fleet of Claude Code agents
+
+*Status: decision-grade draft. Author: Claude (Opus 4.8) for Jonathan, 2026-06-19.*
+*Scope: how canopy should turn the one working agent (echo) into a repeatable way to build agent #2, #3, … and make each one get measurably better over time.*
+
+> Companion to echo's own `docs/research/agentic-frameworks.md` (the "which runtime"
+> decision). This doc is the layer above: the *operating model* — the reusable primitives,
+> the factory that stamps them out, the loop that improves them, and the stance on memory.
+> A best-practices synthesis from OpenClaw and other harnesses is folded into §6 (cited).
+
+---
+
+## TL;DR
+
+You already built the hard part without naming it. **Echo is a working prototype of an
+operating model for controllable autonomous agents**, and almost none of its load-bearing
+parts are marketing-specific. The work now is not "build more agents like echo by hand" —
+it's three moves:
+
+1. **Extract echo's operating model into a factory** (`canopy:create-agent`) so agent #2 is
+   a thin *persona + domain skills* on top of a shared substrate, not a fork-and-find-replace.
+2. **Make canopy the fleet's self-improvement engine.** Reef proved that *observing* skill
+   gaps without a loop to *act* on them is a dead end. Canopy already has the closed loop
+   (capture → observe → propose → implement → track) for Claude Code sessions; point it at
+   the agents' turns.
+3. **Deprioritize memory as infrastructure.** Evidence (echo's unused gbrain, reef's own
+   "skills are the unit of collective learning, not memories" lesson) says: skills and hooks
+   are the durable, improvable, enforceable unit; memory is for per-person/episodic facts only.
+
+The differentiator vs. OpenClaw is exactly the thing you said you wanted: **the ability to
+*force* behavior** (hooks make the wrong path impossible) and **to improve the agent from the
+outside** (canopy's loop), instead of an opaque always-on process you can only watch.
+
+---
+
+## 1. What echo actually is (the reusable primitives)
+
+Echo is shipped as a Claude Code plugin: a persona + a skills library + `bin/` CLIs + hooks +
+a canopy-web workspace. Stripping out "marketing," the generic primitives are:
+
+| # | Primitive | Where it lives in echo | Why it generalizes |
+|---|-----------|------------------------|--------------------|
+| 1 | **Persona + routing key** | `echo@dimagi-ai.com` mailbox; `From:`/`threadId` as identity | Every agent needs an identity and a way to key *who/what* a turn is about. Mailbox gives thread+sender for free. |
+| 2 | **The `turn` orchestrator** | `skills/turn/SKILL.md`, re-read every turn | The single entry point that sequences preflight → drain board → do work → **skill self-check** → close. The file *is* the checklist. |
+| 3 | **Reads-free / writes-gated guardrail** | CLAUDE.md "Hard guardrail"; enforced per-action | Safest autonomy floor: search/read run freely, every outbound action waits for human approval. |
+| 4 | **Invariants-as-hooks, not memory** | `scripts/hooks/block_raw_gog_send.py` + `.claude/settings.json` | The best idea in the repo. Make the *wrong* thing impossible instead of trusting the model to remember a rule under load. |
+| 5 | **Capability in CLI/MCP, skills orchestrate** | `bin/*.py` hold logic; SKILL.md is declarative | MCP/CLI is the portability boundary to the Agent SDK; skills stay thin and portable. |
+| 6 | **Self-improvement baked into the turn** | `turn` Step 4 + `manager-sync` | "Did I create/improve a skill? Did I hand-repeat something that should be a skill?" — compounding instead of re-deriving. |
+| 7 | **canopy-web agent workspace** | `skills/canopy-publish`, `task-tracker`; `/agents/echo` | First-class agent home: kanban board, syncs with self-grades, mirrored skill catalog. The board is a **second trigger surface** — others can queue work without a keyboard. |
+
+**The gap:** all seven live *inside the echo repo*. There is no factory, so agent #2 means
+forking echo and find/replacing the marketing parts. That is the first thing to fix.
+
+### 1a. "Force it to use skills" — how echo actually does it
+
+You said the reason you're building this rather than using OpenClaw is the ability to *force*
+skill use and otherwise control behavior. Echo's three mechanisms, weakest to strongest:
+
+- **Prose in CLAUDE.md** (weakest — relies on the model re-reading and choosing to comply;
+  drops under load).
+- **The `turn` file as a re-read-every-time checklist** (medium — works because the turn is
+  the unskippable entry point, but echo notes its plugin *isn't registered* for Skill-tool
+  dispatch, so it leans on "re-read the file," which is fragile exactly when load is high).
+- **Hooks that make the wrong path impossible** (strongest — `block_raw_gog_send.py` denies a
+  raw send; the agent *cannot* bypass the HTML wrapper). CLAUDE.md states the rule directly:
+  *"Hard behavioral rules do NOT belong in memory… encode each as enforcement."*
+
+**Design implication:** the strongest form of "force it to use skills" is **hooks for hard
+invariants + a thin always-loaded turn checklist + registering the agent plugins so Skill
+dispatch fires.** The factory should template all three.
+
+---
+
+## 2. Why reef died — and why that's the good news
+
+Reef was a Next.js console to manage a fleet of OpenClaw instances on Digital Ocean (SSH +
+DO API). It could **see** that instance A had a skill instance B lacked — the HTML report even
+had a "Skills to Spread" section — but it had:
+
+- **no transfer operator** (couldn't copy a skill A→B; `transfer-skill` stayed backlogged),
+- **no execution trigger** (even copied, B wouldn't know to run it),
+- **no feedback loop** (no measure of whether a skill changed behavior; the hygiene check was
+  a `TODO` placeholder).
+
+Reef's own PM notes name the lesson precisely: ***"skills are the unit of collective learning,
+NOT memories — memories are usage artifacts."*** It was a **passive observatory** — it could
+watch but not act. Combined with OpenClaw's opacity (you couldn't reach in and fix instances),
+momentum died.
+
+**The good news:** the active learning system reef lacked is *canopy*. Self-improvement needs
+three things — (1) spread, (2) execute, (3) feedback-measure — and canopy already has all three
+for Claude Code sessions:
+
+| Self-improvement need | Reef | Canopy (already exists) |
+|---|---|---|
+| Capture what happened | SSH-scrape agent dirs | `hooks/post_tool_use.py` logs every session |
+| Observe friction/gaps | "Skills to Spread" (passive) | `analyzer.py` → `observations.py` |
+| Propose a change | — | `proposer.py` → `proposals.py` |
+| Execute the change | — | agent dispatch via `/canopy:improve` → PR |
+| Measure / track outcome | — | `tracker.py` |
+| Make it visible | HTML report | canopy-web feeds (`/insights`, `/agents/<name>`) |
+
+Echo's hand-rolled `manager-sync` + Step-4 self-check is a *per-agent miniature* of canopy's
+loop. **Don't rebuild reef. Point canopy's loop at the agents' turns.**
+
+---
+
+## 3. The memory question (answered with evidence)
+
+You flagged you haven't really used memories in gbrain and aren't sure they matter. The
+evidence says **deprioritize memory as fleet infrastructure**:
+
+- gbrain is **not installed or populated** on this machine. Echo's most recent turn made
+  **zero** gbrain calls (the inbox was empty, so triage never ran). Memory integration is
+  backlog item T8 — aspirational, never exercised.
+- Reef's hard-won lesson: collective learning rides on **skills**, not memories. Memories were
+  "usage artifacts," not a vector for getting better.
+
+**Stance:**
+- **Skills and hooks** are the durable, enforceable, improvable unit of capability and learning.
+  Anything you're tempted to "remember" as a behavior should become a skill or a hook.
+- **Memory matters in exactly two narrow places:** (a) **per-contact CRM isolation** when an
+  agent talks to many people — echo's real need *once its inbox is non-empty* — and (b)
+  **cross-turn episodic continuity** ("what did I commit to last week"). Both are facts about
+  the world, not behaviors.
+- Keep memory **behind the MCP boundary** (gbrain or a successor) so it's swappable, and wire
+  it **narrowly** (echo's per-contact partition) to validate the pattern on one agent before
+  treating it as a fleet service.
+
+Memory would have made reef *feel* smarter without making it *get* better. Skills are how it
+gets better.
+
+---
+
+## 4. Recommendation — three builds, in order
+
+### Build 1 — The agent factory (`canopy:create-agent`)
+Extract the §1 primitives into a generator. Output for a new agent `<name>`:
+
+- plugin manifest + `persona.md` (identity, mandate, voice, stakeholders)
+- `turn/` orchestrator templated to the agent's trigger surfaces
+- reads-free / writes-gated guardrail wired to the agent's outbound actions
+- an **invariants-as-hooks** starter (`.claude/settings.json` + a `hooks/` example)
+- canopy-web workspace registration (board + syncs + skill catalog)
+- the Step-4 skill self-check baked into the turn
+- a `setup`/`preflight` bootstrap pattern (1Password `.env.tpl`, per-machine provisioning)
+
+Agent #2 = run the factory, fill in persona + domain skills. *This is the literal ask:
+"so I can create more of these agents."*
+
+### Build 2 — Canopy as the self-improvement engine (the reef that works)
+Add an **agent-turn lens** to canopy's existing loop: review each agent's recent turns, detect
+friction, propose skill/hook improvements, ship them via the same PR flow the agents use, and
+track outcomes. Echo's `manager-sync` becomes a capability every agent inherits. First test
+cases are echo's *real* friction from its last session (see Build 3).
+
+### Build 3 — Harden echo (the first iterations of Build 2)
+Not a separate workstream — these are the first improvements the loop should produce, and the
+best test of what the factory must template:
+- **OAuth bootstrap can't self-heal** (new-machine "People API not enabled" needed manual
+  console work) → detect + guide/auto-enable.
+- **1Password half-wired** (items created, never round-trip validated; special-char titles
+  break `op read`) → validate readability after create.
+- **Reply checklist gets dropped under load** → move the always-do checklist from prose to a
+  PreToolUse hook (the §1a "strongest form" upgrade).
+
+---
+
+## 4a. Repo & framework topology (decided)
+
+**Each agent lives in its own git repo and consumes a common canopy-provided framework via a
+hybrid split.** This is the shape echo already has (`dimagi-internal/echo`), generalized.
+
+Two new first-class requirements drive this:
+- **Team-runnable.** A teammate clones *one* agent repo, runs its `setup` (1Password provision
+  + canopy-web registration), and drives it. Multi-operator = "more people run the same repo,"
+  **not** one shared always-on instance (that's the OpenClaw topology that bled contexts).
+- **Channels over time.** Each agent mounts the comms channels it needs (email today; Slack,
+  Telegram, etc. later) from a shared adapter interface.
+
+**The hybrid:**
+
+| Layer | Lives where | Propagation |
+|---|---|---|
+| **Logic** — gating engine, hook library, canopy-web client, **channel adapters**, setup/preflight | **Versioned kit, provided by canopy** (installable package; agents pin a version) | Kit version bump → every agent inherits the fix. *This is the "spread" verb (§6.5) for infrastructure.* |
+| **Editable surface** — persona, the `turn` checklist, domain skills, allowlist, `.env.tpl`, channel *mounts* | **Copied into the agent repo** by `create-agent` | Refreshed via `canopy:agent-sync` (cf. `/canopy:update`). Domain-skill improvements arrive as canopy-authored PRs to the agent repo. |
+
+**Why the split, not a pure dependency or a pure fork:** skills/hooks must be readable and
+editable *in the agent repo* to be both "forced" (§1a) and improvable by canopy's loop — you
+can't hide them in a package. But channel adapters and the gating engine are pure infra you want
+to fix once and propagate. So: **logic in a versioned kit, the editable agent surface copied and
+sync-refreshed.** The common framework thereby becomes the *spreading mechanism* a fleet needs —
+infra capability propagates through the kit version; domain capability propagates as PRs.
+
+**Channels as a shared adapter interface.** The kit defines an inbound (`reads-free`) /
+outbound (`writes-gated`, per the §6.6 gating table) adapter contract. Adding Telegram later =
+write one adapter in the kit + mount it in the agents that want it — not a per-agent rebuild.
+Echo's `email-communicator` is the first adapter; it gets generalized into the kit.
+
+*v1 pragmatism:* don't block the first factory cut on a perfect package boundary. Start by
+having `create-agent` scaffold a self-contained repo, and extract the shared logic into the kit
+incrementally — beginning with the highest-share pieces (canopy-web client, gating/hook helpers,
+the email adapter), since those are the ones that most want version-propagation.
+
+## 5. Sequencing & open questions
+
+**Sequence:** doc (this) → Build 1 factory → use the factory to refactor echo onto the shared
+substrate (proving the extraction is real) → Build 2 loop → Build 3 falls out of Build 2.
+
+**Open questions to resolve before/while building:**
+1. **Register agent plugins for Skill-tool dispatch?** (Stronger "force skills," but adds a
+   registration step per agent. Recommendation: yes — pair it with hooks.)
+2. ~~**Where does the shared substrate live?**~~ **Resolved (§4a):** versioned kit for logic +
+   copied/sync-refreshed templates for the editable agent surface.
+3. **How much of `manager-sync`/grading moves into canopy** vs. stays per-agent.
+4. **Multi-human triggering** — the canopy-web board already lets others queue turns; that is
+   the sanctioned path for "others could trigger turns too" (multi-operator = more people run
+   the same repo, per §4a). Open sub-question: do we want **per-operator scoping/attribution**
+   on the board (who queued / who approved a send), or is one shared agent identity enough?
+
+---
+
+## 6. Best practices from the field (OpenClaw + other harnesses)
+
+> **Provenance caveat (the same one echo's doc carries).** This synthesizes a deep-research
+> run over 9 sources (8 primary: Anthropic hooks/SDK docs, OpenAI Agents SDK, LangGraph,
+> the Zep arXiv paper, an agent-memory survey, Neo4j/Graphiti). The run's automated
+> verification stage was **rate-limited mid-flight**, so every claim's three verifiers
+> *abstained* (`0-0`) and the harness auto-killed all 25 — exactly the tooling failure echo's
+> `agentic-frameworks.md` hit. The killed list is therefore "unverified," **not** "refuted."
+> I've kept claims I can corroborate against the primary docs directly, flagged vendor-reported
+> numbers ⚠, and marked framing-only sources. The web search did **not** surface verified
+> OpenClaw-specific detail, so §6.1 leans on the firsthand reef evidence instead.
+
+### 6.1 OpenClaw — what it is, and why it's opaque (firsthand, via reef)
+
+From reef's integration code, an OpenClaw instance is a per-droplet agent farm with a
+file-on-disk operating model strikingly close to echo's:
+
+```
+~/.openclaw/
+  agents/<id>/agent/{auth-profiles.json, workspace/}
+  workspace/
+    SOUL.md, IDENTITY.md         # persona (cf. echo's persona)
+    TOOLS.md, HEARTBEAT.md       # config / cadence
+    BOOTSTRAP.md, MEMORY.md      # setup + memory index
+    skills/<name>/SKILL.md       # capability unit (same primitive as us)
+    memory/*.md                  # episodic memory as markdown
+  settings.json, channels.json   # bindings + Telegram/Discord tokens
+```
+
+A "turn" is driven by `openclaw agent --agent <id> -m "<msg>" --json` (gateway HTTP API, with
+an embedded-runtime fallback); channel messages route via a static `bindings` array
+(`{match:{channel,accountId}, agentId}`). **Takeaways:**
+
+- **OpenClaw already converged on the same two primitives we did** — a persona file + a
+  `skills/<name>/SKILL.md` library. This validates the model. The difference is *control*:
+  OpenClaw runs always-on on a remote droplet behind an HTTP gateway, so you observe it through
+  a console (reef) rather than *drive and shape* it the way Claude Code lets you.
+- **Why it's opaque (your complaint, now concrete):** the turn loop, the gating, and the
+  self-improvement step are *inside* a running process you reach only over SSH/HTTP. There's no
+  re-readable checklist you control, no hook you can drop in to make a wrong action impossible,
+  and (per reef) no working hygiene/self-repair path. You can watch but not reach in. **Our
+  model inverts this:** the harness (Claude Code) is the thing *you* hold, every invariant is a
+  hook you author, and improvement happens from the outside via canopy.
+- **The self-improvement gap is structural, not a missing feature.** OpenClaw stored memory as
+  markdown and skills as files but had no mechanism to *spread* a skill across instances,
+  *trigger* its use, or *measure* its effect — the same three holes reef inherited (§2).
+
+### 6.2 Skills/tools as the unit of capability — and of collective learning
+
+- **Skills are portable across runtimes; MCP is the integration boundary.** A `SKILL.md` +
+  bundled scripts runs unchanged across Claude.ai, Claude Code, and the Agent SDK; the Agent
+  SDK uses MCP as its standard tool layer. *Design implication:* keep capability in MCP/CLI and
+  skills declarative (echo already does this) so the fleet ports to the Agent SDK later without
+  a rewrite. [Anthropic Agent Skills / Agent SDK docs — primary]
+- **The Voyager lesson: a skill library is how an agent compounds.** Voyager's central result
+  is that an agent that *writes successful behaviors into a retrievable skill library and reuses
+  them* outperforms one that re-derives each time — skills are the substrate of lifelong
+  learning, and they transfer to fresh agents. *This is the academic backing for echo's Step-4
+  ("did I repeat work that should be a skill?") and for canopy treating skills as the unit it
+  spreads.* [Voyager, arXiv 2305.16291 — from training knowledge; not in this run's verified set]
+- **Reef's own conclusion independently matches Voyager:** "skills are the unit of collective
+  learning, NOT memories." Two independent paths to the same rule strengthens §3's stance.
+
+### 6.3 Self-improvement loops — reflection, and the evaluator–optimizer pattern
+
+- **Reflexion: agents that turn failure into a written lesson improve on retry.** The pattern —
+  *act → evaluate → write a natural-language reflection on what went wrong → retry with that
+  reflection in context* — is the canonical self-improvement loop. Canopy's analyze→propose
+  loop is the *fleet-scale, persisted* version of this: the "reflection" becomes a durable skill
+  or hook edit shipped via PR, not just an in-context note. [Reflexion, arXiv 2303.11366 —
+  training knowledge]
+- **Evaluator–optimizer is a first-class agent workflow.** Anthropic's "Building Effective
+  Agents" names *evaluator–optimizer* (one model proposes, another critiques against a rubric,
+  loop) and *orchestrator–workers* as core patterns. Canopy's proposer + the verify/track stages
+  are an evaluator–optimizer; echo's `self-review`/`manager-sync` are a per-agent one. *Design
+  implication:* make the agent-turn lens (Build 2) an explicit evaluator–optimizer — propose a
+  fix, score it against the friction it targets, only then ship. [Anthropic, Building Effective
+  Agents — primary]
+- **Keep the loop's output durable and enforceable.** The difference between reef (failed) and
+  canopy (works) is that canopy's improvements land as committed skills/hooks, not as ephemeral
+  agent state. A reflection that isn't written to a file the next turn re-reads is lost.
+
+### 6.4 Memory — when it actually matters
+
+- **"Agent memory" is not RAG, and treating it as static document retrieval is the trap.** A
+  2026 agent-memory survey (arXiv 2512.13564) argues agent memory must be delineated from
+  LLM/parametric memory, RAG, and context-engineering — and analyzed by *Forms / Functions
+  (factual·experiential·working) / Dynamics (formation·evolution·retrieval)* rather than just
+  long-vs-short-term. *Useful framing: the only memory echo actually needs is **factual**
+  (per-contact facts) + **experiential** (what happened in past threads). Both are narrow.*
+  [arXiv 2512.13564 — primary, unverified-this-run]
+- **Temporal knowledge graphs are the right shape *if* you do invest in memory.** Graphiti is a
+  real-time, incrementally-updated KG with **bi-temporal** edges (each fact carries valid/invalid
+  intervals), so stale facts get invalidated instead of accumulating contradictions — unlike
+  batch-recompute GraphRAG. gbrain already gives you this shape. [Neo4j/Graphiti blog —
+  secondary; bi-temporal modeling corroborated]
+- **Zep's benchmark numbers are vendor-reported ⚠.** DMR 94.8% vs MemGPT 93.4%; LongMemEval
+  +18.5% accuracy / −90% latency vs full-context. Directionally credible, treat as vendor
+  marketing, not independent. [Zep, arXiv 2501.13956 — vendor-reported]
+- **Net for us (reinforces §3):** memory pays off specifically for *cross-session synthesis*
+  and *per-entity isolation* — echo's per-contact partition. It does **not** substitute for
+  skills as the learning mechanism. Don't build it as fleet infra until a non-empty inbox makes
+  the per-contact case real.
+
+### 6.5 Fleet orchestration — and the "passive observatory" trap reef fell into
+
+- **Orchestrator–workers is the documented multi-agent shape** (a lead agent decomposes and
+  dispatches to workers), and it's what canopy's agent-dispatch already does for implementation.
+  *Don't* reach for an always-on multi-instance farm (OpenClaw/reef) — that's the topology that
+  burned you. [Anthropic, Building Effective Agents / multi-agent research — primary]
+- **The failure mode has a name now: observability without actuation.** Reef could *see* "skills
+  to spread" but had no transfer/execute/measure operators. The field framing: a console that
+  surfaces signals but can't act on them is a dashboard, not a control system. Canopy must own
+  all three verbs (spread, execute, measure) or it becomes reef. This is the single most
+  important lesson to carry forward.
+
+### 6.6 Human-in-the-loop & invariants-as-enforcement (the strongest convergence)
+
+Every harness studied implements the *same* split echo arrived at — reads-free, writes-gated,
+with an out-of-band approval — but with progressively stronger enforcement primitives:
+
+- **Claude Code / Agent SDK — the model we're already on.** Permissions resolve in a fixed
+  pipeline — *hooks → deny → ask → permission-mode → allow*, falling through to a `canUseTool`
+  callback. Crucially, **hooks and deny rules override even `bypassPermissions`** — i.e.
+  *invariants-as-hooks supersede invariants-as-prompt/mode*, in the vendor's own words. A
+  `PreToolUse` hook fires before any tool call, can **block by exiting code 2** (stderr is
+  returned to Claude as feedback), or emit a structured `permissionDecision: deny|allow|ask`
+  to escalate to a human. Plan mode is literally "reads run, writes route through `canUseTool`."
+  *This is exactly echo's `block_raw_gog_send.py` pattern, and it is the platform-blessed way to
+  "force" behavior.* [code.claude.com hooks-guide + agent-sdk/permissions, claude.com steering
+  blog — primary]
+- **OpenAI Agents SDK** — `needs_approval` (bool or per-call callable) pauses the run;
+  `RunResult.interruptions` carries `ToolApprovalItem{agent, tool, args}`; resume via
+  `state.approve()/reject()` + `Runner.run(agent, state)`. [openai.github.io — primary]
+- **LangGraph** — `interrupt()` pauses a node (modeled on `input()`), persisted by a
+  first-class checkpointer; four canonical HITL patterns (approve/reject, review-and-edit
+  state, review/edit tool calls, multi-turn). The durable-resume story is why echo's doc tagged
+  LangGraph as the likely *future* runtime. [langchain.com — primary]
+- **Progressive autonomy is a ladder, and risk-tiering is how you climb it.** A clean staging
+  model (framing-only source ⚠): Level 0 = approve every action → Level 3 = independent within
+  scope, anomaly-alert only; with actions risk-tiered into *auto (reads/internal drafts/logs)* /
+  *log-and-alert (external comms, CRM/API writes)* / *approval-required (bulk comms, deletes,
+  financial)*. This operationalizes echo's autonomy ladder (§4 of its own doc) and tells the
+  factory **what to template per action class**. [mindstudio blog — secondary/framing]
+
+**The convergence, stated plainly:** independent ecosystems (Anthropic, OpenAI, LangChain) all
+landed on *read-free / write-gated + an approval interrupt + deterministic enforcement that
+outranks the prompt*. Echo got there first by instinct. The factory should bake this in as the
+default, with hooks (not prose) as the enforcement layer — because that is the one thing the
+prompt can't be trusted to do under load, and the one thing OpenClaw couldn't give you at all.
+
+### 6.7 What this changes in the recommendation
+
+Nothing reverses; three things sharpen:
+1. **Build 1 (factory)** should template a **per-action-class gating table** (auto / alert /
+   approve) and ship each agent with a `PreToolUse` hook skeleton — not just a guardrail in
+   prose. (§6.6)
+2. **Build 2 (canopy loop)** should be framed explicitly as an **evaluator–optimizer**: propose
+   → score against the targeted friction → ship. And it must own all three fleet verbs —
+   spread, execute, measure — or it regresses to reef. (§6.3, §6.5)
+3. **Build 3 / memory** is unchanged and now better-grounded: skills are the learning unit
+   (Voyager + reef agree); memory is narrow (per-contact factual + experiential), temporal-graph
+   shaped if/when built. (§6.2, §6.4)
+
+---
+
+## Appendix — evidence base
+
+- **echo**: `CLAUDE.md`, `docs/research/agentic-frameworks.md`, `skills/{turn,inbox-triage,
+  contact-memory,canopy-publish,task-tracker,self-review,manager-sync}/SKILL.md`,
+  `scripts/hooks/block_raw_gog_send.py`, `bin/*.py`; analysis of the most recent turn
+  transcript (setup-heavy turn: 13 PRs, OAuth/1Password friction, zero gbrain calls).
+- **reef**: `lib/openclaw.ts` (hygiene-check `TODO`), `lib/insights.ts`, `lib/report-html.ts`
+  (renderLearningOpportunities — observe-only), `.claude/pm/{context,learnings}.md` and
+  `runs/*` (transfer-skill backlogged; "skills are the unit of collective learning").
+- **gbrain**: gstack `setup-gbrain`/`sync-gbrain` skills, `USING_GBRAIN_WITH_GSTACK.md`
+  (per-remote trust policy), echo `contact-memory/SKILL.md`; confirmed not installed/populated
+  on this machine.
+- **canopy**: `src/orchestrator/{pipeline,analyzer,proposer,tracker,observations,proposals}.py`,
+  `hooks/post_tool_use.py`, canopy-web `/agents` + `/insights` surfaces.
+- **deep-research run** (`wf_1c88e6e6-2ab`, 9 sources, 43 claims; verification rate-limited —
+  claims unverified-not-refuted, see §6 caveat):
+  - Anthropic — Claude Code *hooks-guide* & Agent SDK *permissions* (`code.claude.com`) — primary
+  - Anthropic — *Steering Claude Code: skills, hooks, rules, subagents* (`claude.com/blog`) — primary
+  - OpenAI — *Agents SDK: human-in-the-loop* (`openai.github.io`) — primary
+  - LangChain — *HITL agents with interrupt()* (`langchain.com/blog`) — primary
+  - Zep — *temporal KG agent memory* (arXiv `2501.13956`) — primary, benchmarks vendor-reported ⚠
+  - *Agent memory survey* (arXiv `2512.13564`) — primary
+  - Neo4j — *Graphiti knowledge-graph memory* — secondary
+  - MindStudio — *progressive autonomy* — blog/framing ⚠
+  - *From training knowledge (not in run):* Voyager (arXiv `2305.16291`), Reflexion
+    (arXiv `2303.11366`), Anthropic *Building Effective Agents*.
