@@ -25,6 +25,9 @@ def _fake_openclaw(tmp_path):
     (d / "skills" / "weekly-digest" / "SKILL.md").write_text(
         "---\nname: weekly-digest\ndescription: Summarize the week for stakeholders.\n---\n# Body\n"
     )
+    # bundled asset alongside a skill — must be ported too, not just SKILL.md
+    (d / "skills" / "outreach" / "templates").mkdir()
+    (d / "skills" / "outreach" / "templates" / "intro.md").write_text("Hi {{name}},\n")
     (d / "memory" / "partner-acme.md").write_text("ACME prefers Tuesday calls.\n")
     return d
 
@@ -86,6 +89,8 @@ def test_bootstrap_seeds_persona_and_ports_skills(tmp_path):
     repo = tmp_path / "eva-new"
     assert set(out["ported_skills"]) == {"outreach", "weekly-digest"}
     assert (repo / "skills" / "outreach" / "SKILL.md").exists()
+    # bundled assets are ported, not just SKILL.md
+    assert (repo / "skills" / "outreach" / "templates" / "intro.md").exists()
     # factory skills survive (not clobbered)
     assert (repo / "skills" / "turn" / "SKILL.md").exists()
     # persona seeded with the OpenClaw soul/identity
