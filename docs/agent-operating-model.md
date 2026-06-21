@@ -298,6 +298,40 @@ agent the factory produces:
   genuinely secret per-operator `.env` must be provisioned per-worktree (or read from a global
   location). Keep secrets out of the hot path where possible.
 
+## 4e. Portable secret provisioning (decided)
+
+Agents need credentials (service-account keys, OAuth creds, PATs) that must never be in git yet
+must be available wherever the agent runs — main checkout, any emdash worktree, every operator's
+machine. Hand-shuffling keys is the lazy, non-portable status quo. The standard:
+
+- **1Password is the source of truth** (the house pattern; `op` is already the auth path for
+  echo/ace/chrome-sales).
+- **Each agent/provider repo declares a tracked `config/secrets.yaml`** — *no secret values*, only
+  1Password references + local targets (`{repo}/…`, `~/…`, or repo-relative; default mode `0600`;
+  `optional: true` to skip-not-fail).
+- **`canopy provision`** materializes them via `op` — idempotent, validated, one command on any
+  machine (`--check` to dry-run). Anyone with vault access + the right grants is set up instantly.
+- **Worktree-clean (§4d):** targets that an agent reads globally point at `~/.canopy`/`~/.claude/canopy`;
+  provider-local creds (e.g. chrome-sales's MCP keys) point at `{repo}/…` in the provider's main
+  checkout, where its launcher resolves them. Never a gitignored repo `.env` a worktree lacks.
+
+Backed by `src/orchestrator/provision.py` + `canopy provision`. First adopter: chrome-sales
+(`config/secrets.yaml` → `.gws-sa-key.json` + `.sf-creds.json`).
+
+### Service-account lifecycle (Phase 2 — design)
+Provisioning (above) is the *distribution* layer; it assumes the secret already exists in 1Password.
+The *creation + sharing* of service accounts is the remaining manual bit, automatable as:
+1. **Create** — `gcloud iam service-accounts create <name>` + `keys create` → a JSON key (needs a
+   GCP project + gcloud authed). One SA per capability domain (e.g. an agents-gdrive SA), not per agent.
+2. **Store** — `op item create` the key into the AI-Agents vault under the name the manifest expects,
+   so `canopy provision` distributes it everywhere.
+3. **Share** — grant the SA's `client_email` access to each target resource (a sheet, a Drive
+   folder). Scriptable via the Drive API / the gdrive MCP's permission tools; the SA then acts as
+   itself, visible to humans (e.g. Beth) as a named collaborator.
+
+A `canopy sa-setup` could wrap steps 1–2 (and emit the email + a share command for step 3). Until
+then: create/own the SA once, `op item create` it, and every machine gets it via `canopy provision`.
+
 ## 5. Sequencing & open questions
 
 **Sequence:** doc (this) → Build 1 factory → use the factory to refactor echo onto the shared
