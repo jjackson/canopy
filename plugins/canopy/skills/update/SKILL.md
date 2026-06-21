@@ -76,12 +76,32 @@ else:
 ```
 
 **Read the output:**
-- `VERIFIED` → Tell the user exactly: "Updated canopy to **vX.Y.Z** (verified against GitHub). Run `/reload-plugins` to activate."
-- `MISMATCH` → Tell the user the update failed and show the mismatch.
+- `VERIFIED` → continue to Step 3 (the plugin cache is updated; the CLI still needs deploying).
+- `MISMATCH` → Tell the user the update failed and show the mismatch. **Do not run Step 3.**
+
+## Step 3: Deploy the CLI (ONE command) — canopy is a plugin AND a CLI
+
+The `canopy` *command* is the Python package (`src/orchestrator/`), NOT in the plugin cache. It
+must be deployed too, from the SAME marketplace clone the plugin came from, so the CLI and plugin
+always ship together from `main` (never an editable dev-checkout, which silently drifts with
+whatever branch is checked out — that bug stranded `canopy harvest` from a fresh session).
+
+```bash
+uv tool install --force "$HOME/.claude/plugins/marketplaces/canopy" 2>&1 | tail -3 && \
+  canopy --help >/dev/null 2>&1 && echo "CLI DEPLOYED: $(canopy --version 2>/dev/null || echo ok)" \
+  || echo "CLI DEPLOY FAILED — run: uv tool install --force ~/.claude/plugins/marketplaces/canopy"
+```
+
+- `CLI DEPLOYED` → Tell the user: "Updated canopy to **vX.Y.Z** (plugin + CLI, verified). Run `/reload-plugins` to activate the plugin."
+- `CLI DEPLOY FAILED` → show the error; the plugin updated but the CLI didn't (commands like `canopy harvest` may be stale).
 
 ## Rules
 
+- The CLI is **non-editable**, installed from the marketplace clone — NEVER an editable install of
+  `~/emdash-projects/canopy` (that couples `canopy` to your dev branch). For CLI dev, `uv run` from a worktree.
+
 - **Run EXACTLY the bash blocks above.** No exploring, no ls, no reading files, no globbing.
 - Always pull from `~/.claude/plugins/marketplaces/canopy` — NEVER from `~/emdash-projects/canopy`
-- If Step 1 says UP_TO_DATE, STOP immediately. Do not run Step 2.
+- If Step 1 says UP_TO_DATE, STOP immediately. Do not run Step 2 **or Step 3** (CLI already current).
+- Step 3 (CLI deploy) runs on every real update — the plugin and CLI ship together.
 - Always tell the user to run `/reload-plugins` after a successful update.

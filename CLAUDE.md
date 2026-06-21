@@ -369,6 +369,13 @@ checked into `.claude/settings.json` and loads automatically — no
   Override with `CANOPY_ALLOW_PUSH_NO_BUMP=1`.
 - `hooks/pre_tool_use_plugin_cache_guard.py` — blocks local-patching of the
   plugin cache (`CANOPY_ALLOW_CACHE_PATCH=1` to override).
+- `hooks/pre_tool_use_main_branch_guard.py` — keeps the **primary** canopy checkout
+  (`~/emdash-projects/canopy`, a real `.git` dir) on `main`: blocks `git
+  checkout/switch` to a non-main branch and branch creation there. Feature work goes
+  in an emdash **worktree**; the global `canopy` CLI is deployed from main, so
+  branching in the primary checkout silently changes what `canopy` runs (this is how
+  a fresh session got `No such command 'harvest'`). Worktrees branch freely.
+  Override `CANOPY_ALLOW_PRIMARY_BRANCH=1`.
 
 This is the only guard that fires in practice for AI-driven worktree flow — see
 the git hooks below for why.
@@ -409,10 +416,15 @@ available without GitHub Pro), so discipline is the failure mode they protect ag
    gh pr merge <n> --merge
    ```
 4. **IMMEDIATELY after pushing**, run `/canopy:update` in the current session.
-   This is mandatory — it pulls from GitHub, creates a new cache dir, and updates
-   `installed_plugins.json`. Without it, the current session runs stale code while
-   other sessions get the new version on next start. Do NOT skip this step.
-5. Run `/reload-plugins` to activate the new version in the current session
+   This is mandatory — it pulls from GitHub, creates a new cache dir, updates
+   `installed_plugins.json` (the **plugin**), AND (Step 3 of the update skill)
+   **redeploys the `canopy` CLI** — `uv tool install --force` from the marketplace
+   clone. **canopy is a plugin AND a CLI; both ship from the same `main`.** The CLI
+   is NON-editable — never an editable install of `~/emdash-projects/canopy` (that
+   couples `canopy` to your dev branch and strands new commands; for CLI dev use
+   `uv run` from a worktree). Without `/canopy:update`, the current session runs
+   stale plugin AND stale CLI. Do NOT skip.
+5. Run `/reload-plugins` to activate the new plugin version in the current session
 
 New sessions auto-detect the version bump on startup — no manual steps needed.
 
