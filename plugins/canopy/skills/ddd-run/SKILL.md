@@ -611,6 +611,29 @@ report. Check it before acting on `auto_iterate_next_action`:
   implement/skip/defer selection). CONCEPT / RESEARCH / DEFER findings keep
   their standard routing in either mode.
 
+### Always link findings when you surface them to the user — gate or no gate
+
+The `findings_review post` machinery above ONLY fires for `review_mode: human`
+AND ONLY clusters PRODUCT findings. But the rule it encodes is universal:
+**any time you present findings, judge verdicts, or a "fix vs pause" decision to
+the user — including in autonomous mode, when the blocker is a CONCEPT / USER
+`visual_polish` score the gate skips, or when you are just reporting in chat —
+give per-finding deep-links the user can click to SEE the finding. Never a
+link-less prose / markdown table of findings.** A findings table the user cannot
+click into is the exact failure this gate exists to prevent (no hand-written
+chat tables, no scrubbing the clip).
+
+When the auto-gate does not post, build the links by hand:
+
+- **Video moment** — `<canopy-base>/w/<id>#t=<int_seconds>`, the scene's start
+  offset in the UPLOADED video. Compute it from the cumulative `seconds` of the
+  explainer beats in `/tmp/ddd/vo-<slug>/explainer_spec.yaml` — NOT the raw
+  clip's `run-report` offsets, which differ after de-dwelling + VO. For a moment
+  that happens late in a long `pace: teach` beat (e.g. a popover that opens near
+  the end), offset INTO the beat; don't just link its start.
+- **Deck still** — `<DECK_URL>#scene-<N>` when a Step 2b deck exists.
+- Plus the `/ddd/<slug>` run page for the whole thing.
+
 ## Output files
 
 | File | Producer | Notes |
