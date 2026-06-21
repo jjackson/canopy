@@ -112,6 +112,7 @@ def dedwell_segments(
     dwell: float = 0.8,
     tail: float = 1.4,
     floor: float = 2.0,
+    keep_dwell: bool = False,
 ) -> list[tuple[float, float]]:
     """De-dwell a scene's master range into motion sub-ranges (absolute
     ``in_seconds``, ``duration``), collapsing dead-air gaps wherever they sit.
@@ -129,12 +130,21 @@ def dedwell_segments(
     each collapsed gap becomes a clean jump-cut. Generalizes a trailing-only
     trim to leading / mid / trailing dead air.
 
+    **Pace contract:** ``keep_dwell=True`` (set by the caller for ``pace: teach``
+    scenes) returns the scene's FULL range untouched — teach scenes are NOT
+    de-dwelled, because their holds are deliberate: a teach beat sits on a
+    highlighted table/column for 8-15s while the voiceover explains it, and that
+    held footage carries the narration. Collapsing it to ``dwell`` would leave
+    the VO running over a frozen frame. ``flow`` and default/None scenes pass
+    ``keep_dwell=False`` (the default) and de-dwell as before.
+
     Best-effort: returns a single full range on any ffmpeg/parse failure. Floors
     the total kept duration at ``floor``; a range with no detected motion keeps
     a short ``floor`` of its opening frame.
     """
     full = [(round(start, 3), round(dur, 3))]
-    if not clip_path or dur <= floor:
+    # teach scenes keep their holds — the held footage carries the narration.
+    if keep_dwell or not clip_path or dur <= floor:
         return full
     times = _scene_change_times(clip_path, start, dur, scene_threshold)
     if times is None:
@@ -179,6 +189,14 @@ def build_snippets(
     (slow-load / hold / snapshot dead air removed — leading, mid, or trailing)
     into one or more motion sub-ranges (``segments``), which the renderer plays
     back-to-back. See :func:`dedwell_segments`.
+
+    Exception — ``pace: teach`` scenes are NOT de-dwelled: their holds are
+    choreographed (a beat that sits on a highlighted column for ~8-15s while the
+    voiceover explains it), so collapsing them would run the narration over a
+    frozen frame. Only ``pace: flow`` scenes are de-dwelled. Per the ``Scene``
+    model, ``pace`` defaults to ``teach`` when unset (``None``), so the dead-air
+    trim is opt-IN via ``flow`` — matching the recorder's own pace semantics
+    (``apply_scene_pace`` compresses only ``flow``).
     """
     clip_for_trim = source_clip_local if (source_clip_local and Path(source_clip_local).exists()) else None
     spec_scenes = spec.get("scenes") or []
@@ -194,8 +212,12 @@ def build_snippets(
         start = float(rs.get("start_seconds") or 0.0)
         dur = float(rs.get("duration_seconds") or 0.0)
         # De-dwell into motion sub-ranges. Without a local clip, keep one range.
+        # `pace: teach` (the Scene default — None is treated as teach) keeps its
+        # holds intact (they carry the narration); only `pace: flow` is trimmed.
+        pace = spec_scene.get("pace")
+        keep_dwell = pace != "flow"
         if clip_for_trim and dur > 0:
-            segs = dedwell_segments(clip_for_trim, start, dur)
+            segs = dedwell_segments(clip_for_trim, start, dur, keep_dwell=keep_dwell)
         else:
             segs = [(round(start, 3), round(dur, 3))]
         segments = [{"start_seconds": s, "duration_seconds": d} for s, d in segs]
