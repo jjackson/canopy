@@ -56,6 +56,19 @@ inline `thumb` (the downscaled screenshot), a `deck_anchor` (`#scene-<N>`,
 combined with the request's `deck_url`), and an integer `video_t` (the scene's
 start offset; the canopy-web player seeks there).
 
+### The principle is universal — this gate is just the automated case
+
+This gate only auto-fires for `review_mode: human` AND only clusters PRODUCT
+findings. But "surface every finding with a clickable look-at link, never a
+link-less table" applies **whenever you hand findings to the user** — autonomous
+mode, a CONCEPT / USER `visual_polish` blocker the gate skips, or a plain chat
+report. When the gate does not post, hand-build the per-finding links (see
+`ddd-run/SKILL.md` → Step 5b → *"Always link findings when you surface them to
+the user"*): `<canopy-base>/w/<id>#t=<int_seconds>` (offset from the explainer
+beats, into the beat for a late moment) and/or `<DECK_URL>#scene-<N>`, plus the
+`/ddd/<slug>` run page. A findings table the user can't click into defeats the
+whole point.
+
 ## request_json (POSTed to canopy-web `/api/reviews/`)
 
 ```jsonc
