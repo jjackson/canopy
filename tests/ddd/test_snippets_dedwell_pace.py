@@ -107,14 +107,15 @@ def _build(pace, clip, monkeypatch):
     )
 
 
-def test_build_snippets_flow_scene_dedwells(_local_clip, monkeypatch):
-    snips = _build("flow", _local_clip, monkeypatch)
+@pytest.mark.parametrize("pace", ["flow", None])
+def test_build_snippets_flow_or_default_dedwells(pace, _local_clip, monkeypatch):
+    """flow AND default(None) are de-dwelled — only an explicit teach keeps footage."""
+    snips = _build(pace, _local_clip, monkeypatch)
     assert snips[0]["duration_seconds"] < _DUR / 2
 
 
-@pytest.mark.parametrize("pace", ["teach", None])
-def test_build_snippets_teach_or_default_keeps_footage(pace, _local_clip, monkeypatch):
-    """teach AND default(None) keep the full footage — None is treated as teach."""
-    snips = _build(pace, _local_clip, monkeypatch)
+def test_build_snippets_teach_keeps_footage(_local_clip, monkeypatch):
+    """Only an explicit pace:teach keeps the full footage (holds carry the narration)."""
+    snips = _build("teach", _local_clip, monkeypatch)
     assert snips[0]["duration_seconds"] == pytest.approx(_DUR)
     assert snips[0]["segments"] == [{"start_seconds": _START, "duration_seconds": _DUR}]

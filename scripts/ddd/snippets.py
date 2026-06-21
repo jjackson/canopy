@@ -212,10 +212,12 @@ def build_snippets(
         start = float(rs.get("start_seconds") or 0.0)
         dur = float(rs.get("duration_seconds") or 0.0)
         # De-dwell into motion sub-ranges. Without a local clip, keep one range.
-        # `pace: teach` (the Scene default — None is treated as teach) keeps its
-        # holds intact (they carry the narration); only `pace: flow` is trimmed.
+        # Only an explicit `pace: teach` scene keeps its holds intact (they carry
+        # the narration — e.g. a choreographed table explanation). `flow` AND
+        # untagged/default scenes are de-dwelled so dead wait/hold time (a long
+        # "generating…" wait, an end-of-scene hold) is trimmed, not shown in full.
         pace = spec_scene.get("pace")
-        keep_dwell = pace != "flow"
+        keep_dwell = pace == "teach"
         if clip_for_trim and dur > 0:
             segs = dedwell_segments(clip_for_trim, start, dur, keep_dwell=keep_dwell)
         else:
