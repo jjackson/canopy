@@ -1553,6 +1553,52 @@ def agent_review_cmd(agent, hours, no_llm, model, as_json):
         click.echo("\nNo findings synthesized.")
 
 
+@main.group("harvest")
+def harvest():
+    """Architect/harvester corpus tools — cross-user, origin-anchored session assembly for Hal.
+
+    Deterministic only: assembles the material; intent reconstruction + drift is the agent's job.
+    See docs/agent-operating-model.md + canopy memory `harvester-architect`.
+    """
+
+
+@harvest.command("corpus")
+@click.argument("initiative")
+@click.option("--match", "match", default="", help="Comma-separated match terms (default: the initiative name)")
+@click.option("--origin-k", default=6, type=int, help="How many earliest sessions (intent)")
+@click.option("--recent-k", default=6, type=int, help="How many latest sessions (status/drift)")
+@click.option("--json-output", "as_json", is_flag=True)
+def harvest_corpus(initiative, match, origin_k, recent_k, as_json):
+    """Assemble a cross-user, origin-anchored corpus for INITIATIVE (for Hal to read + judge)."""
+    import json as json_mod
+    from orchestrator.harvest import assemble_corpus, user_session_roots
+
+    terms = [t.strip() for t in match.split(",") if t.strip()]
+    corpus = assemble_corpus(initiative, terms, origin_k=origin_k, recent_k=recent_k)
+
+    if as_json:
+        click.echo(json_mod.dumps(corpus, indent=2, default=str))
+        return
+
+    roots = user_session_roots()
+    click.echo(f"initiative: {corpus['initiative']}   confidence: {corpus['confidence'].upper()}")
+    click.echo("  users seen: " + ", ".join(
+        f"{r['user']}({'r' if r['readable'] else 'BLIND'})" for r in roots))
+    if corpus["unreadable_users"]:
+        click.echo("  ⚠ HALF-BLIND — unreadable: " + ", ".join(corpus["unreadable_users"]))
+    sp = corpus["span"]
+    click.echo(f"  sessions: {corpus['total_sessions']}  by user: {corpus['by_user']}"
+               + (f"  span: {sp['from']} → {sp['to']}" if sp else ""))
+    for label, key in (("ORIGIN (intent — read these for what you were going for)", "origin_sessions"),
+                       ("RECENT (status/drift — did reality match intent?)", "recent_sessions")):
+        click.echo(f"\n=== {label} ===")
+        for s in corpus[key]:
+            click.echo(f"  [{s['user']}] {s['when']}  {s['project']}")
+            click.echo(f"     intent: {s['first_prompt'][:160]}")
+            for m in s["human_messages"][:6]:
+                click.echo(f"       · {m[:150]}")
+
+
 @main.group("agent-publish")
 def agent_publish():
     """Publish an agent repo to its canopy-web workspace (/agents/<slug>).
