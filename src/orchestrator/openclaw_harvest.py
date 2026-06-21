@@ -162,15 +162,7 @@ def bootstrap_from_snapshot(
     spec = AgentSpec(slug=slug, display_name=display_name, mandate=mandate, mailbox=mailbox)
     written = create_agent(spec, repo, force=force)
     _seed_persona(repo, inv)
-    ported = []
-    for s in inv["skills"]:
-        src = Path(s["path"])
-        dest = repo / "skills" / s["key"] / "SKILL.md"
-        if dest.exists():           # never clobber a factory skill (turn/self-review)
-            continue
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(src.read_text(errors="replace"))
-        ported.append(s["key"])
+    ported = [k for k in (_copy_skill_dir(s, repo) for s in inv["skills"]) if k]
     return {
         "repo": str(repo),
         "ported_skills": ported,
@@ -181,15 +173,22 @@ def bootstrap_from_snapshot(
 
 def port_new_skills(inv: dict, repo: Path) -> list[str]:
     """Reconcile: copy OpenClaw skills missing from an existing repo into it (for a PR). Returns
-    the skill keys ported. Never overwrites an existing skill."""
-    repo = Path(repo)
-    existing = _repo_skill_keys(repo)
-    ported = []
-    for s in inv["skills"]:
-        if s["key"] in existing:
-            continue
-        dest = repo / "skills" / s["key"] / "SKILL.md"
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(Path(s["path"]).read_text(errors="replace"))
-        ported.append(s["key"])
-    return ported
+    the skill keys ported. Never overwrites an existing skill. Ports the WHOLE skill dir
+    (SKILL.md + bundled assets), not just SKILL.md."""
+    return [k for k in (_copy_skill_dir(s, Path(repo)) for s in inv["skills"]) if k]
+
+
+# Junk that should never be ported with a skill.
+_SKILL_IGNORE = ("node_modules", ".git", "__pycache__", "*.pyc", ".DS_Store", "*.skill")
+
+
+def _copy_skill_dir(skill: dict, repo: Path) -> str | None:
+    """Copy a harvested skill's WHOLE directory into repo/skills/<key>/. Never clobbers an
+    existing skill dir (so factory skills + already-ported skills survive). Returns the key if
+    copied, else None."""
+    src_dir = Path(skill["path"]).parent
+    dest_dir = repo / "skills" / skill["key"]
+    if dest_dir.exists():
+        return None
+    shutil.copytree(src_dir, dest_dir, ignore=shutil.ignore_patterns(*_SKILL_IGNORE))
+    return skill["key"]
