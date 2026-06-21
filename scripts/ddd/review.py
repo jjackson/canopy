@@ -201,15 +201,26 @@ def await_resolution(
         _sleep(poll_interval)  # type: ignore[operator]
 
 
-def resolve_review(review_id: str, decision: dict, *, base_url: str | None = None, token: str | None = None):
-    """Programmatically resolve a review gate. NOT YET SUPPORTED server-side.
+def resolve_review(
+    review_id: str, response_json: dict, *, base_url: str | None = None, token: str | None = None
+) -> dict:
+    """Resolve a review gate by submitting the decision to canopy-web.
 
-    canopy-web exposes /api/reviews/<id>/ as GET/DELETE only; resolution happens
-    in the canopy-web UI. Resolving a gate from code (e.g. an automated upload)
-    needs a server-side PATCH/resolve endpoint — see the follow-up note in
-    docs/superpowers/specs/2026-06-14-ddd-walkthrough-render-engine-and-manifest-design.md.
+    POSTs to ``/api/reviews/<id>/submit/`` — the same endpoint the human review
+    page submits to. It is Bearer-PAT authenticated, so the resolution is
+    ATTRIBUTED to the token's user: the review is created AND marked resolved with
+    ``response_json``, not bypassed, so the publish decision stays accountable.
+    ``await_resolution`` then returns that ``response_json``.
+
+    ``response_json`` is the ``{decision_id: chosen_option}`` map the gate expects,
+    e.g. ``{"publish": "publish"}`` for the external_release gate.
+
+    Use this to record an approval a human already gave out-of-band (an operator
+    told the agent "publish it") WITHOUT forcing a UI click. The gate still pauses
+    for a *decision*; this lets an authorized agent *record* a decision already made.
     """
-    raise NotImplementedError(
-        "canopy-web /api/reviews/<id>/ is GET/DELETE only; gate resolution needs a "
-        "server-side resolve endpoint (cross-repo follow-up)."
+    api = _resolve_base_url(base_url)
+    tok = _resolve_token(token)
+    return _json_request(
+        "POST", f"{api}/api/reviews/{review_id}/submit/", tok, {"response_json": response_json}
     )

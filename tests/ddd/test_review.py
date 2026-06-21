@@ -412,3 +412,28 @@ class TestNarrativeExistence:
         with patch("urllib.request.urlopen", side_effect=raise_404):
             from scripts.ddd import review as rv
             assert rv.narrative_version_exists("gone", base_url="https://canopy.test") is False
+
+
+class TestResolveReview:
+    """resolve_review POSTs the decision to the canopy-web submit endpoint
+    (Bearer-PAT authed → attributed), so an agent can record an approval a human
+    already gave without forcing a UI click."""
+
+    def test_posts_to_submit_endpoint_with_response_json(self, monkeypatch):
+        captured = {}
+
+        def fake_urlopen(req, **kwargs):
+            captured["url"] = req.full_url
+            captured["auth"] = dict(req.headers).get("Authorization")
+            captured["body"] = json.loads(req.data.decode("utf-8"))
+            return _FakeResponse({"id": "rev1", "status": "resolved"})
+
+        monkeypatch.setenv("CANOPY_WEB_PAT", "pat-xyz")
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            from scripts.ddd import review as rv
+
+            rv.resolve_review("rev1", {"publish": "publish"}, base_url="https://canopy.test")
+
+        assert captured["url"] == "https://canopy.test/api/reviews/rev1/submit/"
+        assert captured["auth"] == "Bearer pat-xyz"
+        assert captured["body"] == {"response_json": {"publish": "publish"}}
