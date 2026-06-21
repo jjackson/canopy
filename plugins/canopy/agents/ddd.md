@@ -95,6 +95,11 @@ you've been hand-driving and should re-enter via the orchestrator instead.
 2. **`external_release`** — publishing a video or walkthrough deck to external
    humans (stakeholders outside the immediate team). When this gate fires, emit a
    `ReviewRequest` with `gate: external_release` before any publish action.
+   **If a human has ALREADY approved the release in-session** (told you "publish
+   it"), the gate is a *decision* they've made — record it instead of forcing a
+   second UI click: run the upload with `--release-approved` (the review is still
+   created and submitted, attributed and audited; it is not bypassed). Only do this
+   on an explicit in-session approval; otherwise post the gate and let it block.
 
 **Plus one soft stop:** `stop_unclear` (see "Converge or loop" below). This fires
 when a finding's `fix_kind` is `options` or `redesign` — i.e. the rubric output

@@ -181,11 +181,24 @@ DDD_REPO="$HOME/emdash-projects/canopy"; [ -d "$DDD_REPO/scripts/ddd" ] || DDD_R
 if [ ! -d "$DDD_REPO/scripts/ddd" ]; then echo "ERROR: scripts/ddd not found — run /canopy:update to sync the canopy checkout"; exit 1; fi
 # pass the video_path as an absolute path (resolved before the cd):
 VIDEO_ABS="$(realpath <video_path>)"
-# Converged run → public release (runs the external_release gate):
+# Converged run → public release (posts the external_release gate, BLOCKS on a
+# human resolving it in the canopy-web UI):
 (cd "$DDD_REPO" && uv run python -m scripts.ddd.upload <run_id> --video "$VIDEO_ABS")
+# Converged run + the human ALREADY approved release in-session → resolve the gate
+# with that approval instead of blocking on a UI click. NOT a bypass: the review is
+# still created and submitted (status resolved, attributed to the token's user, with
+# a delegated-approval note), so the publish stays auditable. Pass ONLY when a human
+# has explicitly authorized the release:
+(cd "$DDD_REPO" && uv run python -m scripts.ddd.upload <run_id> --video "$VIDEO_ABS" --release-approved)
 # STUCK run → review package (skips the gate, leaves the run iterable):
 (cd "$DDD_REPO" && uv run python -m scripts.ddd.upload <run_id> --video "$VIDEO_ABS" --stuck)
 ```
+
+**When to pass `--release-approved`:** the orchestrator/operator was told to publish by
+a human in the session (e.g. "publish it"), but the gate would otherwise block forever
+waiting for a separate canopy-web UI click. This honors the already-given approval
+through an authorized, attributed channel. If NO human has approved, omit it and let
+the gate block (the default).
 
 The script orchestrates all steps internally:
 
