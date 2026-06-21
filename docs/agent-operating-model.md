@@ -258,6 +258,46 @@ here precisely because the agent removes the concurrency.
 add a board-drain step to the generated `turn`. Per-operator attribution and browser-side
 approval come next.
 
+## 4c. Cross-project capability awareness (decided)
+
+Agents must **use the capabilities of Jonathan's *other* projects in their environment — not
+recreate them.** This generalizes Hal's "use the stack, don't recreate it" to every agent, and it's
+the same boundary as §4a (shared capability, per-agent binding) applied across repos.
+
+- **Mechanism:** an agent's repo declares the other projects' MCP servers it borrows in its
+  `.mcp.json`, and its `CLAUDE.md` names those capabilities and says to prefer them. Tools then
+  appear as `mcp__<server>__<tool>` in the agent's sessions.
+- **Portability rule:** reference borrowed servers by a **PATH-resolved command**, never a
+  per-machine absolute path. The provider repo exposes a launcher (npm `bin` + `npm link`) that
+  resolves its own root from the script location, so its headless, script-relative creds and deps
+  are found no matter who launches it. (First instance: chrome-sales ships `chrome-sales-mcp`;
+  Eva borrows its `salesforce` + `google-drive` MCPs — `sheets_*` is how Eva safely touches Beth's
+  GSP tracker.)
+- **Private + per-operator:** provider code stays private (grant GitHub access per-person); creds
+  are per-operator secrets, never committed. For service-account auth, the target resource (a sheet,
+  a Drive folder) is shared with the SA email.
+- **Future:** a `canopy capabilities` discovery so agents enumerate available MCPs/plugins instead
+  of hardcoding — keeps this current as the stack changes (echoes Hal's "weekly tool review").
+
+## 4d. Runs in emdash worktrees — keep the loop worktree-clean (decided)
+
+Jonathan runs everything through **emdash**, so an agent turn usually executes from a **git
+worktree**, not the main checkout. The loop must work identically there. Two consequences for every
+agent the factory produces:
+
+- **Everything the loop needs at runtime is either tracked or globally resolved.** Tracked files
+  (skills, `config/`, `hooks/`, `.mcp.json`, `.claude/settings.json`) are present in any worktree.
+  Global/PATH-resolved deps (the canopy CLI + plugin; borrowed MCP launchers like `chrome-sales-mcp`;
+  the canopy-web PAT at `~/.claude/canopy/`) resolve regardless of cwd. The gating hook already uses
+  `$CLAUDE_PROJECT_DIR`, which is the worktree root — so it just works.
+- **Avoid depending on gitignored repo-local files (a `.env`) for the core loop** — they don't
+  exist in a fresh worktree. Prefer global/PATH-resolved deps and tracked, non-secret config (e.g.
+  `config/trackers.json` for a sheet id). This is why the §4c portability rule (PATH-resolved
+  command, not abs path) and global PAT placement matter: they're what make worktree runs seamless.
+- *Known residual friction:* a worktree may re-prompt for MCP-server approval on first use, and any
+  genuinely secret per-operator `.env` must be provisioned per-worktree (or read from a global
+  location). Keep secrets out of the hot path where possible.
+
 ## 5. Sequencing & open questions
 
 **Sequence:** doc (this) → Build 1 factory → use the factory to refactor echo onto the shared
