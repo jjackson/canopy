@@ -23,6 +23,8 @@ import json
 import os
 from dataclasses import dataclass, field
 
+from orchestrator import turn_synthesis
+
 
 @dataclass
 class SessionRef:
@@ -137,49 +139,26 @@ def _ordered_texts(path: str) -> list[tuple[str, str]]:
     """Ordered [('U', human_input) | ('A', assistant_text_block)] — tool noise dropped.
 
     The stripped conversation: what you said + what the agent said back. No tool calls/results.
+    Delegates to the canonical ``turn_synthesis`` reducer (shared with share-session) so the
+    noise filter and slash-command handling never drift between the two callers.
     """
-    out: list[tuple[str, str]] = []
-    try:
-        lines = open(path, errors="replace").read().splitlines()
-    except OSError:
-        return out
-    for line in lines:
-        try:
-            e = json.loads(line)
-        except Exception:
-            continue
-        t = e.get("type")
-        if t == "user":
-            c = e.get("message", {}).get("content", "")
-            if isinstance(c, str):
-                s = c.strip()
-                if (s and not s.startswith("<") and not s.startswith("Caveat")
-                        and "[Request interrupted" not in s):
-                    out.append(("U", s))
-        elif t == "assistant":
-            for b in e.get("message", {}).get("content", []):
-                if isinstance(b, dict) and b.get("type") == "text" and b.get("text", "").strip():
-                    out.append(("A", b["text"].strip()))
-    return out
+    return turn_synthesis.iter_messages(path)
 
 
 def strip_session(path: str, mode: str = "final") -> str:
     """A session reduced to (your inputs + assistant outputs), tool noise removed — the
-    canopy-web-style readable view. mode='final' keeps only the LAST assistant block per turn
-    (the final output you saw); mode='full' keeps every assistant prose block."""
-    seq = _ordered_texts(path)
+    canopy-web-style readable view. mode='final' is the *turn-synthesis*: each prompt paired
+    with the FINAL assistant reply that followed it; mode='full' keeps every assistant prose
+    block."""
     if mode == "final":
-        collapsed: list[tuple[str, str]] = []
-        i = 0
-        while i < len(seq):
-            if seq[i][0] == "U":
-                collapsed.append(seq[i]); i += 1
-            else:
-                j = i
-                while j < len(seq) and seq[j][0] == "A":
-                    j += 1
-                collapsed.append(seq[j - 1]); i = j   # last assistant block of the run
-        seq = collapsed
+        _session_id, turns = turn_synthesis.synthesize(path)
+        parts: list[str] = []
+        for t in turns:
+            parts.append("USER: " + t.prompt)
+            if t.response:
+                parts.append("ASSISTANT: " + t.response)
+        return "\n\n".join(parts)
+    seq = turn_synthesis.iter_messages(path)
     return "\n\n".join(("USER: " if r == "U" else "ASSISTANT: ") + t for r, t in seq)
 
 
