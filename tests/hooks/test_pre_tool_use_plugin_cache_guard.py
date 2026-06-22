@@ -375,3 +375,25 @@ def test_main_handles_garbage_stdin(hook):
     assert exc.value.code == 0
     payload = json.loads(stdout.getvalue())
     assert payload == {"continue": True}
+
+
+# ---------------------------------------------------------------------------
+# block message: sanctioned-form hint (only for Bash cache-WRITE blocks)
+# ---------------------------------------------------------------------------
+
+
+def test_block_message_includes_sanctioned_hint_for_cache_writes(hook):
+    detail = (
+        "Bash command mutates the plugin cache — offending path "
+        "`~/.claude/plugins/cache/canopy/canopy/0.2.224/` in command: '...'"
+    )
+    msg = hook._build_block_message(detail)
+    assert "canonical form" in msg
+    assert "marketplaces/canopy/plugins/canopy" in msg
+    assert "do NOT bundle `rm`" in msg
+
+
+def test_block_message_omits_hint_for_edit_targets(hook):
+    detail = "Edit targets the plugin cache directly: `~/.claude/plugins/cache/x`"
+    msg = hook._build_block_message(detail)
+    assert "canonical form" not in msg
