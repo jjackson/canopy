@@ -23,11 +23,27 @@ import argparse
 import base64
 import json
 import os
-import re
 import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+# The canonical turn-synthesis reducer lives in the package (src/orchestrator).
+# This uploader runs under a bare ``python3``, so add ``src/`` to the path and
+# import it — one source of truth shared with harvest. (repo/scripts/share-session
+# → repo/src.)
+_REPO_SRC = Path(__file__).resolve().parents[2] / "src"
+if str(_REPO_SRC) not in sys.path:
+    sys.path.insert(0, str(_REPO_SRC))
+try:
+    from orchestrator import turn_synthesis  # noqa: E402
+except ImportError as exc:  # pragma: no cover - deployment path sanity
+    print(
+        f"error: cannot import turn_synthesis from {_REPO_SRC} ({exc}). "
+        f"Run /canopy:update to sync the canopy checkout.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 DEFAULT_API = "https://canopy-web-ujpz2cuyxq-uc.a.run.app"
 TOKEN_FILE = Path.home() / ".claude" / "canopy" / "workbench-token"
@@ -38,131 +54,20 @@ def fail(msg: str, code: int = 1) -> None:
     sys.exit(code)
 
 
-# Harness-authored "user" lines that aren't things the human typed.
-_NOISE_PREFIXES = (
-    "<system-reminder",
-    "<command-name",
-    "<command-message",
-    "<command-args",
-    "<local-command-stdout",
-    "<local-command-stderr",
-    "<local-command-caveat",
-    "<task-notification",
-    "<system>",
-    "Caveat:",
-    "[Request interrupted",
-)
-
-
-def _is_noise(text: str) -> bool:
-    t = text.lstrip()
-    return any(t.startswith(p) for p in _NOISE_PREFIXES)
-
-
-_CMD_NAME_RE = re.compile(r"<command-name>\s*(.*?)\s*</command-name>", re.S)
-_CMD_ARGS_RE = re.compile(r"<command-args>\s*(.*?)\s*</command-args>", re.S)
-
-
-def _slash_command(text: str) -> str | None:
-    """If a user message is a slash-command invocation, render it as the human
-    typed it (e.g. ``/reload-plugins`` or ``/loop 5m /foo``). The harness wraps
-    these in <command-name>/<command-args> tags rather than plain text, so they'd
-    otherwise be dropped as noise even though the user typed them.
-    """
-    m = _CMD_NAME_RE.search(text)
-    if not m:
-        return None
-    name = m.group(1).strip()
-    if not name:
-        return None
-    if not name.startswith("/"):
-        name = "/" + name
-    a = _CMD_ARGS_RE.search(text)
-    args = a.group(1).strip() if a else ""
-    return f"{name} {args}".strip()
-
-
 def reduce_transcript(path: Path) -> tuple[bytes, int]:
     """Reduce a raw Claude .jsonl to a clean conversation, client-side.
 
-    Keeps only what the human typed and the FINAL assistant text of each turn.
-    Drops tool_use / tool_result / sidechain / harness-noise entirely — they
-    are never uploaded. Re-emits a minimal Claude-format .jsonl (init + user/
-    assistant text lines) that the server parses back into exactly these turns.
+    Thin wrapper over ``turn_synthesis``: keep only what the human typed and the
+    FINAL assistant text of each turn, dropping tool_use / tool_result /
+    sidechain / harness-noise entirely — they are never uploaded. Re-emits a
+    minimal Claude-format .jsonl (init + user/assistant text lines) the server
+    parses back into exactly these turns.
 
     The full noisy transcript (and any sensitive tool output it carries) never
     leaves the machine.
     """
-    session_id = ""
-    turns: list[tuple[str, str]] = []  # (role, text) in order
-    pending_assistant: str | None = None
-
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            e = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
-        kind = e.get("type")
-        if kind == "system" and e.get("subtype") == "init":
-            session_id = e.get("session_id", "") or session_id
-            continue
-        if e.get("isSidechain"):
-            continue
-        msg = e.get("message") if isinstance(e.get("message"), dict) else {}
-
-        if kind == "assistant":
-            blocks = msg.get("content", [])
-            if isinstance(blocks, list):
-                texts = [
-                    b.get("text", "")
-                    for b in blocks
-                    if isinstance(b, dict) and b.get("type") == "text"
-                ]
-                joined = "".join(texts).strip()
-                if joined:
-                    pending_assistant = joined  # latest assistant text wins
-            continue
-
-        if kind == "user":
-            content = msg.get("content")
-            if not isinstance(content, str):
-                continue  # list content == tool_result; ignore
-            # A slash command is something the human typed — surface it even
-            # though the harness wraps it in <command-name> tags.
-            prompt = _slash_command(content)
-            if prompt is None:
-                text = content.strip()
-                if not text or _is_noise(text):
-                    continue
-                prompt = text
-            # flush the previous turn's final assistant reply, then this prompt
-            if pending_assistant:
-                turns.append(("assistant", pending_assistant))
-                pending_assistant = None
-            turns.append(("user", prompt))
-
-    if pending_assistant:
-        turns.append(("assistant", pending_assistant))
-
-    out = [json.dumps({"type": "system", "subtype": "init", "session_id": session_id})]
-    for i, (role, text) in enumerate(turns):
-        text = text.replace("\x00", "")
-        if role == "user":
-            out.append(json.dumps({"type": "user", "message": {"content": text}}))
-        else:
-            out.append(
-                json.dumps(
-                    {
-                        "type": "assistant",
-                        "message": {"id": f"a{i}", "content": [{"type": "text", "text": text}]},
-                    }
-                )
-            )
-    return ("\n".join(out) + "\n").encode("utf-8"), len(turns)
+    session_id, turns = turn_synthesis.synthesize(path)
+    return turn_synthesis.to_share_jsonl(session_id, turns)
 
 
 def _describe_error(body: dict) -> str:
