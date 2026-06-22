@@ -1565,16 +1565,18 @@ def harvest():
 @harvest.command("map")
 @click.argument("initiative")
 @click.option("--match", "match", default="", help="Comma-separated match terms (default: the initiative name)")
-@click.option("--inputs-k", default=6, type=int, help="How many of your inputs to sample per session")
+@click.option("--inputs-k", default=6, type=int, help="How many of your inputs to sample per session (non-full mode)")
+@click.option("--full", "full", is_flag=True, help="RICH map: ALL your inputs untruncated + full final output per session (quality > token-cost)")
 @click.option("--json-output", "as_json", is_flag=True)
-def harvest_map(initiative, match, inputs_k, as_json):
-    """Whole-arc MAP: a tiny digest of EVERY matched session (cross-user). Read all of them in one
-    pass to see the full arc, then drill into interesting ones with `canopy harvest strip <path>`."""
+def harvest_map(initiative, match, inputs_k, full, as_json):
+    """Whole-arc MAP: a digest of EVERY matched session (cross-user). Read all of it to see the full
+    arc, then drill into interesting ones with `canopy harvest strip <path>`. `--full` = lose no
+    input signal (all your inputs untruncated) when you care more about thoroughness than tokens."""
     import json as json_mod
     from orchestrator.harvest import corpus_map
 
     terms = [t.strip() for t in match.split(",") if t.strip()]
-    m = corpus_map(initiative, terms, inputs_k=inputs_k)
+    m = corpus_map(initiative, terms, inputs_k=inputs_k, full=full)
     if as_json:
         click.echo(json_mod.dumps(m, indent=2, default=str)); return
 

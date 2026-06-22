@@ -183,32 +183,41 @@ def strip_session(path: str, mode: str = "final") -> str:
     return "\n\n".join(("USER: " if r == "U" else "ASSISTANT: ") + t for r, t in seq)
 
 
-def session_digest(path: str, user: str = "", mtime: float = 0.0, inputs_k: int = 6) -> dict:
-    """A TINY per-session digest for the whole-arc map: your first input + a few sampled inputs
-    + the final output. ~a few hundred tokens, so all of an initiative's sessions fit one read."""
+def session_digest(path: str, user: str = "", mtime: float = 0.0, inputs_k: int = 6,
+                   full: bool = False) -> dict:
+    """A per-session digest for the whole-arc map. Default = tiny (first input + a few sampled
+    inputs + the final output, truncated). `full=True` = RICH: ALL your inputs untruncated (the
+    highest-signal part, and short) + the full final output. Use full when quality > token-cost."""
     seq = _ordered_texts(path)
     inputs = [t for r, t in seq if r == "U"]
     finals = [t for r, t in seq if r == "A"]
+    when = _dt.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M") if mtime else ""
+    base = {
+        "path": str(path), "user": user, "when": when,
+        "project": "/".join([x for x in os.path.basename(os.path.dirname(path)).split("-") if x][-2:]),
+        "turns": len(inputs),
+    }
+    if full:
+        base["first_input"] = inputs[0] if inputs else ""
+        base["inputs"] = inputs                       # ALL of them, untruncated
+        base["final_output"] = finals[-1] if finals else ""
+        return base
     sampled = inputs[:1]
     if len(inputs) > 1 and inputs_k > 1:
         rest = inputs[1:]
         step = max(1, len(rest) // (inputs_k - 1))
         sampled += rest[::step][: inputs_k - 1]
-    when = _dt.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M") if mtime else ""
-    return {
-        "path": str(path), "user": user, "when": when,
-        "project": "/".join([x for x in os.path.basename(os.path.dirname(path)).split("-") if x][-2:]),
-        "turns": len(inputs),
-        "first_input": inputs[0][:300] if inputs else "",
-        "inputs": [s[:160] for s in sampled],
-        "final_output": finals[-1][:300] if finals else "",
-    }
+    base["first_input"] = inputs[0][:300] if inputs else ""
+    base["inputs"] = [s[:160] for s in sampled]
+    base["final_output"] = finals[-1][:300] if finals else ""
+    return base
 
 
-def corpus_map(initiative: str, terms: list[str], *, inputs_k: int = 6,
+def corpus_map(initiative: str, terms: list[str], *, inputs_k: int = 6, full: bool = False,
                roots: list[dict] | None = None) -> dict:
-    """Whole-arc MAP: a tiny digest of EVERY matched session (cross-user, oldest-first). Cheap
-    enough to read all of them in one pass — then drill into the interesting ones with strip_session."""
+    """Whole-arc MAP: a digest of EVERY matched session (cross-user, oldest-first). `full=True`
+    makes each digest rich (all inputs untruncated + full final output) — still small enough to
+    read the whole arc in one pass, and loses no input signal. Then drill in with strip_session."""
     roots = roots if roots is not None else user_session_roots()
     refs = find_initiative_sessions(initiative, terms, roots=roots)
     unreadable = [r["user"] for r in roots if not r["readable"]]
@@ -219,7 +228,7 @@ def corpus_map(initiative: str, terms: list[str], *, inputs_k: int = 6,
         "total_sessions": len(refs),
         "by_user": {u: sum(1 for r in refs if r.user == u) for u in {r.user for r in refs}},
         "span": ({"from": refs[0].when, "to": refs[-1].when} if refs else None),
-        "digests": [session_digest(r.path, r.user, r.mtime, inputs_k=inputs_k) for r in refs],
+        "digests": [session_digest(r.path, r.user, r.mtime, inputs_k=inputs_k, full=full) for r in refs],
     }
 
 

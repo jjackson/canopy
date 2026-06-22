@@ -130,3 +130,17 @@ def test_corpus_map_cross_user(tmp_path):
     assert m["confidence"] == "whole-corpus"
     assert m["total_sessions"] >= 2
     assert all("path" in d and "first_input" in d for d in m["digests"])
+
+
+def test_session_digest_full_keeps_all_inputs_untruncated(tmp_path):
+    import json as _j
+    from orchestrator.harvest import session_digest
+    p = tmp_path / "s.jsonl"
+    long_in = "x" * 500
+    msgs = [_j.dumps({"type": "user", "message": {"content": long_in}}) for _ in range(8)]
+    p.write_text("\n".join(msgs) + "\n")
+    full = session_digest(str(p), full=True)
+    assert len(full["inputs"]) == 8                      # all kept, not sampled
+    assert full["inputs"][0] == long_in                  # untruncated
+    tiny = session_digest(str(p), full=False)
+    assert len(tiny["inputs"]) <= 6 and len(tiny["inputs"][0]) <= 160   # sampled + truncated
