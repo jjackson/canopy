@@ -59,6 +59,19 @@ _REMEDIATION = (
     "only when you have a deliberate reason."
 )
 
+# Hint shown when a blocked command LOOKS like a hand-rolled update (it writes into
+# plugins/cache/). The sanctioned marketplace→cache copy IS auto-exempted, so if you hit
+# this you deviated from the canonical form — almost always: a relative rsync source after
+# `cd` (so `plugins/marketplaces/` isn't in the command string), or an `rm` bundled in the
+# same statement (deletions are never exempted). This points you back at the canonical form.
+_SANCTIONED_HINT = (
+    "If this IS the sanctioned plugin update, it's auto-allowed only in the canonical form: "
+    "`rsync -a ~/.claude/plugins/marketplaces/canopy/plugins/canopy/ "
+    "~/.claude/plugins/cache/canopy/canopy/<version>/` — use the FULL marketplaces source "
+    "path (a relative path after `cd` is not recognized), and do NOT bundle `rm`/deletions "
+    "in the same statement (run cleanup separately)."
+)
+
 
 def _expand(path: str) -> str:
     """Tilde- and env-expand a path-ish string."""
@@ -236,12 +249,17 @@ def _allow_with_warning(message: str) -> None:
 
 
 def _build_block_message(detail: str) -> str:
-    return (
+    msg = (
         "BLOCKED by canopy plugin-cache guard.\n\n"
         f"Detected: {detail}\n\n"
         f"Why: {_CLAUDE_MD_QUOTE}\n\n"
         f"Fix: {_REMEDIATION}"
     )
+    # If the block was a Bash command WRITING into the cache, it may be a hand-rolled
+    # update that deviated from the canonical (auto-exempted) form — surface how to fix that.
+    if "mutates the plugin cache" in detail:
+        msg += f"\n\n{_SANCTIONED_HINT}"
+    return msg
 
 
 def evaluate(hook_data: dict) -> tuple[str, str | None]:
