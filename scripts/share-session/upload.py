@@ -164,17 +164,137 @@ def upload(
     return resp.status, (json.loads(raw.decode("utf-8")) if raw else {})
 
 
+def post_json(url: str, pat: str, payload: dict) -> tuple[int, dict]:
+    """POST a JSON body with Bearer auth (used to create an arc)."""
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {pat}"},
+    )
+    try:
+        resp = urllib.request.urlopen(req, timeout=120)
+    except urllib.error.HTTPError as e:
+        try:
+            body = json.loads(e.read().decode("utf-8") or "{}")
+        except json.JSONDecodeError:
+            body = {"error": e.reason}
+        return e.code, body
+    raw = resp.read()
+    return resp.status, (json.loads(raw.decode("utf-8")) if raw else {})
+
+
+def _upload_one(
+    api: str,
+    pat: str,
+    src: Path,
+    *,
+    title: str,
+    project: str | None,
+    visibility: str,
+    full: bool,
+) -> dict:
+    """Upload one transcript and return the server's JSON body. Reduces to a
+    turn-synthesis client-side unless ``full``."""
+    if full:
+        file_bytes = src.read_bytes()
+    else:
+        file_bytes, n_turns = reduce_transcript(src)
+        print(
+            f"  {src.name}: reduced to {n_turns} turn(s)",
+            file=sys.stderr,
+        )
+    fields = {"title": title, "visibility": visibility}
+    if project:
+        fields["project_slug"] = project
+    status, body = upload(
+        f"{api}/api/sessions/upload", pat, fields, src.name, file_bytes
+    )
+    if status != 201:
+        fail(f"upload failed for {src.name} (HTTP {status}): {_describe_error(body)}")
+    return body
+
+
+def _title_for(src: Path) -> str:
+    """A readable section heading for an arc member: its first human prompt,
+    else the file stem."""
+    try:
+        _sid, turns = turn_synthesis.synthesize(src)
+        if turns and turns[0].prompt:
+            return turns[0].prompt.replace("\n", " ")[:80]
+    except Exception:
+        pass
+    return src.stem
+
+
+def run_arc(args, api: str, pat: str) -> int:
+    """Upload each transcript as a (private) member session, then stitch them
+    into one shared arc and print the /share/<token> URL."""
+    paths = [Path(p).expanduser().resolve() for p in args.paths]
+    for p in paths:
+        if not p.is_file():
+            fail(f"transcript not found: {p}")
+    if not paths:
+        fail("--arc needs at least one transcript path")
+
+    project = args.project_slug or Path.cwd().name
+    print(f"building arc from {len(paths)} session(s)…", file=sys.stderr)
+
+    items = []
+    for src in paths:
+        # Members upload private — the arc carries the public link, not each one.
+        body = _upload_one(
+            api, pat, src,
+            title=_title_for(src),
+            project=project,
+            visibility="private",
+            full=args.full,
+        )
+        items.append({"session_slug": body["slug"], "heading": _title_for(src)})
+
+    arc_title = (args.title or f"Session arc ({len(paths)} sessions)").strip()
+    visibility = "private" if args.private else "link"
+    payload = {
+        "title": arc_title,
+        "project_slug": project,
+        "visibility": visibility,
+        "items": items,
+    }
+    status, body = post_json(f"{api}/api/sessions/arcs", pat, payload)
+    if status != 201:
+        fail(f"arc creation failed (HTTP {status}): {_describe_error(body)}")
+
+    token = body.get("share_token")
+    if visibility == "link" and token:
+        print(f"Arc: {api}/share/{token}")
+    else:
+        print(f"Arc created (dimagi login required): slug {body.get('slug')}")
+    print(f"{body.get('item_count', len(items))} sessions stitched", file=sys.stderr)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="canopy:share-session",
         description="Upload the current Claude session transcript to canopy-web.",
     )
     p.add_argument(
-        "path",
-        nargs="?",
-        help="Transcript .jsonl (default: newest for the current dir's session).",
+        "paths",
+        nargs="*",
+        help="Transcript .jsonl path(s). Default (none): newest for the current "
+        "dir's session. With --arc: one or more transcripts to stitch in order.",
     )
-    p.add_argument("--title", help="Session title (default: the transcript stem).")
+    p.add_argument(
+        "--arc",
+        action="store_true",
+        help="Stitch the given transcripts into ONE shared arc page (each "
+        "uploaded as a private member; the arc carries the public link).",
+    )
+    p.add_argument(
+        "--title",
+        help="Session title — or, with --arc, the arc title "
+        "(default: the transcript stem / a generated arc title).",
+    )
     p.add_argument("--project", dest="project_slug", help="Project slug for the feed.")
     p.add_argument(
         "--private",
@@ -195,17 +315,26 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = p.parse_args(argv)
 
+    pat = resolve_pat()
+    api = args.api_url.rstrip("/")
+
+    if args.arc:
+        if not args.paths:
+            fail("--arc needs at least one transcript path")
+        return run_arc(args, api, pat)
+
     cwd = Path.cwd()
-    if args.path:
-        src = Path(args.path).expanduser().resolve()
+    if args.paths:
+        if len(args.paths) > 1:
+            fail("multiple transcripts given without --arc; pass --arc to stitch "
+                 "them into one shared arc, or upload one at a time")
+        src = Path(args.paths[0]).expanduser().resolve()
         if not src.is_file():
             fail(f"transcript not found: {src}")
     else:
         src = discover_transcript(cwd)
         print(f"using transcript: {src}", file=sys.stderr)
 
-    pat = resolve_pat()
-    api = args.api_url.rstrip("/")
     title = (args.title or src.stem).strip()
     project = args.project_slug or cwd.name
     visibility = "private" if args.private else "link"
