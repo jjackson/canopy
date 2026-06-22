@@ -86,10 +86,15 @@ must be deployed too, from the SAME marketplace clone the plugin came from, so t
 always ship together from `main` (never an editable dev-checkout, which silently drifts with
 whatever branch is checked out — that bug stranded `canopy harvest` from a fresh session).
 
+**`--reinstall` is required, not optional.** The Python package version is pinned (`0.1.0`); it does
+NOT bump with the plugin VERSION. So `uv tool install --force` alone keys on the unchanged version
+and serves a **cached build** — silently shipping stale CLI code (this stranded `harvest --full`).
+`--reinstall` forces a rebuild from the freshly-pulled source.
+
 ```bash
-uv tool install --force "$HOME/.claude/plugins/marketplaces/canopy" 2>&1 | tail -3 && \
+uv tool install --reinstall --force "$HOME/.claude/plugins/marketplaces/canopy" 2>&1 | tail -3 && \
   canopy --help >/dev/null 2>&1 && echo "CLI DEPLOYED: $(canopy --version 2>/dev/null || echo ok)" \
-  || echo "CLI DEPLOY FAILED — run: uv tool install --force ~/.claude/plugins/marketplaces/canopy"
+  || echo "CLI DEPLOY FAILED — run: uv tool install --reinstall --force ~/.claude/plugins/marketplaces/canopy"
 ```
 
 - `CLI DEPLOYED` → Tell the user: "Updated canopy to **vX.Y.Z** (plugin + CLI, verified). Run `/reload-plugins` to activate the plugin."
