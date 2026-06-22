@@ -40,6 +40,19 @@ def _read_version_file(path: Path) -> str:
 _PLUGIN_VERSION_LINE_RE = re.compile(r'("version"\s*:\s*")[\d.]+(")')
 
 
+_PYPROJECT_VERSION_RE = re.compile(r'(?m)^(version\s*=\s*")[\d.]+(")')
+
+
+def _write_pyproject_version(path: Path, new_version: str) -> int:
+    """Surgically replace the first `version = "x.y.z"` (the [project] version) in pyproject.toml.
+    Returns the replacement count (0 if the file has no version line)."""
+    text = path.read_text()
+    new_text, n = _PYPROJECT_VERSION_RE.subn(rf"\g<1>{new_version}\g<2>", text, count=1)
+    if n:
+        path.write_text(new_text)
+    return n
+
+
 def _read_plugin_json_version(path: Path) -> str:
     """Extract the version field via regex — avoids round-tripping JSON which
     would normalize formatting (unicode escapes, array layout, etc.)."""
@@ -320,6 +333,14 @@ def bump(repo_root: Path) -> dict:
     if mp_path is not None:
         mp_replacements = _write_marketplace_json_version(mp_path, next_v)
 
+    # The CLI (Python package) ships with the plugin — keep pyproject's version in lockstep so
+    # every release is a distinct build. Pinning it (it sat at 0.1.0) made `uv tool install` serve
+    # stale cached builds and made `canopy --version` meaningless.
+    pyproject_path = repo_root / "pyproject.toml"
+    pyproject_bumped = False
+    if pyproject_path.is_file():
+        pyproject_bumped = _write_pyproject_version(pyproject_path, next_v) > 0
+
     return {
         "previous_local": local_v,
         "origin_main": origin_v,
@@ -328,4 +349,5 @@ def bump(repo_root: Path) -> dict:
         "plugin_json_path": str(p_path),
         "marketplace_json_path": str(mp_path) if mp_path else None,
         "marketplace_json_replacements": mp_replacements,
+        "pyproject_bumped": pyproject_bumped,
     }

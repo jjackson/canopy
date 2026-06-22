@@ -153,3 +153,16 @@ class TestFindVersionFiles:
         (plugin_dir / "plugin.json").write_text('{"version": "0.0.0"}')
         with pytest.raises(FileNotFoundError, match="VERSION"):
             find_version_files(tmp_path)
+
+
+def test_write_pyproject_version(tmp_path):
+    from orchestrator.version_bump import _write_pyproject_version
+    p = tmp_path / "pyproject.toml"
+    p.write_text('[project]\nname = "canopy"\nversion = "0.1.0"\n\n[project.scripts]\ncanopy = "x:main"\n')
+    assert _write_pyproject_version(p, "0.2.224") == 1
+    assert 'version = "0.2.224"' in p.read_text()
+    # idempotent shape: only the project version line changes, scripts untouched
+    assert 'canopy = "x:main"' in p.read_text()
+    # no version line -> 0 replacements, no error
+    q = tmp_path / "noversion.toml"; q.write_text("[project]\nname='x'\n")
+    assert _write_pyproject_version(q, "0.2.224") == 0
