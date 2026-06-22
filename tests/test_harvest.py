@@ -89,3 +89,44 @@ def test_user_session_roots_real_machine():
     # smoke: on the real machine this should at least find acedimagi
     roots = user_session_roots()
     assert any(r["user"] == "acedimagi" for r in roots)
+
+
+def test_strip_session_final_vs_full(tmp_path):
+    import json as _j
+    from orchestrator.harvest import strip_session
+    p = tmp_path / "s.jsonl"
+    p.write_text("\n".join([
+        _j.dumps({"type": "user", "message": {"content": "do the thing"}}),
+        _j.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "step one narration"}]}}),
+        _j.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "FINAL answer A"}]}}),
+        _j.dumps({"type": "user", "message": {"content": "next"}}),
+        _j.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "FINAL answer B"}]}}),
+    ]) + "\n")
+    final = strip_session(str(p), mode="final")
+    assert "FINAL answer A" in final and "FINAL answer B" in final
+    assert "step one narration" not in final          # intermediate prose dropped in final mode
+    full = strip_session(str(p), mode="full")
+    assert "step one narration" in full               # kept in full mode
+
+
+def test_session_digest_shape(tmp_path):
+    import json as _j
+    from orchestrator.harvest import session_digest
+    p = tmp_path / "s.jsonl"
+    msgs = [_j.dumps({"type": "user", "message": {"content": f"input {i}"}}) for i in range(10)]
+    msgs.append(_j.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "ended here"}]}}))
+    p.write_text("\n".join(msgs) + "\n")
+    d = session_digest(str(p), user="ace", mtime=0.0, inputs_k=4)
+    assert d["turns"] == 10
+    assert d["first_input"] == "input 0"
+    assert len(d["inputs"]) <= 4
+    assert d["final_output"] == "ended here"
+
+
+def test_corpus_map_cross_user(tmp_path):
+    from orchestrator.harvest import corpus_map
+    users = _fake_machine(tmp_path)
+    m = corpus_map("ddd", ["ddd", "demo", "walkthrough", "demo video"], roots=_roots(users))
+    assert m["confidence"] == "whole-corpus"
+    assert m["total_sessions"] >= 2
+    assert all("path" in d and "first_input" in d for d in m["digests"])

@@ -1562,6 +1562,48 @@ def harvest():
     """
 
 
+@harvest.command("map")
+@click.argument("initiative")
+@click.option("--match", "match", default="", help="Comma-separated match terms (default: the initiative name)")
+@click.option("--inputs-k", default=6, type=int, help="How many of your inputs to sample per session")
+@click.option("--json-output", "as_json", is_flag=True)
+def harvest_map(initiative, match, inputs_k, as_json):
+    """Whole-arc MAP: a tiny digest of EVERY matched session (cross-user). Read all of them in one
+    pass to see the full arc, then drill into interesting ones with `canopy harvest strip <path>`."""
+    import json as json_mod
+    from orchestrator.harvest import corpus_map
+
+    terms = [t.strip() for t in match.split(",") if t.strip()]
+    m = corpus_map(initiative, terms, inputs_k=inputs_k)
+    if as_json:
+        click.echo(json_mod.dumps(m, indent=2, default=str)); return
+
+    sp = m["span"]
+    click.echo(f"# MAP: {m['initiative']}  •  {m['total_sessions']} sessions  •  {m['confidence'].upper()}"
+               f"  •  by user {m['by_user']}" + (f"  •  {sp['from']} → {sp['to']}" if sp else ""))
+    if m["unreadable_users"]:
+        click.echo(f"# ⚠ HALF-BLIND — unreadable: {', '.join(m['unreadable_users'])}")
+    click.echo("# (read the whole arc below; then `canopy harvest strip <path>` the interesting ones)\n")
+    for d in m["digests"]:
+        click.echo(f"── [{d['user']}] {d['when']}  {d['project']}  ({d['turns']} turns)")
+        click.echo(f"   path: {d['path']}")
+        for i, inp in enumerate(d["inputs"]):
+            click.echo(f"   {'intent' if i == 0 else 'then'}: {inp}")
+        if d["final_output"]:
+            click.echo(f"   ended: {d['final_output']}")
+        click.echo("")
+
+
+@harvest.command("strip")
+@click.argument("session_path", type=click.Path(exists=True))
+@click.option("--mode", type=click.Choice(["final", "full"]), default="final",
+              help="final = last assistant block per turn (the output you saw); full = all assistant prose")
+def harvest_strip(session_path, mode):
+    """Drill into ONE session: print it stripped to (your inputs + assistant outputs), tool noise removed."""
+    from orchestrator.harvest import strip_session
+    click.echo(strip_session(session_path, mode=mode))
+
+
 @harvest.command("corpus")
 @click.argument("initiative")
 @click.option("--match", "match", default="", help="Comma-separated match terms (default: the initiative name)")
