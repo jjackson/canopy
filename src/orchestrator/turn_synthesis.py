@@ -49,6 +49,12 @@ _NOISE_PREFIXES = (
     "<system>",
     "Caveat:",
     "[Request interrupted",
+    # Auto-compaction continuation summary — Claude Code injects this as a
+    # type=user message (also flagged isCompactSummary) when a session runs out
+    # of context. It is NOT something the human typed. Dropped by the flag in the
+    # iterators below; this prefix is a fallback for transcripts where the flag
+    # is absent (older CLI versions).
+    "This session is being continued from a previous conversation",
 )
 
 
@@ -56,6 +62,12 @@ def is_noise(text: str) -> bool:
     """True for harness-injected user lines the human did not type."""
     t = text.lstrip()
     return any(t.startswith(p) for p in _NOISE_PREFIXES)
+
+
+def _is_harness_user(e: dict) -> bool:
+    """True for type=user events the harness authored rather than the human:
+    sidechain sub-agent turns and auto-compaction continuation summaries."""
+    return bool(e.get("isSidechain") or e.get("isCompactSummary"))
 
 
 _CMD_NAME_RE = re.compile(r"<command-name>\s*(.*?)\s*</command-name>", re.S)
@@ -137,7 +149,7 @@ def iter_messages(path: str | Path) -> list[tuple[str, str]]:
     """
     out: list[tuple[str, str]] = []
     for e in _events(path):
-        if e.get("isSidechain"):
+        if _is_harness_user(e):
             continue
         kind = e.get("type")
         msg = e.get("message") if isinstance(e.get("message"), dict) else {}
@@ -177,7 +189,7 @@ def synthesize(path: str | Path) -> tuple[str, list[Turn]]:
         if kind == "system" and e.get("subtype") == "init":
             session_id = e.get("session_id", "") or session_id
             continue
-        if e.get("isSidechain"):
+        if _is_harness_user(e):
             continue
         msg = e.get("message") if isinstance(e.get("message"), dict) else {}
 
