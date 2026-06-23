@@ -351,8 +351,11 @@ def spec_qa(
             # effecting act is a hover-only "claimed, not shown" demo. Scoped to
             # the actions list — a scene with NO actions is exempt (legacy
             # narrative beat).
+            # `overview` scenes (the goal-setting "why" opening) demonstrate no
+            # capability — they set up the WHY, scripting only context actions
+            # (wait_for/hold). Exempt them from the show-don't-tell gate.
             scene_actions = scene.actions or []
-            if scene_actions:
+            if scene_actions and scene.role != "overview":
                 action_kinds = {
                     (a.kind if hasattr(a, "kind") else (a.get("kind") if isinstance(a, dict) else ""))
                     for a in scene_actions
@@ -371,12 +374,20 @@ def spec_qa(
                             "narrated act, or soften the narration to match what the demo does."
                         )
 
-            # DDD v3: every scene must have ≥1 feature with a non-vacuous verify
-            if not scene.features:
+            # DDD v3: every DEMO scene must have ≥1 feature with a non-vacuous
+            # verify. An `overview` scene (the goal-setting "why" opening)
+            # demonstrates no capability, so it is EXEMPT — it's judged on
+            # whether its concept_claim + provenance establish the goal, not on
+            # a feature. (A whole spec of overview scenes would build nothing;
+            # keep them rare, usually exactly one, first.)
+            if scene.role == "overview":
+                pass
+            elif not scene.features:
                 violations.append(
                     f"scene '{scene.title}': has no features — "
-                    "every scene must declare ≥1 Feature(id, description, verify) "
-                    "so the narrative is buildable and verifiable"
+                    "every demo scene must declare ≥1 Feature(id, description, verify) "
+                    "so the narrative is buildable and verifiable "
+                    "(or mark it `role: overview` if it only sets up the goal/why)"
                 )
             else:
                 for feature in scene.features:

@@ -116,6 +116,14 @@ traces = action_trace_by_scene(report) if report else {}  # {scene_index: [{kind
 
 For each scene in `unified_spec.yaml`:
 
+> **`role: overview` scenes** are goal-setting "why" openings, not feature demos.
+> Build their context as a narrative-only scene (`action_trace: []` → no
+> action-fidelity deduction) and judge them on whether the frame + narration
+> clearly ESTABLISH THE GOAL/why (this is what `concept_clarity`'s
+> "opening scene establishes the problem" anchor rewards). A clean context frame
+> (e.g. the program workspace) is the intended artifact, not a flaw — do not
+> expect, or deduct for the absence of, a feature being operated.
+
 1. Identify the screenshot path: `<run_dir>/scene_<N>.png` (the after-frame; or
    the path recorded in the run manifest). If a `<run_dir>/scene_<N>_before.png`
    exists (the render used `--capture-action-frames` and this scene effects a
