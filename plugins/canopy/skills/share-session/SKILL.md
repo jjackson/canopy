@@ -144,6 +144,28 @@ Pass the `Share:` line back to the user verbatim.
 | `--private` | no | Upload as private (dimagi-only). Default is link-by-default. |
 | `--full` | no | Upload the raw transcript (all tool calls). Default reduces to the conversation (prompts + final replies) client-side; tool output never leaves the machine. |
 | `--api-url <url>` | no | Override canopy-web base URL (also via `CANOPY_WEB_API_URL`). |
+| `--arc` | no | Stitch MULTIPLE transcripts into one shared **arc** page (see below). |
+
+## Arc mode — share a whole build, not just one session
+
+When a feature was built across several sessions (often across machine
+accounts), share the **arc** — all of them, in order, on one page:
+
+```bash
+python3 "$UPLOAD" --arc \
+  /path/to/session-1.jsonl /path/to/session-2.jsonl /path/to/session-3.jsonl \
+  --title "Campaign tool build" --project connect-labs
+```
+
+Each transcript is reduced to its turn-synthesis and uploaded as a **private**
+member session (no per-session public link); then they're stitched into one
+arc that carries the single `/share/<token>` link the command prints. Section
+headings default to each session's first human prompt. Order is the order you
+pass the paths — list them oldest-first to read as the build unfolded.
+
+To gather the member transcripts for an initiative across users first, use
+`canopy harvest map <initiative> --match <terms>` (it lists every matching
+session path, cross-user, oldest-first), then pass those paths to `--arc`.
 
 ## Secret scrubbing (best-effort, not a guarantee)
 

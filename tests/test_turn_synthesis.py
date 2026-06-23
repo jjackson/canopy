@@ -1,0 +1,172 @@
+"""Tests for the canonical turn-synthesis reducer (shared by share-session + harvest)."""
+import json
+
+from orchestrator import turn_synthesis as ts
+
+
+def _write(path, events):
+    path.write_text("\n".join(json.dumps(e) for e in events) + "\n")
+
+
+def test_synthesize_pairs_prompt_with_final_reply(tmp_path):
+    p = tmp_path / "s.jsonl"
+    _write(p, [
+        {"type": "system", "subtype": "init", "session_id": "sess-123"},
+        {"type": "user", "message": {"content": "do the thing"}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "intermediate"}]}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "FINAL A"}]}},
+        {"type": "user", "message": {"content": "next"}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "FINAL B"}]}},
+    ])
+    session_id, turns = ts.synthesize(p)
+    assert session_id == "sess-123"
+    assert [(t.prompt, t.response) for t in turns] == [
+        ("do the thing", "FINAL A"),   # latest assistant message wins
+        ("next", "FINAL B"),
+    ]
+
+
+def test_synthesize_drops_noise_and_tool_results(tmp_path):
+    p = tmp_path / "s.jsonl"
+    _write(p, [
+        {"type": "user", "message": {"content": "real intent"}},
+        {"type": "user", "message": {"content": "<system-reminder>noise</system-reminder>"}},
+        {"type": "user", "message": {"content": [{"type": "tool_result", "content": "x"}]}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "ok"}]}},
+        {"type": "user", "message": {"content": "[Request interrupted by user]"}},
+    ])
+    _session_id, turns = ts.synthesize(p)
+    assert [t.prompt for t in turns] == ["real intent"]
+    assert turns[0].response == "ok"
+
+
+def test_synthesize_renders_slash_command(tmp_path):
+    p = tmp_path / "s.jsonl"
+    _write(p, [
+        {"type": "user", "message": {"content": "<command-name>/loop</command-name><command-args>5m /foo</command-args>"}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "looping"}]}},
+    ])
+    _session_id, turns = ts.synthesize(p)
+    assert turns[0].prompt == "/loop 5m /foo"
+
+
+def test_synthesize_drops_compaction_summary(tmp_path):
+    # Claude Code injects an auto-compaction summary as a type=user message
+    # flagged isCompactSummary when a session runs out of context. It is NOT a
+    # human prompt and must not become a turn.
+    p = tmp_path / "s.jsonl"
+    _write(p, [
+        {"type": "user", "message": {"content": "real first prompt"}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "working"}]}},
+        {"type": "user", "isCompactSummary": True,
+         "message": {"content": "This session is being continued from a previous conversation that ran out of context.\n\nSummary: ..."}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "resumed"}]}},
+        {"type": "user", "message": {"content": "real second prompt"}},
+    ])
+    _session_id, turns = ts.synthesize(p)
+    assert [t.prompt for t in turns] == ["real first prompt", "real second prompt"]
+    # iter_messages drops it too (no fake user block in the substrate)
+    assert all(t != "U" or "continued from a previous" not in txt
+               for t, txt in ts.iter_messages(p))
+
+
+def test_compaction_summary_dropped_by_text_when_flag_absent(tmp_path):
+    # Fallback: older transcripts may carry the text without the flag.
+    p = tmp_path / "s.jsonl"
+    _write(p, [
+        {"type": "user", "message": {"content": "real prompt"}},
+        {"type": "user", "message": {"content": "This session is being continued from a previous conversation that ran out of context.\n\nSummary: x"}},
+    ])
+    _session_id, turns = ts.synthesize(p)
+    assert [t.prompt for t in turns] == ["real prompt"]
+
+
+def test_synthesize_skips_sidechain(tmp_path):
+    p = tmp_path / "s.jsonl"
+    _write(p, [
+        {"type": "user", "message": {"content": "main prompt"}},
+        {"type": "assistant", "isSidechain": True, "message": {"content": [{"type": "text", "text": "subagent chatter"}]}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "real reply"}]}},
+    ])
+    _session_id, turns = ts.synthesize(p)
+    assert turns[0].response == "real reply"
+
+
+def test_synthesize_trailing_prompt_without_reply(tmp_path):
+    p = tmp_path / "s.jsonl"
+    _write(p, [
+        {"type": "user", "message": {"content": "first"}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "answer"}]}},
+        {"type": "user", "message": {"content": "dangling"}},
+    ])
+    _session_id, turns = ts.synthesize(p)
+    assert [(t.prompt, t.response) for t in turns] == [("first", "answer"), ("dangling", "")]
+
+
+def test_to_share_jsonl_roundtrips(tmp_path):
+    turns = [ts.Turn("p1", "r1"), ts.Turn("p2", ""), ts.Turn("p3", "r3")]
+    blob, n = ts.to_share_jsonl("sid", turns)
+    # 3 user lines + 2 assistant lines (the empty response emits no assistant line)
+    assert n == 5
+    lines = [json.loads(x) for x in blob.decode().splitlines()]
+    assert lines[0] == {"type": "system", "subtype": "init", "session_id": "sid"}
+    kinds = [(e["type"], e["message"].get("content")) for e in lines[1:]]
+    assert kinds[0] == ("user", "p1")
+    assert lines[2]["type"] == "assistant"
+    assert lines[2]["message"]["content"][0]["text"] == "r1"
+    # p2 has no reply → next line is the p3 user line
+    assert lines[3]["message"]["content"] == "p2"
+    assert lines[4]["message"]["content"] == "p3"
+
+
+def test_to_share_jsonl_strips_nul_bytes(tmp_path):
+    blob, _n = ts.to_share_jsonl("sid", [ts.Turn("pro\x00mpt", "resp\x00onse")])
+    assert "\x00" not in blob.decode()
+
+
+def test_timespan_returns_first_and_last_timestamps(tmp_path):
+    p = tmp_path / "s.jsonl"
+    _write(p, [
+        {"type": "system", "subtype": "init", "session_id": "x", "timestamp": "2026-06-18T23:29:29.470Z"},
+        {"type": "user", "message": {"content": "go"}, "timestamp": "2026-06-18T23:30:00.000Z"},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "ok"}]}, "timestamp": "2026-06-19T01:05:00.000Z"},
+    ])
+    first, last = ts.timespan(p)
+    assert first == "2026-06-18T23:29:29.470Z"
+    assert last == "2026-06-19T01:05:00.000Z"
+
+
+def test_timespan_none_when_no_timestamps(tmp_path):
+    p = tmp_path / "s.jsonl"
+    _write(p, [{"type": "user", "message": {"content": "go"}}])
+    assert ts.timespan(p) == (None, None)
+
+
+def test_active_seconds_caps_idle_gaps(tmp_path):
+    p = tmp_path / "s.jsonl"
+    _write(p, [
+        # +5 min, then a 3h idle gap (capped to 30m), then +10 min
+        {"type": "user", "message": {"content": "a"}, "timestamp": "2026-06-18T10:00:00Z"},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "b"}]}, "timestamp": "2026-06-18T10:05:00Z"},
+        {"type": "user", "message": {"content": "c"}, "timestamp": "2026-06-18T13:05:00Z"},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "d"}]}, "timestamp": "2026-06-18T13:15:00Z"},
+    ])
+    # 5m + capped(3h→30m) + 10m = 45m = 2700s; wall-clock would be 3h15m.
+    assert ts.active_seconds(p, idle_gap_seconds=1800) == 2700
+
+
+def test_active_seconds_zero_without_timestamps(tmp_path):
+    p = tmp_path / "s.jsonl"
+    _write(p, [{"type": "user", "message": {"content": "go"}}])
+    assert ts.active_seconds(p) == 0
+
+
+def test_iter_messages_keeps_every_assistant_block(tmp_path):
+    p = tmp_path / "s.jsonl"
+    _write(p, [
+        {"type": "user", "message": {"content": "go"}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "block one"}]}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "block two"}]}},
+    ])
+    seq = ts.iter_messages(p)
+    assert seq == [("U", "go"), ("A", "block one"), ("A", "block two")]
