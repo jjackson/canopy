@@ -214,6 +214,9 @@ def _upload_one(
         fields["started_at"] = started_at
     if ended_at:
         fields["ended_at"] = ended_at
+    active = turn_synthesis.active_seconds(src)
+    if active:
+        fields["active_seconds"] = str(active)
     status, body = upload(
         f"{api}/api/sessions/upload", pat, fields, src.name, file_bytes
     )
@@ -366,6 +369,9 @@ def main(argv: list[str] | None = None) -> int:
         fields["started_at"] = started_at
     if ended_at:
         fields["ended_at"] = ended_at
+    active = turn_synthesis.active_seconds(src)
+    if active:
+        fields["active_seconds"] = str(active)
 
     status, body = upload(
         f"{api}/api/sessions/upload", pat, fields, src.name, file_bytes

@@ -220,6 +220,42 @@ def timespan(path: str | Path) -> tuple[str | None, str | None]:
     return first, last
 
 
+def _parse_ts(ts: str):
+    """Parse an ISO-8601 timestamp (tolerating a trailing ``Z``), or None."""
+    import datetime as _dt
+
+    try:
+        return _dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def active_seconds(path: str | Path, idle_gap_seconds: int = 1800) -> int:
+    """Estimated *active* duration of a session, in seconds.
+
+    Sums the gaps between consecutive events, but caps each gap at
+    ``idle_gap_seconds`` (default 30 min) so a session left open overnight
+    doesn't read as 14 hours of work. This is the honest "how long did this
+    take" number; the raw first→last span (see ``timespan``) is wall-clock and
+    includes idle time.
+    """
+    times = []
+    for e in _events(path):
+        ts = e.get("timestamp")
+        if isinstance(ts, str) and ts:
+            parsed = _parse_ts(ts)
+            if parsed is not None:
+                times.append(parsed)
+    if len(times) < 2:
+        return 0
+    total = 0.0
+    for a, b in zip(times, times[1:]):
+        gap = (b - a).total_seconds()
+        if gap > 0:
+            total += min(gap, idle_gap_seconds)
+    return int(total)
+
+
 def to_share_jsonl(session_id: str, turns: list[Turn]) -> tuple[bytes, int]:
     """Re-emit a minimal Claude-format .jsonl (init + user/assistant text lines)
     that canopy-web's session parser reads back into exactly these turns.
