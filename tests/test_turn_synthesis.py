@@ -50,6 +50,37 @@ def test_synthesize_renders_slash_command(tmp_path):
     assert turns[0].prompt == "/loop 5m /foo"
 
 
+def test_synthesize_drops_compaction_summary(tmp_path):
+    # Claude Code injects an auto-compaction summary as a type=user message
+    # flagged isCompactSummary when a session runs out of context. It is NOT a
+    # human prompt and must not become a turn.
+    p = tmp_path / "s.jsonl"
+    _write(p, [
+        {"type": "user", "message": {"content": "real first prompt"}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "working"}]}},
+        {"type": "user", "isCompactSummary": True,
+         "message": {"content": "This session is being continued from a previous conversation that ran out of context.\n\nSummary: ..."}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "resumed"}]}},
+        {"type": "user", "message": {"content": "real second prompt"}},
+    ])
+    _session_id, turns = ts.synthesize(p)
+    assert [t.prompt for t in turns] == ["real first prompt", "real second prompt"]
+    # iter_messages drops it too (no fake user block in the substrate)
+    assert all(t != "U" or "continued from a previous" not in txt
+               for t, txt in ts.iter_messages(p))
+
+
+def test_compaction_summary_dropped_by_text_when_flag_absent(tmp_path):
+    # Fallback: older transcripts may carry the text without the flag.
+    p = tmp_path / "s.jsonl"
+    _write(p, [
+        {"type": "user", "message": {"content": "real prompt"}},
+        {"type": "user", "message": {"content": "This session is being continued from a previous conversation that ran out of context.\n\nSummary: x"}},
+    ])
+    _session_id, turns = ts.synthesize(p)
+    assert [t.prompt for t in turns] == ["real prompt"]
+
+
 def test_synthesize_skips_sidechain(tmp_path):
     p = tmp_path / "s.jsonl"
     _write(p, [
