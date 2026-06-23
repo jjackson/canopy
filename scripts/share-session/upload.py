@@ -207,6 +207,13 @@ def _upload_one(
     fields = {"title": title, "visibility": visibility}
     if project:
         fields["project_slug"] = project
+    # Session timing (when / how long) — read from the RAW transcript before it's
+    # reduced; the reduced upload drops per-event timestamps.
+    started_at, ended_at = turn_synthesis.timespan(src)
+    if started_at:
+        fields["started_at"] = started_at
+    if ended_at:
+        fields["ended_at"] = ended_at
     status, body = upload(
         f"{api}/api/sessions/upload", pat, fields, src.name, file_bytes
     )
@@ -354,6 +361,11 @@ def main(argv: list[str] | None = None) -> int:
     fields = {"title": title, "visibility": visibility}
     if project:
         fields["project_slug"] = project
+    started_at, ended_at = turn_synthesis.timespan(src)
+    if started_at:
+        fields["started_at"] = started_at
+    if ended_at:
+        fields["ended_at"] = ended_at
 
     status, body = upload(
         f"{api}/api/sessions/upload", pat, fields, src.name, file_bytes
