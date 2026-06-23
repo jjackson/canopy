@@ -201,6 +201,25 @@ def synthesize(path: str | Path) -> tuple[str, list[Turn]]:
     return session_id, turns
 
 
+def timespan(path: str | Path) -> tuple[str | None, str | None]:
+    """The first and last event timestamps (ISO-8601 strings) in a raw
+    transcript, or ``(None, None)`` if none carry a ``timestamp``.
+
+    Lets a share surface show a session's *when* and *how long* without
+    shipping the full transcript — the reduced upload drops per-event
+    timestamps, so these are captured here and sent as metadata instead.
+    """
+    first: str | None = None
+    last: str | None = None
+    for e in _events(path):
+        ts = e.get("timestamp")
+        if isinstance(ts, str) and ts:
+            if first is None:
+                first = ts
+            last = ts
+    return first, last
+
+
 def to_share_jsonl(session_id: str, turns: list[Turn]) -> tuple[bytes, int]:
     """Re-emit a minimal Claude-format .jsonl (init + user/assistant text lines)
     that canopy-web's session parser reads back into exactly these turns.

@@ -93,6 +93,24 @@ def test_to_share_jsonl_strips_nul_bytes(tmp_path):
     assert "\x00" not in blob.decode()
 
 
+def test_timespan_returns_first_and_last_timestamps(tmp_path):
+    p = tmp_path / "s.jsonl"
+    _write(p, [
+        {"type": "system", "subtype": "init", "session_id": "x", "timestamp": "2026-06-18T23:29:29.470Z"},
+        {"type": "user", "message": {"content": "go"}, "timestamp": "2026-06-18T23:30:00.000Z"},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "ok"}]}, "timestamp": "2026-06-19T01:05:00.000Z"},
+    ])
+    first, last = ts.timespan(p)
+    assert first == "2026-06-18T23:29:29.470Z"
+    assert last == "2026-06-19T01:05:00.000Z"
+
+
+def test_timespan_none_when_no_timestamps(tmp_path):
+    p = tmp_path / "s.jsonl"
+    _write(p, [{"type": "user", "message": {"content": "go"}}])
+    assert ts.timespan(p) == (None, None)
+
+
 def test_iter_messages_keeps_every_assistant_block(tmp_path):
     p = tmp_path / "s.jsonl"
     _write(p, [
