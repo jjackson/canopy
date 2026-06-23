@@ -9,6 +9,13 @@ import { resolveRun, specPath, outputPath } from "../src/lib/runs.node";
 import { synthesize, synthesizePerBeat, readAlignment, wordStartSeconds, type PerBeatNarration } from "../src/lib/voiceover";
 import { estimateCaptionTimeline, captionsFromBeats } from "../src/lib/captions";
 import { resolveAssetRefs, formatMissingError } from "../src/lib/asset-resolver.node";
+import {
+  capBeatDuration,
+  footageMotionEndForBeat,
+  DEAD_THRESHOLD_SECONDS,
+  BREATH_SECONDS,
+  type BeatFootage,
+} from "../src/lib/deadair";
 
 /**
  * Probe an audio file's duration in seconds via ffprobe. Returns 0 on
@@ -77,6 +84,75 @@ function realignTimelineToAudio(
   if (extended) {
     console.log(
       `Audio-aligned: total ${(timeline.totalFrames / timeline.fps).toFixed(2)}s → ` +
+        `${(cursor / timeline.fps).toFixed(2)}s`,
+    );
+  }
+  return { fps: timeline.fps, totalFrames: cursor, beats };
+}
+
+/**
+ * Dead-air prevention (Layer 1) — cap each walkthrough beat's on-screen hold to
+ * `max(footageMotionEnd, vo) + breath`, but ONLY shrink, and only when the dead
+ * tail strictly exceeds DEAD_THRESHOLD. See src/lib/deadair.ts for the why.
+ *
+ * This runs AFTER `realignTimelineToAudio` (which GROWS beats so VO never
+ * clips) — the two passes are complementary: realign sets a floor (≥ VO), this
+ * sets a ceiling (≤ max(motion, VO) + breath). A beat where the footage motion
+ * and VO already fill the hold is untouched, so a video with no real dead air
+ * renders byte-comparably. Held-frame VO OVERRUN (VO longer than footage) is
+ * preserved — that frame plays under the voice and is not dead air.
+ *
+ * `footage` per beat comes from the resolved spec's `walkthrough.<id>`
+ * (segments = de-dwelled master-clip sub-ranges). The master clip lives under
+ * public/ at the resolved `asset` path. Non-walkthrough beats (intro/outro,
+ * marketing body) carry no footage and are left alone.
+ */
+function capDeadAirInTimeline(
+  timeline: ResolvedTimeline,
+  perBeat: PerBeatNarration[],
+  walkthrough: Record<string, BeatFootage & { asset?: string }> | undefined,
+  publicRoot: string,
+): ResolvedTimeline {
+  if (!walkthrough || Object.keys(walkthrough).length === 0) return timeline;
+  const voByBeat = new Map<string, number>();
+  for (const n of perBeat) {
+    const d = probeAudioDurationSeconds(n.audioPath);
+    if (d > 0) voByBeat.set(n.beatId, d);
+  }
+  let shrank = false;
+  let cursor = 0;
+  const beats: ResolvedBeat[] = timeline.beats.map((b) => {
+    const footage = walkthrough[b.id];
+    let durSec = b.seconds;
+    if (footage && footage.asset) {
+      const masterAbs = path.join(publicRoot, footage.asset);
+      const motionEnd = footageMotionEndForBeat(masterAbs, footage);
+      const vo = voByBeat.get(b.id) ?? 0;
+      const capped = capBeatDuration({
+        current: b.seconds,
+        // null probe → 0 means "unknown footage motion": fall back to the VO
+        // floor only, never widening (cap math maxes with vo + breath).
+        footageMotionEnd: motionEnd ?? 0,
+        vo,
+      });
+      if (capped < durSec - 1e-6) {
+        durSec = capped;
+        shrank = true;
+        console.log(
+          `  dead-air cap "${b.id}": ${b.seconds.toFixed(2)}s → ${durSec.toFixed(2)}s ` +
+            `(motion_end ${(motionEnd ?? 0).toFixed(2)}s, vo ${vo.toFixed(2)}s, ` +
+            `breath ${BREATH_SECONDS}s, threshold ${DEAD_THRESHOLD_SECONDS}s)`,
+        );
+      }
+    }
+    const durFrames = Math.round(durSec * timeline.fps);
+    const out: ResolvedBeat = { ...b, seconds: durSec, startFrame: cursor, durationFrames: durFrames };
+    cursor += durFrames;
+    return out;
+  });
+  if (shrank) {
+    console.log(
+      `Dead-air capped: total ${(timeline.totalFrames / timeline.fps).toFixed(2)}s → ` +
         `${(cursor / timeline.fps).toFixed(2)}s`,
     );
   }
@@ -185,6 +261,16 @@ async function main() {
       // declared duration, extend that beat (and shift later beats) so
       // the audio plays in full instead of getting cut at the boundary.
       timeline = realignTimelineToAudio(timeline, perBeat);
+      // Dead-air cap (Layer 1): after the VO floor is set, shrink any
+      // walkthrough beat whose hold outlasts BOTH its footage motion and its
+      // VO by more than DEAD_THRESHOLD — that frozen+silent tail is dead air.
+      // Only shrinks; never below VO; no-op for beats with no real dead air.
+      timeline = capDeadAirInTimeline(
+        timeline,
+        perBeat,
+        spec.walkthrough as Record<string, BeatFootage & { asset?: string }> | undefined,
+        path.join(root, "public"),
+      );
     } else {
       console.log("Synthesizing voiceover…");
       voicePath = await synthesize({
