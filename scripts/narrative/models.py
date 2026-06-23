@@ -143,6 +143,7 @@ ACTION_KINDS: tuple[str, ...] = (
     "hold",        # dwell in place for seconds (value or seconds)
     "draw",        # draw a polygon on a map/canvas (target=element, points=[[fx,fy],...] fractions)
     "map_click",   # click a NAMED Mapbox feature (target=feature name; layer/source override defaults)
+    "map_zoom",    # fly the Mapbox camera to a zoom level (zoom=level; seconds=animation length)
     "capture",     # read an id off the live page into ${var} for LATER scenes (source=url|element)
 )
 
@@ -365,6 +366,23 @@ class MapClickAction(_ActionBase):
     source: str | None = None
 
 
+class MapZoomAction(_ActionBase):
+    """Fly the main Mapbox map to a ``zoom`` level — a cinematic push-in / pull-out.
+
+    The camera-move sibling of ``map_click``: finds the map via the same resolver
+    and calls ``map.flyTo({zoom, duration})``. Use it to push in and reveal the
+    individual building footprints (the households drawn from Overture's global
+    open-buildings dataset) then pull back to the whole ward. ``zoom`` is the
+    target Mapbox zoom (≈16.5 for rooftops, ≈13 for the ward); ``seconds`` (the
+    shared field) sets the animation length (default 2s) and the recorder waits it
+    out so the footage shows the move.
+    """
+
+    kind: Literal["map_zoom"]
+    zoom: float
+    seconds: float | None = None  # flyTo animation length (default ~2s)
+
+
 class CaptureAction(_ActionBase):
     """Read a value off the live page into ``${var}`` for LATER scenes/actions.
 
@@ -422,7 +440,7 @@ Action = Annotated[
     Union[
         GotoAction, ClickAction, ClickMenuAction, FillAction, SelectAction,
         TypeAction, PressAction, HoverAction, ScrollToAction, ScrollAction,
-        WaitForAction, HoldAction, DrawAction, MapClickAction, CaptureAction,
+        WaitForAction, HoldAction, DrawAction, MapClickAction, MapZoomAction, CaptureAction,
     ],
     Field(discriminator="kind"),
 ]
@@ -434,7 +452,7 @@ Action = Annotated[
 ACTION_CLASSES: tuple[type[_ActionBase], ...] = (
     GotoAction, ClickAction, ClickMenuAction, FillAction, SelectAction,
     TypeAction, PressAction, HoverAction, ScrollToAction, ScrollAction,
-    WaitForAction, HoldAction, DrawAction, MapClickAction, CaptureAction,
+    WaitForAction, HoldAction, DrawAction, MapClickAction, MapZoomAction, CaptureAction,
 )
 
 
