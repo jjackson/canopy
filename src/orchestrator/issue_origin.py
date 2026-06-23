@@ -160,12 +160,54 @@ def render_context(rec: dict) -> str:
     return "\n".join(out)
 
 
+# Fields the canopy-web /api/issues OriginIssueIn schema accepts (it rejects extras like schema/issue).
+_WEB_FIELDS = (
+    "repo", "number", "title", "source", "agent", "skill", "initiative", "ledger", "created",
+    "disposition", "confidence", "mandate", "done_when", "intent", "evidence", "corpus",
+)
+
+
+def _web_payload(rec: dict) -> dict:
+    return {k: rec[k] for k in _WEB_FIELDS if k in rec and rec[k] is not None}
+
+
+def _web_path(repo: str, number: int) -> str:
+    return f"/api/issues/{_repo_slug(repo)}/{number}/"
+
+
 def web_sync(rec: dict) -> tuple[bool, str]:
-    """Best-effort POST of the record to canopy-web. Degrades gracefully — local copy is canonical
-    until the canopy-web `/api/issues` endpoint exists. Never raises."""
+    """Best-effort POST (idempotent upsert) of the record to canopy-web's /api/issues/. Degrades
+    gracefully — the local copy is canonical if canopy-web is unreachable. Never raises."""
     try:
         from orchestrator import agent_web
-        agent_web._call("/api/issues/", rec, method="POST")  # endpoint: TODO in canopy-web
+        agent_web._call("/api/issues/", _web_payload(rec), method="POST")
         return True, "synced to canopy-web"
     except Exception as exc:  # noqa: BLE001 — best-effort by design
         return False, f"not synced ({type(exc).__name__}); local record is canonical"
+
+
+def web_fetch(repo: str, number: int) -> dict | None:
+    """Fetch a record from canopy-web (fallback when no local copy). Returns None on any failure."""
+    try:
+        from orchestrator import agent_web
+        return agent_web._call(_web_path(repo, number), method="GET")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def web_delete(repo: str, number: int) -> tuple[bool, str]:
+    """Best-effort DELETE of the canopy-web record (cleanup). Never raises."""
+    try:
+        from orchestrator import agent_web
+        agent_web._call(_web_path(repo, number), method="DELETE")
+        return True, "deleted from canopy-web"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"canopy-web delete skipped ({type(exc).__name__})"
+
+
+def delete_local(repo: str, number: int) -> bool:
+    p = record_path(repo, number)
+    if p.is_file():
+        p.unlink()
+        return True
+    return False
