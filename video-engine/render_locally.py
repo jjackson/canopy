@@ -38,6 +38,17 @@ from pathlib import Path
 # The engine lives in this script's own directory (canopy video-engine).
 ENGINE_DIR = Path(__file__).resolve().parent
 
+# scripts.ddd.deadair holds the pure freeze∩silence detector (Layer 2). It lives
+# in the canopy repo root's `scripts/` package; add the repo root to sys.path so
+# this engine script can import it whether invoked as a module or a file.
+_REPO_ROOT = ENGINE_DIR.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+try:
+    from scripts.ddd import deadair as _deadair  # type: ignore
+except Exception:  # noqa: BLE001 — detector is advisory; engine runs without it
+    _deadair = None
+
 
 def engine_root() -> Path:
     """The engine project to render into.
@@ -193,6 +204,59 @@ def timing_report(cv: Path, slug: str, run_id: str) -> None:
         print(f"\n==> Timing report skipped ({e})")
 
 
+def dead_air_report(cv: Path, slug: str, run_id: str) -> dict | None:
+    """Run the Layer-2 freeze∩silence detector on the rendered mp4 and print it.
+
+    Layer 1 (the render-time beat cap) should prevent dead air; this is the
+    independent QA check that flags any frozen+silent span that slipped through.
+    Returns the report dict (or None if the detector isn't importable).
+    """
+    if _deadair is None:
+        print("\n==> Dead-air detector skipped (scripts.ddd.deadair not importable)")
+        return None
+    out = cv / "programs" / slug / "runs" / run_id / "output.mp4"
+    ignore = _card_ignore_ranges(cv, slug, run_id, str(out))
+    report = _deadair.detect_dead_air(str(out), ignore_ranges=ignore)
+    print(_deadair.format_report(report))
+    return report
+
+
+def _card_ignore_ranges(cv: Path, slug: str, run_id: str, mp4: str) -> list[tuple[float, float]]:
+    """Designed-card spans (final-video seconds) to exclude from the dead-air
+    report: the leading intro_title card and the trailing outro card (+ its
+    music fade-out). Those are intentional held frames, NOT frozen footage, so
+    Layer 1 leaves them and the QA report should too.
+
+    The intro card is always [0, intro_secs]; the outro card is always
+    [total - outro_secs, total] — both invariant to body-beat caps. Reads the
+    first/last beat ``seconds`` from the spec; best-effort (empty on any miss).
+    """
+    try:
+        import json
+
+        run_dir = cv / "programs" / slug / "runs" / run_id
+        spec = _load_spec(run_dir / "spec.yaml")
+        beats = spec.get("beats") or []
+        if not beats:
+            return []
+        ranges: list[tuple[float, float]] = []
+        first = beats[0]
+        if str(first.get("kind", "")).startswith("intro"):
+            ranges.append((0.0, float(first.get("seconds", 0)) + 0.5))
+        last = beats[-1]
+        if str(last.get("kind", "")).startswith("outro"):
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "json", mp4],
+                capture_output=True, text=True, check=True,
+            )
+            total = float(json.loads(probe.stdout)["format"]["duration"])
+            ranges.append((total - float(last.get("seconds", 0)) - 0.5, total + 0.5))
+        return ranges
+    except Exception:  # noqa: BLE001 — advisory
+        return []
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--local-spec", required=True,
@@ -212,6 +276,10 @@ def main() -> int:
     p.add_argument("--env-file", default=None,
                    help="Extra .env to load ELEVENLABS_API_KEY etc. from "
                         "(also checks ./.env and the engine dir's .env).")
+    p.add_argument("--trim-dead-air-fallback", action="store_true",
+                   help="If the Layer-2 detector still finds dead air >3s after "
+                        "the render, exit non-zero (so a caller can re-render). "
+                        "Layer 1 should prevent this — default is report-only.")
     args = p.parse_args()
 
     if args.engine_root:
@@ -244,9 +312,20 @@ def main() -> int:
     host_npm(cv, slug, run_id, draft=not args.final, captions=args.captions)
 
     timing_report(cv, slug, run_id)
+    report = dead_air_report(cv, slug, run_id)
 
     out = cv / "programs" / slug / "runs" / run_id / "output.mp4"
     print(f"\n==> Done. Output: {out}")
+
+    if args.trim_dead_air_fallback and report and report.get("has_dead_air"):
+        # Opt-in strict mode: surface the >3s dead air as a non-zero exit so an
+        # orchestrator can re-render. Layer 1 should make this unreachable.
+        print(
+            f"\nERROR: --trim-dead-air-fallback: {len(report['over_threshold'])} "
+            f"dead-air span(s) >{report['threshold_seconds']}s remain after render.",
+            file=sys.stderr,
+        )
+        return 3
     return 0
 
 
