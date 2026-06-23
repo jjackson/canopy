@@ -111,6 +111,25 @@ def test_timespan_none_when_no_timestamps(tmp_path):
     assert ts.timespan(p) == (None, None)
 
 
+def test_active_seconds_caps_idle_gaps(tmp_path):
+    p = tmp_path / "s.jsonl"
+    _write(p, [
+        # +5 min, then a 3h idle gap (capped to 30m), then +10 min
+        {"type": "user", "message": {"content": "a"}, "timestamp": "2026-06-18T10:00:00Z"},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "b"}]}, "timestamp": "2026-06-18T10:05:00Z"},
+        {"type": "user", "message": {"content": "c"}, "timestamp": "2026-06-18T13:05:00Z"},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "d"}]}, "timestamp": "2026-06-18T13:15:00Z"},
+    ])
+    # 5m + capped(3h→30m) + 10m = 45m = 2700s; wall-clock would be 3h15m.
+    assert ts.active_seconds(p, idle_gap_seconds=1800) == 2700
+
+
+def test_active_seconds_zero_without_timestamps(tmp_path):
+    p = tmp_path / "s.jsonl"
+    _write(p, [{"type": "user", "message": {"content": "go"}}])
+    assert ts.active_seconds(p) == 0
+
+
 def test_iter_messages_keeps_every_assistant_block(tmp_path):
     p = tmp_path / "s.jsonl"
     _write(p, [
