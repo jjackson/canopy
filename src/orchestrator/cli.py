@@ -1713,18 +1713,44 @@ def issue_create():
 @issue.command("context")
 @click.argument("ref")
 def issue_context(ref):
-    """Hydrate the understanding behind an architect issue. REF = `owner/repo#number`."""
+    """Hydrate the understanding behind an architect issue. REF = `owner/repo#number`.
+
+    Reads the local record; falls back to canopy-web (/api/issues) if there's no local copy."""
     from orchestrator import issue_origin as io
 
     if "#" not in ref:
         raise click.ClickException("REF must be owner/repo#number")
     repo, num = ref.rsplit("#", 1)
-    rec = io.load_local(repo, int(num))
+    number = int(num)
+    rec = io.load_local(repo, number) or io.web_fetch(repo, number)
     if rec is None:
         raise click.ClickException(
-            f"No local canopy.origin record for {ref}. (Web fetch not yet wired — the canopy-web "
-            "`/api/issues` endpoint is the staged follow-up; until then records live where they were filed.)")
+            f"No canopy.origin record for {ref} — not local and not on canopy-web.")
     click.echo(io.render_context(rec))
+
+
+@issue.command("delete")
+@click.argument("ref")
+@click.option("--close-gh", is_flag=True, help="Also close the GitHub issue (gh issue close)")
+def issue_delete(ref, close_gh):
+    """Delete an architect issue's record (cleanup). REF = `owner/repo#number`.
+
+    Removes the canopy-web record AND the local copy. With --close-gh, also closes the GitHub issue."""
+    import subprocess
+    from orchestrator import issue_origin as io
+
+    if "#" not in ref:
+        raise click.ClickException("REF must be owner/repo#number")
+    repo, num = ref.rsplit("#", 1)
+    number = int(num)
+    web_ok, web_msg = io.web_delete(repo, number)
+    local_ok = io.delete_local(repo, number)
+    click.echo(f"record: {web_msg}; local {'removed' if local_ok else 'none'}")
+    if close_gh:
+        r = subprocess.run(["gh", "issue", "close", str(number), "-R", repo,
+                            "-c", "Closed via canopy issue delete (architect cleanup)."],
+                           capture_output=True, text=True)
+        click.echo("gh issue closed" if r.returncode == 0 else f"gh close failed: {r.stderr.strip()}")
 
 
 @main.group("agent-publish")

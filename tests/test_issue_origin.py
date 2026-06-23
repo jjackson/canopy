@@ -59,3 +59,19 @@ def test_render_context_flags_local_availability(tmp_path):
 def test_web_sync_is_best_effort(tmp_path):
     ok, msg = io.web_sync(_rec(tmp_path))   # no canopy-web endpoint in test → must not raise
     assert ok in (True, False) and isinstance(msg, str)
+
+
+def test_web_payload_drops_envelope_fields(tmp_path):
+    rec = _rec(tmp_path)
+    payload = io._web_payload(rec)
+    assert "schema" not in payload and "issue" not in payload   # envelope fields excluded
+    assert payload["repo"] == "jjackson/canopy" and payload["number"] == 42
+    assert payload["corpus"]["drilled"]                          # pointers carried through
+
+
+def test_delete_local(tmp_path, monkeypatch):
+    monkeypatch.setattr(io, "_store_dir", lambda: tmp_path / "issues")
+    io.save_local(_rec(tmp_path))
+    assert io.delete_local("jjackson/canopy", 42) is True
+    assert io.load_local("jjackson/canopy", 42) is None
+    assert io.delete_local("jjackson/canopy", 42) is False       # already gone
