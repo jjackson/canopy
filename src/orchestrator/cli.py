@@ -1643,6 +1643,90 @@ def harvest_corpus(initiative, match, origin_k, recent_k, as_json):
                 click.echo(f"       · {m[:150]}")
 
 
+@main.group("issue")
+def issue():
+    """Architect-routed GitHub issues with canopy.origin provenance.
+
+    A ROUTE'd issue stays CLEAN + portable; the rich understanding (provenance, intent, evidence,
+    POINTERS to the sessions the architect drilled) is a `canopy.origin/v1` record stored locally
+    (and best-effort synced to canopy-web). Session transcripts stay local — recover them with
+    `canopy harvest strip` only where they exist. See src/orchestrator/issue_origin.py.
+    """
+
+
+@issue.command("create")
+def issue_create():
+    """File a CLEAN GitHub issue + store its canopy.origin record. Reads a JSON record on STDIN:
+
+    {"repo","title","mandate","done_when","initiative","ledger","created","confidence",
+     "intent","evidence":[{"claim","session"}],
+     "corpus":{"sessions_scanned","cross_user","drilled":[<local path>,...]}}
+    """
+    import json as json_mod
+    import subprocess
+    import sys as _sys
+    from orchestrator import issue_origin as io
+
+    data = json_mod.loads(_sys.stdin.read())
+    repo = data["repo"]
+    title = data["title"].strip()
+
+    existing = io.find_existing_issue_number(repo, title)
+    if existing is not None:
+        click.echo(f"EXISTS: {repo}#{existing} already routes \"{title}\" — not duplicating.")
+        return
+
+    corpus = data.get("corpus") or {}
+    rec = io.build_record(
+        repo=repo, initiative=data.get("initiative", ""), ledger=data.get("ledger", ""),
+        created=data["created"], confidence=data.get("confidence", "medium"),
+        mandate=data.get("mandate", ""), done_when=data.get("done_when", ""),
+        intent=data.get("intent", ""), evidence=data.get("evidence") or [],
+        sessions_scanned=corpus.get("sessions_scanned", 0), cross_user=corpus.get("cross_user", False),
+        drilled=corpus.get("drilled") or [],
+    )
+    rec["title"] = title
+
+    created = subprocess.run(
+        ["gh", "issue", "create", "-R", repo, "--title", f"[architect] {title}",
+         "--body", io.clean_issue_body(rec)],
+        capture_output=True, text=True,
+    )
+    if created.returncode != 0:
+        click.echo(f"gh issue create FAILED: {created.stderr.strip()}", err=True)
+        raise SystemExit(1)
+    url = created.stdout.strip().splitlines()[-1]
+    number = int(url.rsplit("/", 1)[-1])
+    rec["number"] = number
+    rec["issue"] = f"{repo}#{number}"
+
+    # finalize the issue body now that we know the number (footer points back at the record)
+    subprocess.run(["gh", "issue", "edit", str(number), "-R", repo, "--body", io.clean_issue_body(rec)],
+                   capture_output=True, text=True)
+
+    io.save_local(rec)
+    ok, msg = io.web_sync(rec)
+    click.echo(f"FILED: {url}")
+    click.echo(f"  record: {io.record_path(repo, number)}  ·  {msg}")
+
+
+@issue.command("context")
+@click.argument("ref")
+def issue_context(ref):
+    """Hydrate the understanding behind an architect issue. REF = `owner/repo#number`."""
+    from orchestrator import issue_origin as io
+
+    if "#" not in ref:
+        raise click.ClickException("REF must be owner/repo#number")
+    repo, num = ref.rsplit("#", 1)
+    rec = io.load_local(repo, int(num))
+    if rec is None:
+        raise click.ClickException(
+            f"No local canopy.origin record for {ref}. (Web fetch not yet wired — the canopy-web "
+            "`/api/issues` endpoint is the staged follow-up; until then records live where they were filed.)")
+    click.echo(io.render_context(rec))
+
+
 @main.group("agent-publish")
 def agent_publish():
     """Publish an agent repo to its canopy-web workspace (/agents/<slug>).
