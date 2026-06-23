@@ -420,6 +420,118 @@
       "title": "HoverAction",
       "type": "object"
     },
+    "MapClickAction": {
+      "additionalProperties": false,
+      "description": "Click a NAMED Mapbox feature on the main map by its ``name`` property.\n\nThe labelled-element verbs can't express it: a ward polygon is a feature INSIDE\nthe map canvas with no DOM node of its own. ``map_click`` finds the map in the\npage (``window.__review.map`` for the microplans editor, else any map-shaped\nglobal), looks up the feature whose ``name`` equals ``target`` on the boundary\nFILL layer (falling back to the source when it's loaded-but-not-painted),\ncomputes a point guaranteed to lie INSIDE the polygon (a concave-safe interior\npoint, not a naive centroid), projects it to screen pixels, and dispatches a REAL\ncursor click there \u2014 so the app's own ``map.on('click', FILL, \u2026)`` handler fires\nand the boundary is added, exactly as if a person clicked the ward.\n\n``target`` is the feature name (e.g. ``Attakar``); ``${var}`` substitution\napplies. ``layer`` / ``source`` override the microplans defaults\n(``mp-admin-fill`` / ``mp-admin``) for other maps. Set ``must_succeed: true``\nwhen the rest of the scene is nonsense without the boundary added \u2014 the recorder\nthen aborts cleanly if the named feature can't be resolved.",
+      "properties": {
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "must_succeed": {
+          "default": false,
+          "title": "Must Succeed",
+          "type": "boolean"
+        },
+        "kind": {
+          "const": "map_click",
+          "title": "Kind",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "layer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Layer"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        }
+      },
+      "required": [
+        "kind",
+        "target"
+      ],
+      "title": "MapClickAction",
+      "type": "object"
+    },
+    "MapZoomAction": {
+      "additionalProperties": false,
+      "description": "Fly the main Mapbox map to a ``zoom`` level \u2014 a cinematic push-in / pull-out.\n\nThe camera-move sibling of ``map_click``: finds the map via the same resolver\nand calls ``map.flyTo({zoom, duration})``. Use it to push in and reveal the\nindividual building footprints (the households drawn from Overture's global\nopen-buildings dataset) then pull back to the whole ward. ``zoom`` is the\ntarget Mapbox zoom (\u224816.5 for rooftops, \u224813 for the ward); ``seconds`` (the\nshared field) sets the animation length (default 2s) and the recorder waits it\nout so the footage shows the move.",
+      "properties": {
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "must_succeed": {
+          "default": false,
+          "title": "Must Succeed",
+          "type": "boolean"
+        },
+        "kind": {
+          "const": "map_zoom",
+          "title": "Kind",
+          "type": "string"
+        },
+        "zoom": {
+          "title": "Zoom",
+          "type": "number"
+        },
+        "seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seconds"
+        }
+      },
+      "required": [
+        "kind",
+        "zoom"
+      ],
+      "title": "MapZoomAction",
+      "type": "object"
+    },
     "Persona": {
       "properties": {
         "name": {
@@ -513,6 +625,15 @@
           "title": "Provenance",
           "type": "string"
         },
+        "role": {
+          "default": "demo",
+          "enum": [
+            "demo",
+            "overview"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
         "design_intent": {
           "anyOf": [
             {
@@ -558,6 +679,8 @@
                 "goto": "#/$defs/GotoAction",
                 "hold": "#/$defs/HoldAction",
                 "hover": "#/$defs/HoverAction",
+                "map_click": "#/$defs/MapClickAction",
+                "map_zoom": "#/$defs/MapZoomAction",
                 "press": "#/$defs/PressAction",
                 "scroll": "#/$defs/ScrollAction",
                 "scroll_to": "#/$defs/ScrollToAction",
@@ -608,6 +731,12 @@
                 "$ref": "#/$defs/DrawAction"
               },
               {
+                "$ref": "#/$defs/MapClickAction"
+              },
+              {
+                "$ref": "#/$defs/MapZoomAction"
+              },
+              {
                 "$ref": "#/$defs/CaptureAction"
               }
             ]
@@ -653,6 +782,22 @@
           ],
           "default": null,
           "title": "Full Page"
+        },
+        "pace": {
+          "anyOf": [
+            {
+              "enum": [
+                "teach",
+                "flow"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pace"
         },
         "narrative": {
           "default": "",

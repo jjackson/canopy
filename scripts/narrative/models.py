@@ -462,6 +462,17 @@ class Scene(BaseModel):
     show: str
     concept_claim: str
     provenance: str
+    role: Literal["demo", "overview"] = "demo"
+    """Scene classification. ``demo`` (the default) — a scene that shows a
+    buildable feature being operated; spec_qa requires ≥1 ``Feature`` with a
+    concrete ``verify``. ``overview`` — a context / goal-setting beat (the
+    opening "why") that establishes the WHY before the how. An ``overview`` scene
+    demonstrates no capability, so it is EXEMPT from the feature requirement and
+    is judged on whether it clearly establishes the goal rather than on a feature.
+    It STILL carries ``concept_claim`` + ``provenance`` (typically a goal
+    SpineItem in the why_brief), so the dev-facing rationale and the viewer-facing
+    opening stay linked. Keep overview scenes rare (usually exactly one, first):
+    a video that is all overview demonstrates nothing."""
     design_intent: str | None = None
     impressive_because: str | None = None
     features: list[Feature] = []

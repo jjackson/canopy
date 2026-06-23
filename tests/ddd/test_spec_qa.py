@@ -98,6 +98,7 @@ def _scene(
     provenance: str = "S1",
     actions: list[dict] | None = None,
     features: list[dict] | None = None,
+    role: str | None = None,
 ) -> dict:
     """Build one scene dict, optionally with an actions list (for rule (j))."""
     if features is None:
@@ -117,6 +118,8 @@ def _scene(
         "design_intent": "Test that confirmation feedback is immediate",
         "features": features,
     }
+    if role is not None:
+        scene["role"] = role
     if narrative:
         scene["narrative"] = narrative
     if actions is not None:
@@ -161,6 +164,44 @@ def test_valid_spec_no_why_brief_passes():
     result = spec_qa(spec)
     assert result.verdict == "pass"
     assert result.blocking_reason is None
+
+
+def test_overview_scene_without_features_passes():
+    """A `role: overview` scene (the goal-setting 'why' opening) is exempt from
+    the feature requirement — it demonstrates no capability."""
+    from scripts.ddd.spec_qa import spec_qa
+
+    overview = _scene(
+        title="The goal — measure the program's real effect",
+        role="overview",
+        features=[],
+        concept_claim="Maya's goal is to measure her program's real effect against a matched comparison group",
+        actions=[{"kind": "hold", "seconds": 4}],
+    )
+    spec = _spec_with_scene(overview)
+    result = spec_qa(spec)
+    assert result.verdict == "pass", result.blocking_reason
+
+
+def test_demo_scene_without_features_still_fails():
+    """A default (demo) scene with no features still fails — the exemption is
+    scoped to overview only, so the common case is unchanged."""
+    from scripts.ddd.spec_qa import spec_qa
+
+    demo = _scene(features=[])  # role defaults to "demo"
+    result = spec_qa(_spec_with_scene(demo))
+    assert result.verdict == "fail"
+    assert "no features" in (result.blocking_reason or "")
+
+
+def test_overview_scene_still_needs_falsifiable_concept_claim():
+    """Overview is exempt from features, NOT from a real concept_claim — a
+    vacuous goal claim still fails."""
+    from scripts.ddd.spec_qa import spec_qa
+
+    bad = _scene(role="overview", features=[], concept_claim="a world-class experience")
+    result = spec_qa(_spec_with_scene(bad))
+    assert result.verdict == "fail"
 
 
 def test_valid_spec_with_why_brief_passes(tmp_path):
