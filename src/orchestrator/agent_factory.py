@@ -147,6 +147,46 @@ def _subject(tool_name, tool_input):
     return ""
 
 
+def _summarize_action(tool_name, subject):
+    """A crisp, human-readable summary of the GATED action — so the approval prompt says exactly
+    WHAT you're approving at a glance, not a generic 'needs approval' over a wall of bash."""
+    if tool_name != "Bash":
+        return tool_name + " -> " + subject[:80]
+    s = subject
+    m = re.search(r"\bgit\s+push\b([^\n;&|]*)", s)
+    if m:
+        args = [a for a in m.group(1).split() if not a.startswith("-")]
+        return "git PUSH -> " + (" ".join(args[:2]) if args else "default remote/branch")
+    m = re.search(r"\bgh\s+pr\s+create\b([^\n;&|]*)", s)
+    if m:
+        t = re.search(r"--title[= ]+[\"']?([^\"'\n]{0,60})", m.group(1))
+        r = re.search(r"-R[= ]+(\S+)", m.group(1))
+        return "OPEN a PR" + (' "' + t.group(1).strip() + '"' if t else "") + (" in " + r.group(1) if r else "")
+    m = re.search(r"\bgh\s+pr\s+merge\b([^\n;&|]*)", s)
+    if m:
+        n = re.search(r"\b(\d+)\b", m.group(1))
+        r = re.search(r"-R[= ]+(\S+)", m.group(1))
+        return "MERGE a PR" + (" #" + n.group(1) if n else "") + (" in " + r.group(1) if r else "")
+    m = re.search(r"\bgh\s+repo\s+(create|delete)\b([^\n;&|]*)", s)
+    if m:
+        nm = re.search(r"([\w.-]+/[\w.-]+|[\w.-]+)", m.group(2))
+        return m.group(1).upper() + " GitHub repo" + (" " + nm.group(1) if nm else "")
+    return s.strip().replace("\n", " ")[:100]
+
+
+def _approval_reason(rule, tool_name, subject, cwd):
+    """A scannable approval prompt: WHAT (parsed action) + WHERE (repo) + the exact command +
+    WHY (policy note). One glance should be enough to decide."""
+    action = _summarize_action(tool_name, subject)
+    repo = os.path.basename(cwd.rstrip("/")) if cwd else ""
+    cmd = subject.strip().replace("\n", " ")
+    if len(cmd) > 220:
+        cmd = cmd[:220] + " ..."
+    note = rule.get("message") or "outbound/write action - needs your approval."
+    head = "APPROVE {{AGENT_NAME}} -> " + action + ("   (repo: " + repo + ")" if repo else "")
+    return head + "\n  why: " + note + "\n  full command: " + cmd
+
+
 def _matches(rule, tool_name, subject):
     if rule.get("tool") and rule["tool"] != tool_name:
         return False
@@ -171,6 +211,7 @@ def main():
 
     tool_name = data.get("tool_name", "")
     subject = _subject(tool_name, data.get("tool_input"))
+    cwd = data.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR", "")
 
     for rule in cfg.get("deny", []):
         if _matches(rule, tool_name, subject):
@@ -180,9 +221,7 @@ def main():
 
     for rule in cfg.get("approve", []):
         if _matches(rule, tool_name, subject):
-            reason = rule.get("message") or (
-                "{{AGENT_NAME}} gating: this is an outbound/write action and needs human approval."
-            )
+            reason = _approval_reason(rule, tool_name, subject, cwd)
             print(json.dumps({
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
