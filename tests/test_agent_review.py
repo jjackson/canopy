@@ -108,3 +108,21 @@ def test_build_review_prompt_and_parse_findings(tmp_path):
     parsed = parse_findings(yaml_out)
     assert parsed and parsed[0]["title"] == "Fix auth"
     assert parse_findings("not a list") == []
+
+
+def test_human_corrections_catches_safety_override_and_confusion():
+    from orchestrator.agent_review import human_corrections
+    entries = [
+        {"type": "user", "message": {"content": "take a turn on what came in"}},
+        {"type": "user", "message": {"content": "I'm lost, why are you asking me about 1) then showing 2?"}},
+        {"type": "user", "message": {"content": "your submission skill should NEVER EVER submit directly without human review"}},
+        {"type": "user", "message": {"content": "go ahead"}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "ok"}]}},
+    ]
+    cor = human_corrections(entries)
+    quotes = " ".join(c["quote"] for c in cor)
+    assert "NEVER EVER submit" in quotes          # the safety override is caught
+    assert "I'm lost" in quotes                    # the confusion is caught
+    allkinds = {k for c in cor for k in c["kinds"]}
+    assert "safety_override" in allkinds and "confusion" in allkinds and "emphasis" in allkinds
+    assert "go ahead" not in quotes and "take a turn" not in quotes   # neutral msgs ignored

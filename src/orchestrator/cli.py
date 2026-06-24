@@ -1531,9 +1531,15 @@ def agent_review_cmd(agent, hours, no_llm, model, as_json):
     for s in sig:
         for g in s["checklist_gaps"]:
             gaps[g] = gaps.get(g, 0) + 1
-    click.echo(f"  tool failures: {fails}  •  gating blocks: {blocks}  •  auth friction: {auth}")
+    corrections = [c for s in sig for c in s.get("human_corrections", [])]
+    click.echo(f"  tool failures: {fails}  •  gating blocks: {blocks}  •  auth friction: {auth}"
+               f"  •  human corrections: {len(corrections)}")
     if gaps:
         click.echo("  checklist gaps: " + ", ".join(f"{k}×{v}" for k, v in sorted(gaps.items())))
+    if corrections:
+        click.echo("  ⚑ HUMAN CORRECTIONS (highest signal — what Jonathan had to override):")
+        for c in corrections:
+            click.echo(f"      [{','.join(c['kinds'])}] {c['quote']}")
 
     findings = result.get("findings", [])
     if findings:
