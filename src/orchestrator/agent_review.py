@@ -22,6 +22,7 @@ from orchestrator.repo_paths import resolve_repo_path
 from orchestrator.transcripts import (
     extract_assistant_text,
     extract_tool_calls,
+    extract_user_messages,
     read_transcript,
 )
 
@@ -29,6 +30,7 @@ CLAUDE_PROJECTS = Path.home() / ".claude" / "projects"
 
 # Operating-model friction taxonomy. Findings get tagged with one of these.
 FRICTION_TYPES = (
+    "human_correction",  # the human had to correct/override the agent (HIGHEST signal — read these first)
     "tool_failure",    # a tool call errored
     "retry_loop",      # the same tool was re-tried after a failure
     "gating_block",    # a PreToolUse hook blocked an action (deny)
@@ -36,6 +38,44 @@ FRICTION_TYPES = (
     "skill_capture",   # a multi-step manual pattern that should be a skill
     "auth_friction",   # auth/credential/setup blockers
 )
+
+# Human-correction mining — the lens agent-review was BLIND to (echo's last turn taught us: it
+# flagged git pathspec errors but missed Jonathan demanding "NEVER EVER submit without review").
+# A human overriding a safety behavior, or expressing confusion, outranks any mechanical friction.
+_CORRECTION_PATTERNS = (
+    # safety override — the agent did (or was about to do) something it must NOT do autonomously
+    ("safety_override", re.compile(
+        r"\bnever\b.{0,40}\b(submit|send|post|publish|delete|push|merge|pay|buy|email|reply)\b|"
+        r"without (?:human |explicit )?(?:review|approval|sign-?off|permission)|"
+        r"\bmust not\b|\bshould never\b|\bdo ?n['’o]?t ever\b|\bnever ever\b", re.I)),
+    # confusion — the agent's output didn't make sense to the human
+    ("confusion", re.compile(
+        r"\bi['’ ]?m lost\b|\bi am lost\b|\bconfus|why are you|why did you|what are you doing|"
+        r"that['’]s not what i|does ?n['’]t make sense|makes no sense|i don['’]t (?:get|follow|understand)", re.I)),
+    # strong correction — a forceful "no, do it differently"
+    ("strong_correction", re.compile(
+        r"\bstop\b|\byou['’]re wrong\b|that['’]s wrong|that is wrong|^\s*no[,.! ]|"
+        r"\binstead of\b|not what i (?:asked|wanted|meant)|\bredo\b|\bundo\b", re.I)),
+)
+
+
+def human_corrections(entries: list[dict]) -> list[dict]:
+    """Mine the HUMAN side of a turn for corrections/overrides/confusion — the highest-signal
+    friction. A forceful safety correction ("NEVER submit without review") matters more than ten
+    git errors, but the mechanical signals miss it entirely. Returns [{kinds, quote}]."""
+    out: list[dict] = []
+    for m in extract_user_messages(entries):
+        s = (m or "").strip()
+        if not s:
+            continue
+        kinds = [kind for kind, pat in _CORRECTION_PATTERNS if pat.search(s)]
+        # ALL-CAPS emphasis (2+ shouted words, or NEVER/ALWAYS/STOP) = a forceful demand
+        if re.search(r"\b[A-Z]{3,}\b[^a-z]{0,30}\b[A-Z]{3,}\b", s) or re.search(
+                r"\b(NEVER|ALWAYS|STOP|DO NOT|MUST)\b", s):
+            kinds.append("emphasis")
+        if kinds:
+            out.append({"kinds": sorted(set(kinds)), "quote": s.replace("\n", " ")[:240]})
+    return out
 
 # Expected turn steps for an operating-model agent, with markers that evidence each ran.
 # A step with no marker present in a turn is a candidate `checklist_gap`.
@@ -165,6 +205,7 @@ def friction_signals(transcript_path: Path, steps=DEFAULT_TURN_STEPS) -> dict:
         "session_id": transcript_path.stem,
         "path": str(transcript_path),
         "n_tool_calls": len(calls),
+        "human_corrections": human_corrections(entries),   # HIGHEST-signal — read first
         "failures": failures,
         "gating_blocks": gating_blocks,
         "auth_friction": auth_hits,
@@ -192,9 +233,16 @@ def build_review_prompt(repo: Path, corpus: list[dict]) -> str:
         "  - target: the file/path in the agent repo the fix touches\n"
         "  - recommendation: the concrete change to make\n"
         "  - confidence: high|medium|low\n"
-        "Rules: prefer hook_rule for any 'never do X' invariant (not prose); prefer new_skill/"
-        "skill_edit when a manual multi-step pattern repeats; only include findings with real "
-        "evidence in the corpus. Output ONLY the YAML list.\n"
+        "Rules:\n"
+        "- `human_corrections` are the HIGHEST-signal items in the corpus — a human overriding a "
+        "safety behavior (e.g. 'NEVER submit without review') or expressing confusion ('I'm lost') "
+        "matters MORE than any tool failure. Surface those findings FIRST, mark them high confidence, "
+        "and turn a `safety_override` into a hard invariant (hook_rule), never just prose guidance.\n"
+        "- A `confusion` correction means the agent's turn structure/communication failed — recommend "
+        "a skill_edit that fixes how it presents (e.g. decide-then-show, not ask-then-show-something-else).\n"
+        "- prefer hook_rule for any 'never do X' invariant; prefer new_skill/skill_edit when a manual "
+        "multi-step pattern repeats; only include findings with real evidence in the corpus.\n"
+        "Output ONLY the YAML list.\n"
     )
 
 
