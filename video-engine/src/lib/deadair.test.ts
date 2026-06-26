@@ -2,9 +2,67 @@ import { describe, it, expect } from "vitest";
 import {
   capBeatDuration,
   settlePointFromFreezeSpans,
+  interiorExciseRanges,
+  spliceSegments,
   BREATH_SECONDS,
   DEAD_THRESHOLD_SECONDS,
 } from "./deadair";
+
+describe("interiorExciseRanges", () => {
+  // beat: click motion → frozen spinner [5,25] → result motion; total 35s; VO 12s.
+  it("cuts a silent interior loading wait, keeping a lead-in after the VO", () => {
+    const cuts = interiorExciseRanges([[5, 25]], 12, 35, { leadInSeconds: 1.2 });
+    // silent part starts at vo=12; keep 1.2s lead-in → cut [13.2, 25]
+    expect(cuts).toEqual([[13.2, 25]]);
+  });
+  it("does NOT cut a frozen span fully under the voiceover (a deliberate hold)", () => {
+    // span [2,10] entirely within VO=12 → no silent dead air.
+    expect(interiorExciseRanges([[2, 10]], 12, 35)).toEqual([]);
+  });
+  it("does NOT cut a trailing frozen tail (left to the trailing cap)", () => {
+    // span reaches the end (34.8 within endEpsilon 0.6 of total 35) → trailing.
+    expect(interiorExciseRanges([[20, 34.8]], 12, 35)).toEqual([]);
+  });
+  it("does NOT cut a sub-threshold silent span", () => {
+    // silent part = 18−15 = 3.0s, not STRICTLY > 3 → keep.
+    expect(interiorExciseRanges([[10, 18]], 15, 35)).toEqual([]);
+  });
+  it("cuts only the silent tail of a span that straddles the VO end", () => {
+    // span [8,25], VO 12 → silent [12,25] (>3); keep lead-in → cut [13.2,25]
+    expect(interiorExciseRanges([[8, 25]], 12, 35, { leadInSeconds: 1.2 })).toEqual([[13.2, 25]]);
+  });
+  it("merges overlapping cut ranges", () => {
+    const cuts = interiorExciseRanges([[5, 20], [18, 28]], 0, 40, { leadInSeconds: 1.2 });
+    // [6.2,20] and [19.2,28] overlap → [6.2,28]
+    expect(cuts).toEqual([[6.2, 28]]);
+  });
+});
+
+describe("spliceSegments", () => {
+  it("cuts a range inside a single segment → two segments with correct master starts", () => {
+    // one segment master[100,135] (35s on-screen); cut on-screen [13,25]
+    const out = spliceSegments([{ start_seconds: 100, duration_seconds: 35 }], [[13, 25]]);
+    expect(out).toEqual([
+      { start_seconds: 100, duration_seconds: 13 },
+      { start_seconds: 125, duration_seconds: 10 }, // master 100+25=125, on-screen 25..35
+    ]);
+  });
+  it("cuts a range spanning two segments", () => {
+    // segs: master[0,10] then master[200,210]; on-screen 0..10, 10..20; cut [6,14]
+    const out = spliceSegments(
+      [{ start_seconds: 0, duration_seconds: 10 }, { start_seconds: 200, duration_seconds: 10 }],
+      [[6, 14]],
+    );
+    expect(out).toEqual([
+      { start_seconds: 0, duration_seconds: 6 },
+      { start_seconds: 204, duration_seconds: 6 }, // master 200+(14-10)=204, on-screen 14..20
+    ]);
+  });
+  it("is a no-op on empty cut ranges", () => {
+    const segs = [{ start_seconds: 5, duration_seconds: 8 }];
+    expect(spliceSegments(segs, [])).toEqual(segs);
+  });
+});
 
 describe("settlePointFromFreezeSpans", () => {
   it("returns dur when there are no freeze spans (footage moves throughout)", () => {
