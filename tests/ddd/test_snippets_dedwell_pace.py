@@ -119,3 +119,72 @@ def test_build_snippets_teach_keeps_footage(_local_clip, monkeypatch):
     snips = _build("teach", _local_clip, monkeypatch)
     assert snips[0]["duration_seconds"] == pytest.approx(_DUR)
     assert snips[0]["segments"] == [{"start_seconds": _START, "duration_seconds": _DUR}]
+
+
+# ---------------------------------------------------------------------------
+# Ground-truth loading-wait excision (recorder-driven, not pixel-based).
+# ---------------------------------------------------------------------------
+
+
+def test_excise_span_splits_a_segment():
+    # one seg covering master [100,135]; cut [113,125] → two segments
+    assert snippets._excise_span_from_segs([(100.0, 35.0)], 113.0, 125.0) == [
+        (100.0, 13.0),
+        (125.0, 10.0),
+    ]
+
+
+def test_excise_span_no_overlap_keeps_seg():
+    assert snippets._excise_span_from_segs([(100.0, 10.0)], 200.0, 210.0) == [(100.0, 10.0)]
+
+
+def test_excise_span_across_two_segments():
+    # segs master [0,10] + [200,210]; cut [6,204] → keep [0,6] and [204,210]
+    assert snippets._excise_span_from_segs([(0.0, 10.0), (200.0, 10.0)], 6.0, 204.0) == [
+        (0.0, 6.0),
+        (204.0, 6.0),
+    ]
+
+
+def test_excise_load_waits_collapses_long_wait_keeping_lead_in():
+    # scene seg master [100,135]; a wait_for at abs 110 lasting 18s (ends 128).
+    out = snippets.excise_load_waits(
+        [(100.0, 35.0)],
+        [{"scene_index": 1, "start_seconds": 110.0, "duration_seconds": 18.0}],
+        lead_in=1.2,
+        threshold=3.0,
+    )
+    # cut [111.2, 128] (keep the 1.2s lead-in) → [100,111.2] + [128,135]
+    assert out == [(100.0, 11.2), (128.0, 7.0)]
+
+
+def test_excise_load_waits_ignores_short_settle():
+    # a 2s wait_for is a settle, not a load worth collapsing → untouched.
+    segs = [(100.0, 35.0)]
+    assert (
+        snippets.excise_load_waits(
+            segs, [{"scene_index": 1, "start_seconds": 110.0, "duration_seconds": 2.0}]
+        )
+        == segs
+    )
+
+
+def test_build_snippets_excises_recorded_load_wait():
+    """A recorded wait_for span collapses a mid-scene load even in a teach scene
+    with no clip (de-dwell a no-op) — the excise is ground-truth, not pixels."""
+    spec = {"scenes": [{"title": "S", "pace": "teach", "narrative": "n"}]}
+    report = {
+        "scenes": [{"scene_index": 1, "start_seconds": 100.0, "duration_seconds": 35.0}],
+        "load_waits": [
+            {"scene_index": 1, "start_seconds": 110.0, "duration_seconds": 18.0, "target": "Done"}
+        ],
+    }
+    snips = snippets.build_snippets(
+        narrative_slug="x", spec=spec, report=report,
+        source_clip_local=None, source_clip_hosted=None,
+    )
+    assert snips[0]["segments"] == [
+        {"start_seconds": 100.0, "duration_seconds": 11.2},
+        {"start_seconds": 128.0, "duration_seconds": 7.0},
+    ]
+    assert snips[0]["duration_seconds"] == pytest.approx(18.2)
