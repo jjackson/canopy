@@ -127,6 +127,20 @@ class RunReport:
     or CLI ``--prewarm``). ``None`` when prewarm was off — the key is then
     omitted from :meth:`as_dict`, mirroring ``setup``."""
 
+    load_waits: list[dict] = field(default_factory=list)
+    """Ground-truth loading-wait spans — one per ``wait_for`` action, in
+    recording-timeline seconds (same ``recording_epoch`` origin as
+    :attr:`scenes` ``start_seconds``). Each entry::
+
+        {"scene_index": int, "start_seconds": float,
+         "duration_seconds": float, "target": str | None}
+
+    The explainer (``scripts.ddd.snippets``) excises the long ones from the
+    walkthrough segments so a mid-scene load (a "Generating…"/"Reviewing…"
+    spinner) collapses to a brief lead-in + jump-cut to the result — driven by
+    what the recorder KNEW it waited for, not a pixel-based freeze guess (which
+    an animated spinner defeats). Empty ⇒ key omitted from :meth:`as_dict`."""
+
     _scene_timing_index: dict[int, dict] = field(default_factory=dict, repr=False)
     """``scene_index -> timing entry`` mirror of :attr:`scenes`, kept in sync by
     :meth:`record_scene_timing`. Lets :meth:`record_scene_urls` and
@@ -156,6 +170,29 @@ class RunReport:
         }
         self.scenes.append(entry)
         self._scene_timing_index[int(scene_index)] = entry
+
+    def record_load_wait(
+        self,
+        *,
+        scene_index: int | None,
+        start_seconds: float,
+        duration_seconds: float,
+        target: str | None = None,
+    ) -> None:
+        """Record one loading-wait span (a ``wait_for`` action's footage span).
+
+        ``start_seconds`` is the recording-timeline offset where the wait began
+        (``time.monotonic()`` at dispatch minus the ``recording_epoch``);
+        ``duration_seconds`` is how long it blocked before the target appeared.
+        See :attr:`load_waits`. Called by ``Recorder.run_scene`` per ``wait_for``."""
+        self.load_waits.append(
+            {
+                "scene_index": int(scene_index) if scene_index is not None else None,
+                "start_seconds": round(float(start_seconds), 3),
+                "duration_seconds": round(float(duration_seconds), 3),
+                "target": target,
+            }
+        )
 
     def record_scene_urls(self, *, scene_index: int, urls: list[str]) -> None:
         """Record the URLs a scene navigated to, deduped + order-preserving.
@@ -217,6 +254,8 @@ class RunReport:
             d["setup"] = self.setup
         if self.prewarm is not None:
             d["prewarm"] = self.prewarm
+        if self.load_waits:
+            d["load_waits"] = list(self.load_waits)
         return d
 
     def to_json(self, *, indent: int | None = 2) -> str:

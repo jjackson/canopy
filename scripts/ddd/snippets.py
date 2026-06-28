@@ -175,6 +175,65 @@ def dedwell_segments(
     return [(round(start + s, 3), round(e - s, 3)) for s, e in spans]
 
 
+# --- Ground-truth loading-wait excision -----------------------------------
+# A `wait_for` action blocks until its target appears; the recorder records that
+# span (RunReport.load_waits, recording-timeline seconds). Excising the long ones
+# here — keep a brief lead-in, then jump-cut to the result — collapses a mid-scene
+# "Generating…"/"Reviewing…" spinner precisely, even in a teach scene and even
+# when the spinner ANIMATES (which the freeze-based render cap can't see, since
+# animation reads as motion). This is the durable mechanism; the render-time
+# freeze cap (#231/#239) is the fallback for waits with no recorded action.
+
+LOAD_WAIT_LEAD_IN_SECONDS = 1.2
+LOAD_WAIT_MIN_SECONDS = 3.0
+
+
+def _excise_span_from_segs(
+    segs: list[tuple[float, float]], span_start: float, span_end: float
+) -> list[tuple[float, float]]:
+    """Remove the absolute master-clip range ``[span_start, span_end]`` from segs.
+
+    Each seg is ``(start_seconds, duration_seconds)`` in absolute master time. A
+    seg overlapping the span is split into its kept left/right parts and the
+    middle dropped (a clean jump-cut when the renderer plays the segments)."""
+    out: list[tuple[float, float]] = []
+    for s, d in segs:
+        e = s + d
+        if span_end <= s or span_start >= e:  # no overlap — keep whole seg
+            out.append((s, d))
+            continue
+        if span_start > s:  # left part survives
+            out.append((round(s, 3), round(span_start - s, 3)))
+        if span_end < e:  # right part survives
+            out.append((round(span_end, 3), round(e - span_end, 3)))
+    return out
+
+
+def excise_load_waits(
+    segs: list[tuple[float, float]],
+    load_waits: list[dict[str, Any]],
+    *,
+    lead_in: float = LOAD_WAIT_LEAD_IN_SECONDS,
+    threshold: float = LOAD_WAIT_MIN_SECONDS,
+) -> list[tuple[float, float]]:
+    """Excise long ground-truth loading-wait spans from de-dwelled segments.
+
+    Each load_wait is ``{"start_seconds", "duration_seconds", ...}`` in absolute
+    master seconds. A wait longer than ``threshold`` keeps ``lead_in`` of the
+    spinner (so the cut reads as deliberate) then drops the rest up to the
+    result. Short settles (≤ ``threshold``) are left untouched. PURE."""
+    out = list(segs)
+    for lw in load_waits:
+        ws = float(lw.get("start_seconds") or 0.0)
+        we = ws + float(lw.get("duration_seconds") or 0.0)
+        if we - ws <= threshold:  # a short settle, not a load worth collapsing
+            continue
+        cut_start = ws + lead_in
+        if we - cut_start > 1e-6:
+            out = _excise_span_from_segs(out, cut_start, we)
+    return out
+
+
 def build_snippets(
     *,
     narrative_slug: str,
@@ -222,6 +281,17 @@ def build_snippets(
             segs = dedwell_segments(clip_for_trim, start, dur, keep_dwell=keep_dwell)
         else:
             segs = [(round(start, 3), round(dur, 3))]
+        # Excise ground-truth loading waits (the recorder's `wait_for` spans) in
+        # this scene — collapses a mid-scene spinner to a lead-in + jump-cut to
+        # the result, even in a teach scene and even if the spinner animates (the
+        # freeze-based render cap can't catch that). Deterministic, no pixels.
+        scene_waits = [lw for lw in (report.get("load_waits") or []) if lw.get("scene_index") == idx]
+        if scene_waits:
+            _before = round(sum(d for _, d in segs), 3)
+            segs = excise_load_waits(segs, scene_waits)
+            _after = round(sum(d for _, d in segs), 3)
+            if _after < _before - 0.05:
+                print(f"  · scene {idx}: excised {round(_before - _after, 2)}s loading-wait(s) (ground-truth)")
         segments = [{"start_seconds": s, "duration_seconds": d} for s, d in segs]
         kept_dur = round(sum(d for _, d in segs), 3)  # summed on-screen length
         in_seconds = segs[0][0]

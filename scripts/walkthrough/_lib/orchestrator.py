@@ -678,6 +678,7 @@ class Recorder:
             # reads/writes ``self.variables`` inside execute_action. Resolution
             # is a shallow copy so the spec dict on disk is never mutated.
             resolved = self._resolve_action(action)
+            action_start_mono = time.monotonic()
             result = execute_action(
                 page, resolved, base_url=self.base_url, config=self.config,
                 variables=self.variables,
@@ -689,6 +690,21 @@ class Recorder:
             # scene" for the run report.
             if idx is not None:
                 result = dataclasses.replace(result, scene_index=int(idx))
+            # Ground-truth loading-wait span: a successful ``wait_for`` blocked
+            # from dispatch until its target appeared. Record its footage span
+            # (recording-timeline seconds, ``recording_epoch`` origin) so the
+            # explainer can excise a long mid-scene load (a "Generating…"/
+            # "Reviewing…" spinner) precisely — driven by what the recorder KNEW
+            # it waited for, not a pixel freeze guess (an animated spinner
+            # defeats that). Short settles are recorded too; the explainer only
+            # collapses spans over its threshold.
+            if result.kind == "wait_for" and result.ok:
+                self.report.record_load_wait(
+                    scene_index=int(idx) if idx is not None else None,
+                    start_seconds=action_start_mono - self.recording_epoch,
+                    duration_seconds=result.elapsed_ms / 1000.0,
+                    target=result.target or result.value,
+                )
             self.report.record(result)
             scene_results.append(result)
             try:
