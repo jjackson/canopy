@@ -56,7 +56,7 @@ try:
 except Exception:  # pragma: no cover — recorder may run without the narrative package on PYTHONPATH
     ACTION_KINDS = (
         "goto", "click", "click_menu", "fill", "select", "type", "press",
-        "hover", "scroll_to", "scroll", "wait_for", "hold", "draw", "map_click", "capture",
+        "hover", "scroll_to", "scroll", "wait_for", "hold", "draw", "map_click", "map_zoom", "capture",
     )
 
 CURSOR_OVERLAY_JS = (Path(__file__).resolve().parent / "cursor_overlay.js").read_text()
@@ -656,6 +656,45 @@ def map_click(
     return True
 
 
+def map_zoom(
+    page: Page,
+    zoom: float | str,
+    *,
+    duration_ms: int = 2000,
+    config: RecorderConfig | None = None,
+) -> bool:
+    """Fly the main Mapbox map to a ``zoom`` level — a cinematic push-in / pull-out.
+
+    The camera-move sibling of ``map_click``: finds the map via the SAME shared
+    resolver and calls ``map.flyTo({zoom, duration})``, so a demo can push in to
+    reveal the individual building footprints (the households drawn from Overture)
+    and pull back to the whole ward. ``zoom`` is the target Mapbox zoom level
+    (≈16.5 to see rooftops, ≈13 for the ward); ``duration_ms`` is the animation
+    length and the verb waits it out before returning. ``False`` when the map
+    can't be resolved or has no ``flyTo``."""
+    cfg = config or RecorderConfig()  # noqa: F841 — parity with map_click signature
+    try:
+        z = float(zoom)
+    except (TypeError, ValueError):
+        print(f"  ! map_zoom: invalid zoom {zoom!r}")
+        return False
+    ok = page.evaluate(
+        """({z, dur, findMap}) => {
+            const map = (new Function('return (' + findMap + ')'))()();
+            if (!map || typeof map.flyTo !== 'function') return false;
+            map.flyTo({ zoom: z, duration: dur, essential: true });
+            return true;
+        }""",
+        {"z": z, "dur": int(duration_ms), "findMap": _FIND_MAP_JS},
+    )
+    if not ok:
+        print("  ! map_zoom: map not found or has no flyTo")
+        return False
+    page.wait_for_timeout(int(duration_ms) + 300)
+    print(f"  · map_zoom → {z}")
+    return True
+
+
 def scroll_page(page: Page, to: str = "bottom", *, max_duration_ms: int = 4000) -> None:
     """Eased scroll to ``"top"``, ``"bottom"``, or a pixel offset."""
     if to == "top":
@@ -915,6 +954,13 @@ def execute_action(
             ok = map_click(
                 page, target or value or "",
                 layer=action.get("layer"), source=action.get("source"), config=cfg,
+            )
+            if not ok:
+                error_kind = "target_not_found"
+        elif kind == "map_zoom":
+            ok = map_zoom(
+                page, action.get("zoom", target or value or ""),
+                duration_ms=int(float(action.get("seconds") or 2.0) * 1000), config=cfg,
             )
             if not ok:
                 error_kind = "target_not_found"

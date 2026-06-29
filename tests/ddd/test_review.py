@@ -328,7 +328,7 @@ class TestTokenResolution:
         import scripts.ddd.review as rv
         # TOKEN_FILE now lives in scripts.ddd.auth (the shared auth module);
         # _resolve_token reads it there, so patch it there.
-        monkeypatch.setattr("scripts.ddd.auth.TOKEN_FILE", token_file)
+        monkeypatch.setattr("orchestrator.canopy_web.TOKEN_FILE", token_file)
 
         assert rv._resolve_token(None) == "env-token"
 
@@ -336,7 +336,7 @@ class TestTokenResolution:
         monkeypatch.delenv("CANOPY_WEB_PAT", raising=False)
         import scripts.ddd.review as rv
         # Point TOKEN_FILE (in scripts.ddd.auth) at a non-existent path
-        monkeypatch.setattr("scripts.ddd.auth.TOKEN_FILE", tmp_path / "no-token")
+        monkeypatch.setattr("orchestrator.canopy_web.TOKEN_FILE", tmp_path / "no-token")
         with pytest.raises(RuntimeError, match="no canopy-web PAT"):
             rv._resolve_token(None)
 

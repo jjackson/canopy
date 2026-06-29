@@ -60,3 +60,26 @@ def test_run_report_to_json_roundtrips():
 def test_action_assert_error_is_runtime_error():
     # Subclass relationship matters: callers `except RuntimeError` should catch.
     assert issubclass(ActionAssertError, RuntimeError)
+
+
+def test_record_load_wait_serializes_into_as_dict():
+    rep = RunReport()
+    rep.record_load_wait(
+        scene_index=4, start_seconds=110.0, duration_seconds=18.0, target="Get Feedback Again"
+    )
+    d = rep.as_dict()
+    assert d["load_waits"] == [
+        {
+            "scene_index": 4,
+            "start_seconds": 110.0,
+            "duration_seconds": 18.0,
+            "target": "Get Feedback Again",
+        }
+    ]
+    # round-trips through JSON unchanged.
+    assert json.loads(rep.to_json())["load_waits"] == d["load_waits"]
+
+
+def test_load_waits_omitted_when_empty():
+    # No wait_for actions → no load_waits key (back-compat with old report consumers).
+    assert "load_waits" not in RunReport().as_dict()

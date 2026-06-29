@@ -15,43 +15,14 @@ resolve_token(token: str | None) -> str
 """
 from __future__ import annotations
 
-import os
-from pathlib import Path
+# Canonical single source of these conventions now lives in orchestrator.canopy_web;
+# this module re-exports them so existing callers (scripts/ddd/upload.py, review.py) are
+# untouched. Run under `uv run` from the repo root, where `orchestrator` is importable.
+from orchestrator.canopy_web import (  # noqa: F401  (re-exported public API)
+    DEFAULT_API,
+    TOKEN_FILE,
+    resolve_base_url,
+    resolve_token,
+)
 
-DEFAULT_API = "https://canopy-web-ujpz2cuyxq-uc.a.run.app"
-TOKEN_FILE = Path.home() / ".claude" / "canopy" / "workbench-token"
-
-
-def resolve_base_url(base_url: str | None) -> str:
-    """Return the effective base URL, stripped of trailing slash.
-
-    Precedence: explicit ``base_url`` arg > ``CANOPY_WEB_API_URL`` env >
-    :data:`DEFAULT_API`.
-    """
-    if base_url:
-        return base_url.rstrip("/")
-    from_env = os.environ.get("CANOPY_WEB_API_URL", "").strip()
-    if from_env:
-        return from_env.rstrip("/")
-    return DEFAULT_API
-
-
-def resolve_token(token: str | None) -> str:
-    """Return the effective PAT, raising ``RuntimeError`` if unavailable.
-
-    Precedence: explicit ``token`` arg > ``CANOPY_WEB_PAT`` env >
-    :data:`TOKEN_FILE` on disk.
-    """
-    if token:
-        return token
-    from_env = os.environ.get("CANOPY_WEB_PAT", "").strip()
-    if from_env:
-        return from_env
-    if TOKEN_FILE.exists():
-        stored = TOKEN_FILE.read_text().strip()
-        if stored:
-            return stored
-    raise RuntimeError(
-        f"no canopy-web PAT — run /canopy:canopy-web-pat-mint to mint one, "
-        f"or set CANOPY_WEB_PAT env var. Expected token at {TOKEN_FILE}."
-    )
+__all__ = ["DEFAULT_API", "TOKEN_FILE", "resolve_base_url", "resolve_token"]

@@ -12,6 +12,7 @@ import { resolveAssetRefs, formatMissingError } from "../src/lib/asset-resolver.
 import {
   capBeatDuration,
   footageMotionEndForBeat,
+  exciseInteriorDeadAir,
   DEAD_THRESHOLD_SECONDS,
   BREATH_SECONDS,
   type BeatFootage,
@@ -126,20 +127,39 @@ function capDeadAirInTimeline(
     let durSec = b.seconds;
     if (footage && footage.asset) {
       const masterAbs = path.join(publicRoot, footage.asset);
-      const motionEnd = footageMotionEndForBeat(masterAbs, footage);
       const vo = voByBeat.get(b.id) ?? 0;
+      // 1b — excise INTERIOR loading waits (silent frozen spans mid-footage) by
+      // splicing the beat's footage segments. The trailing cap below can't reach
+      // a frozen span with motion after it (a "Generating…"/"Reviewing…" spinner
+      // between a click and the result); this collapses it even in teach scenes,
+      // VO-aware: only the part of a frozen span NOT under the voice is cut.
+      const exc = exciseInteriorDeadAir(masterAbs, footage, vo);
+      if (exc.excisedSeconds > 0.05) {
+        walkthrough[b.id].segments = exc.segments; // mutate → the composition renders the spliced segments.
+        delete walkthrough[b.id].start_seconds;
+        delete walkthrough[b.id].duration_seconds;
+        durSec = Math.max(exc.onScreenSeconds, vo); // drop the dead span; never below the voice.
+        shrank = true;
+        console.log(
+          `  interior dead-air excised "${b.id}": ${exc.excisedSeconds.toFixed(2)}s ` +
+            `(${exc.segments.length} segment(s), vo ${vo.toFixed(2)}s)`,
+        );
+      }
+      // 1 — trailing dead-air cap on the (possibly spliced) footage.
+      const motionEnd = footageMotionEndForBeat(masterAbs, walkthrough[b.id]);
+      const beforeCap = durSec;
       const capped = capBeatDuration({
-        current: b.seconds,
+        current: beforeCap,
         // null probe → 0 means "unknown footage motion": fall back to the VO
         // floor only, never widening (cap math maxes with vo + breath).
         footageMotionEnd: motionEnd ?? 0,
         vo,
       });
-      if (capped < durSec - 1e-6) {
+      if (capped < beforeCap - 1e-6) {
         durSec = capped;
         shrank = true;
         console.log(
-          `  dead-air cap "${b.id}": ${b.seconds.toFixed(2)}s → ${durSec.toFixed(2)}s ` +
+          `  dead-air cap "${b.id}": ${beforeCap.toFixed(2)}s → ${durSec.toFixed(2)}s ` +
             `(motion_end ${(motionEnd ?? 0).toFixed(2)}s, vo ${vo.toFixed(2)}s, ` +
             `breath ${BREATH_SECONDS}s, threshold ${DEAD_THRESHOLD_SECONDS}s)`,
         );

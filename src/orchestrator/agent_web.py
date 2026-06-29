@@ -13,19 +13,27 @@ Identity is resolved from the agent repo itself (no per-agent client copy needed
 Auth: a canopy-web PAT via `CANOPY_WEB_PAT`, or `~/.claude/canopy/workbench-token`
 (mint once via `/canopy:canopy-web-pat-mint`). Content is attributed to the agent slug, not the
 PAT user. Stdlib only (urllib) — no `requests` dependency.
+
+Transport, PAT/base-url resolution, and skill-frontmatter parsing are single-sourced in
+:mod:`orchestrator.canopy_web` / :mod:`orchestrator.agent_client`; this module is the
+repo-identity convenience layer over that shared core (resolve identity from the agent repo,
+then call). It keeps its own thin ``base_url``/``token``/``_call`` shims (delegating to
+``canopy_web``) for back-compat with callers like ``issue_origin`` and the ``agent-publish`` CLI.
 """
 from __future__ import annotations
 
 import json
-import os
 import re
 import subprocess
 import urllib.error
-import urllib.request
 from pathlib import Path
 
-DEFAULT_BASE = "https://canopy-web-ujpz2cuyxq-uc.a.run.app"
-TOKEN_FILE = os.path.expanduser("~/.claude/canopy/workbench-token")
+from orchestrator import canopy_web
+from orchestrator.agent_client import catalog_from_repo as _catalog_from_skills_root
+
+# Back-compat aliases — the canonical values live in canopy_web now.
+DEFAULT_BASE = canopy_web.DEFAULT_API
+TOKEN_FILE = str(canopy_web.TOKEN_FILE)
 
 
 class AgentWebError(Exception):
@@ -33,41 +41,30 @@ class AgentWebError(Exception):
 
 
 def base_url() -> str:
-    return os.environ.get("CANOPY_WEB_API_URL", DEFAULT_BASE).rstrip("/")
+    return canopy_web.resolve_base_url(None)
 
 
 def token() -> str:
-    t = os.environ.get("CANOPY_WEB_PAT", "").strip()
-    if t:
-        return t
-    if os.path.exists(TOKEN_FILE):
-        t = Path(TOKEN_FILE).read_text().strip()
-        if t:
-            return t
-    raise AgentWebError(
-        "no canopy-web PAT — set CANOPY_WEB_PAT or run /canopy:canopy-web-pat-mint"
-    )
+    try:
+        return canopy_web.resolve_token(None)
+    except RuntimeError as e:
+        raise AgentWebError(str(e))
 
 
 def _call(path: str, body=None, method: str = "POST") -> dict:
-    data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(
-        base_url() + path, data=data, method=method,
-        headers={"Authorization": f"Bearer {token()}", "Content-Type": "application/json"},
-    )
+    """Thin shim over :func:`canopy_web.call` (kept for back-compat callers).
+
+    Maps the shared ``CanopyError`` and connection failures onto ``AgentWebError`` so existing
+    ``except AgentWebError`` handlers (issue_origin, the agent-publish CLI) keep working.
+    """
     try:
-        with urllib.request.urlopen(req) as r:
-            txt = r.read().decode()
-            return json.loads(txt) if txt else {}
-    except urllib.error.HTTPError as e:
-        detail = ""
-        try:
-            detail = e.read().decode()[:400]
-        except Exception:
-            pass
-        raise AgentWebError(f"{method} {path} -> {e.code}: {detail}")
+        return canopy_web.call(method, path, body)
+    except canopy_web.CanopyError as e:
+        raise AgentWebError(str(e))
     except urllib.error.URLError as e:
         raise AgentWebError(f"{method} {path} -> connection error: {e.reason}")
+    except RuntimeError as e:  # missing PAT from resolve_token
+        raise AgentWebError(str(e))
 
 
 # ---- identity resolution (pure; testable without network) -----------------------------
@@ -117,37 +114,16 @@ def resolve_identity(repo_dir: Path) -> dict:
     return ident
 
 
-def _frontmatter(path: Path):
-    """Pull `name` + `description` from a SKILL.md YAML frontmatter (handles folded `>` blocks)."""
-    text = path.read_text()
-    m = re.match(r"^---\n(.*?)\n---", text, re.S)
-    if not m:
-        return None
-    block = m.group(1)
-    name = re.search(r"^name:\s*(.+)$", block, re.M)
-    desc = re.search(r"^description:\s*(?:>\s*)?\n?((?:.|\n)*?)(?:\n\w[\w-]*:|\Z)", block, re.M)
-    name_v = name.group(1).strip() if name else None
-    desc_v = " ".join(l.strip() for l in (desc.group(1).splitlines() if desc else [])).strip()
-    return name_v, desc_v
-
-
 def catalog_from_repo(repo_dir: Path) -> list[dict]:
-    """Mirror skills/*/SKILL.md into canopy-web's skill-catalog shape."""
+    """Mirror skills/*/SKILL.md into canopy-web's skill-catalog shape.
+
+    Delegates the glob + frontmatter parse to the shared
+    :func:`orchestrator.agent_client.catalog_from_repo`; this wrapper just supplies the repo's
+    ``skills/`` root and the git-origin-derived URL template (empty template → empty URLs,
+    matching the prior behaviour).
+    """
     repo = Path(repo_dir)
-    gh = gh_blob_base(repo)
-    items = []
-    for p in sorted(repo.glob("skills/*/SKILL.md")):
-        fm = _frontmatter(p)
-        if not fm or not fm[0]:
-            continue
-        name, desc = fm
-        items.append({
-            "name": name,
-            "description": desc,
-            "url": gh.format(name=name) if gh else "",
-            "improvement_note": "",
-        })
-    return items
+    return _catalog_from_skills_root(repo / "skills", gh_blob_base(repo))
 
 
 # ---- API operations -------------------------------------------------------------------
