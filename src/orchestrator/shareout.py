@@ -18,8 +18,11 @@ import urllib.request
 from collections import defaultdict
 from pathlib import Path
 
-DEFAULT_API = "https://canopy-web-ujpz2cuyxq-uc.a.run.app"
-TOKEN_FILE = Path.home() / ".claude" / "canopy" / "workbench-token"
+from orchestrator import canopy_web
+
+# Canonical PAT/base-url conventions live in canopy_web; alias for back-compat.
+DEFAULT_API = canopy_web.DEFAULT_API
+TOKEN_FILE = canopy_web.TOKEN_FILE
 
 # Corpus bounds — keep the gathered JSON small enough to hand to a synthesis
 # agent without blowing its context, while preserving the signal (intent +
@@ -385,14 +388,12 @@ def fill_all_prs_from_corpus(authoring: dict, corpus: dict) -> dict:
 
 
 def resolve_pat() -> str | None:
-    token = os.environ.get("CANOPY_WEB_PAT", "").strip()
-    if token:
-        return token
-    if TOKEN_FILE.exists():
-        token = TOKEN_FILE.read_text().strip()
-        if token:
-            return token
-    return None
+    # Same precedence as canopy_web.resolve_token, but returns None instead of
+    # raising (this caller treats a missing PAT as "skip the post").
+    try:
+        return canopy_web.resolve_token(None)
+    except RuntimeError:
+        return None
 
 
 def post(payload: dict, api_url: str, token: str, timeout: int = 60) -> tuple[int, dict]:

@@ -36,17 +36,18 @@ _REPO_SRC = Path(__file__).resolve().parents[2] / "src"
 if str(_REPO_SRC) not in sys.path:
     sys.path.insert(0, str(_REPO_SRC))
 try:
-    from orchestrator import turn_synthesis  # noqa: E402
+    from orchestrator import canopy_web, turn_synthesis  # noqa: E402
 except ImportError as exc:  # pragma: no cover - deployment path sanity
     print(
-        f"error: cannot import turn_synthesis from {_REPO_SRC} ({exc}). "
+        f"error: cannot import orchestrator from {_REPO_SRC} ({exc}). "
         f"Run /canopy:update to sync the canopy checkout.",
         file=sys.stderr,
     )
     sys.exit(1)
 
-DEFAULT_API = "https://canopy-web-ujpz2cuyxq-uc.a.run.app"
-TOKEN_FILE = Path.home() / ".claude" / "canopy" / "workbench-token"
+# Canonical PAT/base-url conventions live in canopy_web; alias for back-compat.
+DEFAULT_API = canopy_web.DEFAULT_API
+TOKEN_FILE = canopy_web.TOKEN_FILE
 
 
 def fail(msg: str, code: int = 1) -> None:
@@ -81,18 +82,13 @@ def _describe_error(body: dict) -> str:
 
 
 def resolve_pat() -> str:
-    token = os.environ.get("CANOPY_WEB_PAT", "").strip()
-    if token:
-        return token
-    if TOKEN_FILE.exists():
-        token = TOKEN_FILE.read_text().strip()
-        if token:
-            return token
-    fail(
-        f"no canopy-web PAT — run /canopy:canopy-web-pat-mint to mint one, "
-        f"or set CANOPY_WEB_PAT. Expected token at {TOKEN_FILE}.",
-    )
-    raise SystemExit  # unreachable
+    # Delegates the precedence to canopy_web; maps its RuntimeError onto this
+    # script's fail() (stderr + exit) for a consistent standalone-CLI UX.
+    try:
+        return canopy_web.resolve_token(None)
+    except RuntimeError as exc:
+        fail(str(exc))
+        raise SystemExit  # unreachable
 
 
 def _project_dir_for(cwd: Path) -> Path:

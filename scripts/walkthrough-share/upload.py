@@ -31,8 +31,25 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-DEFAULT_API = "https://canopy-web-ujpz2cuyxq-uc.a.run.app"
-TOKEN_FILE = Path.home() / ".claude" / "canopy" / "workbench-token"
+# This uploader runs under a bare ``python3``; add the canopy ``src/`` to the path
+# so the canonical PAT/base-url core (orchestrator.canopy_web) is importable.
+# (repo/scripts/walkthrough-share → repo/src.)
+_REPO_SRC = Path(__file__).resolve().parents[2] / "src"
+if str(_REPO_SRC) not in sys.path:
+    sys.path.insert(0, str(_REPO_SRC))
+try:
+    from orchestrator import canopy_web  # noqa: E402
+except ImportError as exc:  # pragma: no cover - deployment path sanity
+    print(
+        f"error: cannot import orchestrator from {_REPO_SRC} ({exc}). "
+        f"Run /canopy:update to sync the canopy checkout.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+# Canonical PAT/base-url conventions live in canopy_web; alias for back-compat.
+DEFAULT_API = canopy_web.DEFAULT_API
+TOKEN_FILE = canopy_web.TOKEN_FILE
 
 # Recognized file kinds and their server-side content types.
 KIND_BY_EXT = {".html": "html", ".htm": "html", ".mp4": "video"}
@@ -59,19 +76,12 @@ def _describe_error(body: dict) -> str:
 
 
 def resolve_pat() -> str:
-    """Read the PAT from env or the canopy workbench-token file."""
-    token = os.environ.get("CANOPY_WEB_PAT", "").strip()
-    if token:
-        return token
-    if TOKEN_FILE.exists():
-        token = TOKEN_FILE.read_text().strip()
-        if token:
-            return token
-    fail(
-        f"no canopy-web PAT — run /canopy:canopy-web-pat-mint to mint one, "
-        f"or set CANOPY_WEB_PAT env var. Expected token at {TOKEN_FILE}.",
-    )
-    raise SystemExit  # unreachable, helps the type checker
+    """Read the PAT via the canonical canopy_web precedence (env → token file)."""
+    try:
+        return canopy_web.resolve_token(None)
+    except RuntimeError as exc:
+        fail(str(exc))
+        raise SystemExit  # unreachable, helps the type checker
 
 
 def detect_kind(path: Path) -> str:

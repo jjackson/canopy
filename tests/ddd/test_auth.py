@@ -1,7 +1,8 @@
 """Tests for scripts/ddd/auth.py — the shared canopy-web auth/URL helpers.
 
-No network. TOKEN_FILE is patched to a tmp file so the on-disk fallback is
-exercised without touching the real ~/.claude/canopy/workbench-token.
+No network. scripts.ddd.auth now RE-EXPORTS the canonical resolvers from
+orchestrator.canopy_web, so the on-disk fallback is patched at its real source —
+``orchestrator.canopy_web.TOKEN_FILE`` — not the re-exported alias.
 """
 from __future__ import annotations
 
@@ -54,7 +55,7 @@ def test_resolve_token_explicit_wins(monkeypatch):
 def test_resolve_token_env_wins_over_file(monkeypatch, tmp_path):
     tok = tmp_path / "token"
     tok.write_text("file-token")
-    monkeypatch.setattr("scripts.ddd.auth.TOKEN_FILE", tok)
+    monkeypatch.setattr("orchestrator.canopy_web.TOKEN_FILE", tok)
     monkeypatch.setenv("CANOPY_WEB_PAT", "env-token")
     assert resolve_token(None) == "env-token"
 
@@ -62,14 +63,14 @@ def test_resolve_token_env_wins_over_file(monkeypatch, tmp_path):
 def test_resolve_token_file_fallback(monkeypatch, tmp_path):
     tok = tmp_path / "token"
     tok.write_text("  file-token  \n")
-    monkeypatch.setattr("scripts.ddd.auth.TOKEN_FILE", tok)
+    monkeypatch.setattr("orchestrator.canopy_web.TOKEN_FILE", tok)
     monkeypatch.delenv("CANOPY_WEB_PAT", raising=False)
     assert resolve_token(None) == "file-token"
 
 
 def test_resolve_token_raises_when_none(monkeypatch, tmp_path):
     missing = tmp_path / "nope"
-    monkeypatch.setattr("scripts.ddd.auth.TOKEN_FILE", missing)
+    monkeypatch.setattr("orchestrator.canopy_web.TOKEN_FILE", missing)
     monkeypatch.delenv("CANOPY_WEB_PAT", raising=False)
     with pytest.raises(RuntimeError):
         resolve_token(None)
