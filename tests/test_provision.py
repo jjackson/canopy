@@ -90,3 +90,53 @@ secrets:
     assert res["errors"] and "required" in res["errors"][0]
     assert res["skipped"] == 1
     assert not (tmp_path / "req").exists() and not (tmp_path / "opt").exists()
+
+
+def test_env_block_writes_one_dotenv_to_global_home(tmp_path):
+    """The env: block materializes many KEY=value into ONE .env at a global (worktree-clean) home."""
+    _manifest(tmp_path, """
+env:
+  target: "{repo}/home/.env"
+  mode: "0600"
+  vars:
+    - key: AGENT_GMAIL_ACCOUNT
+      op: "op://V/Item/username"
+    - key: AGENT_GMAIL_PASSWORD
+      op: "op://V/Item/password"
+    - key: AGENT_CLIENT
+      value: "agent"
+    - key: AGENT_OPTIONAL
+      op: "op://V/Missing/x"
+      optional: true
+""")
+    fake = {"op://V/Item/username": "a@b.com\n", "op://V/Item/password": "p>!ss\n"}
+
+    def op_read(ref):
+        if ref not in fake:
+            raise ProvisionError("not found")
+        return fake[ref]
+
+    res = provision(tmp_path, op_read=op_read)
+    assert not res["errors"]
+    env_path = tmp_path / "home" / ".env"
+    body = env_path.read_text()
+    assert "AGENT_GMAIL_ACCOUNT=a@b.com" in body          # op ref resolved, newline stripped
+    assert "AGENT_GMAIL_PASSWORD=p>!ss" in body           # special chars verbatim, not interpreted
+    assert "AGENT_CLIENT=agent" in body                   # literal value
+    assert "AGENT_OPTIONAL" not in body                   # missing optional skipped, not failed
+    assert stat.S_IMODE(env_path.stat().st_mode) == 0o600
+
+
+def test_env_block_required_failure_does_not_write_partial(tmp_path):
+    _manifest(tmp_path, """
+env:
+  target: "{repo}/home/.env"
+  vars:
+    - key: A
+      value: "ok"
+    - key: B
+      op: "op://V/Missing/x"
+""")
+    res = provision(tmp_path, op_read=lambda ref: (_ for _ in ()).throw(ProvisionError("nope")))
+    assert res["errors"]                                  # required B failed
+    assert not (tmp_path / "home" / ".env").exists()      # .env NOT half-written

@@ -318,7 +318,9 @@ infra you'd want every agent to get, it belongs in canopy; raise it there, don't
 ## Conventions
 - Capability logic belongs in CLIs / MCP tools; skills (`SKILL.md`) orchestrate. That keeps the
   agent portable to the Claude Agent SDK later (MCP is the portability boundary).
-- Config/secrets via `.env` (from `.env.tpl`, 1Password-injectable). `.env` is gitignored.
+- Config/secrets live in a WORKTREE-CLEAN global home `~/.{{AGENT_SLUG}}/.env`, provisioned by
+  `canopy provision` from `config/secrets.yaml` (1Password refs + non-secret literals). NOT a
+  per-worktree repo `.env` (that gets recreated every turn). Scripts read it via `bin/_env.py`.
 - Outputs that are deliverables live where the team can see them (a shared drive / the canopy-web
   workspace), not as loose local files.
 
@@ -435,11 +437,71 @@ Run this before EVERY outbound action (it is the thing that gets dropped under l
 6. **Enumerate multiple asks**, one line each, showing how each was handled.
 '''
 
-_ENV_TPL = '''# {{AGENT_NAME}} configuration. Copy to .env (gitignored) and fill in, or resolve from a
-# secrets manager (e.g. 1Password: op inject -i .env.tpl -o .env). Do NOT commit .env.
-{{AGENT_SLUG}}_PRIMARY_CHANNEL={{MAILBOX}}
-# CANOPY_WEB_PAT=            # per-human PAT for the canopy-web agent workspace (optional)
-# CANOPY_WEB_API_URL=        # override canopy-web base URL (optional)
+_SECRETS_YAML = '''# {{AGENT_NAME}}'s secrets + config, declarative. `canopy provision` materializes these from the
+# 1Password AI-Agents vault into the WORKTREE-CLEAN global home ~/.{{AGENT_SLUG}}/.env — NOT a
+# per-worktree repo .env. emdash runs each turn in a fresh worktree; a repo .env would be absent
+# there and get recreated every turn, so it lives ONCE in the global home and every worktree reads
+# it (via bin/_env.py). No values here — only 1Password refs (`op:`) and non-secret literals
+# (`value:`). Provision with `canopy provision` (or `--check` to dry-run) from this repo.
+env:
+  target: "~/.{{AGENT_SLUG}}/.env"
+  mode: "0600"
+  vars:
+    - key: {{AGENT_SLUG}}_PRIMARY_CHANNEL
+      value: "{{MAILBOX}}"                                   # not a secret — the agent's channel
+    # - key: {{AGENT_SLUG}}_SOME_SECRET
+    #   op: "op://AI-Agents/{{AGENT_NAME}} item/field"       # a real secret — resolved from 1Password
+    # - key: CANOPY_WEB_PAT
+    #   op: "op://AI-Agents/{{AGENT_NAME}} canopy-web PAT/credential"
+    #   optional: true
+'''
+
+_ENV_LOADER = '''"""Canonical .env resolver for {{AGENT_NAME}}'s scripts — reads the WORKTREE-CLEAN global home.
+
+{{AGENT_NAME}} runs each turn in a fresh emdash worktree; a per-repo `.env` would be absent there and
+get recreated every turn. So secrets live ONCE at ~/.{{AGENT_SLUG}}/.env (provisioned by
+`canopy provision` from config/secrets.yaml; override the home with ${{AGENT_SLUG}}_ENV, upper-cased).
+A repo-local `.env` still works as a per-KEY dev override (it wins).
+
+    from _env import get, load
+    val = get("{{AGENT_SLUG}}_PRIMARY_CHANNEL", "")   # os.environ wins, then global .env, then default
+
+Never `source` the .env from bash — values with `>`/`!`/`=` break shell parsing; use this module.
+"""
+import os
+
+_SLUG = "{{AGENT_SLUG}}"
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+GLOBAL_ENV = os.environ.get(_SLUG.upper() + "_ENV") or os.path.expanduser("~/." + _SLUG + "/.env")
+REPO_ENV = os.path.join(REPO, ".env")
+ENV_PATH = GLOBAL_ENV
+
+
+def load(path=None):
+    """Parse .env(s) into a dict — global home merged with an optional repo-local override (repo
+    wins per key). Splits on the FIRST '=', value verbatim (so `>`/`!`/`=`/spaces survive)."""
+    out = {}
+    for p in ([path] if path else [GLOBAL_ENV, REPO_ENV]):
+        if not p or not os.path.exists(p):
+            continue
+        for raw in open(p):
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            k = k.strip()
+            v = v.strip()
+            if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+                v = v[1:-1]
+            out[k] = v
+    return out
+
+
+def get(key, default=None):
+    """Resolve one var: os.environ first (caller override), then the .env home, else default."""
+    if os.environ.get(key):
+        return os.environ[key].strip()
+    return load().get(key, default)
 '''
 
 _ALLOWLIST = '''# Counterparts {{AGENT_NAME}} may ACT on (send/reply/write). One per line.
@@ -469,7 +531,9 @@ follows it: preflight → process inbound (one counterpart at a time) → skill 
 1. Fill in `persona.md` (voice, mandate detail, memory scope).
 2. Add domain skills under `skills/<name>/SKILL.md`.
 3. Add outbound actions as `approve`/`deny` rules in `config/gating.json` — not as prose.
-4. Wire a channel adapter (email first) and a `setup`/`preflight` for your secrets.
+4. Declare secrets in `config/secrets.yaml` (1Password refs) and run `canopy provision` — they land
+   in the worktree-clean global home `~/.{{AGENT_SLUG}}/.env`, read by `bin/_env.py`. Then wire a
+   channel adapter (email first).
 '''
 
 _GITIGNORE = '''.env
@@ -493,7 +557,8 @@ _TEMPLATES: dict[str, str] = {
     "persona.md": _PERSONA_MD,
     "README.md": _README,
     ".gitignore": _GITIGNORE,
-    ".env.tpl": _ENV_TPL,
+    "config/secrets.yaml": _SECRETS_YAML,
+    "bin/_env.py": _ENV_LOADER,
     "config/gating.json": _GATING_JSON,
     "config/allowlist.txt": _ALLOWLIST,
     "config/agent.json": _AGENT_JSON,

@@ -68,6 +68,45 @@ def load_manifest(repo: Path) -> list[Secret]:
     return out
 
 
+@dataclass
+class EnvVar:
+    key: str
+    op_ref: str = ""        # exactly one of op_ref / value
+    value: str = ""
+    optional: bool = False
+
+
+@dataclass
+class EnvBlock:
+    target: str             # the ONE .env file all vars are written into (worktree-clean global home)
+    vars: list              # list[EnvVar]
+    mode: str = "0600"
+
+
+def load_env_block(repo: Path):
+    """Parse the OPTIONAL `env:` block of secrets.yaml — many KEY=value materialized into ONE .env
+    file (a stable global home like `~/.<slug>/.env`, NOT a per-worktree repo file). Returns
+    EnvBlock or None. Each var carries an `op:` ref (a secret) OR a literal `value:` (a non-secret
+    id/name); `optional: true` lets a missing op ref be skipped instead of failing the whole file."""
+    path = Path(repo) / "config" / "secrets.yaml"
+    if not path.exists():
+        return None
+    blk = (yaml.safe_load(path.read_text()) or {}).get("env")
+    if not blk:
+        return None
+    if not isinstance(blk, dict) or not blk.get("target") or not isinstance(blk.get("vars"), list):
+        raise ProvisionError(f"{path}: `env` needs a `target` and a `vars` list")
+    out = []
+    for i, it in enumerate(blk["vars"]):
+        if not isinstance(it, dict) or not it.get("key"):
+            raise ProvisionError(f"{path}: env var #{i} needs a `key`")
+        if not it.get("op") and "value" not in it:
+            raise ProvisionError(f"{path}: env var {it['key']} needs `op` (secret) or `value` (literal)")
+        out.append(EnvVar(key=it["key"], op_ref=it.get("op", ""),
+                          value=str(it.get("value", "")), optional=bool(it.get("optional", False))))
+    return EnvBlock(target=blk["target"], vars=out, mode=str(blk.get("mode", "0600")))
+
+
 def resolve_target(target: str, repo: Path) -> Path:
     """Resolve a manifest target to an absolute path: {repo} → repo; ~ expanded; rel → repo/rel."""
     t = target.replace("{repo}", str(Path(repo)))
@@ -134,6 +173,56 @@ def provision(repo: Path, *, op_read=_op_read, check: bool = False) -> dict:
         results.append({"name": s.name, "status": "written", "target": str(dest),
                         "mode": oct(stat.S_IMODE(dest.stat().st_mode))})
         provisioned += 1
+
+    # The env block: materialize many KEY=value into ONE .env (the worktree-clean global home).
+    # Resolve everything FIRST; only write if all required vars succeeded (never half-write a .env
+    # over a good one).
+    env = load_env_block(repo)
+    if env is not None:
+        dest = resolve_target(env.target, repo)
+        env_lines, env_failed = [], False
+        for v in env.vars:
+            if v.op_ref:
+                try:
+                    val = op_read(v.op_ref).rstrip("\n")
+                except ProvisionError as e:
+                    if v.optional:
+                        skipped += 1
+                        results.append({"name": f"env:{v.key}", "status": "skipped", "reason": str(e)})
+                        continue
+                    errors.append(f"env:{v.key}: {e}")
+                    results.append({"name": f"env:{v.key}", "status": "error", "reason": str(e)})
+                    env_failed = True
+                    continue
+                if not val.strip():
+                    if v.optional:
+                        skipped += 1
+                        continue
+                    errors.append(f"env:{v.key}: 1Password returned an empty value")
+                    env_failed = True
+                    continue
+            else:
+                val = v.value
+            env_lines.append(f"{v.key}={val}")
+            provisioned += 1
+        if env_failed:
+            results.append({"name": "env-file", "status": "error", "target": str(dest),
+                            "reason": "a required env var failed — .env NOT written"})
+        elif check:
+            results.append({"name": "env-file", "status": "ok", "target": str(dest),
+                            "would_write": True, "vars": len(env_lines)})
+        else:
+            body = ("# Provisioned by `canopy provision` from config/secrets.yaml — do not edit by hand.\n"
+                    + "\n".join(env_lines) + "\n")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(body)
+            try:
+                dest.chmod(int(env.mode, 8))
+            except ValueError:
+                dest.chmod(0o600)
+            results.append({"name": "env-file", "status": "written", "target": str(dest),
+                            "vars": len(env_lines), "mode": oct(stat.S_IMODE(dest.stat().st_mode))})
+
     return {
         "repo": str(repo), "check": check,
         "provisioned": provisioned, "skipped": skipped,
