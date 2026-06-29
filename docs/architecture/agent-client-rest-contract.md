@@ -26,6 +26,7 @@ reading the Python client.
 | POST | `/api/agents/{slug}/work-products/` | `{work_products:[{title,kind,url,description,tags,source}]}` | upsert by url |
 | PUT | `/api/agents/{slug}/skills/` | `{skills:[{name,description,url,improvement_note}]}` | replaces catalog |
 | POST | `/api/agents/{slug}/tasks/sync` | `{tasks:[{ext_id,title,next_action,status,owner,assigned,…}]}` | non-destructive upsert |
+| GET | `/api/agents/{slug}/tasks/` | — | list board tasks (e.g. to compute the next `ext_id`) |
 | GET | `/api/agents/{slug}/commands?status=pending` | — | drain queued board actions |
 | POST | `/api/agents/{slug}/commands/{id}/apply` | `{result_note}` | mark a command applied |
 | PATCH | `/api/agents/{slug}/tasks/{id}/` | partial task fields | store context (rationale/plan/status/…) |
@@ -36,7 +37,7 @@ reading the Python client.
   transport, single source of PAT/base-url resolution).
 - **Typed client:** `orchestrator/agent_client.py` (`AgentClient` + `catalog_from_repo`).
 - **CLI:** `canopy agent …` (`orchestrator/agent_cli.py`) — `register`, `sync`,
-  `work`, `skills`, `tasks-sync`, `commands`, `apply`, `set`.
+  `work`, `skills`, `tasks-sync`, `tasks`, `commands`, `apply`, `set`.
 - **Repo-identity convenience layer:** `orchestrator/agent_web.py` (resolves
   identity from an agent repo's `.claude-plugin/plugin.json` + `config/agent.json`)
   and the `canopy agent-publish` CLI — both sit on the same `canopy_web` core.

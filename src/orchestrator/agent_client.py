@@ -68,6 +68,10 @@ class AgentClient:
     def sync_tasks(self, tasks: list[dict]) -> dict:
         return self._call("POST", f"/api/agents/{self.slug}/tasks/sync", {"tasks": tasks})
 
+    def list_tasks(self) -> "list[dict]":
+        raw = self._call("GET", f"/api/agents/{self.slug}/tasks/")
+        return raw if isinstance(raw, list) else (raw or {}).get("results", [])
+
     def pending_commands(self) -> "list[BoardCommand]":
         raw = self._call("GET", f"/api/agents/{self.slug}/commands?status=pending")
         return [BoardCommand(**c) for c in (raw or [])]
