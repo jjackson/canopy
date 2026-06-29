@@ -10,6 +10,7 @@ from orchestrator.registry import (
 from orchestrator.capture import read_session_log, group_by_session, classify_sessions
 from orchestrator.pipeline import run_cycle, CycleConfig
 from orchestrator.server import run_server
+from orchestrator.agent_cli import agent as agent_group
 
 
 def find_registry() -> Path:
@@ -26,6 +27,9 @@ def find_registry() -> Path:
 @click.group()
 def main():
     """Canopy — self-improving MCP orchestration."""
+
+
+main.add_command(agent_group)
 
 
 @main.group()
