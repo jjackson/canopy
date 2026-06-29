@@ -81,3 +81,18 @@ def test_sync_tasks_wraps_payload():
     c.sync_tasks([{"ext_id": "T1", "title": "x"}])
     assert calls[0][:2] == ("POST", "https://x.test/api/agents/echo/tasks/sync")
     assert calls[0][2] == {"tasks": [{"ext_id": "T1", "title": "x"}]}
+
+
+from pathlib import Path
+from orchestrator.agent_client import catalog_from_repo
+
+
+def test_catalog_from_repo_parses_frontmatter():
+    root = Path(__file__).parent / "fixtures" / "agent_skills"
+    items = catalog_from_repo(root, "https://gh/{name}/SKILL.md")
+    assert items == [{
+        "name": "demo-skill",
+        "description": "A demo skill used to test catalog parsing. It spans two folded lines.",
+        "url": "https://gh/demo-skill/SKILL.md",
+        "improvement_note": "",
+    }]

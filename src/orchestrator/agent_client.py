@@ -2,6 +2,10 @@
 only (identity, syncs, work-products, skills, tasks, commands) — NO run lifecycle."""
 from __future__ import annotations
 
+import glob
+import os
+import re
+from pathlib import Path
 from typing import Optional
 from pydantic import BaseModel, ConfigDict
 
@@ -75,3 +79,28 @@ class AgentClient:
     def patch_task(self, task_id: int, **fields) -> dict:
         patch = {k: v for k, v in fields.items() if v is not None}
         return self._call("PATCH", f"/api/agents/{self.slug}/tasks/{task_id}/", patch)
+
+
+def _frontmatter(path: str) -> "tuple[str, str] | None":
+    text = Path(path).read_text()
+    m = re.match(r"^---\n(.*?)\n---", text, re.S)
+    if not m:
+        return None
+    block = m.group(1)
+    name = re.search(r"^name:\s*(.+)$", block, re.M)
+    desc = re.search(r"^description:\s*(?:>\s*)?\n?((?:.|\n)*?)(?:\n\w[\w-]*:|\Z)", block, re.M)
+    name_v = name.group(1).strip() if name else ""
+    desc_v = " ".join(l.strip() for l in (desc.group(1).splitlines() if desc else [])).strip()
+    return name_v, desc_v
+
+
+def catalog_from_repo(skills_root, url_template: str) -> "list[dict]":
+    items = []
+    for p in sorted(glob.glob(os.path.join(str(skills_root), "*", "SKILL.md"))):
+        fm = _frontmatter(p)
+        if not fm or not fm[0]:
+            continue
+        name, desc = fm
+        items.append({"name": name, "description": desc,
+                      "url": url_template.format(name=name), "improvement_note": ""})
+    return items
