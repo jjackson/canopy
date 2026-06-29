@@ -106,6 +106,21 @@ Then follow the plugin-update steps below (`/canopy:update` etc.) if
 - `canopy test-audit [...]` — build a test corpus for the agent to judge and prune dumb tests
 - `canopy verify-findings` — re-verify session-review proposals against the current state of their target repos
 
+## Framework/Product Boundary (the one invariant)
+
+The `orchestrator` package splits into **framework** (generic, agent-agnostic
+agent-runtime substrate — `canopy_web`, `agent_client`, `agent_factory`, `capture`,
+`transcripts`, `scanner`, `registry`, `scheduler`, `provision`, … 25 modules) and
+**product** (canopy's own self-improvement / DDD / portfolio features — `analyzer`,
+`proposer`, `observations`, `harvest`, `shareout`, `test_audit`, …). **Framework
+code must never import product code; product imports framework freely.** The only
+product→framework coupling lives in 3 orchestration **hubs** (`cli`, `pipeline`,
+`server`), by design. This keeps the framework substrate cuttable (liftable onto a
+standalone host without dragging canopy's product). It's a *direction, not a wall* —
+do NOT split `orchestrator/` into `framework/`/`product/` subpackages. Enforced by
+`tests/test_plugin_boundary.py` (fails on a framework→product import, or a new
+untiered module). Full tier list + rationale: **`src/orchestrator/TIERS.md`**.
+
 ## Key Modules
 
 ### Core pipeline

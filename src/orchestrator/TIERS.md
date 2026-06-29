@@ -1,0 +1,58 @@
+# orchestrator tiers — the framework/product boundary
+
+> Wave 0 of the framework harvest. The canopy plugin is "Canopy the framework"
+> seen from the plugin side; this doc makes its framework/product split **legible**
+> and `tests/test_plugin_boundary.py` makes it **enforced**.
+
+## The invariant
+
+> **FRAMEWORK code never imports PRODUCT code. PRODUCT (and the orchestration
+> HUBS) import FRAMEWORK freely.**
+
+- **FRAMEWORK** = the generic, *agent-agnostic* agent-runtime substrate: the
+  canopy-web client, agent scaffolding, session/transcript capture + discovery,
+  scheduling/safety infra, registry, provisioning, version/structure tooling.
+  Any agent could reuse these.
+- **PRODUCT** = canopy's *own* features: the self-improvement brain (analyze →
+  propose → review), DDD/narrative, walkthrough/portfolio/PM. Bespoke to canopy.
+
+Unlike canopy-web (separate Django apps), the plugin is a single importable
+package, so the tiers are **per-module**. The boundary is a *direction, not a
+wall* — we do not split `orchestrator/` into `framework/` and `product/`
+subpackages (the design doc forbids that decomposition); we hold the arrow and
+enforce it.
+
+## Tiers
+
+**FRAMEWORK** (agent-runtime substrate — must not import product):
+`agent_cli` · `agent_client` · `agent_factory` · `agent_web` · `canopy_web` ·
+`capture` · `transcripts` · `scanner` · `circuit_breaker` · `rate_limiter` ·
+`scheduler` · `paths` · `repo_map` · `repo_paths` · `registry` · `registry_sync` ·
+`skill_budget` · `skill_catalog` · `skill_runner` · `provision` · `run_log` ·
+`version_bump` · `doctor` · `agent_review` · `structure_drift`
+
+**HUBS** (orchestration / composition roots — wire product into the CLI, the
+improvement pipeline, and the web server; allowed to import product, like
+canopy-web's `api` app):
+`cli` · `pipeline` · `server`
+
+**PRODUCT** (canopy's own features — may import framework):
+`analyzer` · `proposer` · `reviewer` · `briefing` · `observations` · `proposals` ·
+`campaigns` · `tracker` · `labels` · `patterns` · `router` · `digest` · `harvest` ·
+`turn_synthesis` · `shareout` · `portfolio_discover` · `openclaw_harvest` ·
+`issue_origin` · `verify_findings` · `corpus` · `test_audit` · `prompts`
+
+Top-level `scripts/` (ddd, narrative, walkthrough), `video-engine/`, and
+`plugins/canopy/{skills,commands,agents}/` are all **product** — correct for a
+product plugin. The framework substrate is the 25 modules above.
+
+## Enforcement
+
+`tests/test_plugin_boundary.py` (stdlib `ast`, in the normal `uv run pytest` job)
+fails if any framework module imports a product module, and if a **new**
+`orchestrator` module is left untiered. Keep the tier sets there in sync with this
+doc.
+
+> Today every framework module is import-clean — the boundary already holds; this
+> just documents + locks it. The only product→framework coupling lives in the 3
+> hubs, by design.
