@@ -179,8 +179,8 @@ def web_sync(rec: dict) -> tuple[bool, str]:
     """Best-effort POST (idempotent upsert) of the record to canopy-web's /api/issues/. Degrades
     gracefully — the local copy is canonical if canopy-web is unreachable. Never raises."""
     try:
-        from orchestrator import agent_web
-        agent_web._call("/api/issues/", _web_payload(rec), method="POST")
+        from orchestrator import canopy_web
+        canopy_web.call("POST", "/api/issues/", _web_payload(rec))
         return True, "synced to canopy-web"
     except Exception as exc:  # noqa: BLE001 — best-effort by design
         return False, f"not synced ({type(exc).__name__}); local record is canonical"
@@ -189,8 +189,8 @@ def web_sync(rec: dict) -> tuple[bool, str]:
 def web_fetch(repo: str, number: int) -> dict | None:
     """Fetch a record from canopy-web (fallback when no local copy). Returns None on any failure."""
     try:
-        from orchestrator import agent_web
-        return agent_web._call(_web_path(repo, number), method="GET")
+        from orchestrator import canopy_web
+        return canopy_web.call("GET", _web_path(repo, number))
     except Exception:  # noqa: BLE001
         return None
 
@@ -198,8 +198,8 @@ def web_fetch(repo: str, number: int) -> dict | None:
 def web_delete(repo: str, number: int) -> tuple[bool, str]:
     """Best-effort DELETE of the canopy-web record (cleanup). Never raises."""
     try:
-        from orchestrator import agent_web
-        agent_web._call(_web_path(repo, number), method="DELETE")
+        from orchestrator import canopy_web
+        canopy_web.call("DELETE", _web_path(repo, number))
         return True, "deleted from canopy-web"
     except Exception as exc:  # noqa: BLE001
         return False, f"canopy-web delete skipped ({type(exc).__name__})"
