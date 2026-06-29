@@ -38,6 +38,16 @@ def test_agent_commands_lists(fake_http):
     assert "#7" in r.output and "dispatch" in r.output
 
 
+def test_agent_tasks_lists(fake_http):
+    calls, responses = fake_http
+    responses[("GET", "agents/echo/tasks/")] = (
+        200, json.dumps([{"ext_id": "T1", "title": "a"}, {"ext_id": "T2", "title": "b"}]))
+    r = CliRunner().invoke(main, ["agent", "tasks", "--slug", "echo"])
+    assert r.exit_code == 0, r.output
+    assert calls[0][:2] == ("GET", "https://x.test/api/agents/echo/tasks/")
+    assert "T1" in r.output and "T2" in r.output
+
+
 def test_agent_apply(fake_http):
     calls, _ = fake_http
     r = CliRunner().invoke(main, ["agent", "apply", "--slug", "echo", "--id", "7", "--note", "ok"])

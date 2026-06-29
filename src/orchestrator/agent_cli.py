@@ -115,6 +115,16 @@ def agent_commands(slug):
         click.echo(f"  #{c.id} {c.kind} -> {c.task_title or '(no task)'}  [{c.created_by}]  {c.payload or ''}")
 
 
+@agent.command("tasks")
+@click.option("--slug", required=True)
+def agent_tasks(slug):
+    """List the agent's board tasks (JSON) — e.g. to compute the next ext_id."""
+    try:
+        _emit(_client(slug).list_tasks())
+    except (CanopyError, RuntimeError) as e:
+        raise click.ClickException(str(e))
+
+
 @agent.command("apply")
 @click.option("--slug", required=True)
 @click.option("--id", "cmd_id", type=int, required=True)

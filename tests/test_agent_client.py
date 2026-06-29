@@ -83,6 +83,20 @@ def test_sync_tasks_wraps_payload():
     assert calls[0][2] == {"tasks": [{"ext_id": "T1", "title": "x"}]}
 
 
+def test_list_tasks_returns_list():
+    raw = _json.dumps([{"ext_id": "T1", "title": "a"}, {"ext_id": "T2", "title": "b"}])
+    c, calls = _recorder_client([(200, raw)])
+    tasks = c.list_tasks()
+    assert calls[0][:2] == ("GET", "https://x.test/api/agents/echo/tasks/")
+    assert [t["ext_id"] for t in tasks] == ["T1", "T2"]
+
+
+def test_list_tasks_unwraps_paginated():
+    raw = _json.dumps({"results": [{"ext_id": "T1"}]})
+    c, _ = _recorder_client([(200, raw)])
+    assert c.list_tasks() == [{"ext_id": "T1"}]
+
+
 from pathlib import Path
 from orchestrator.agent_client import catalog_from_repo
 
