@@ -314,6 +314,39 @@ description per the artifact-link-or-verbal-description rule in
 deck URL, where N is the original spec scene index. Example:
 `<DECK_URL>#scene-2`. The deck generator emits stable anchors.
 
+### Step 2c — Render pacing audit (deterministic, runs BEFORE the judges)
+
+The LLM visual-judge scores one frozen frame per scene — it is structurally
+**blind to time**: it cannot see a 4-second held-frame stall, a loading spinner
+shown on camera, or a `wait_for` that timed out. Those are deterministic and
+measurable from the final mp4 + the run-report, with no LLM and no variance. Run
+the pacing audit on the rendered clip before dispatching the judges:
+
+```bash
+(cd "$DDD_REPO" && uv run python -m scripts.ddd.render_pacing_audit \
+  "<run_dir>/iter${state.iteration}_clip.mp4" "<run_dir>/run-report.json" "<unified_spec.name>")
+```
+
+It classifies the video's silent budget and prints a timestamped issue list:
+
+- **RECORDING BUG** — a `must_succeed`/any action `ok:false` or a `wait_for`
+  timeout in the run-report. **This BLOCKS the grade** — do NOT judge a broken
+  take; treat the scene as blocked and re-render (or fix the spec) first. (Step 2
+  already scans `failed` counts; this names the offending action.)
+- **VIEWING ISSUE · dead-air** — a frozen + silent stretch mid-video > 1.5s (a
+  held-frame stall the cap missed). Carry each as a render finding with a
+  `#t=<int_seconds>` deep-link into the UPLOADED clip (Step 2b), so the reviewer
+  jumps straight to the stall.
+- **VIEWING ISSUE · silent-motion** — silent + moving footage > 3s (loading shown
+  on camera, or narration too sparse for the on-screen activity).
+- Intro/outro cards are auto-excluded (static+silent by design).
+
+These complement the visual-judge: it scores whether each FRAME is good; the
+pacing audit scores whether the TIME is well-used. Fold the dead-air /
+silent-motion regions into the findings the orchestrator surfaces (same
+`#t=`/`#scene-<N>` deep-link contract). Two runs are directly comparable — the
+audit is how you tell a real regression from take-to-take noise.
+
 ### Step 3 — Judge (parallel dispatch)
 
 Dispatch **both judges simultaneously** — they are independent and can run in
