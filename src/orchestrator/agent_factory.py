@@ -402,13 +402,22 @@ what is parked; plus anything still blocked from preflight. Mark fully-handled i
 items awaiting a human decision open.
 
 Then refresh {{AGENT_NAME}}'s canopy-web workspace so `/agents/{{AGENT_SLUG}}` reflects this turn
-(provided by the installed canopy plugin — no per-agent client to maintain):
+(the installed canopy plugin provides the shared client — no per-agent client to maintain):
 ```
-canopy agent-publish skills        # mirror the skill catalog (registers the agent if new)
+canopy agent skills        # mirror the skill catalog (registers the agent if new)
 ```
-If this turn produced a shareable deliverable, also `canopy agent-publish work <items.json>`. The
-board at `/agents/{{AGENT_SLUG}}` is the shared trigger + approval surface — where teammates queue
-work and approve outbound actions.
+If this turn produced a shareable deliverable, also `canopy agent work <items.json>`. The board at
+`/agents/{{AGENT_SLUG}}` is the shared trigger + approval surface — where teammates queue work and
+approve outbound actions.
+
+**CLOSE CHECKLIST — confirm each in the summary (these get silently skipped under load):**
+1. `self-review` ran on every outbound reply (Step 2).
+2. Skill-development self-check answered (Step 3).
+3. Workspace refreshed (`canopy agent skills` above).
+
+**Shipping a skill change from a worktree** — emdash runs each turn in a worktree while `main` is
+checked out elsewhere, so `git checkout main` and `gh pr merge --delete-branch` FAIL ("main already
+checked out"). Instead: `gh pr merge <n> --squash`, then verify with `gh pr view <n> --json state`.
 
 ## Related skills
 - `self-review` — gate every outbound reply against the original request before sending.
