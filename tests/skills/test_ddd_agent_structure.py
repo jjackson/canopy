@@ -347,10 +347,17 @@ def test_agent_references_compute_convergence() -> None:
     )
 
 
-def test_agent_references_max_iterations() -> None:
+def test_agent_references_loop_cap() -> None:
+    # The v3 loop is progress-aware (commit c299bc2): the raw MAX_ITERATIONS=3
+    # count was replaced by a stall/regression stop (`stop_max_iter`) plus a
+    # `HARD_CAP` runaway backstop. The agent must still document how the
+    # refinement loop is bounded — just via that mechanism, not the old literal.
     content = AGENT_FILE.read_text()
-    assert "MAX_ITERATIONS" in content or "max_iterations" in content.lower(), (
-        "Agent must reference MAX_ITERATIONS to cap the refinement loop"
+    assert "stop_max_iter" in content, (
+        "Agent must reference stop_max_iter — the v3 progress-aware loop stop"
+    )
+    assert "HARD_CAP" in content or "hard cap" in content.lower() or "backstop" in content.lower(), (
+        "Agent must reference the HARD_CAP runaway backstop that bounds the loop"
     )
 
 
