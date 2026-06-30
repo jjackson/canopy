@@ -397,6 +397,19 @@ def build_snippets(
         # in the narrative review (canopy-web round-trips edits into scene.narrative).
         # concept_claim is the falsifiable design claim, used only as a fallback.
         narration = (spec_scene.get("narrative") or sentence).strip()
+        # Pacing lint: if a field-heavy scene's narration is far denser than its
+        # footage, even the action↔word warp's rate cap (RATE_MAX≈2.5× in
+        # actionsync.ts) can't compress the footage enough to land each field on
+        # its word — the fix is to split the scene or pace the narration, not warp.
+        # ~2.6 words/sec matches the ElevenLabs voice; mirror actionsync's clamp.
+        words = len(re.findall(r"[A-Za-z0-9']+", narration))
+        vo_est = words / 2.6
+        if len(action_marks) >= 4 and vo_est > 0.1 and kept_dur / vo_est > 2.5:
+            print(
+                f"  ⚠ scene {idx}: narration ~{vo_est:.0f}s but footage demos "
+                f"{len(action_marks)} fields over {kept_dur:.0f}s — warp will hit its "
+                f"{kept_dur / vo_est:.1f}× cap; split the scene or pace the narration."
+            )
         features = spec_scene.get("features") or []
         tags = [narrative_slug] + [
             f.get("id") for f in features if isinstance(f, dict) and f.get("id")
