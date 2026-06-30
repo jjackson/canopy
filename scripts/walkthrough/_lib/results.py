@@ -44,6 +44,20 @@ class ActionResult:
     note: str | None = None
     elapsed_ms: int = 0
 
+    start_seconds: float | None = None
+    """Offset (seconds) into the recording timeline where this action BEGAN —
+    ``time.monotonic()`` at dispatch minus the recorder's ``recording_epoch``,
+    the same origin as :attr:`RunReport.scenes` ``start_seconds`` and
+    :attr:`RunReport.load_waits`. Stamped by the orchestrator's action loop.
+
+    This is the action's mark in the RAW master clip. The DDD explainer
+    (``scripts.ddd.snippets``) maps it through the same de-dwell + load-wait
+    excision the footage gets, into ON-SCREEN seconds, and binds it to the moment
+    the voiceover speaks the matching field word so the footage time-warps to land
+    each field on its narration (see ``video-engine/docs/action-word-sync.md``).
+    ``None`` for actions executed outside a recording (direct ``execute_action``
+    test calls), so old reports/call sites are unchanged."""
+
     error_kind: str | None = None
     """One of: ``target_not_found``, ``timeout``, ``unknown_kind``, ``playwright``, ``other``. ``None`` on success."""
 

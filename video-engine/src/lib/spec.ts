@@ -84,6 +84,21 @@ const WalkthroughBeatSchema = z.object({
   // plays these and IGNORES the single start_seconds/duration_seconds (which
   // are kept as a bounding fallback for older specs / non-de-dwelled emits).
   segments: z.array(ClipSegmentSchema).min(1).optional(),
+  // Action↔word marks (recorder-derived): each form field's ON-SCREEN time +
+  // candidate narration words. The renderer resolves the words against this
+  // beat's VO timings and time-warps the footage so each field lands on its
+  // spoken word (see actionsync.ts / docs/action-word-sync.md). Omitted for
+  // beats without per-action timestamps → unchanged linear playback.
+  action_marks: z
+    .array(
+      z.object({
+        on_seconds: z.number().nonnegative(),
+        words: z.array(z.string()).default([]),
+        target: z.string().nullable().optional(),
+        kind: z.string().nullable().optional(),
+      }),
+    )
+    .optional(),
   // Optional: omit (or leave empty) for a clean full-bleed walkthrough with no
   // lower-third pill — the recorded dashboard usually self-labels and the VO
   // narrates, so the pill is opt-in.

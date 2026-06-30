@@ -234,6 +234,113 @@ def excise_load_waits(
     return out
 
 
+# --- Action↔word marks ----------------------------------------------------
+# Each action's raw master-clip timestamp (ActionResult.start_seconds) is mapped
+# through the SAME de-dwell + load-wait excision the footage gets, into ON-SCREEN
+# seconds, then tagged with candidate narration words. The render side resolves
+# each word against the beat's ElevenLabs VO timings and time-warps the footage so
+# the named field lands on its word. See video-engine/docs/action-word-sync.md.
+
+# Kinds that put a FIELD on camera (a moment the narration can name). hover is
+# included (a glide onto a CTA). wait_for/hold/goto/capture move no field into
+# view as their own act, so they never anchor a word.
+_MARK_KINDS: frozenset[str] = frozenset(
+    {"scroll_to", "scroll", "fill", "select", "type", "click", "hover", "press"}
+)
+
+# REVEAL kinds bring a NEW thing on camera (scroll it into view, open a dropdown,
+# click to a result), so the named element renders at the action's END. We bias
+# their mark by the action's measured duration. fill/hover/type act on an
+# already-visible field and keep their start.
+_REVEAL_KINDS: frozenset[str] = frozenset({"scroll_to", "scroll", "select", "click", "press"})
+
+
+def onscreen_for_abs(segs: list[tuple[float, float]], abs_t: float) -> float:
+    """Map an ABSOLUTE master-clip time to ON-SCREEN time across ``segs``.
+
+    ``segs`` are the kept ``(start_seconds, duration_seconds)`` sub-ranges (after
+    de-dwell + load-wait excision), played back-to-back, so on-screen time is the
+    running sum of segment durations. A time that falls in an excised gap maps to
+    that gap's jump-cut point (the boundary between the two kept segments); a time
+    past the end clamps to the total. PURE."""
+    onscreen = 0.0
+    for s, d in segs:
+        if abs_t < s:  # inside an excised/collapsed gap — the jump-cut point.
+            return round(onscreen, 3)
+        if abs_t <= s + d:
+            return round(onscreen + (abs_t - s), 3)
+        onscreen += d
+    return round(onscreen, 3)  # past the last kept frame — clamp to total.
+
+
+def _mark_words(action: dict[str, Any]) -> list[str]:
+    """Ordered, deduped candidate narration words for an action (most specific
+    first). Explicit ``word``/``say`` override → field-id tokens → note tokens.
+    The render side keeps the FIRST candidate that resolves against the VO, so
+    unresolved noise words (a note's filler) are harmless — they just don't bind.
+    PURE."""
+    words: list[str] = []
+    for k in ("word", "say"):
+        v = action.get(k)
+        if v:
+            words.append(str(v).strip().lower())
+    target = str(action.get("target") or "")
+    m = re.search(r"id_([a-z0-9_]+)", target)
+    if m:
+        words += [t for t in m.group(1).split("_") if len(t) > 2]
+    note = str(action.get("note") or "")
+    words += re.findall(r"[a-z]{4,}", note.lower())
+    seen: set[str] = set()
+    out: list[str] = []
+    for w in words:
+        if w and w not in seen:
+            seen.add(w)
+            out.append(w)
+    return out
+
+
+def build_action_marks(
+    scene_actions: list[dict[str, Any]], segs: list[tuple[float, float]]
+) -> list[dict[str, Any]]:
+    """Build ``action_marks`` for one scene from its action trace + kept segments.
+
+    ``scene_actions`` are the run-report ``actions`` entries for this scene (each
+    with ``start_seconds`` in absolute master time, ``kind``, ``target``,
+    ``note``). Returns ``[{on_seconds, words, target, kind}, ...]`` in on-screen
+    order — the field anchors the renderer warps the footage onto. Actions with no
+    ``start_seconds`` (old reports), non-field kinds, or no word candidates are
+    skipped. PURE."""
+    marks: list[dict[str, Any]] = []
+    for a in scene_actions:
+        ts = a.get("start_seconds")
+        if ts is None or a.get("kind") not in _MARK_KINDS:
+            continue
+        words = _mark_words(a)
+        if not words:
+            continue
+        # Anchor on the action's EFFECT, not its start. For REVEAL kinds (scroll
+        # the field into view, open a dropdown, click) the thing the narration
+        # names appears at the action's END, not when the cursor starts moving —
+        # the video judge flagged scroll/reveal marks landing ~1s before the field
+        # actually rendered. Bias those marks by the action's measured duration so
+        # the RENDERED result lands on the spoken word. fill/hover act on an
+        # already-visible field, so they keep their start. (elapsed_ms missing ⇒
+        # +0, so old reports are unchanged.)
+        eff = float(ts)
+        if a.get("kind") in _REVEAL_KINDS:
+            eff += (a.get("elapsed_ms") or 0) / 1000.0
+        marks.append(
+            {
+                "on_seconds": onscreen_for_abs(segs, eff),
+                "words": words,
+                "target": a.get("target"),
+                "kind": a.get("kind"),
+            }
+        )
+    marks.sort(key=lambda m: m["on_seconds"])
+    return marks
+
+
 def build_snippets(
     *,
     narrative_slug: str,
@@ -293,6 +400,11 @@ def build_snippets(
             if _after < _before - 0.05:
                 print(f"  · scene {idx}: excised {round(_before - _after, 2)}s loading-wait(s) (ground-truth)")
         segments = [{"start_seconds": s, "duration_seconds": d} for s, d in segs]
+        # Action↔word marks: each field action's raw timestamp mapped through the
+        # SAME kept segments into on-screen time + tagged with narration words, so
+        # the renderer can warp the footage to land each field on its spoken word.
+        scene_actions = [a for a in (report.get("actions") or []) if a.get("scene_index") == idx]
+        action_marks = build_action_marks(scene_actions, segs)
         kept_dur = round(sum(d for _, d in segs), 3)  # summed on-screen length
         in_seconds = segs[0][0]
         out_seconds = round(segs[-1][0] + segs[-1][1], 3)
@@ -302,6 +414,19 @@ def build_snippets(
         # in the narrative review (canopy-web round-trips edits into scene.narrative).
         # concept_claim is the falsifiable design claim, used only as a fallback.
         narration = (spec_scene.get("narrative") or sentence).strip()
+        # Pacing lint: if a field-heavy scene's narration is far denser than its
+        # footage, even the action↔word warp's rate cap (RATE_MAX≈2.5× in
+        # actionsync.ts) can't compress the footage enough to land each field on
+        # its word — the fix is to split the scene or pace the narration, not warp.
+        # ~2.6 words/sec matches the ElevenLabs voice; mirror actionsync's clamp.
+        words = len(re.findall(r"[A-Za-z0-9']+", narration))
+        vo_est = words / 2.6
+        if len(action_marks) >= 4 and vo_est > 0.1 and kept_dur / vo_est > 2.5:
+            print(
+                f"  ⚠ scene {idx}: narration ~{vo_est:.0f}s but footage demos "
+                f"{len(action_marks)} fields over {kept_dur:.0f}s — warp will hit its "
+                f"{kept_dur / vo_est:.1f}× cap; split the scene or pace the narration."
+            )
         features = spec_scene.get("features") or []
         tags = [narrative_slug] + [
             f.get("id") for f in features if isinstance(f, dict) and f.get("id")
@@ -317,6 +442,7 @@ def build_snippets(
                 # back-to-back); in/out/duration bound them (in=first start,
                 # out=last end, duration=summed on-screen length).
                 "segments": segments,
+                "action_marks": action_marks,
                 "in_seconds": in_seconds,
                 "out_seconds": out_seconds,
                 "duration_seconds": kept_dur,
@@ -434,6 +560,10 @@ def build_explainer_spec(
             # with --lower-thirds.
             "lower_third": sn["title"] if lower_thirds else "",
         }
+        # Action↔word marks (only when the recording produced them), so beats
+        # without per-action timestamps emit an identical walkthrough block.
+        if sn.get("action_marks"):
+            walkthrough[bid]["action_marks"] = sn["action_marks"]
         # Spoken line = the scene's narration (what the author edits in review).
         # The renderer holds the section's last frame if narration runs longer
         # than the clip range, so the narrative can be any length without drift.

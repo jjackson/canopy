@@ -2,6 +2,7 @@ import { AbsoluteFill, Freeze, Sequence, Video, staticFile, useVideoConfig } fro
 import { theme } from "../theme";
 import { Lower3rd } from "../components/Lower3rd";
 import type { ProgramSpec, WalkthroughBeat } from "../lib/spec";
+import type { RenderPiece } from "../lib/actionsync";
 
 /**
  * One walkthrough section of the connect-ddd-walkthrough arc. Plays a RANGE
@@ -60,21 +61,62 @@ export function beatSegments(
   return [{ start_seconds: wt.start_seconds ?? 0, duration_seconds: wt.duration_seconds }];
 }
 
-export const Walkthrough: React.FC<{ wt: WalkthroughBeat }> = ({ wt }) => {
+export const Walkthrough: React.FC<{ wt: WalkthroughBeat; warp?: RenderPiece[] }> = ({
+  wt,
+  warp,
+}) => {
   const { fps, durationInFrames } = useVideoConfig();
   const src = wt.asset.startsWith("http") ? wt.asset : staticFile(wt.asset);
   const segs = beatSegments(wt);
 
-  const videoFrom = (startSeconds: number) => (
+  const videoFrom = (startSeconds: number, playbackRate?: number) => (
     <Video
       src={src}
       startFrom={Math.round(startSeconds * fps)}
+      playbackRate={playbackRate}
       style={{ width: "100%", height: "100%", objectFit: "cover" }}
       onError={() => {
         /* Missing asset — render blank; drop the real file in the cache to fix */
       }}
     />
   );
+
+  // Action↔word warp: play the render-side pieces, each a sub-range of the
+  // master clip at the constant playbackRate that lands the field on its spoken
+  // word (see actionsync.ts). The last piece holds its final frame for any beat
+  // time past the summed pieces (VO outruns footage) — same hold-last-frame
+  // contract as the de-dwell path below. No plan ⇒ fall through to that path.
+  if (warp && warp.length > 0) {
+    let summed = 0;
+    const nodes = warp.map((p, i) => {
+      const from = Math.round(p.outStartSec * fps);
+      const isLast = i === warp.length - 1;
+      const own = Math.max(1, Math.round(p.outDurSec * fps));
+      const seqLen = isLast ? Math.max(own, durationInFrames - from) : own;
+      const vid = videoFrom(p.assetStartSec, p.rate);
+      const child =
+        isLast && seqLen > own ? (
+          <Freeze frame={own - 1} active={(f) => f >= own}>
+            {vid}
+          </Freeze>
+        ) : (
+          vid
+        );
+      summed += own;
+      return (
+        <Sequence key={i} from={from} durationInFrames={seqLen}>
+          {child}
+        </Sequence>
+      );
+    });
+    void summed;
+    return (
+      <AbsoluteFill style={{ background: theme.colors.foreground }}>
+        {nodes}
+        {wt.lower_third ? <Lower3rd text={wt.lower_third} /> : null}
+      </AbsoluteFill>
+    );
+  }
 
   // Single open-ended range (no duration): the original whole-beat playback.
   if (segs.length === 1 && segs[0].duration_seconds == null) {

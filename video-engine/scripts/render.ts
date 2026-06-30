@@ -8,6 +8,8 @@ import { loadDefaults, resolveBeats, effectiveBeatsForSpec, type ResolvedTimelin
 import { resolveRun, specPath, outputPath } from "../src/lib/runs.node";
 import { synthesize, synthesizePerBeat, readAlignment, wordStartSeconds, type PerBeatNarration } from "../src/lib/voiceover";
 import { estimateCaptionTimeline, captionsFromBeats } from "../src/lib/captions";
+import { planActionWarp, type RenderPiece } from "../src/lib/actionsync";
+import { evaluateTiming, type TimingBeatInput } from "../src/lib/timingeval";
 import { resolveAssetRefs, formatMissingError } from "../src/lib/asset-resolver.node";
 import {
   capBeatDuration,
@@ -373,7 +375,53 @@ async function main() {
     }
   }
 
-  const props = { programSlug: cli.program, specYaml, beatOverrides, captions, cycleStepStartSeconds };
+  // Action↔word footage warp: for each walkthrough beat that carries
+  // `action_marks` (recorder-derived field timestamps), resolve each field's
+  // candidate narration word against THIS beat's ElevenLabs alignment and build
+  // a piecewise time-warp so the footage lands each field on its spoken word.
+  // Remotion can't read the alignment sidecars itself, so we compute it here and
+  // pass the master-domain pieces as a prop. No marks / no resolved words ⇒ no
+  // entry ⇒ the Walkthrough section keeps today's linear playback.
+  const actionWarpByBeat: Record<string, RenderPiece[]> = {};
+  for (const beat of timeline.beats) {
+    const wt = spec.walkthrough?.[beat.id];
+    if (!wt?.action_marks?.length) continue;
+    const pb = perBeat.find((p) => p.beatId === beat.id);
+    if (!pb) continue;
+    const alignment = readAlignment(pb.audioPath.replace(/\.mp3$/, ".json"));
+    if (!alignment) continue;
+    const voSec =
+      alignment.character_end_times_seconds[alignment.character_end_times_seconds.length - 1] ??
+      probeAudioDurationSeconds(pb.audioPath);
+    const segments = wt.segments?.length
+      ? wt.segments
+      : [{ start_seconds: wt.start_seconds ?? 0, duration_seconds: wt.duration_seconds ?? 0 }];
+    const footageOnscreenSec = segments.reduce((a, s) => a + s.duration_seconds, 0);
+    const plan = planActionWarp({
+      marks: wt.action_marks,
+      resolveWord: (w: string) => wordStartSeconds(alignment, w),
+      footageOnscreenSec,
+      voSec,
+      beatSec: beat.durationFrames / timeline.fps,
+      segments,
+    });
+    if (plan.length > 0) {
+      actionWarpByBeat[beat.id] = plan;
+      console.log(
+        `Action↔word warp "${beat.id}": ${plan.length} pieces, ` +
+          `${wt.action_marks.length} marks, footage ${footageOnscreenSec.toFixed(1)}s ↔ VO ${voSec.toFixed(1)}s`,
+      );
+    }
+  }
+
+  const props = {
+    programSlug: cli.program,
+    specYaml,
+    beatOverrides,
+    captions,
+    cycleStepStartSeconds,
+    actionWarpByBeat,
+  };
   const tmpPropsFile = path.join(os.tmpdir(), `remotion-props-${Date.now()}.json`);
   fs.writeFileSync(tmpPropsFile, JSON.stringify(props));
   const propsArg = `--props=${JSON.stringify(tmpPropsFile)}`;
@@ -383,6 +431,54 @@ async function main() {
   // programs/<slug>/runs/<runId>/output.mp4.
   const runDir = path.join(root, "programs", cli.program, "runs", runId);
   if (!fs.existsSync(runDir)) fs.mkdirSync(runDir, { recursive: true });
+
+  // --- DDD timing eval -----------------------------------------------------
+  // Deterministic field↔word sync verdict for THIS rendered walkthrough — the gap
+  // the screenshot-based concept/visual judge can't see (no audio, no video, no
+  // timing). Of the form fields the narration NAMES, how many land on their spoken
+  // word (warp anchors) vs drift (inversions). Writes verdict-timing.json next to
+  // output.mp4 (cf. docs/action-word-sync.md).
+  const timingBeats: TimingBeatInput[] = [];
+  for (const beat of timeline.beats) {
+    const wt = spec.walkthrough?.[beat.id];
+    if (!wt?.action_marks?.length) continue;
+    const pb = perBeat.find((p) => p.beatId === beat.id);
+    const alignment = pb ? readAlignment(pb.audioPath.replace(/\.mp3$/, ".json")) : null;
+    if (!alignment || !pb) continue;
+    const ends = alignment.character_end_times_seconds;
+    const voSec = ends[ends.length - 1] ?? probeAudioDurationSeconds(pb.audioPath);
+    timingBeats.push({
+      beatId: beat.id,
+      marks: wt.action_marks,
+      resolveWord: (w: string) => wordStartSeconds(alignment, w),
+      voSec,
+    });
+  }
+  if (timingBeats.length > 0) {
+    const timing = evaluateTiming(timingBeats);
+    fs.writeFileSync(path.join(runDir, "verdict-timing.json"), JSON.stringify(timing, null, 2));
+    const score = timing.overallScore == null ? "n/a" : `${timing.overallScore}/5`;
+    console.log(
+      `\nDDD timing eval: ${timing.verdict.toUpperCase()} (field-sync ${score}) — ` +
+        `${timing.syncedFields}/${timing.wordMatchableFields} narrated fields land on their word; ` +
+        `mean lag removed ${timing.meanLagRemovedS}s (worst ${timing.worstLagRemovedS}s).`,
+    );
+    for (const f of timing.findings.slice(0, 8)) console.log(`  · ${f}`);
+  }
+
+  // Beat timeline of the FINAL video (id → start/duration seconds + the beat's
+  // narration). Lets downstream evals — esp. the multimodal video judge — extract
+  // a frame at any VO word-mark and know which scene + sentence it belongs to.
+  const round3 = (n: number) => Math.round(n * 1000) / 1000;
+  const beatTimeline = timeline.beats.map((b) => ({
+    id: b.id,
+    kind: b.kind,
+    startSec: round3(b.startFrame / timeline.fps),
+    durationSec: round3(b.durationFrames / timeline.fps),
+    narration: activeByBeat[b.id] ?? "",
+  }));
+  fs.writeFileSync(path.join(runDir, "beat-timeline.json"), JSON.stringify(beatTimeline, null, 2));
+
   const intermediateDir = path.join(runDir, ".tmp");
   if (!fs.existsSync(intermediateDir)) fs.mkdirSync(intermediateDir, { recursive: true });
   void safeSha; // git sha is no longer in the filename — runId IS the identity

@@ -683,6 +683,14 @@ class Recorder:
                 page, resolved, base_url=self.base_url, config=self.config,
                 variables=self.variables,
             )
+            # Stamp the action's footage mark (recording-timeline seconds, same
+            # ``recording_epoch`` origin as scene timing + load_waits). This is
+            # where the action begins in the RAW master clip; the explainer maps
+            # it through de-dwell into on-screen time and binds it to the VO word
+            # for action↔word sync. Stamped for EVERY action, scene-bound or not.
+            result = dataclasses.replace(
+                result, start_seconds=round(action_start_mono - self.recording_epoch, 3)
+            )
             # Stamp the 1-based original spec scene index onto the result. We
             # ``dataclasses.replace`` because ActionResult is frozen — keeps
             # ``execute_action`` scene-agnostic (it doesn't know or care which
