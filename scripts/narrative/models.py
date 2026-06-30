@@ -633,7 +633,13 @@ class UnifiedSpec(BaseModel):
     personas: dict[str, Persona]
     scenes: list[Scene]
     review_mode: Literal["autonomous", "human"] = "autonomous"
-    """How judge findings are handled after each render+judge iteration.
+    """DEPRECATED + IGNORED — DDD has no modes. The orchestrator auto-applies
+    every finding it can act on itself (`fix_kind: mechanical`) and posts a
+    deep-linked review for what it genuinely can't decide (`options`/`redesign` +
+    the two blocking gates). Kept only so old specs that still carry the key
+    parse; the value has no effect. (Historical note below.)
+
+    How judge findings are handled after each render+judge iteration.
 
     - ``autonomous`` (default): the orchestrator auto-applies PRODUCT findings
       with ``fix_kind: mechanical`` and only pauses on the standing gates
