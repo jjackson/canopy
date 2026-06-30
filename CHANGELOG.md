@@ -9,6 +9,11 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.239] - 2026-06-30
+
+### Added
+- **Plugin-side eval runner (Wave 2 / P3b): the `canopy eval` runner + the verdict write path.** `AgentClient.record_verdict` POSTs a judge/QA verdict to canopy-web's run-step verdict endpoint (`/api/agents/{slug}/runs/{run_id}/steps/{key}/verdict`); `orchestrator/eval_rubric.py` `score_rubric` weighted-aggregates per-dimension scores into an `overall_score` + tier (the ACE verdict-schema math, decoupled from ACE); `canopy eval score|record` ties them so any agent can self-grade against the unified run lifecycle. The LLM judge that produces the per-dimension scores stays a documented seam. Pairs with canopy-web's verdict endpoint + run-level eval aggregate (Wave 2 / P3a).
+
 ## [0.2.214] - 2026-06-18
 
 ### Added
