@@ -84,6 +84,17 @@ class AgentClient:
         patch = {k: v for k, v in fields.items() if v is not None}
         return self._call("PATCH", f"/api/agents/{self.slug}/tasks/{task_id}/", patch)
 
+    def record_verdict(self, run_id: str, step_key: str, *, kind: str,
+                       score: float | None = None, passed: bool | None = None,
+                       criteria: dict | None = None, rationale: str = "") -> dict:
+        """Attach a judge/QA verdict to a run step (the run lifecycle's eval write
+        path). `kind=qa` is the binary gate; `kind=judge` carries the score the
+        run rolls up. POSTs to /api/agents/{slug}/runs/{run_id}/steps/{key}/verdict."""
+        body = {"kind": kind, "score": score, "passed": passed,
+                "criteria": criteria or {}, "rationale": rationale}
+        return self._call(
+            "POST", f"/api/agents/{self.slug}/runs/{run_id}/steps/{step_key}/verdict", body)
+
 
 def _frontmatter(path: str) -> "tuple[str, str] | None":
     text = Path(path).read_text()
