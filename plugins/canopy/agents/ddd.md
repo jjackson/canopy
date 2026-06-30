@@ -8,7 +8,11 @@ description: >
   the narrative buildable?), then the narrative-agreement gate (ddd-narrative-review
   — approve/redraft) to get the user's explicit sign-off on the story before building
   anything, renders and dual-judges it, routes design findings to specialist fixers,
-  and converges, then uploads the run package to canopy-web.
+  and converges. On convergence it runs the Video phase — renders the NARRATED
+  connect-ddd-walkthrough and self-improves it via ddd-video-improve (multimodal
+  ddd-video-judge → auto-apply RENDER fixes → keep-if-better; PRODUCT/NARRATION
+  findings routed/surfaced) — then uploads that improved video as the run package's
+  hero to canopy-web.
   Two pause gates only: concept_change and external_release. Everything else
   runs autonomously and is reported in a non-blocking digest.
   Use when asked to "run ddd", "demo-driven-development", "ddd loop", or
@@ -562,11 +566,17 @@ must always reach the upload/gate step automatically; the most common failure
 mode is a run that converges and then silently never produces the published
 package.
 
-Invoke `/canopy:ddd-upload <run_id>` with the converged iteration's hero
-video — the local clip `ddd-run` recorded at
-`<run_dir>/iter${state.iteration}_clip.mp4` (if no clip was recorded this
-iteration, fall back to the most recent `iter*_clip.mp4` in the run dir).
-`ddd-upload`:
+**First run the Video phase (see `## Video phase` below).** Concept convergence is
+on the screenshot walkthrough; the *hero video* should be the NARRATED video,
+self-improved by the video judge — not the silent `iter*_clip.mp4`. The Video
+phase renders the narrated `connect-ddd-walkthrough`, runs `ddd-video-improve`
+(autonomous render-class fixes + keep-if-better), routes its NARRATION/PRODUCT
+findings into the loops below, and returns the improved video's path. Pass THAT
+path to `ddd-upload` as the hero video. If the Video phase is skipped or fails
+(`--no-video`, or no render env), fall back to the converged iteration's
+`<run_dir>/iter${state.iteration}_clip.mp4` (or the most recent `iter*_clip.mp4`).
+
+Invoke `/canopy:ddd-upload <run_id>` with that hero video. `ddd-upload`:
 
 1. Uploads the hero video to canopy-web (this happens **before** the gate, so
    the video is uploaded even if the deck is held).
@@ -691,6 +701,55 @@ and stays inside the labs repo. Findings that would require changes to
 `dimagi/commcare-connect` route to PRODUCT but their `fix_recommendation`
 must point at the labs surface; if it doesn't, set `fix_kind: options`
 and route through the user.
+
+---
+
+## Video phase — self-improve the narrated video
+
+Concept convergence is judged on the **screenshot** walkthrough. The narrated
+`connect-ddd-walkthrough` video — the artifact stakeholders actually watch — is a
+**separate render path** the concept loop never judges. On a `stop_done`
+convergence (and ONLY then — the video is expensive; don't render it every
+iteration), run this phase so the hero video is the narrated video, self-improved
+and judged for audio-visual quality, not the silent walkthrough clip.
+
+Everything here goes through skills (per "Never hand-drive a run"): never
+hand-roll `record_video.py` / `render_locally.py` / ad-hoc judge dispatches.
+
+**Step V1 — render the narrated video.** Invoke `/canopy:ddd-ace-render <slug>`
+(`--no-upload` — this phase owns the upload). It records the master clip, emits
+the explainer spec (whose `action_marks` drive the action↔word warp), and renders
+`output.mp4` + `verdict-timing.json` + `beat-timeline.json` under
+`video-engine/programs/<slug>-explainer/runs/<run>/`. If the render env is absent,
+skip the phase and fall back to the silent clip (see `stop_done`).
+
+**Step V2 — self-improve (`/canopy:ddd-video-improve <slug>`).** The autonomous
+loop: cheap gate (`ddd-timing-eval`) → multimodal `ddd-video-judge` → AUTO-APPLY
+the **RENDER/engine** findings (reversible, our code: warp anchoring, dead-air,
+de-dwell) → re-render → re-judge → **keep-if-better** (A/B the changed scenes; the
+multimodal judge has run-to-run variance, so compare montages, not absolute
+scores). Loop until no improving auto-fix remains or max-iter. It writes
+`verdict-video.json` and returns the improved `output.mp4` path + the surfaced
+findings.
+
+**Step V3 — route the video-judge findings.** `ddd-video-judge` emits findings
+with `route ∈ {NARRATION, FOOTAGE, PRODUCT, RENDER}`. RENDER is auto-applied in V2.
+Route the rest through the SAME machinery as the concept loop (`## Route findings`),
+mapping the video vocabulary onto it:
+
+| Video route | Treat as | Action |
+|-------------|----------|--------|
+| `RENDER` | (auto-applied in V2) | Engine/render fix in canopy; kept only if it improved the video. No human. |
+| `PRODUCT` | design-findings `PRODUCT` | A UI issue visible *in motion* (e.g. a clipped control). In `autonomous` mode dispatch the specialist fix to the labs repo + redeploy (Table A); in `human` mode add to the `product_findings` gate. |
+| `FOOTAGE` | surface (needs a re-record) | Not auto-applied — re-recording is expensive/flaky. Add to the digest's "needs you" with the spec/action change proposed. |
+| `NARRATION` | design-findings `CONCEPT` | The narrative is `narrative_locked` — reordering what a scene SAYS changes the story. Propose the `narration` edit; if mechanical, edit + `ddd-spec-qa`; if it changes the story, escalate to `concept_change`. Never silently rewrite. |
+
+A PRODUCT/NARRATION fix that changes the product or spec means re-firing `ddd-run`
+(concept must re-converge) before re-entering the Video phase — same loop identity.
+
+**Step V4 — hand the improved video to upload.** Pass the V2 `output.mp4` path to
+`/canopy:ddd-upload <run_id>` as the hero video (see `stop_done`). The
+`external_release` gate is unchanged — it governs the public package publish.
 
 ---
 
