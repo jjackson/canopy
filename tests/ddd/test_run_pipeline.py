@@ -327,6 +327,33 @@ class TestComputeAutoIterate:
         )
         assert a == "stop_unclear"
 
+    def test_mechanical_applied_before_options_surfaced(self):
+        """Mixed iteration: apply the CONFIDENT (mechanical) fixes first; do NOT
+        surface a review just because some OTHER finding was uncertain. Only once
+        no mechanical fixes remain do the options get surfaced. (The bug: a single
+        options finding stopped the loop and folded the mechanical ones into the
+        human review instead of auto-applying them.)"""
+        from scripts.ddd.run_pipeline import compute_auto_iterate
+
+        # iteration 1: 4 mechanical + 1 options, score improving → CONTINUE (apply mechanical)
+        s = _stub_state("vm")
+        mixed = [
+            {"route": "PRODUCT", "fix_kind": "mechanical"},
+            {"route": "PRODUCT", "fix_kind": "mechanical"},
+            {"route": "CONCEPT", "fix_kind": "mechanical"},
+            {"route": "PRODUCT", "fix_kind": "mechanical"},
+            {"route": "PRODUCT", "fix_kind": "options"},
+        ]
+        a, _ = compute_auto_iterate(s, _stub_verdict(2.0, "fail"), _stub_verdict(3.0, "warn"), mixed)
+        assert a == "continue"
+
+        # next iteration: mechanical exhausted, only the options finding remains → STOP and surface
+        a, _ = compute_auto_iterate(
+            s, _stub_verdict(3.0, "warn"), _stub_verdict(3.0, "warn"),
+            [{"route": "PRODUCT", "fix_kind": "options"}],
+        )
+        assert a == "stop_unclear"
+
     def test_stop_max_iter_on_stall_not_count(self):
         from scripts.ddd.run_pipeline import compute_auto_iterate
 

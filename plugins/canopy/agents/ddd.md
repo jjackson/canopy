@@ -109,13 +109,25 @@ you've been hand-driving and should re-enter via the orchestrator instead.
 when a finding's `fix_kind` is `options` or `redesign` — i.e. the loop genuinely
 **cannot pick a single concrete fix on its own**. THIS is the one principle of
 DDD: be autonomous until you can't be, and the moment you can't, make the
-decision trivial for the human. So when this fires, post ONE clustered review via
-`python -m scripts.ddd.findings_review post <run_id>` — every cluster carrying
-evidence deep-links (the iteration deck at `#scene-<N>` AND the iteration clip at
-`#t=<seconds>`, built from the recorder's per-scene timings in `run-report.json`)
-— present the single review URL + a compact summary table, and wait for the
-user's implement / skip / defer picks (`findings_review apply` parses the
-response). See `skills/ddd-findings-review/SKILL.md`.
+decision trivial for the human.
+
+**CRITICAL — apply the confident fixes FIRST; surface ONLY the uncertain ones.**
+`stop_unclear` does NOT fire just because *some* finding this iteration was
+uncertain. As long as ANY `mechanical` (confident) finding remains, the loop
+`continue`s — it applies the mechanical fixes and re-fires `ddd-run`, even when
+`options`/`redesign` findings also exist this iteration (`compute_auto_iterate`
+returns `continue` while mechanical findings remain; `stop_unclear` only once
+they're exhausted). A mechanical fix must NEVER land in a human review just
+because some *other* finding was uncertain — that would ask the human about a
+decision the loop was already confident enough to make. So by the time
+`stop_unclear` fires, the review contains ONLY the genuinely-uncertain findings.
+Post ONE clustered review via `python -m scripts.ddd.findings_review post
+<run_id>` — every cluster carrying evidence deep-links (the iteration deck at
+`#scene-<N>` AND the iteration clip at `#t=<seconds>`, built from the recorder's
+per-scene timings in `run-report.json`) — present the single review URL + a
+compact summary table, and wait for the user's implement / skip / defer picks
+(`findings_review apply` parses the response). See
+`skills/ddd-findings-review/SKILL.md`.
 
 **There is NO `human` vs `autonomous` mode.** (`UnifiedSpec.review_mode` is
 deprecated and ignored.) The behavior is ONE behavior for every run: the loop
@@ -616,14 +628,24 @@ ready, and offer to drop `--scene` and re-fire on the full spec when
 they're ready to upload. Do **not** auto-launch the full-spec
 run — render budget is much larger and the user should opt in.
 
-### `continue` (mechanical fixes only)
+### `continue` (apply the confident fixes)
 
-All non-DEFER findings are `fix_kind: mechanical`. **Apply them, re-fire
-ddd-run on the same scope, increment `state.iteration`.** Same `run_id`
-— don't create a sibling. Run silently per the autonomy mandate; surface
-only the digest at the end.
+There is at least one `fix_kind: mechanical` finding to act on. **Apply EVERY
+mechanical finding this iteration, re-fire ddd-run on the same scope, increment
+`state.iteration`.** Same `run_id` — don't create a sibling. Run silently per the
+autonomy mandate; surface only the digest at the end.
 
-For each finding, apply by route:
+**This fires even when `options`/`redesign` findings ALSO exist this iteration** —
+apply the mechanical (confident) fixes anyway and re-fire. The uncertain findings
+are deliberately NOT surfaced yet: re-judging after the mechanical fixes land
+often dissolves or reshapes them, and a fix you were confident about must never
+sit in a human review waiting on a decision you didn't need. The loop keeps
+applying mechanical fixes across iterations until none remain; only THEN does
+`stop_unclear` surface whatever uncertain findings are left. (Apply only the
+`mechanical` findings here — leave `options`/`redesign` untouched for that later
+surface.)
+
+For each mechanical finding, apply by route:
 
 | Route | Apply step |
 |-------|-----------|
@@ -663,13 +685,17 @@ exact thing on the artifact the finding is about (see pause-policy
 section above). Local file paths fail the moment the user reads on
 another device.
 
-### `stop_unclear` (options/redesign blocks loop)
+### `stop_unclear` (only uncertain findings remain)
 
-At least one non-DEFER finding has `fix_kind: options` (multiple paths,
-judge couldn't pick) or `fix_kind: redesign` (vague). The orchestrator
-can't proceed without a user pick. Surface the un-auto-applicable findings
-via canopy-web review surface (one decision per finding, `recommended`
-left null since the rubric output couldn't pick). Resume on resolution.
+Fires once there are NO `mechanical` findings left to auto-apply and at least one
+non-DEFER finding has `fix_kind: options` (multiple paths, judge couldn't pick) or
+`fix_kind: redesign` (vague). By construction the confident fixes were already
+applied in prior `continue` iterations — so the review you post here contains
+ONLY the genuinely-uncertain findings. The orchestrator can't proceed without a
+user pick. Surface them via the canopy-web review surface (one decision per
+finding, `recommended` left null since the rubric couldn't pick). Resume on
+resolution. **Do not include any `mechanical` finding in this review** — if one
+appears, it means a `continue` iteration was skipped; apply it instead.
 
 **Artifact links required (ace-web hosted)** — same contract as
 `stop_concept_change`: upload the scene screenshot to ace-web and embed
