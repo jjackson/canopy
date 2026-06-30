@@ -110,3 +110,16 @@ def test_catalog_from_repo_parses_frontmatter():
         "url": "https://gh/demo-skill/SKILL.md",
         "improvement_note": "",
     }]
+
+
+def test_record_verdict_posts_to_step_verdict_endpoint():
+    rec = []
+    c = make_client(rec)
+    c.record_verdict("20260601-1200", "render", kind="judge", score=82.0,
+                     criteria={"design": 88}, rationale="solid")
+    method, url, body = rec[0]
+    assert method == "POST"
+    assert url == "https://x.test/api/agents/echo/runs/20260601-1200/steps/render/verdict"
+    assert body["kind"] == "judge" and body["score"] == 82.0
+    assert body["criteria"] == {"design": 88}
+    assert body["rationale"] == "solid"
