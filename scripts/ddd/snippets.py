@@ -248,6 +248,12 @@ _MARK_KINDS: frozenset[str] = frozenset(
     {"scroll_to", "scroll", "fill", "select", "type", "click", "hover", "press"}
 )
 
+# REVEAL kinds bring a NEW thing on camera (scroll it into view, open a dropdown,
+# click to a result), so the named element renders at the action's END. We bias
+# their mark by the action's measured duration. fill/hover/type act on an
+# already-visible field and keep their start.
+_REVEAL_KINDS: frozenset[str] = frozenset({"scroll_to", "scroll", "select", "click", "press"})
+
 
 def onscreen_for_abs(segs: list[tuple[float, float]], abs_t: float) -> float:
     """Map an ABSOLUTE master-clip time to ON-SCREEN time across ``segs``.
@@ -312,9 +318,20 @@ def build_action_marks(
         words = _mark_words(a)
         if not words:
             continue
+        # Anchor on the action's EFFECT, not its start. For REVEAL kinds (scroll
+        # the field into view, open a dropdown, click) the thing the narration
+        # names appears at the action's END, not when the cursor starts moving —
+        # the video judge flagged scroll/reveal marks landing ~1s before the field
+        # actually rendered. Bias those marks by the action's measured duration so
+        # the RENDERED result lands on the spoken word. fill/hover act on an
+        # already-visible field, so they keep their start. (elapsed_ms missing ⇒
+        # +0, so old reports are unchanged.)
+        eff = float(ts)
+        if a.get("kind") in _REVEAL_KINDS:
+            eff += (a.get("elapsed_ms") or 0) / 1000.0
         marks.append(
             {
-                "on_seconds": onscreen_for_abs(segs, float(ts)),
+                "on_seconds": onscreen_for_abs(segs, eff),
                 "words": words,
                 "target": a.get("target"),
                 "kind": a.get("kind"),
