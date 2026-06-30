@@ -9,6 +9,11 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.240] - 2026-06-30
+
+### Fixed
+- **Packaging-version drift: `plugin.json`, `marketplace.json`, and `pyproject.toml` were stranded at 0.2.237 while `VERSION` reached 0.2.239.** The 0.2.238 and 0.2.239 bumps hand-edited `VERSION` only (not via `canopy version bump`), so the three derived manifests never advanced; `canopy version bump` then refused to run on the mismatched tree. This bump re-syncs all four files to a single version. The durable preventer is making CI's "Version sync check" a required status check on `main` (now possible since the repo is public).
+
 ## [0.2.239] - 2026-06-30
 
 ### Added
