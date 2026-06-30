@@ -466,6 +466,19 @@ async function main() {
     for (const f of timing.findings.slice(0, 8)) console.log(`  · ${f}`);
   }
 
+  // Beat timeline of the FINAL video (id → start/duration seconds + the beat's
+  // narration). Lets downstream evals — esp. the multimodal video judge — extract
+  // a frame at any VO word-mark and know which scene + sentence it belongs to.
+  const round3 = (n: number) => Math.round(n * 1000) / 1000;
+  const beatTimeline = timeline.beats.map((b) => ({
+    id: b.id,
+    kind: b.kind,
+    startSec: round3(b.startFrame / timeline.fps),
+    durationSec: round3(b.durationFrames / timeline.fps),
+    narration: activeByBeat[b.id] ?? "",
+  }));
+  fs.writeFileSync(path.join(runDir, "beat-timeline.json"), JSON.stringify(beatTimeline, null, 2));
+
   const intermediateDir = path.join(runDir, ".tmp");
   if (!fs.existsSync(intermediateDir)) fs.mkdirSync(intermediateDir, { recursive: true });
   void safeSha; // git sha is no longer in the filename — runId IS the identity
