@@ -145,6 +145,7 @@ ACTION_KINDS: tuple[str, ...] = (
     "map_click",   # click a NAMED Mapbox feature (target=feature name; layer/source override defaults)
     "map_zoom",    # fly the Mapbox camera to a zoom level (zoom=level; seconds=animation length)
     "capture",     # read an id off the live page into ${var} for LATER scenes (source=url|element)
+    "snapshot",    # write the canonical scene_<N>.png NOW — a chosen mid-scene frame, not the end frame
 )
 
 
@@ -432,6 +433,22 @@ class CaptureAction(_ActionBase):
     must_succeed: bool = True
 
 
+class SnapshotAction(_ActionBase):
+    """Write the canonical ``scene_<N>.png`` NOW — a chosen mid-scene frame.
+
+    ``scene_<N>.png`` is normally the scene's END frame, and a ``goto`` is
+    hoisted to scene-init, so a moment the scene then dismisses (e.g. an
+    AI-result panel before the firm submits) can't otherwise be the judged
+    still without splitting the scene (which breaks the flow). Place this action
+    at the moment you want captured — frame it with the preceding
+    ``wait_for``/``scroll_to`` and usually set the scene ``full_page: false`` so
+    the capture is the current viewport. The end-of-scene snapshot is then
+    suppressed for this scene.
+    """
+
+    kind: Literal["snapshot"]
+
+
 # Discriminated union: Pydantic picks the right subclass from ``kind`` alone.
 # Existing YAML specs (lists of dicts with ``kind: ...`` + the verb's fields)
 # validate against this without any spec edits — all real-world action shapes
@@ -441,6 +458,7 @@ Action = Annotated[
         GotoAction, ClickAction, ClickMenuAction, FillAction, SelectAction,
         TypeAction, PressAction, HoverAction, ScrollToAction, ScrollAction,
         WaitForAction, HoldAction, DrawAction, MapClickAction, MapZoomAction, CaptureAction,
+        SnapshotAction,
     ],
     Field(discriminator="kind"),
 ]
