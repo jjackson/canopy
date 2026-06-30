@@ -237,14 +237,24 @@ bootstrap pattern exactly.
 
    ```bash
    PLUGIN_PATH=$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude/plugins/installed_plugins.json'))); print(d['plugins']['canopy@canopy'][0]['installPath'])")
-   DDD_DIR=$(bash "$PLUGIN_PATH/scripts/ddd/resolve_ddd_dir.sh")
    REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)   # target repo — for spec + branch signals
+   # The run lives under the TARGET repo's .canopy/ddd. EXPORT DDD_DIR tied to
+   # REPO_ROOT so every `scripts.ddd` call below — which runs from $DDD_REPO (the
+   # canopy checkout, a DIFFERENT git repo) — reads the run via DDD_DIR (resolver
+   # precedence #2) instead of resolving to $DDD_REPO's own .canopy/ddd (#3,
+   # git-toplevel-of-cwd). WITHOUT this export, runstate.load / findings_review
+   # post silently read a stale sibling run in the canopy checkout and the gate
+   # posts nothing. Resolver: scripts/ddd/resolve_ddd_dir.sh / runstate._resolve_ddd_dir.
+   export DDD_DIR="$REPO_ROOT/.canopy/ddd"; mkdir -p "$DDD_DIR"
    # scripts/ddd ships in the canopy repo, not the plugin cache — resolve it:
    DDD_REPO="$HOME/emdash-projects/canopy"; [ -d "$DDD_REPO/scripts/ddd" ] || DDD_REPO="$HOME/.claude/plugins/marketplaces/canopy"
    if [ ! -d "$DDD_REPO/scripts/ddd" ]; then echo "ERROR: scripts/ddd not found — run /canopy:update to sync the canopy checkout"; exit 1; fi
    ```
 
-   `$DDD_REPO` is used throughout the agent for all `scripts.ddd` invocations.
+   `$DDD_REPO` is used throughout the agent for all `scripts.ddd` invocations;
+   the exported `$DDD_DIR` makes every one of them read the run in `$REPO_ROOT`,
+   not `$DDD_REPO`'s cwd. (If you spawn a sub-shell that loses the export, prefix
+   the call with `DDD_DIR="$DDD_DIR"`.)
 
 2. Read `$DDD_DIR/context.md`. If it does not exist or is empty, bootstrap it:
    - Read CLAUDE.md and the git log (`git log --oneline -20`)
