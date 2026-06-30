@@ -195,6 +195,7 @@ def compute_auto_iterate(
         if isinstance(d, dict) and d.get("fix_kind"):
             all_findings.append({"route": "PRODUCT", "fix_kind": d["fix_kind"]})
     non_defer = [f for f in all_findings if f["route"] != "DEFER"]
+    mechanical = [f for f in non_defer if f["fix_kind"] == "mechanical"]
     unclear = [f for f in non_defer if f["fix_kind"] in ("options", "redesign")]
 
     if converged and not getattr(state, "scene_filter", None):
@@ -203,8 +204,6 @@ def compute_auto_iterate(
         return "stop_partial", "Both judges passed the filtered scope — drop --scene and re-fire."
     if any(f["route"] == "CONCEPT" and f["fix_kind"] == "redesign" for f in non_defer):
         return "stop_concept_change", "Concept-change finding — needs user judgment on direction."
-    if unclear:
-        return "stop_unclear", f"{len(unclear)} options/redesign finding(s) — need a user pick."
     if stalled:
         return "stop_max_iter", (
             f"Score stalled/regressed across the last 2 iterations (history={hist}) — "
@@ -212,6 +211,23 @@ def compute_auto_iterate(
         )
     if len(hist) >= hard_cap:
         return "stop_max_iter", f"Hit the {hard_cap}-iteration backstop (history={hist})."
+    # Autonomous until it can't be: APPLY every confident (mechanical) fix and
+    # re-fire BEFORE surfacing anything uncertain. A `mechanical` finding is one
+    # the loop can act on by itself, so it must never land in a human review just
+    # because some *other* finding this iteration was uncertain. Keep looping
+    # while mechanical fixes remain; only when nothing is left to auto-apply do
+    # the options/redesign findings get surfaced. (The stall/cap checks above
+    # still bound a mechanical loop that isn't converging.)
+    if mechanical:
+        return "continue", (
+            f"{len(mechanical)} mechanical (confident) fix(es) remain — apply + re-fire "
+            f"before surfacing any options (history={hist})."
+        )
+    if unclear:
+        return "stop_unclear", (
+            f"{len(unclear)} options/redesign finding(s) and no mechanical fixes left "
+            "to auto-apply — surface ONLY these for a user pick."
+        )
     return "continue", (
-        f"All findings mechanical and score still improving (history={hist}) — apply + re-fire."
+        f"No options/redesign and score still moving (history={hist}) — re-fire."
     )
