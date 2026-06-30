@@ -170,6 +170,11 @@ class Recorder:
         # Indices for which a before-frame PNG was written, in order. Separate
         # from ``snapshots_taken`` (which stays the canonical end-frame list).
         self.before_frames_taken: list[int] = []
+        # Scenes whose canonical ``scene_<N>.png`` was written MID-scene by an
+        # explicit ``snapshot`` action (so the judged frame is a chosen moment —
+        # e.g. an AI-result panel — not the scene's end frame). ``take_snapshot``
+        # skips the end-frame for these so the explicit capture stays canonical.
+        self._explicit_snapshot_scenes: set[int] = set()
         # Spec-level viewport — restored after any per-scene viewport override.
         # None → no restore (tests / callers that don't track viewport at all).
         self.default_viewport: dict[str, int] | None = (
@@ -302,6 +307,11 @@ class Recorder:
         """
         if self.snapshot_dir is None:
             return
+        if scene_index in self._explicit_snapshot_scenes:
+            # An explicit ``snapshot`` action already wrote the canonical
+            # ``scene_<N>.png`` mid-scene (a chosen moment). Don't overwrite it
+            # with the scene's end frame.
+            return
         has_actions = bool(scene.get("actions") or [])
         if not has_actions and not self.snapshot_empty_scenes:
             return
@@ -364,6 +374,26 @@ class Recorder:
             print(f"  · snapshot scene_{scene_index}.png + scene_{scene_index}_page_text.json")
         else:
             print(f"  · snapshot scene_{scene_index}_page_text.json (PNG failed after retry)")
+
+    def take_explicit_snapshot(self, page: Page, scene: dict, scene_index: int) -> None:
+        """Write the canonical ``scene_<N>.png`` + page-text NOW, mid-scene.
+
+        Invoked by a ``snapshot`` action so the JUDGED frame is a chosen moment
+        (e.g. an AI-result panel that the scene then dismisses by submitting),
+        not the scene's end frame. The author frames it with the preceding
+        actions — ``wait_for``/``scroll_to`` the element, then ``snapshot`` — and
+        usually sets the scene ``full_page: false`` so the capture is the current
+        viewport, not a scroll-to-top full page. After writing, the scene is
+        flagged so the end-of-scene :meth:`take_snapshot` does not overwrite it.
+
+        Why a recorder primitive and not just an end-frame: ``scene_<N>.png`` is
+        always the end frame, and a ``goto`` is hoisted to scene-init, so a moment
+        that must be followed by a navigating/submitting action can't otherwise be
+        the captured still without splitting the scene (which breaks the flow).
+        """
+        # Write the frame BEFORE flagging — take_snapshot skips flagged scenes.
+        self.take_snapshot(page, scene, scene_index)
+        self._explicit_snapshot_scenes.add(scene_index)
 
     def _screenshot_with_settle_retry(
         self, page: Page, png_path: Path, scene_index: int, full_page: bool = True
@@ -679,6 +709,25 @@ class Recorder:
             # is a shallow copy so the spec dict on disk is never mutated.
             resolved = self._resolve_action(action)
             action_start_mono = time.monotonic()
+            # ``snapshot`` is recorder-state, not a page interaction: write the
+            # canonical scene frame NOW (a chosen mid-scene moment) instead of the
+            # end frame. Handled here, not in ``execute_action`` (which is
+            # page-only and has no snapshot context). idx None (ad-hoc test call)
+            # ⇒ no scene to snapshot, fall through to the no-op execute_action.
+            if resolved.get("kind") == "snapshot" and idx is not None:
+                self.take_explicit_snapshot(page, scene, int(idx))
+                snap_result = ActionResult(
+                    kind="snapshot",
+                    ok=True,
+                    note=resolved.get("note"),
+                    elapsed_ms=int((time.monotonic() - action_start_mono) * 1000),
+                    start_seconds=round(action_start_mono - self.recording_epoch, 3),
+                    scene_index=int(idx),
+                )
+                self.report.record(snap_result)
+                scene_results.append(snap_result)
+                self.after_action(scene, action, snap_result)
+                continue
             result = execute_action(
                 page, resolved, base_url=self.base_url, config=self.config,
                 variables=self.variables,
