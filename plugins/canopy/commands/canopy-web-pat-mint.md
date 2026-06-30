@@ -26,7 +26,7 @@ back to the actual human.
 ## Prerequisites
 
 - A reachable canopy-web at `$CANOPY_WEB_BASE` (default
-  `https://canopy-web-ujpz2cuyxq-uc.a.run.app`)
+  `https://labs.connect.dimagi.com/canopy`)
 - A signed-in browser session at that URL — or willingness to sign in
   when the browser tab opens
 

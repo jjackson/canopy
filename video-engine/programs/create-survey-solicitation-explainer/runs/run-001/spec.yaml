@@ -1,0 +1,894 @@
+provenance:
+  generator: video-from-walkthrough
+  template: connect-ddd-walkthrough
+  generated_from: create-survey-solicitation DDD run None
+  generated_at: '1970-01-01T00:00:00Z'
+slug: create-survey-solicitation-explainer
+workspace: dimagi-team
+name: create-survey-solicitation
+country_focus: Global
+status: DDD walkthrough
+tagline: Create Survey Solicitation
+program_url: https://labs.connect.dimagi.com
+manifest:
+  master: file:assets/programs/create-survey-solicitation-explainer/walkthrough.mp4
+beats:
+- id: title
+  kind: intro_title
+  seconds: 4
+- id: s1
+  kind: body_walkthrough
+  seconds: 8.1
+- id: s2
+  kind: body_walkthrough
+  seconds: 15.8
+- id: s3
+  kind: body_walkthrough
+  seconds: 34.8
+- id: s4
+  kind: body_walkthrough
+  seconds: 25.8
+- id: s5
+  kind: body_walkthrough
+  seconds: 15.9
+- id: s6
+  kind: body_walkthrough
+  seconds: 20.7
+- id: s7
+  kind: body_walkthrough
+  seconds: 8.1
+- id: s8
+  kind: body_walkthrough
+  seconds: 11.0
+- id: outro
+  kind: outro_card
+  seconds: 5
+walkthrough:
+  s1:
+    asset: '@master'
+    segments:
+    - start_seconds: 0.0
+      duration_seconds: 8.058
+    start_seconds: 0.0
+    duration_seconds: 8.058
+    lower_third: ''
+  s2:
+    asset: '@master'
+    segments:
+    - start_seconds: 8.059
+      duration_seconds: 15.85
+    start_seconds: 8.059
+    duration_seconds: 15.85
+    lower_third: ''
+    action_marks:
+    - on_seconds: 3.461
+      words:
+      - glide
+      - cursor
+      - group
+      - primary
+      - create
+      - solicitation
+      - next
+      - scene
+      - navigates
+      - hover
+      - click
+      - here
+      - this
+      - capture
+      - stays
+      - portfolio
+      - that
+      - about
+      target: css:a.primary-dark:has-text("Create solicitation")
+      kind: hover
+  s3:
+    asset: '@master'
+    segments:
+    - start_seconds: 23.909
+      duration_seconds: 34.787
+    start_seconds: 23.909
+    duration_seconds: 34.787
+    lower_third: ''
+    action_marks:
+    - on_seconds: 3.042
+      words:
+      - title
+      - carried
+      - over
+      - from
+      - study
+      target: css:#id_title
+      kind: scroll_to
+    - on_seconds: 5.599
+      words:
+      - coverage
+      - area
+      - seeded
+      - from
+      - plan
+      target: css:#sol-coverage-map
+      kind: scroll_to
+    - on_seconds: 5.604
+      words:
+      - glide
+      - over
+      - coverage
+      target: css:#sol-coverage-map
+      kind: hover
+    - on_seconds: 6.835
+      words:
+      - description
+      - survey
+      target: css:#id_description
+      kind: scroll_to
+    - on_seconds: 6.835
+      words:
+      - description
+      - maya
+      - writes
+      - survey
+      target: css:#id_description
+      kind: fill
+    - on_seconds: 11.79
+      words:
+      - scope
+      - work
+      - also
+      - carried
+      - from
+      - study
+      target: css:#id_scope_of_work
+      kind: scroll_to
+    - on_seconds: 14.99
+      words:
+      - solicitation
+      - type
+      - pick
+      - call
+      - request
+      - proposal
+      target: css:#id_solicitation_type
+      kind: select
+    - on_seconds: 16.905
+      words:
+      - status
+      - active
+      target: css:#id_status
+      kind: select
+    - on_seconds: 17.625
+      words:
+      - public
+      - publicly
+      - listed
+      - toggle
+      target: css:#id_is_public
+      kind: scroll_to
+    - on_seconds: 20.742
+      words:
+      - application
+      - deadline
+      target: css:#id_application_deadline
+      kind: scroll_to
+    - on_seconds: 20.743
+      words:
+      - application
+      - deadline
+      target: css:#id_application_deadline
+      kind: fill
+    - on_seconds: 21.498
+      words:
+      - expected
+      - start
+      - date
+      target: css:#id_expected_start_date
+      kind: fill
+    - on_seconds: 22.246
+      words:
+      - expected
+      - end
+      - date
+      target: css:#id_expected_end_date
+      kind: fill
+    - on_seconds: 23.709
+      words:
+      - estimated
+      - scale
+      target: css:#id_estimated_scale
+      kind: scroll_to
+    - on_seconds: 23.71
+      words:
+      - estimated
+      - scale
+      target: css:#id_estimated_scale
+      kind: fill
+    - on_seconds: 26.034
+      words:
+      - contact
+      - email
+      target: css:#id_contact_email
+      kind: scroll_to
+    - on_seconds: 26.034
+      words:
+      - contact
+      - email
+      target: css:#id_contact_email
+      kind: fill
+    - on_seconds: 28.005
+      words:
+      - application
+      - questions
+      - section
+      target: text:Add Question
+      kind: scroll_to
+    - on_seconds: 29.255
+      words:
+      - application
+      - question
+      - firms
+      target: text:Add Question
+      kind: click
+    - on_seconds: 29.256
+      words:
+      - maya
+      - writes
+      - question
+      - firms
+      - must
+      - answer
+      target: css:input[x-model="question.text"]
+      kind: fill
+    - on_seconds: 32.23
+      words:
+      - move
+      - caret
+      - start
+      - just
+      - filled
+      - single
+      - line
+      - question
+      - input
+      - captured
+      - still
+      - shows
+      - full
+      - from
+      - many
+      - enumerators
+      - scrolled
+      - clipped
+      - edit
+      target: null
+      kind: press
+  s4:
+    asset: '@master'
+    segments:
+    - start_seconds: 58.696
+      duration_seconds: 4.808
+    - start_seconds: 78.154
+      duration_seconds: 20.96
+    start_seconds: 58.696
+    duration_seconds: 25.768
+    lower_third: ''
+    action_marks:
+    - on_seconds: 0.913
+      words:
+      - evaluation
+      - criteria
+      - section
+      - generate
+      - with
+      target: text:Generate with AI
+      kind: scroll_to
+    - on_seconds: 3.608
+      words:
+      - instead
+      - hand
+      - writing
+      - rubric
+      - generate
+      - with
+      target: text:Generate with AI
+      kind: click
+    - on_seconds: 9.03
+      words:
+      - bring
+      - publish
+      - button
+      - into
+      - frame
+      - alongside
+      - just
+      - filled
+      - form
+      - action
+      - this
+      - scene
+      - completed
+      - published
+      - scope
+      - written
+      - status
+      - active
+      - view
+      - dweller
+      - teach
+      - effecting
+      - land
+      - narration
+      target: css:button[type=submit]:has-text("Create Solicitation")
+      kind: scroll_to
+    - on_seconds: 18.71
+      words:
+      - maya
+      - clicks
+      - create
+      - solicitation
+      - real
+      - publish
+      - this
+      - mints
+      - brand
+      - active
+      - program
+      - source
+      - group
+      - live
+      - camera
+      - view
+      - redirects
+      - solicitations
+      - responses
+      - where
+      - next
+      - action
+      - captures
+      - fresh
+      - fixed
+      - record
+      - reused
+      - ensure
+      - demo
+      - sweeps
+      - every
+      - render
+      - call
+      - before
+      target: css:button[type=submit]:has-text("Create Solicitation")
+      kind: click
+    - on_seconds: 21.646
+      words:
+      - scroll
+      - published
+      - call
+      - coverage
+      - areas
+      - into
+      - viewport
+      - scene
+      - frame
+      - judge
+      - hero
+      - actually
+      - shows
+      - attakar
+      - green
+      - gura
+      - blue
+      - ward
+      - polygons
+      - narration
+      - sells
+      - plan
+      - already
+      - waiting
+      - area
+      - without
+      - this
+      - sits
+      - below
+      - fold
+      - text
+      - only
+      - differentiating
+      - visual
+      - belongs
+      target: css:#sol-coverage-map
+      kind: scroll_to
+  s5:
+    asset: '@master'
+    segments:
+    - start_seconds: 99.114
+      duration_seconds: 15.853
+    start_seconds: 99.114
+    duration_seconds: 15.853
+    lower_third: ''
+    action_marks:
+    - on_seconds: 2.661
+      words:
+      - effecting
+      - camera
+      - move
+      - scrolling
+      - which
+      - areas
+      - cover
+      - checklist
+      - into
+      - frame
+      - critical
+      - before
+      - because
+      - this
+      - leading
+      - action
+      - wait
+      - recorder
+      - runs
+      - full
+      - domcontentloaded
+      - load
+      - goto
+      - settle
+      - initial
+      - hold
+      - flow
+      - respond
+      - form
+      - fully
+      - painted
+      - settled
+      - visible
+      - submit
+      - disabled
+      - unchecked
+      - state
+      - fires
+      - with
+      - navigation
+      - used
+      - until
+      - commit
+      - caught
+      - crossfading
+      - owner
+      - manage
+      - view
+      - instead
+      target: css:#sol-plan-checklist
+      kind: scroll_to
+    - on_seconds: 4.879
+      words:
+      - firm
+      - name
+      - bring
+      - your
+      - organization
+      - identity
+      - fields
+      - into
+      - frame
+      - real
+      - names
+      - itself
+      - when
+      - answers
+      - public
+      - call
+      - owner
+      - reviews
+      - awards
+      - named
+      - survey
+      - individual
+      - account
+      - that
+      - submitted
+      - form
+      target: css:#id_firm_name
+      kind: scroll_to
+    - on_seconds: 4.879
+      words:
+      - firm
+      - name
+      - applying
+      - names
+      - itself
+      - sahel
+      - field
+      - research
+      - plausible
+      - northern
+      - nigeria
+      - independent
+      - household
+      - survey
+      - this
+      - what
+      - renders
+      - responses
+      - list
+      - award
+      - screen
+      - scenes
+      - show
+      - believable
+      - operator
+      - dimagi
+      - account
+      target: css:#id_firm_name
+      kind: fill
+    - on_seconds: 5.903
+      words:
+      - firm
+      - email
+      - contact
+      - stored
+      - submitted
+      - shown
+      - beside
+      - name
+      - responses
+      - list
+      - replacing
+      - operator
+      - account
+      target: css:#id_firm_email
+      kind: fill
+    - on_seconds: 7.779
+      words:
+      - scroll
+      - back
+      - coverage
+      - checklist
+      - that
+      - firm
+      - identified
+      - itself
+      - commit
+      - area
+      target: css:#sol-plan-checklist
+      kind: scroll_to
+    - on_seconds: 9.032
+      words:
+      - tick
+      - coverage
+      - area
+      - synced
+      - with
+      - this
+      - enables
+      - submit
+      - required
+      - created
+      - call
+      - exactly
+      - plan
+      - attakar
+      - gura
+      - first
+      - checkbox
+      - that
+      target: css:#sol-plan-checklist input[type=checkbox]
+      kind: click
+    - on_seconds: 9.745
+      words:
+      - application
+      - question
+      - maya
+      - with
+      - generated
+      - scoring
+      - criteria
+      - shown
+      - right
+      - beside
+      target: css:textarea[name^="question_"]
+      kind: scroll_to
+    - on_seconds: 11.548
+      words:
+      - firm
+      - drafts
+      - answer
+      target: css:textarea[name^="question_"]
+      kind: fill
+  s6:
+    asset: '@master'
+    segments:
+    - start_seconds: 114.967
+      duration_seconds: 4.363
+    - start_seconds: 145.58
+      duration_seconds: 16.361
+    start_seconds: 114.967
+    duration_seconds: 20.724
+    lower_third: ''
+    action_marks:
+    - on_seconds: 0.9
+      words:
+      - application
+      - coach
+      target: css:#coach-btn
+      kind: scroll_to
+    - on_seconds: 3.163
+      words:
+      - feedback
+      - coach
+      - reviews
+      - draft
+      - answer
+      - against
+      - evaluation
+      - criteria
+      target: css:#coach-btn
+      kind: click
+    - on_seconds: 5.1
+      words:
+      - frame
+      - coaching
+      - feedback
+      - coach
+      - panel
+      - held
+      - camera
+      - here
+      - video
+      - shows
+      - under
+      - narration
+      - still
+      - deck
+      - without
+      - relocating
+      - submit
+      - which
+      - recorder
+      - goto
+      - hoisting
+      - breaks
+      - learnings
+      target: css:#coach-content
+      kind: scroll_to
+    - on_seconds: 11.868
+      words:
+      - bring
+      - submit
+      - response
+      - button
+      - into
+      - frame
+      - alongside
+      - completed
+      - application
+      - firm
+      - named
+      - coverage
+      - ticked
+      - enabled
+      - form
+      target: css:button[type=submit]:has-text("Submit Response")
+      kind: scroll_to
+    - on_seconds: 18.534
+      words:
+      - submit
+      - firm
+      - application
+      - real
+      - redirects
+      - call
+      - public
+      - detail
+      - page
+      - submitted
+      target: css:button[type=submit]:has-text("Submit Response")
+      kind: click
+  s7:
+    asset: '@master'
+    segments:
+    - start_seconds: 161.941
+      duration_seconds: 8.128
+    start_seconds: 161.941
+    duration_seconds: 8.128
+    lower_third: ''
+    action_marks:
+    - on_seconds: 0.224
+      words:
+      - glance
+      - award
+      - action
+      - maya
+      - reaching
+      - next
+      - hover
+      - only
+      - itself
+      - happens
+      - scene
+      - reading
+      - does
+      - mutate
+      - state
+      - this
+      - scroll
+      - table
+      - right
+      - trailing
+      - below
+      - scrolls
+      - back
+      - firm
+      - name
+      - hero
+      - clipped
+      target: css:a:has-text("Award")
+      kind: hover
+    - on_seconds: 3.759
+      words:
+      - scroll
+      - wide
+      - responses
+      - table
+      - back
+      - left
+      - edge
+      - organization
+      - column
+      - header
+      - firm
+      - cell
+      - fully
+      - frame
+      - hero
+      - earlier
+      - award
+      - hover
+      - scrolled
+      - right
+      - clipping
+      - ganization
+      - name
+      - field
+      - research
+      - this
+      - camera
+      - move
+      - clips
+      - identity
+      - that
+      - finding
+      - fixed
+      target: css:th:has-text("Organization")
+      kind: scroll_to
+    - on_seconds: 3.76
+      words:
+      - settle
+      - cursor
+      - firm
+      - selected
+      - coverage
+      - chip
+      - attakar
+      - gura
+      - beside
+      - fully
+      - visible
+      - organization
+      - column
+      - reading
+      - sahel
+      - field
+      - research
+      - this
+      - scene
+      - hero
+      - named
+      - tied
+      - exact
+      - maya
+      - designed
+      - clipped
+      - dwell
+      - sized
+      - carry
+      target: css:span:has-text("R6 — Attakar")
+      kind: hover
+  s8:
+    asset: '@master'
+    segments:
+    - start_seconds: 170.069
+      duration_seconds: 10.992
+    start_seconds: 170.069
+    duration_seconds: 10.992
+    lower_third: ''
+    action_marks:
+    - on_seconds: 1.266
+      words:
+      - optional
+      - budget
+      - awarded
+      - firm
+      target: css:input[name=reward_budget]
+      kind: fill
+    - on_seconds: 3.402
+      words:
+      - award
+      - firm
+      - records
+      - decision
+      - notifies
+      - organization
+      target: css:button[type=submit]:has-text("Award")
+      kind: click
+narration:
+  generator: manual
+  prompt_version: v1
+  start_seconds: 0
+  by_beat:
+    title: Create Survey Solicitation
+    s1: Maya has designed her matched study. But to measure her own program credibly,
+      the survey has to be run by someone independent. So she needs to recruit a survey
+      firm — to visit the households and collect the outcomes. Rather than start a
+      separate process, she turns the finished study into a call for a firm on the
+      Connect network, with the wards, coverage, and scope already attached.
+    s2: Maya's finished Round 6 study sits in her portfolio, flagged ready to solicit
+      — and right on the card is the way to turn that plan into a call for a survey
+      firm, no separate tool.
+    s3: Maya builds the call. The title, scope and coverage carry over from her study.
+      She adds a description, the type, timeline, scale and contact - the call can
+      go out publicly across the whole Connect network, or be pointed at organizations
+      she already knows work here - and she writes an application question for the
+      firms.
+    s4: Then, instead of hand-writing a scoring rubric, she clicks Generate with AI
+      - and the platform drafts the evaluation criteria, weighted, straight from her
+      scope and questions. She reviews them, and publishes the call.
+    s5: A survey firm opens the call. The scoring criteria Maya generated show right
+      beside each question, so the firm knows exactly how it will be judged - and
+      it drafts its answer.
+    s6: Before submitting, the firm runs the draft through the AI Application Coach
+      - which reviews it against those same criteria and suggests where to strengthen
+      it. The firm picks the coverage it can staff, and submits.
+    s7: Back in her workspace, Maya opens the responses and sees Sahel Field Research
+      tied to the exact coverage she designed.
+    s8: She awards Sahel Field Research — the screen records the decision and notifies
+      the organization. Standing up the live opportunity is the next step, not yet
+      built.
+    outro: ''
+  script: 'Create Survey Solicitation
+
+    Maya has designed her matched study. But to measure her own program credibly,
+    the survey has to be run by someone independent. So she needs to recruit a survey
+    firm — to visit the households and collect the outcomes. Rather than start a separate
+    process, she turns the finished study into a call for a firm on the Connect network,
+    with the wards, coverage, and scope already attached.
+
+    Maya''s finished Round 6 study sits in her portfolio, flagged ready to solicit
+    — and right on the card is the way to turn that plan into a call for a survey
+    firm, no separate tool.
+
+    Maya builds the call. The title, scope and coverage carry over from her study.
+    She adds a description, the type, timeline, scale and contact - the call can go
+    out publicly across the whole Connect network, or be pointed at organizations
+    she already knows work here - and she writes an application question for the firms.
+
+    Then, instead of hand-writing a scoring rubric, she clicks Generate with AI -
+    and the platform drafts the evaluation criteria, weighted, straight from her scope
+    and questions. She reviews them, and publishes the call.
+
+    A survey firm opens the call. The scoring criteria Maya generated show right beside
+    each question, so the firm knows exactly how it will be judged - and it drafts
+    its answer.
+
+    Before submitting, the firm runs the draft through the AI Application Coach -
+    which reviews it against those same criteria and suggests where to strengthen
+    it. The firm picks the coverage it can staff, and submits.
+
+    Back in her workspace, Maya opens the responses and sees Sahel Field Research
+    tied to the exact coverage she designed.
+
+    She awards Sahel Field Research — the screen records the decision and notifies
+    the organization. Standing up the live opportunity is the next step, not yet built.'
+voice:
+  provider: elevenlabs
+  voice_id: XB0fDUnXU5powFXDhCwa
+  model: eleven_turbo_v2

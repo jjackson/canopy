@@ -9,7 +9,7 @@ import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
 
-DEFAULT_API = "https://canopy-web-ujpz2cuyxq-uc.a.run.app"
+DEFAULT_API = "https://labs.connect.dimagi.com/canopy"
 TOKEN_FILE = Path.home() / ".claude" / "canopy" / "workbench-token"
 
 Transport = Callable[[str, str, dict, Optional[bytes]], "tuple[int, str]"]

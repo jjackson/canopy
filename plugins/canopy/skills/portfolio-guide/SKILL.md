@@ -14,19 +14,19 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`, mention the upgrade once and co
 
 # Portfolio Guide
 
-For each active project, generates a 200-400 word markdown guide answering **"what could the user be doing next on this project?"** and uploads it to canopy-web. The guide is then viewable at `https://canopy-web-ujpz2cuyxq-uc.a.run.app/projects/<slug>/guide`.
+For each active project, generates a 200-400 word markdown guide answering **"what could the user be doing next on this project?"** and uploads it to canopy-web. The guide is then viewable at `https://labs.connect.dimagi.com/canopy/projects/<slug>/guide`.
 
 ## Required state
 
 - **Token file:** `~/.claude/canopy/workbench-token` must exist and be non-empty. If missing, stop and tell the user to mint one (it should already be there from earlier hook setup).
-- **Canopy-web reachability:** the deploy URL must respond. The default is `https://canopy-web-ujpz2cuyxq-uc.a.run.app`; override with the `CANOPY_WEB_API_URL` env var.
+- **Canopy-web reachability:** the deploy URL must respond. The default is `https://labs.connect.dimagi.com/canopy`; override with the `CANOPY_WEB_API_URL` env var.
 
 ## Step 1 — sanity check
 
 ```bash
 TOKEN_FILE=~/.claude/canopy/workbench-token
 test -s "$TOKEN_FILE" || { echo "ERROR: $TOKEN_FILE missing or empty"; exit 1; }
-CANOPY_WEB="${CANOPY_WEB_API_URL:-https://canopy-web-ujpz2cuyxq-uc.a.run.app}"
+CANOPY_WEB="${CANOPY_WEB_API_URL:-https://labs.connect.dimagi.com/canopy}"
 curl -s -o /dev/null -w "%{http_code}\n" "$CANOPY_WEB/health/" --max-time 8
 ```
 

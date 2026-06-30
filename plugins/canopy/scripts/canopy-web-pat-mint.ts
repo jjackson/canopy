@@ -32,7 +32,7 @@
  *     label  defaults to `<hostname>-YYYY-MM-DD`
  *
  * Env:
- *   CANOPY_WEB_BASE     default https://canopy-web-ujpz2cuyxq-uc.a.run.app
+ *   CANOPY_WEB_BASE     default https://labs.connect.dimagi.com/canopy
  *   TOKEN_FILE_OVERRIDE override the default ~/.claude/canopy/workbench-token path
  *
  * Exit codes:
@@ -51,7 +51,7 @@ import { promises as fs } from 'node:fs';
 import { dirname } from 'node:path';
 
 const CANOPY_WEB_BASE = (
-  process.env.CANOPY_WEB_BASE || 'https://canopy-web-ujpz2cuyxq-uc.a.run.app'
+  process.env.CANOPY_WEB_BASE || 'https://labs.connect.dimagi.com/canopy'
 ).replace(/\/$/, '');
 const TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_TOKEN_FILE = `${homedir()}/.claude/canopy/workbench-token`;

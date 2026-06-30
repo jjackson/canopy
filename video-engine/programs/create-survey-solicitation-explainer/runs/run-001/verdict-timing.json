@@ -1,0 +1,86 @@
+{
+  "eval": "ddd-timing",
+  "overallScore": 2.63,
+  "verdict": "warn",
+  "syncedFields": 21,
+  "wordMatchableFields": 40,
+  "totalFieldMarks": 45,
+  "coverage": 0.53,
+  "meanLagRemovedS": 3.37,
+  "worstLagRemovedS": 14.21,
+  "scenes": [
+    {
+      "beatId": "s2",
+      "fieldMarks": 1,
+      "wordMatchable": 1,
+      "anchored": 1,
+      "droppedInversions": 0,
+      "meanLagRemovedS": 1.15,
+      "worstLagRemovedS": 1.15
+    },
+    {
+      "beatId": "s3",
+      "fieldMarks": 21,
+      "wordMatchable": 18,
+      "anchored": 8,
+      "droppedInversions": 10,
+      "meanLagRemovedS": 4.89,
+      "worstLagRemovedS": 14.21
+    },
+    {
+      "beatId": "s4",
+      "fieldMarks": 5,
+      "wordMatchable": 5,
+      "anchored": 3,
+      "droppedInversions": 2,
+      "meanLagRemovedS": 5.78,
+      "worstLagRemovedS": 8.24
+    },
+    {
+      "beatId": "s5",
+      "fieldMarks": 8,
+      "wordMatchable": 7,
+      "anchored": 3,
+      "droppedInversions": 4,
+      "meanLagRemovedS": 5.37,
+      "worstLagRemovedS": 7.67
+    },
+    {
+      "beatId": "s6",
+      "fieldMarks": 5,
+      "wordMatchable": 5,
+      "anchored": 2,
+      "droppedInversions": 3,
+      "meanLagRemovedS": 1.43,
+      "worstLagRemovedS": 2.25
+    },
+    {
+      "beatId": "s7",
+      "fieldMarks": 3,
+      "wordMatchable": 3,
+      "anchored": 3,
+      "droppedInversions": 0,
+      "meanLagRemovedS": 1.76,
+      "worstLagRemovedS": 2.7
+    },
+    {
+      "beatId": "s8",
+      "fieldMarks": 2,
+      "wordMatchable": 1,
+      "anchored": 1,
+      "droppedInversions": 0,
+      "meanLagRemovedS": 3.18,
+      "worstLagRemovedS": 3.18
+    }
+  ],
+  "findings": [
+    "s3: warp pulled a field that was 14.21s off onto its spoken word (8/18 named fields synced).",
+    "s3: 10 named field(s) NOT synced — narration names them in a different ORDER than the form lays them out. Reorder the narration or add a `say:` hint to those actions.",
+    "s4: warp pulled a field that was 8.24s off onto its spoken word (3/5 named fields synced).",
+    "s4: 2 named field(s) NOT synced — narration names them in a different ORDER than the form lays them out. Reorder the narration or add a `say:` hint to those actions.",
+    "s5: warp pulled a field that was 7.67s off onto its spoken word (3/7 named fields synced).",
+    "s5: 4 named field(s) NOT synced — narration names them in a different ORDER than the form lays them out. Reorder the narration or add a `say:` hint to those actions.",
+    "s6: 3 named field(s) NOT synced — narration names them in a different ORDER than the form lays them out. Reorder the narration or add a `say:` hint to those actions.",
+    "s8: warp pulled a field that was 3.18s off onto its spoken word (1/1 named fields synced)."
+  ]
+}

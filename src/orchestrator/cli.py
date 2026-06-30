@@ -805,7 +805,7 @@ def portfolio_discover_cmd(max_age_days, as_json, api_url):
 
     base_url = api_url or os.environ.get(
         "CANOPY_WEB_API_URL",
-        "https://canopy-web-ujpz2cuyxq-uc.a.run.app",
+        "https://labs.connect.dimagi.com/canopy",
     )
     token_file = Path.home() / ".claude" / "canopy" / "workbench-token"
     curated: set = set()

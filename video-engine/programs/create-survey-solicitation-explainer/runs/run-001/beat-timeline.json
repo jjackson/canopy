@@ -1,0 +1,72 @@
+[
+  {
+    "id": "title",
+    "kind": "intro_title",
+    "startSec": 0,
+    "durationSec": 4,
+    "narration": "Create Survey Solicitation"
+  },
+  {
+    "id": "s1",
+    "kind": "body_walkthrough",
+    "startSec": 4,
+    "durationSec": 25.933,
+    "narration": "Maya has designed her matched study. But to measure her own program credibly, the survey has to be run by someone independent. So she needs to recruit a survey firm — to visit the households and collect the outcomes. Rather than start a separate process, she turns the finished study into a call for a firm on the Connect network, with the wards, coverage, and scope already attached."
+  },
+  {
+    "id": "s2",
+    "kind": "body_walkthrough",
+    "startSec": 29.933,
+    "durationSec": 11.7,
+    "narration": "Maya's finished Round 6 study sits in her portfolio, flagged ready to solicit — and right on the card is the way to turn that plan into a call for a survey firm, no separate tool."
+  },
+  {
+    "id": "s3",
+    "kind": "body_walkthrough",
+    "startSec": 41.633,
+    "durationSec": 23.467,
+    "narration": "Maya builds the call. The title, scope and coverage carry over from her study. She adds a description, the type, timeline, scale and contact - the call can go out publicly across the whole Connect network, or be pointed at organizations she already knows work here - and she writes an application question for the firms."
+  },
+  {
+    "id": "s4",
+    "kind": "body_walkthrough",
+    "startSec": 65.1,
+    "durationSec": 21.233,
+    "narration": "Then, instead of hand-writing a scoring rubric, she clicks Generate with AI - and the platform drafts the evaluation criteria, weighted, straight from her scope and questions. She reviews them, and publishes the call."
+  },
+  {
+    "id": "s5",
+    "kind": "body_walkthrough",
+    "startSec": 86.333,
+    "durationSec": 11.267,
+    "narration": "A survey firm opens the call. The scoring criteria Maya generated show right beside each question, so the firm knows exactly how it will be judged - and it drafts its answer."
+  },
+  {
+    "id": "s6",
+    "kind": "body_walkthrough",
+    "startSec": 97.6,
+    "durationSec": 17.2,
+    "narration": "Before submitting, the firm runs the draft through the AI Application Coach - which reviews it against those same criteria and suggests where to strengthen it. The firm picks the coverage it can staff, and submits."
+  },
+  {
+    "id": "s7",
+    "kind": "body_walkthrough",
+    "startSec": 114.8,
+    "durationSec": 8.133,
+    "narration": "Back in her workspace, Maya opens the responses and sees Sahel Field Research tied to the exact coverage she designed."
+  },
+  {
+    "id": "s8",
+    "kind": "body_walkthrough",
+    "startSec": 122.933,
+    "durationSec": 11.267,
+    "narration": "She awards Sahel Field Research — the screen records the decision and notifies the organization. Standing up the live opportunity is the next step, not yet built."
+  },
+  {
+    "id": "outro",
+    "kind": "outro_card",
+    "startSec": 134.2,
+    "durationSec": 5,
+    "narration": ""
+  }
+]

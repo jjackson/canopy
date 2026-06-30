@@ -1,0 +1,151 @@
+{
+  "eval": "ddd-video",
+  "overall": 3.875,
+  "verdict": "warn",
+  "scenes": [
+    {
+      "beat": "s1",
+      "scores": {
+        "vo_visual_coherence": 4,
+        "pacing": 5,
+        "motion_quality": 4,
+        "narration_fit": 5
+      },
+      "overall": 4.0,
+      "verdict": "pass",
+      "findings": [
+        {
+          "route": "RENDER",
+          "text": "FIXED: the loading-skeleton is GONE. All three pacing frames (16%/50%/83%) show the fully-loaded 'Microplan portfolio' with the R6 - Attakar x Gura study card ('Reviewed' badge, 'Create solicitation' + 'Open study' buttons). The prior-iteration skeleton in the back two-thirds (the single RENDER finding that flipped the video to fail) no longer appears. Pacing/narration_fit raised accordingly."
+        }
+      ]
+    },
+    {
+      "beat": "s2",
+      "scores": {
+        "vo_visual_coherence": 5,
+        "pacing": 5,
+        "motion_quality": 4,
+        "narration_fit": 5
+      },
+      "overall": 4.0,
+      "verdict": "pass",
+      "findings": [
+        {
+          "route": "FOOTAGE",
+          "text": "At VO word 'portfolio' (32.2s) the cursor rests on the 'Create solicitation' button of the loaded R6 card - exact word->field match. Portfolio fully loaded across all pacing frames."
+        }
+      ]
+    },
+    {
+      "beat": "s3",
+      "scores": {
+        "vo_visual_coherence": 5,
+        "pacing": 4,
+        "motion_quality": 4,
+        "narration_fit": 5
+      },
+      "overall": 4.0,
+      "verdict": "pass",
+      "findings": [
+        {
+          "route": "FOOTAGE",
+          "text": "Every VO-word-mark lands on its field: title -> filled Solicitation Title, coverage/over -> Attakar x Gura coverage map, description -> Description being typed, type -> Type dropdown, public -> Publicly Listed checkbox, application -> Application Deadline, question -> Application Questions section. Strong word->field coherence."
+        },
+        {
+          "route": "RENDER",
+          "text": "Minor cosmetic (non-blocking): the application-deadline date shows a malformed year ('08/15/0020') in the 59.0s frame. Worth a date-picker default check."
+        }
+      ]
+    },
+    {
+      "beat": "s4",
+      "scores": {
+        "vo_visual_coherence": 4,
+        "pacing": 4,
+        "motion_quality": 4,
+        "narration_fit": 5
+      },
+      "overall": 4.0,
+      "verdict": "pass",
+      "findings": [
+        {
+          "route": "PRODUCT",
+          "text": "Generate-with-AI flow reads correctly: 'Generate with AI' button visible at 71.3s, AI-drafted weighted criteria present (Field Enumeration Methodology 30, Reporting and Timeline 10), and the published confirmation ('Solicitation published - organizations can now apply', 'No responses yet') at 82.8s."
+        },
+        {
+          "route": "NARRATION",
+          "text": "Manifest word-mark 'call' (78.5s) expects the coverage map but the frame shows the Create Solicitation / publish button - which is actually MORE coherent with 'publishes the call'. A manifest word->field mapping artifact, not a footage defect."
+        }
+      ]
+    },
+    {
+      "beat": "s5",
+      "scores": {
+        "vo_visual_coherence": 4,
+        "pacing": 4,
+        "motion_quality": 4,
+        "narration_fit": 3
+      },
+      "overall": 3.0,
+      "verdict": "warn",
+      "findings": [
+        {
+          "route": "PRODUCT",
+          "text": "DEFER (known accepted limitation): narration says 'The scoring criteria Maya generated show right beside each question', but the respond form renders only the question text + answer textarea - no criteria are shown beside the questions. The visible coach panel ('Need help strengthening your application?') partially compensates, but the literal claim is not on screen. Word-marks (firm/call/question) all match their fields. This is the worst scene and sets the video verdict to warn."
+        }
+      ]
+    },
+    {
+      "beat": "s6",
+      "scores": {
+        "vo_visual_coherence": 5,
+        "pacing": 4,
+        "motion_quality": 4,
+        "narration_fit": 5
+      },
+      "overall": 4.0,
+      "verdict": "pass",
+      "findings": [
+        {
+          "route": "FOOTAGE",
+          "text": "RE-CONFIRMED: the AI Application Coach is fully present. VO 'application'/'coach' (100.7/101.4s) lands on the 'Get Feedback on My Answers' (#coach-btn), then a 'Reviewing... / Your coach is reviewing your answers' state, then a richly rendered feedback panel (QA specifics, 'Strengthen the three prior surveys claim', Suggested revision structure, 'Tips to Stand Out' with X/check examples and 'You're on the right track!'). Coach feedback substantive and legible."
+        }
+      ]
+    },
+    {
+      "beat": "s7",
+      "scores": {
+        "vo_visual_coherence": 4,
+        "pacing": 5,
+        "motion_quality": 4,
+        "narration_fit": 5
+      },
+      "overall": 4.0,
+      "verdict": "pass",
+      "findings": [
+        {
+          "route": "PRODUCT",
+          "text": "DEFER (known accepted limitation): the responses table clips the right-edge Actions column ('ACT...'), so the Award trophy at the VO 'maya' mark (116.3s, expects has-text('Award')) is only partially visible. Substantive content matches narration - Sahel Field Research tied to 'R6 - Attakar x Gura' coverage, Submitted, Pending review - so coherence holds despite the clip."
+        }
+      ]
+    },
+    {
+      "beat": "s8",
+      "scores": {
+        "vo_visual_coherence": 5,
+        "pacing": 4,
+        "motion_quality": 4,
+        "narration_fit": 5
+      },
+      "overall": 4.0,
+      "verdict": "pass",
+      "findings": [
+        {
+          "route": "FOOTAGE",
+          "text": "Clean, honest closeout. VO 'award' (123.2s) lands on the green 'Awarded to Sahel Field Research / The organization has been notified' card. Award detail (org, Survey call, Award budget N500,000, Coverage area R6 - Attakar x Gura, 'Awarded & notified ... notification sent') fully shown, and the 'Next step - not yet built' disclaimer matches narration exactly. Confirmation card is appropriately static across pacing frames (hold, not stall)."
+        }
+      ]
+    }
+  ]
+}
