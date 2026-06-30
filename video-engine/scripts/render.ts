@@ -8,6 +8,7 @@ import { loadDefaults, resolveBeats, effectiveBeatsForSpec, type ResolvedTimelin
 import { resolveRun, specPath, outputPath } from "../src/lib/runs.node";
 import { synthesize, synthesizePerBeat, readAlignment, wordStartSeconds, type PerBeatNarration } from "../src/lib/voiceover";
 import { estimateCaptionTimeline, captionsFromBeats } from "../src/lib/captions";
+import { planActionWarp, type RenderPiece } from "../src/lib/actionsync";
 import { resolveAssetRefs, formatMissingError } from "../src/lib/asset-resolver.node";
 import {
   capBeatDuration,
@@ -373,7 +374,53 @@ async function main() {
     }
   }
 
-  const props = { programSlug: cli.program, specYaml, beatOverrides, captions, cycleStepStartSeconds };
+  // Action↔word footage warp: for each walkthrough beat that carries
+  // `action_marks` (recorder-derived field timestamps), resolve each field's
+  // candidate narration word against THIS beat's ElevenLabs alignment and build
+  // a piecewise time-warp so the footage lands each field on its spoken word.
+  // Remotion can't read the alignment sidecars itself, so we compute it here and
+  // pass the master-domain pieces as a prop. No marks / no resolved words ⇒ no
+  // entry ⇒ the Walkthrough section keeps today's linear playback.
+  const actionWarpByBeat: Record<string, RenderPiece[]> = {};
+  for (const beat of timeline.beats) {
+    const wt = spec.walkthrough?.[beat.id];
+    if (!wt?.action_marks?.length) continue;
+    const pb = perBeat.find((p) => p.beatId === beat.id);
+    if (!pb) continue;
+    const alignment = readAlignment(pb.audioPath.replace(/\.mp3$/, ".json"));
+    if (!alignment) continue;
+    const voSec =
+      alignment.character_end_times_seconds[alignment.character_end_times_seconds.length - 1] ??
+      probeAudioDurationSeconds(pb.audioPath);
+    const segments = wt.segments?.length
+      ? wt.segments
+      : [{ start_seconds: wt.start_seconds ?? 0, duration_seconds: wt.duration_seconds ?? 0 }];
+    const footageOnscreenSec = segments.reduce((a, s) => a + s.duration_seconds, 0);
+    const plan = planActionWarp({
+      marks: wt.action_marks,
+      resolveWord: (w: string) => wordStartSeconds(alignment, w),
+      footageOnscreenSec,
+      voSec,
+      beatSec: beat.durationFrames / timeline.fps,
+      segments,
+    });
+    if (plan.length > 0) {
+      actionWarpByBeat[beat.id] = plan;
+      console.log(
+        `Action↔word warp "${beat.id}": ${plan.length} pieces, ` +
+          `${wt.action_marks.length} marks, footage ${footageOnscreenSec.toFixed(1)}s ↔ VO ${voSec.toFixed(1)}s`,
+      );
+    }
+  }
+
+  const props = {
+    programSlug: cli.program,
+    specYaml,
+    beatOverrides,
+    captions,
+    cycleStepStartSeconds,
+    actionWarpByBeat,
+  };
   const tmpPropsFile = path.join(os.tmpdir(), `remotion-props-${Date.now()}.json`);
   fs.writeFileSync(tmpPropsFile, JSON.stringify(props));
   const propsArg = `--props=${JSON.stringify(tmpPropsFile)}`;

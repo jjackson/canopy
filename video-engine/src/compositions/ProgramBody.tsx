@@ -16,6 +16,8 @@ import type { ResolvedBeat } from "../lib/beats";
 interface Props {
   spec: ProgramSpec;
   bodyBeats: ResolvedBeat[]; // ai_build, scene, problem, product, impact (order from defaults)
+  /** Per-beat action↔word footage warp plans (render-side), keyed by beat id. */
+  actionWarpByBeat?: Record<string, import("../lib/actionsync").RenderPiece[]>;
 }
 
 const isVideo = (s: string) => /\.(mp4|webm|mov)$/i.test(s);
@@ -125,7 +127,7 @@ const ImpactStats: React.FC<{ spec: ProgramSpec; durationFrames: number }> = ({
   );
 };
 
-export const ProgramBody: React.FC<Props> = ({ spec, bodyBeats }) => {
+export const ProgramBody: React.FC<Props> = ({ spec, bodyBeats, actionWarpByBeat }) => {
   const bodyStart = bodyBeats[0].startFrame;
   const renderBeat = (b: ResolvedBeat) => {
     switch (b.kind) {
@@ -166,7 +168,7 @@ export const ProgramBody: React.FC<Props> = ({ spec, bodyBeats }) => {
         // nothing.
         const wt = spec.walkthrough?.[b.id];
         if (!wt) return null;
-        return <Walkthrough wt={wt} />;
+        return <Walkthrough wt={wt} warp={actionWarpByBeat?.[b.id]} />;
       }
       default:
         return null;

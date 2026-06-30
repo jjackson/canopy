@@ -44,6 +44,15 @@ interface VideoProps {
     verify?: number;
     pay?: number;
   };
+  /**
+   * Per-beat footage time-warp plan for action↔word sync, keyed by beat id.
+   * Built render-side (Node) from the beat's `action_marks` + ElevenLabs VO
+   * timings (see actionsync.ts / docs/action-word-sync.md) — Remotion can't read
+   * the alignment sidecars itself. When a beat has a plan the Walkthrough section
+   * plays the warped pieces so each field lands on its spoken word; absent ⇒
+   * unchanged linear playback. Studio preview omits this (no audio synth).
+   */
+  actionWarpByBeat?: Record<string, import("./lib/actionsync").RenderPiece[]>;
 }
 
 // Programs registered for Studio preview. Add new entries here as program
@@ -108,6 +117,7 @@ const ProgramVideo: React.FC<VideoProps> = ({
   beatOverrides,
   captions = [],
   cycleStepStartSeconds,
+  actionWarpByBeat,
 }) => {
   // Render-CLI path: spec passed verbatim via props. Studio-preview
   // path: look up the slug in the bundled registry. The render CLI
@@ -150,7 +160,7 @@ const ProgramVideo: React.FC<VideoProps> = ({
   return (
     <AbsoluteFill>
       {isWalkthrough
-        ? renderWalkthrough(spec, timeline.beats)
+        ? renderWalkthrough(spec, timeline.beats, actionWarpByBeat)
         : renderMarketing(spec, brand, timeline, cycleStepStartSeconds)}
       {captions.map((c, i) => (
         <Sequence key={i} from={c.startFrame} durationInFrames={c.endFrame - c.startFrame}>
@@ -247,7 +257,11 @@ function humanizeProgramName(name: string): string {
     .join(" ");
 }
 
-function renderWalkthrough(spec: ProgramSpec, beats: ResolvedBeat[]) {
+function renderWalkthrough(
+  spec: ProgramSpec,
+  beats: ResolvedBeat[],
+  actionWarpByBeat?: VideoProps["actionWarpByBeat"],
+) {
   const titleBeat = beats.find((b) => b.kind === "intro_title");
   const bodyBeats = beats.filter((b) => b.kind === "body_walkthrough");
   const outroBeat = beats.find((b) => b.kind === "outro_card");
@@ -267,7 +281,7 @@ function renderWalkthrough(spec: ProgramSpec, beats: ResolvedBeat[]) {
             bodyBeats[0].startFrame
           }
         >
-          <ProgramBody spec={spec} bodyBeats={bodyBeats} />
+          <ProgramBody spec={spec} bodyBeats={bodyBeats} actionWarpByBeat={actionWarpByBeat} />
         </Sequence>
       )}
       {outroBeat && (
