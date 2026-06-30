@@ -9,6 +9,7 @@ import { resolveRun, specPath, outputPath } from "../src/lib/runs.node";
 import { synthesize, synthesizePerBeat, readAlignment, wordStartSeconds, type PerBeatNarration } from "../src/lib/voiceover";
 import { estimateCaptionTimeline, captionsFromBeats } from "../src/lib/captions";
 import { planActionWarp, type RenderPiece } from "../src/lib/actionsync";
+import { evaluateTiming, type TimingBeatInput } from "../src/lib/timingeval";
 import { resolveAssetRefs, formatMissingError } from "../src/lib/asset-resolver.node";
 import {
   capBeatDuration,
@@ -430,6 +431,41 @@ async function main() {
   // programs/<slug>/runs/<runId>/output.mp4.
   const runDir = path.join(root, "programs", cli.program, "runs", runId);
   if (!fs.existsSync(runDir)) fs.mkdirSync(runDir, { recursive: true });
+
+  // --- DDD timing eval -----------------------------------------------------
+  // Deterministic field↔word sync verdict for THIS rendered walkthrough — the gap
+  // the screenshot-based concept/visual judge can't see (no audio, no video, no
+  // timing). Of the form fields the narration NAMES, how many land on their spoken
+  // word (warp anchors) vs drift (inversions). Writes verdict-timing.json next to
+  // output.mp4 (cf. docs/action-word-sync.md).
+  const timingBeats: TimingBeatInput[] = [];
+  for (const beat of timeline.beats) {
+    const wt = spec.walkthrough?.[beat.id];
+    if (!wt?.action_marks?.length) continue;
+    const pb = perBeat.find((p) => p.beatId === beat.id);
+    const alignment = pb ? readAlignment(pb.audioPath.replace(/\.mp3$/, ".json")) : null;
+    if (!alignment || !pb) continue;
+    const ends = alignment.character_end_times_seconds;
+    const voSec = ends[ends.length - 1] ?? probeAudioDurationSeconds(pb.audioPath);
+    timingBeats.push({
+      beatId: beat.id,
+      marks: wt.action_marks,
+      resolveWord: (w: string) => wordStartSeconds(alignment, w),
+      voSec,
+    });
+  }
+  if (timingBeats.length > 0) {
+    const timing = evaluateTiming(timingBeats);
+    fs.writeFileSync(path.join(runDir, "verdict-timing.json"), JSON.stringify(timing, null, 2));
+    const score = timing.overallScore == null ? "n/a" : `${timing.overallScore}/5`;
+    console.log(
+      `\nDDD timing eval: ${timing.verdict.toUpperCase()} (field-sync ${score}) — ` +
+        `${timing.syncedFields}/${timing.wordMatchableFields} narrated fields land on their word; ` +
+        `mean lag removed ${timing.meanLagRemovedS}s (worst ${timing.worstLagRemovedS}s).`,
+    );
+    for (const f of timing.findings.slice(0, 8)) console.log(`  · ${f}`);
+  }
+
   const intermediateDir = path.join(runDir, ".tmp");
   if (!fs.existsSync(intermediateDir)) fs.mkdirSync(intermediateDir, { recursive: true });
   void safeSha; // git sha is no longer in the filename — runId IS the identity

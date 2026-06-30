@@ -52,3 +52,16 @@ word, and piecewise time-warp the footage so each named field lands on its word.
   so this is a no-op there — and the problem scenes are `pace: teach`).
 
 Graceful degradation: zero resolved marks ⇒ no warp plan ⇒ today's playback.
+
+## Scoring the result — `verdict-timing.json`
+
+`render.ts` also emits a deterministic **field↔word sync verdict** next to
+`output.mp4` (`src/lib/timingeval.ts`, skill `canopy:ddd-timing-eval`). The DDD
+concept/visual judge scores per-scene screenshots and never sees the video or its
+audio, so VO↔UI timing is invisible to it; this fills that gap. Of the fields the
+narration NAMES, it reports how many land on their spoken word (anchors) vs drift
+(inversions), as `5 × coverage` with a `pass|warn|fail` verdict and the field↔word
+lag the warp removed. It does NOT score held-frame overrun (render already reports
+that; a teach hold under the voice is intentional). This is a render-path eval,
+parallel to the screenshot-judging loop — concept-eval asks "is the idea sound?",
+timing-eval asks "does the produced video's audio track its visuals?".
