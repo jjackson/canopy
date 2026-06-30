@@ -57,6 +57,7 @@ except Exception:  # pragma: no cover — recorder may run without the narrative
     ACTION_KINDS = (
         "goto", "click", "click_menu", "fill", "select", "type", "press",
         "hover", "scroll_to", "scroll", "wait_for", "hold", "draw", "map_click", "map_zoom", "capture",
+        "snapshot",
     )
 
 CURSOR_OVERLAY_JS = (Path(__file__).resolve().parent / "cursor_overlay.js").read_text()
@@ -984,6 +985,12 @@ def execute_action(
                 else:
                     error_kind = "capture_failed"
                     error_message = f"capture for ${{{captured_var}}} produced no value"
+        elif kind == "snapshot":
+            # Recorder-state, not a page interaction — the canonical scene frame
+            # is written by Recorder.run_scene (which holds the snapshot context).
+            # Reached here only for an ad-hoc execute_action call with no scene;
+            # treat as a successful no-op so it never reports unknown_kind.
+            pass
         else:
             ok = False
             error_kind = "unknown_kind"

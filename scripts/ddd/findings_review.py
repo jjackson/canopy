@@ -1,11 +1,12 @@
-"""Product-findings review gate for demo-driven-development (review_mode: human).
+"""Deep-linked findings review for demo-driven-development.
 
-After /canopy:ddd-run judges an iteration, findings are routed. In
-``review_mode: autonomous`` (the default) the orchestrator auto-applies
-PRODUCT findings whose ``fix_kind`` is ``mechanical``. In ``review_mode:
-human`` the user picks which PRODUCT findings to implement — and before this
-module existed, that meant a hand-written chat table with no way to see the
-evidence behind each finding without manually scrubbing the deck and video.
+DDD has ONE behavior (no `review_mode` — that field is deprecated/ignored): the
+loop auto-applies every finding it can act on itself (`fix_kind: mechanical`) and
+surfaces ONLY what it genuinely can't decide (`fix_kind: options`/`redesign`, plus
+the `concept_change`/`external_release` gates). This module IS that surfacing —
+the deep-linked review the loop posts when it hits something undecidable, so the
+human decides from evidence (a thumbnail + deck/video deep-links) instead of a
+hand-written chat table they'd have to scrub the deck and video to verify.
 
 This module formalizes that flow as a **first-class RUN-CHILD review** (gate
 ``product_findings``). It is NOT a narrative version: the posted request_json
