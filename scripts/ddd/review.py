@@ -21,7 +21,15 @@ from scripts.ddd.auth import (
     TOKEN_FILE,
     resolve_base_url as _resolve_base_url,
     resolve_token as _resolve_token,
+    resolve_ddd_workspace as _resolve_ws,
+    scoped_api_path as _scoped,
 )
+
+
+def _url(api: str, path: str, workspace: str | None = None) -> str:
+    """Full canopy-web URL, workspace-scoped when a DDD workspace is active
+    (``/api/reviews/`` → ``/api/w/<ws>/reviews/``)."""
+    return f"{api}{_scoped(path, _resolve_ws(workspace))}"
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +102,7 @@ def post_review_request(
         "request_json": review_request.model_dump(by_alias=True),
         "visibility": visibility,
     }
-    return _json_request("POST", f"{api}/api/reviews/", tok, payload)
+    return _json_request("POST", _url(api, "/api/reviews/"), tok, payload)
 
 
 def get_review(
@@ -109,7 +117,7 @@ def get_review(
     """
     api = _resolve_base_url(base_url)
     tok = _resolve_token(token)
-    return _json_request("GET", f"{api}/api/reviews/{review_id}/", tok)
+    return _json_request("GET", _url(api, f"/api/reviews/{review_id}/"), tok)
 
 
 def get_narrative(
@@ -129,7 +137,7 @@ def get_narrative(
     tok = _resolve_token(token)
     quoted = urllib.parse.quote(slug, safe="")
     try:
-        return _json_request("GET", f"{api}/api/ddd/narratives/{quoted}/", tok)
+        return _json_request("GET", _url(api, f"/api/ddd/narratives/{quoted}/"), tok)
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             return None
@@ -222,5 +230,5 @@ def resolve_review(
     api = _resolve_base_url(base_url)
     tok = _resolve_token(token)
     return _json_request(
-        "POST", f"{api}/api/reviews/{review_id}/submit/", tok, {"response_json": response_json}
+        "POST", _url(api, f"/api/reviews/{review_id}/submit/"), tok, {"response_json": response_json}
     )

@@ -28,6 +28,50 @@ def resolve_base_url(base_url: Optional[str]) -> str:
     return DEFAULT_API
 
 
+# Product apps that canopy-web scopes to a workspace. A path like
+# ``/api/walkthroughs/…`` is rewritten to ``/api/w/<ws>/walkthroughs/…`` when a
+# workspace is active; unscoped apps (insights, sessions, system, me, …) are
+# left alone. Mirrors WS_SCOPED_API_PREFIXES on the canopy-web frontend.
+SCOPED_APPS = ("projects", "walkthroughs", "reviews", "shareouts", "ddd", "timeline")
+
+
+def resolve_workspace(workspace: Optional[str]) -> Optional[str]:
+    """The active canopy-web workspace slug, or None (→ flat routes → the org
+    default). Precedence: explicit arg → env ``CANOPY_WEB_WORKSPACE`` → None.
+    The DDD layer adds a per-repo config source on top of this (see
+    ``scripts/ddd/auth.resolve_ddd_workspace``)."""
+    if workspace:
+        return workspace.strip() or None
+    from_env = os.environ.get("CANOPY_WEB_WORKSPACE", "").strip()
+    return from_env or None
+
+
+def scoped_api_path(path: str, workspace: Optional[str] = None) -> str:
+    """Rewrite a flat ``/api/<app>/…`` path to the tenant path
+    ``/api/w/<ws>/<app>/…`` when a workspace is active and ``<app>`` is scoped.
+    A no-op when there is no workspace, the path isn't under ``/api/``, or the
+    app isn't workspace-scoped."""
+    ws = resolve_workspace(workspace)
+    if not ws or not path.startswith("/api/"):
+        return path
+    rest = path[len("/api"):]  # "/walkthroughs/…"
+    app = rest.lstrip("/").split("/", 1)[0]
+    if app not in SCOPED_APPS:
+        return path
+    return f"/api/w/{ws}{rest}"
+
+
+def scoped_app_path(path: str, workspace: Optional[str] = None) -> str:
+    """Rewrite a flat browser route (e.g. ``/ddd/<slug>/<run>``) to its tenant
+    form ``/w/<ws>/ddd/<slug>/<run>`` when a workspace is active — so package /
+    landing links a human clicks open in the right workspace. No-op when there
+    is no workspace."""
+    ws = resolve_workspace(workspace)
+    if not ws or not path.startswith("/"):
+        return path
+    return f"/w/{ws}{path}"
+
+
 def resolve_token(token: Optional[str]) -> str:
     if token:
         return token
@@ -55,9 +99,11 @@ def urllib_transport(method: str, url: str, headers: dict, body: Optional[bytes]
 
 def call(method: str, path: str, body=None, *,
          base_url: Optional[str] = None, token: Optional[str] = None,
+         workspace: Optional[str] = None,
          transport: Optional[Transport] = None) -> dict:
     base = resolve_base_url(base_url)
     tok = resolve_token(token)
+    path = scoped_api_path(path, workspace)  # → /api/w/<ws>/… when a workspace is active
     transport = transport or urllib_transport
     headers = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}
     data = json.dumps(body).encode("utf-8") if body is not None else None

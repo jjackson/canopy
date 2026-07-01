@@ -9,6 +9,22 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.245] - 2026-07-01
+
+### Added
+- **DDD runs can target a specific canopy-web workspace.** With canopy-web now
+  multi-tenant, DDD artifacts (walkthroughs, reviews, run packages) previously
+  always landed in the org default workspace (`dimagi`). A run can now be pinned
+  to a workspace: the DDD write/read URLs become `/api/w/<ws>/…` and the human-
+  facing package/landing links become `/w/<ws>/ddd/…`. Resolution precedence:
+  explicit arg → env `CANOPY_WEB_WORKSPACE` → per-repo `.canopy/ddd/config.yaml`
+  (`workspace:` key) → none (unchanged flat behavior → org default). So e.g. the
+  Connect repo commits `.canopy/ddd/config.yaml` with `workspace: connect` and
+  its DDD runs publish into the `connect` workspace. Implemented as a chokepoint
+  in `orchestrator.canopy_web` (`resolve_workspace`, `scoped_api_path`,
+  `scoped_app_path`) + `scripts/ddd/auth.resolve_ddd_workspace`, applied in
+  `scripts/ddd/review.py` and `upload.py`.
+
 ## [0.2.240] - 2026-06-30
 
 ### Fixed
