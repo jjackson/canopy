@@ -1,5 +1,5 @@
 # Concept-eval rubric for ddd-concept-eval (SP3.1)
-# Six weighted dimensions; weights sum to 1.0.
+# Seven weighted dimensions; weights sum to 1.0.
 # overall_rule: lowest  (weakest-link scoring — one bad dim fails the eval)
 #   NOTE: overall_rule applies to NON-ADVISORY dimensions only.
 #   claim_reality_coherence has advisory: true and is EXCLUDED from the
@@ -94,7 +94,7 @@ design_findings_output:
 dimensions:
   - id: concept_clarity
     label: "Concept Clarity"
-    weight: 0.20
+    weight: 0.15
     default_score: 3
     anchor:
       "5": "A smart outsider watching the walkthrough for the first time can state in one sentence what the product does and why it matters — without any verbal caveats from the presenter."
@@ -105,6 +105,36 @@ dimensions:
     deduction_rules:
       - "No scene names a concrete user or role the product serves: max 3"
       - "Opening scene fails to establish the problem being solved: max 2"
+
+  - id: use_case_soundness
+    label: "Use-Case Soundness (Is this worth demonstrating?)"
+    weight: 0.15
+    default_score: 3
+    # SCOPE: is the demonstrated USE of the feature substantive and load-bearing,
+    # or trivial/toy? This is the "skeptical buyer" test and is DISTINCT from
+    # every other dimension: a demo can be perfectly CLEAR (concept_clarity),
+    # interaction-COHERENT (design_soundness), and faithfully GROUNDED in its own
+    # why-brief (why_groundedness) while still showing the feature doing something
+    # that doesn't matter. why_groundedness checks the claim traces to the
+    # why-brief; it does NOT ask whether the use case itself is worth the feature.
+    # This dimension asks exactly that — and it is judged on EVERY render, not
+    # just at the narrative gate, so an accepted-but-thin narrative still gets
+    # caught rather than silently polished. Score against the WHOLE walkthrough
+    # (the story), not per-scene chrome.
+    anchor:
+      "5": "The walkthrough shows the feature doing load-bearing work on a task that obviously matters — a skeptical buyer sees real, non-trivial value the product uniquely provides."
+      "4": "A sound, credible use of the feature; it does meaningful work, though the stakes or scale shown are modest."
+      "3": "Plausible but underwhelming — the use is real but small; a skeptic could reasonably ask 'is that all it does?' (DEFAULT)"
+      "2": "The demonstrated use is trivial or contrived — the feature is exercised on an input too small to warrant it, or on a task a user wouldn't actually need it for (e.g. an AI coach invoked on a one-line answer)."
+      "1": "A toy demo — the shown use actively makes the feature look pointless; a buyer would conclude it solves nothing real."
+    deduction_rules:
+      - "The feature operates on an input too trivial to warrant it (e.g. AI assistance on a single short field, an analysis over one/two data points): max 2"
+      - "The exact task shown would be as easy or easier WITHOUT the feature: max 2"
+      - "The walkthrough never shows the feature at the scale/complexity where its value would actually be felt: max 3"
+    # ROUTING: a use_case_soundness finding is ALWAYS route=CONCEPT, fix_kind=redesign
+    # — fixing a thin use case means changing WHAT is demonstrated (the narrative),
+    # not polishing pixels. That routes to the concept_change gate, which re-opens
+    # even a LOCKED narrative for redraft. Never PRODUCT, never mechanical.
 
   - id: design_soundness
     label: "Design Soundness (Interaction Coherence)"
@@ -133,7 +163,7 @@ dimensions:
 
   - id: visual_polish
     label: "Visual Polish"
-    weight: 0.15
+    weight: 0.12
     default_score: 3
     # SCOPE: does the demo present a POLISHED PRODUCT — judged as the product's
     # real user sees it in a normal viewport. Alignment, typographic hierarchy,
@@ -186,7 +216,7 @@ dimensions:
 
   - id: why_groundedness
     label: "Why Groundedness"
-    weight: 0.20
+    weight: 0.15
     default_score: 3
     anchor:
       "5": "Every scene's concept_claim traces directly to a named why_brief spine item with matching rationale and non-assumed evidence. The provenance chain is unbroken from claim to evidence."
@@ -220,7 +250,7 @@ dimensions:
 
   - id: motion_friction
     label: "Motion Friction"
-    weight: 0.15
+    weight: 0.13
     default_score: 3
     # Weight trimmed from 0.20 → 0.15 in v0.2.153 to make room for visual_polish.
     #
