@@ -36,10 +36,13 @@ uv run canopy create-agent <slug> \
   --stakeholders "<who it serves>" \
   --into <path>            # default: ./<slug>
 ```
-This writes ~12 files: `persona.md`, `CLAUDE.md`, the `turn` + `self-review` skills,
-`config/gating.json` + `hooks/gating_guard.py` (the reads-free / writes-gated engine),
-`.claude/settings.json` (wires the hook), `.env.tpl`, `config/allowlist.txt`, and the plugin
-manifest. Report the path and file count back.
+This writes ~15 files: `persona.md`, `CLAUDE.md`, the `turn` + `self-review` skills,
+`config/gating.json` + `hooks/gating_guard.py` (the reads-free / writes-gated engine, shipped
+deny-rails-only with an empty `approve` list), `.claude/settings.json` (wires the hook),
+`bin/<slug>-email` (thin shim over the shared `canopy email` engine; raw `gog gmail send` is
+deny-railed out of the box), `config/agent.json` (identity: mailbox + `gog_client`),
+`config/secrets.yaml`, `config/allowlist.txt`, and the plugin manifest. Report the path and
+file count back.
 
 ## Step 3 — Make it real (the part the factory can't do)
 The scaffold is a skeleton. Walk the human through filling it in, in this order:
@@ -47,12 +50,17 @@ The scaffold is a skeleton. Walk the human through filling it in, in this order:
    (per-counterpart facts only — behaviors become skills, not memories).
 2. **First domain skill** — add `skills/<name>/SKILL.md` for the agent's actual job. Capability
    logic goes in a CLI/MCP tool; the skill orchestrates (keeps it portable).
-3. **Gating rules** — for EVERY outbound action the agent will take (send on a channel, public
-   write), add an `approve` (human-gated) or `deny` (hard-blocked) rule to `config/gating.json`.
-   **This is how you "force" the guardrail** — do not rely on prose in `CLAUDE.md`. Test a rule by
-   piping a PreToolUse payload to `hooks/gating_guard.py` (see the generated hook's docstring).
-4. **Channel + setup** — wire the first channel adapter (email is the reference; see echo's
-   `email-communicator`) and a `setup`/`preflight` that provisions secrets from 1Password.
+3. **Gating rules — rails, not gates** (operating model §1a revision): for EVERY outbound
+   action the agent will take (send on a channel, public write), add a `deny` rail to
+   `config/gating.json` that blocks the wrong path and NAMES the sanctioned one. Keep
+   `approve` empty — a PreToolUse "ask" is a blocking modal that stalls autonomous work;
+   approval lives procedurally in the turn checklist. **This is how you "force" the
+   guardrail** — do not rely on prose in `CLAUDE.md`. Test a rule by piping a PreToolUse
+   payload to `hooks/gating_guard.py` (see the generated hook's docstring).
+4. **Channel + setup** — email is already wired: mint the agent's own mailbox + gog OAuth
+   client (named `<slug>`), `gog login <mailbox> --client <slug> --services gmail,drive,docs,sheets,forms`,
+   verify with `canopy email preflight --repo .`, send via `bin/<slug>-email`. Then declare
+   secrets in `config/secrets.yaml` and run `canopy provision`.
 
 ## Step 4 — Register & ship
 - It's a Claude Code plugin: register it so the Skill tool can dispatch its skills (stronger than
