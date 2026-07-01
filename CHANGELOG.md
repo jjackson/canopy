@@ -9,6 +9,26 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.246] - 2026-07-01
+
+### Added
+- **Shared GOG email + Google Workspace capability design**
+  (`docs/architecture/shared-gog-gdrive.md`). Decision-grade design for making the
+  fleet's two universal needs — gog email and Drive/Docs/Sheets/Slides — canopy-provided
+  engines with per-agent carve-outs (mailbox + gog client, allowlist tiers, SA-vs-gog
+  identity mode, drive scoping). Names ACE's production `ace-gdrive` server as the
+  extraction source (`gws-mcp`) and the echo/ACE HTML send wrapper as the `canopy email`
+  adapter engine; generalizes ACE's derived correspond-tier allowlist as the fleet's
+  internal+external counterpart model.
+
+### Changed
+- **Fleet gating default revised: rails, not approval gates** (Jon, 2026-07-01).
+  `docs/agent-operating-model.md` §1a now records that approve/ask hook rules (the hal
+  experiment) stall autonomous work; hooks carry deny rails only, and approval semantics
+  live in the procedural layer (turn checklist approval step, ACE's pause-point state
+  model). The create-agent factory's templated gating config should default `approve`
+  to empty (tracked in issues).
+
 ## [0.2.245] - 2026-07-01
 
 ### Added
