@@ -452,7 +452,12 @@ def build_evidence(
     return out
 
 
-_W_PAGE_RE = re.compile(r"^(?P<base>https?://[^/]+)/w/(?P<wid>[0-9a-fA-F-]{36})")
+# ``base`` captures the host AND any deployment sub-path (e.g. ``/canopy`` on
+# labs.connect.dimagi.com/canopy) so the derived ``/w/<id>/content`` URL keeps
+# the prefix — otherwise the clip stream 404s and the review drops clip_url.
+_W_PAGE_RE = re.compile(
+    r"^(?P<base>https?://[^/]+(?:/[^/]+)*?)/w/(?P<wid>[0-9a-fA-F-]{36})"
+)
 
 
 def _clip_content_url(clip_url: str | None) -> str | None:
