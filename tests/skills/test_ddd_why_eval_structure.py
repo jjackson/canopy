@@ -100,3 +100,46 @@ def test_command_has_description() -> None:
 def test_command_has_allowed_tools() -> None:
     content = (COMMANDS / "ddd-why-eval.md").read_text()
     assert "allowed-tools" in content
+
+
+# ---------------------------------------------------------------------------
+# canopy#265 items 1+3 — unified verdict metadata + out-of-chain anchoring
+# ---------------------------------------------------------------------------
+
+
+def test_skill_writes_verdict_why_yaml() -> None:
+    """Filename follows the verdict-<kind>.yaml convention (canopy#265 item 1)."""
+    content = (SKILL_DIR / "SKILL.md").read_text()
+    assert "verdict-why.yaml" in content
+    assert "why_eval.yaml" not in content, (
+        "legacy filename why_eval.yaml still referenced — the artifact is "
+        "verdict-why.yaml now"
+    )
+
+
+def test_skill_verdict_carries_out_of_chain_metadata() -> None:
+    """The emitted verdict must self-describe as out-of-chain (canopy#265 item 3):
+    why-eval grades AI text against AI text, so live_state_verified is false and
+    the schema caps its emittable overall_score."""
+    content = (SKILL_DIR / "SKILL.md").read_text()
+    assert "kind: why" in content
+    assert "gate: advisory" in content
+    assert "live_state_verified: false" in content
+    assert "calibration: provisional" in content
+
+
+def test_skill_anchors_evidence_sufficiency_to_inventory() -> None:
+    """evidence_sufficiency must count only probe-verified evidence from the
+    evidence inventory (evidence.json), not the why-brief's own status field."""
+    content = (SKILL_DIR / "SKILL.md").read_text()
+    assert "evidence.json" in content
+
+
+def test_rubric_evidence_sufficiency_requires_inventory() -> None:
+    rubric = yaml.safe_load(RUBRIC_PATH.read_text())
+    dim = next(d for d in rubric["dimensions"] if d["id"] == "evidence_sufficiency")
+    rules = " ".join(dim.get("deduction_rules", []))
+    assert "evidence inventory" in rules.lower(), (
+        "evidence_sufficiency must carry a deduction rule capping the score "
+        "when no probe-verified evidence inventory is provided"
+    )

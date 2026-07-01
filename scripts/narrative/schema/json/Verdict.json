@@ -25,6 +25,55 @@
       "title": "Schema Version",
       "type": "integer"
     },
+    "kind": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Kind"
+    },
+    "gate": {
+      "default": "gating",
+      "enum": [
+        "gating",
+        "advisory"
+      ],
+      "title": "Gate",
+      "type": "string"
+    },
+    "live_state_verified": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Live State Verified"
+    },
+    "calibration": {
+      "anyOf": [
+        {
+          "enum": [
+            "calibrated",
+            "provisional"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Calibration"
+    },
     "dimensions": {
       "additionalProperties": {
         "$ref": "#/$defs/Dimension"
@@ -35,6 +84,18 @@
     "overall_score": {
       "title": "Overall Score",
       "type": "number"
+    },
+    "uncapped_overall_score": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Uncapped Overall Score"
     },
     "verdict": {
       "enum": [

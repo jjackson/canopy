@@ -400,3 +400,50 @@ def test_review_request_narration_can_hold_narration_items():
     assert len(dumped["narration"]) == 1
     assert dumped["narration"][0]["id"] == "area-selection"
     assert len(dumped["narration"][0]["features"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# canopy#265 items 1+3 — unified verdict metadata + out-of-chain score cap
+# ---------------------------------------------------------------------------
+
+
+class TestVerdictOutOfChainCap:
+    def _verdict(self, overall, **kw):
+        from scripts.ddd.schemas.models import Dimension, Verdict
+
+        return Verdict(
+            dimensions={"d": Dimension(score=overall, weight=1.0)},
+            overall_score=overall,
+            verdict="pass",
+            **kw,
+        )
+
+    def test_metadata_fields_default(self):
+        v = self._verdict(4.0)
+        assert v.kind is None
+        assert v.gate == "gating"
+        assert v.live_state_verified is None
+        assert v.calibration is None
+
+    def test_unverified_verdict_score_is_capped(self):
+        # ACE's out-of-chain fitness law: an eval whose grading anchor never
+        # touches live state cannot claim excellence. live_state_verified=False
+        # caps the emittable overall_score at LIVE_STATE_UNVERIFIED_CAP.
+        v = self._verdict(4.8, live_state_verified=False)
+        assert v.overall_score == 4.0
+        assert v.uncapped_overall_score == 4.8
+
+    def test_verified_verdict_score_is_not_capped(self):
+        v = self._verdict(4.8, live_state_verified=True)
+        assert v.overall_score == 4.8
+        assert v.uncapped_overall_score is None
+
+    def test_unknown_verification_is_not_capped(self):
+        # back-compat: verdicts emitted before the field existed load unchanged
+        v = self._verdict(4.8)
+        assert v.overall_score == 4.8
+
+    def test_unverified_below_cap_untouched(self):
+        v = self._verdict(3.5, live_state_verified=False)
+        assert v.overall_score == 3.5
+        assert v.uncapped_overall_score is None

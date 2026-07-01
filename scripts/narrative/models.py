@@ -17,7 +17,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -711,13 +711,53 @@ class Dimension(BaseModel):
     weight: float
 
 
+# Out-of-chain fitness law (canopy#265 item 3, adopted from ACE's _eval-template):
+# inflation risk is proportional to how close the grading anchor sits to the AI
+# authoring chain. An eval that never touched live state (AI text graded against
+# AI text) may pass, but can never claim excellence — its emittable overall_score
+# is capped here, at the schema layer, so prompt drift can't erode the rule.
+LIVE_STATE_UNVERIFIED_CAP: float = 4.0
+
+
 class Verdict(BaseModel):
     schema_version: int = 1
+    kind: str | None = None
+    """Verdict family (concept | user_artifact | why | actionability | timing |
+    video | ...). One unified shape for every judge (canopy#265 item 1) — the
+    aggregator and convergence are generic over kinds, so adding a judge is data,
+    not assembler code. ``scripts.ddd.verdicts.load_verdict`` stamps this (and the
+    two fields below) from KIND_DEFAULTS when the emitter didn't."""
+    gate: Literal["gating", "advisory"] = "gating"
+    """Whether this verdict participates in render-loop CONVERGENCE scoring.
+    ``advisory`` verdicts are recorded and reported but a low score never blocks
+    convergence (e.g. timing/video/why/actionability). Phase gates (why-eval's
+    pass-to-proceed) are a separate mechanism — this field is convergence-only."""
+    live_state_verified: bool | None = None
+    """Whether the grading anchor touched live state (rendered screenshots, the
+    produced mp4, a probed repo) rather than AI-authored text. ``False`` caps
+    overall_score at LIVE_STATE_UNVERIFIED_CAP and disqualifies the verdict from
+    convergence gating. ``None`` = legacy/unknown (uncapped, for back-compat)."""
+    calibration: Literal["calibrated", "provisional"] | None = None
+    """Recorded rubric-calibration status (ACE's discipline): ``provisional``
+    until the rubric passes a defect-fixture calibration run. ``None`` = the
+    emitter predates the field."""
     dimensions: dict[str, Dimension]
     overall_score: float
+    uncapped_overall_score: float | None = None
+    """The pre-cap overall_score, recorded when the out-of-chain cap fired."""
     verdict: Literal["pass", "warn", "fail", "blocked"]
     blocking_reason: str | None = None
     fix_recommendation: str | None = None
+
+    @model_validator(mode="after")
+    def _cap_unverified_score(self) -> "Verdict":
+        if (
+            self.live_state_verified is False
+            and self.overall_score > LIVE_STATE_UNVERIFIED_CAP
+        ):
+            self.uncapped_overall_score = self.overall_score
+            self.overall_score = LIVE_STATE_UNVERIFIED_CAP
+        return self
 
 
 class Decision(BaseModel):

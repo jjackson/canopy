@@ -685,6 +685,7 @@
                 "scroll": "#/$defs/ScrollAction",
                 "scroll_to": "#/$defs/ScrollToAction",
                 "select": "#/$defs/SelectAction",
+                "snapshot": "#/$defs/SnapshotAction",
                 "type": "#/$defs/TypeAction",
                 "wait_for": "#/$defs/WaitForAction"
               },
@@ -738,6 +739,9 @@
               },
               {
                 "$ref": "#/$defs/CaptureAction"
+              },
+              {
+                "$ref": "#/$defs/SnapshotAction"
               }
             ]
           },
@@ -972,6 +976,39 @@
         "command"
       ],
       "title": "SetupBlock",
+      "type": "object"
+    },
+    "SnapshotAction": {
+      "additionalProperties": false,
+      "description": "Write the canonical ``scene_<N>.png`` NOW \u2014 a chosen mid-scene frame.\n\n``scene_<N>.png`` is normally the scene's END frame, and a ``goto`` is\nhoisted to scene-init, so a moment the scene then dismisses (e.g. an\nAI-result panel before the firm submits) can't otherwise be the judged\nstill without splitting the scene (which breaks the flow). Place this action\nat the moment you want captured \u2014 frame it with the preceding\n``wait_for``/``scroll_to`` and usually set the scene ``full_page: false`` so\nthe capture is the current viewport. The end-of-scene snapshot is then\nsuppressed for this scene.",
+      "properties": {
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "must_succeed": {
+          "default": false,
+          "title": "Must Succeed",
+          "type": "boolean"
+        },
+        "kind": {
+          "const": "snapshot",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "SnapshotAction",
       "type": "object"
     },
     "TypeAction": {

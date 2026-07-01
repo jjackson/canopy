@@ -48,6 +48,7 @@ def assemble_run_state(
     concept_path: str = "verdict-concept.yaml",
     user_path: str = "verdict-user.yaml",
     manifest: dict | None = None,
+    extra_verdict_paths: dict[str, str] | None = None,
 ) -> RunState:
     """Assemble both verdict paths and merged findings into *state*.
 
@@ -77,6 +78,12 @@ def assemble_run_state(
         render engine is the single source of truth for which scenes were
         rendered, so the upload's partial-run guard reads what the engine
         actually emitted. When ``None``, those fields are left untouched.
+    extra_verdict_paths:
+        Optional additional verdict artifacts to record, keyed by verdict kind
+        (e.g. ``{"timing": "verdict-timing.json", "why": "verdict-why.yaml"}``).
+        Recorded alongside the gating pair in ``state.verdicts`` — the assembler
+        is generic over kinds (canopy#265 item 1). The ``concept`` /
+        ``user_artifact`` keys cannot be shadowed.
 
     Returns
     -------
@@ -84,6 +91,7 @@ def assemble_run_state(
         The mutated *state* (same object).
     """
     state.verdicts = {
+        **(extra_verdict_paths or {}),
         "concept": concept_path,
         "user_artifact": user_path,
     }
@@ -100,23 +108,56 @@ def assemble_run_state(
 # ---------------------------------------------------------------------------
 
 
+def compute_convergence_all(
+    verdicts: dict[str, Verdict],
+    *,
+    threshold: float = 4.0,
+) -> bool:
+    """Generic convergence over N verdicts (canopy#265 item 1).
+
+    Only verdicts with ``gate == "gating"`` participate; ``advisory`` verdicts
+    (timing, video, why, actionability) are recorded and reported but a low
+    score never blocks convergence. Every gating verdict must:
+
+    1. have ``overall_score >= threshold``
+    2. not be ``blocked``
+    3. not carry ``live_state_verified is False`` — an eval whose grading anchor
+       never touched live state cannot converge a run, whatever its score says
+       (the out-of-chain fitness law, canopy#265 item 3). ``None`` (legacy
+       emitters, unknown) is allowed for back-compat.
+
+    Returns False when no gating verdict is present at all — convergence must be
+    demonstrated, not defaulted.
+
+    The weakest-link rule (embedded in each judge) means overall_score already
+    reflects the lowest gating dimension, so checking overall_score is
+    sufficient — no need to re-inspect individual dimensions here.
+    """
+    gating = {k: v for k, v in verdicts.items() if v.gate == "gating"}
+    if not gating:
+        return False
+    for v in gating.values():
+        if v.verdict == "blocked":
+            return False
+        if v.live_state_verified is False:
+            return False
+        if v.overall_score < threshold:
+            return False
+    return True
+
+
 def compute_convergence(
     concept_verdict: Verdict,
     user_verdict: Verdict,
     *,
     threshold: float = 4.0,
+    extra: dict[str, Verdict] | None = None,
 ) -> bool:
-    """Return True iff BOTH verdicts satisfy the convergence criteria.
+    """Return True iff the run's verdicts satisfy the convergence criteria.
 
-    Convergence requires ALL of the following to hold:
-    1. concept_verdict.overall_score >= threshold
-    2. user_verdict.overall_score >= threshold
-    3. concept_verdict.verdict != "blocked"
-    4. user_verdict.verdict != "blocked"
-
-    The weakest-link rule (embedded in each judge) means overall_score already
-    reflects the lowest gating dimension, so checking overall_score is
-    sufficient — no need to re-inspect individual dimensions here.
+    The documented two-verdict entry point — delegates to
+    ``compute_convergence_all`` over the gating pair plus any ``extra`` verdicts
+    (whose ``gate`` field decides whether they participate).
 
     claim_reality_coherence is advisory and excluded upstream from the judge's
     overall_score, so it does not appear here.
@@ -128,20 +169,24 @@ def compute_convergence(
     user_verdict:
         Verdict from the user-artifact judge.
     threshold:
-        Minimum overall_score required for both verdicts.  Default: 4.0.
+        Minimum overall_score required for every gating verdict.  Default: 4.0.
+    extra:
+        Optional additional verdicts by kind (e.g. from
+        ``scripts.ddd.verdicts.load_verdict``).
 
     Returns
     -------
     bool
         True iff convergence criteria are satisfied; False otherwise.
     """
-    if concept_verdict.verdict == "blocked" or user_verdict.verdict == "blocked":
-        return False
-    if concept_verdict.overall_score < threshold:
-        return False
-    if user_verdict.overall_score < threshold:
-        return False
-    return True
+    return compute_convergence_all(
+        {
+            **(extra or {}),
+            "concept": concept_verdict,
+            "user_artifact": user_verdict,
+        },
+        threshold=threshold,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -31,7 +31,11 @@ narratively strong.
 ## Inputs
 
 - **`why_brief_path`** — path to `why_brief.yaml`.
-- **`evidence_inventory_path`** — path to `evidence-inventory.md` (same run dir, optional but improves scoring quality).
+- **`evidence_inventory_path`** — path to `evidence-inventory.md` and/or
+  `evidence.json` (same run dir, produced by ddd-evidence-audit). Optional, but
+  it is the eval's ONLY out-of-chain anchor: without it, `evidence_sufficiency`
+  is capped at 3 (see Step 4) because the why-brief's own evidence-status claims
+  are AI-authored text — the inflation zone.
 
 ## Procedure
 
@@ -70,7 +74,8 @@ Read the file at that path.
 
 ### Step 2 — Read artifacts
 
-Read `why_brief_path` and, if provided, `evidence_inventory_path`.  Hold both in context.
+Read `why_brief_path` and, if provided, `evidence_inventory_path` (prefer the
+machine-readable `evidence.json` next to it when present).  Hold both in context.
 
 ### Step 3 — Adversarial pass (mandatory before scoring)
 
@@ -91,6 +96,13 @@ For each dimension in the rubric, score it 1–5 starting from `default_score: 3
 - For every score ≥ 4: write a one-sentence justification a skeptical stranger would accept.
 - For every score ≤ 2: write a one-sentence reason citing a specific observable problem.
 
+**Out-of-chain anchoring for `evidence_sufficiency`** (canopy#265 item 3): an
+evidence item counts as real (non-assumed) ONLY when the run's evidence
+inventory — `evidence.json`, produced by ddd-evidence-audit's probes —
+classifies it `documented` or `implemented`. The why-brief's own evidence
+`status` field is NOT authoritative (it is AI text grading AI text). If no
+evidence inventory was provided, `evidence_sufficiency` is capped at 3.
+
 Compute `overall_score` via `overall_rule: lowest` (minimum dimension score).
 
 ### Step 5 — Compute verdict
@@ -106,10 +118,15 @@ the why-brief passed QA, so blocked should not occur in normal operation.
 
 ### Step 6 — Write verdict
 
-Write `<run_dir>/why_eval.yaml`:
+Write `<run_dir>/verdict-why.yaml` (the unified `verdict-<kind>.yaml` naming —
+canopy#265 item 1):
 
 ```yaml
 schema_version: 1
+kind: why
+gate: advisory            # records + reports; never gates render convergence
+live_state_verified: false  # grades AI text against AI text — the schema caps overall_score at 4
+calibration: provisional  # rubric not yet calibrated against defect fixtures
 rubric_name: ddd-why-brief
 ran_at: <ISO timestamp>
 why_brief_path: <input path>
@@ -162,7 +179,7 @@ Why-Brief Eval — <feature_name>
 
   Verdict: PASS | WARN | FAIL
 
-  Output: <run_dir>/why_eval.yaml
+  Output: <run_dir>/verdict-why.yaml
 ```
 
 If verdict is `warn` or `fail`, print the `fix_recommendation`.

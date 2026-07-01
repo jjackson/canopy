@@ -214,3 +214,43 @@ def test_new_run_with_explicit_ddd_dir(tmp_path, monkeypatch):
     ddd.mkdir()
     run_id = rs.new_run("feat", ddd_dir=ddd)
     assert (ddd / "runs" / run_id / "run_state.yaml").exists()
+
+
+# ---------------------------------------------------------------------------
+# canopy#265 item 4 — save() validates before writing (write-back contract)
+# ---------------------------------------------------------------------------
+
+def test_save_rejects_invalid_state(tmp_path, monkeypatch):
+    """An in-place mutation that breaks the schema must not reach disk.
+
+    Pydantic v2 does not validate on assignment, so orchestrator code can set
+    e.g. state.phase to a value outside the Literal and save() would happily
+    persist a run_state.yaml that the next load() rejects — status lies and
+    resume breaks (ACE learned this via dimagi-internal/ace#572)."""
+    _patch_ddd_dir(monkeypatch, tmp_path)
+
+    from pydantic import ValidationError
+
+    from scripts.ddd.runstate import load, new_run, save
+
+    run_id = new_run("write-back")
+    state = load(run_id)
+    state.phase = "not-a-real-phase"  # type: ignore[assignment]
+
+    with pytest.raises(ValidationError):
+        save(state)
+
+    # the on-disk file must be untouched (still loads, still phase0)
+    assert load(run_id).phase == "phase0"
+
+
+def test_save_still_persists_valid_mutations(tmp_path, monkeypatch):
+    _patch_ddd_dir(monkeypatch, tmp_path)
+
+    from scripts.ddd.runstate import load, new_run, save
+
+    run_id = new_run("write-back-ok")
+    state = load(run_id)
+    state.phase = "judged"
+    save(state)
+    assert load(run_id).phase == "judged"
