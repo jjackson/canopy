@@ -100,6 +100,29 @@ the persona *doing* something — "The page shows…" instead of "David clicks�
 and only then post. The persona is the named subject of each beat; the story is
 about the user, not the UI.
 
+### Step 1c — Use-case soundness check (do this BEFORE posting)
+
+The cheapest place to kill a trivial use case is here, before anything is built or
+rendered. Ask the **skeptical-buyer question** of the narrative as a whole:
+
+> *Does this walkthrough show the feature doing load-bearing work on a task that
+> obviously matters — or is it exercising the feature on something trivial, where a
+> buyer would think "so what"?*
+
+Concrete tells to catch (any → recommend REDRAFT, don't just post): the feature is
+invoked on an input too small to warrant it (AI assistance on a single short field;
+an analysis over one or two data points); the exact task shown would be as easy
+WITHOUT the feature; or the demo never reaches the scale/complexity where the
+feature's value is actually felt. If you spot one, propose the redraft direction in
+the review ("invoke the coach on a full multi-question application, not a one-line
+answer") rather than locking a thin story.
+
+This is the SAME judgment the concept-eval's `use_case_soundness` dimension makes on
+every render (routing a thin use case to `concept_change`, which can re-open even a
+locked narrative) — this gate is just the earliest, cheapest catch. A narrative
+being approved here does NOT immunize it: if it still reads as trivial once rendered,
+the loop will surface it again as a redraft decision.
+
 ### Step 2 — Post the narrative for review
 
 Pass the spec path as an absolute path resolved before the `cd`:
