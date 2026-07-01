@@ -30,8 +30,24 @@ class TestSaveAndLoad:
         path = save_run(run, tmp_path)
         assert "run-" in path.name
 
+class TestLoadRunResilience:
+    def test_malformed_yaml_returns_none_not_raises(self, tmp_path):
+        # A single corrupt run file must not brick callers (e.g. `canopy brief`).
+        bad = tmp_path / "run-2026-04-20T17-00-00.yaml"
+        bad.write_text("started: ok\nnotes: unterminated\n  bad: : indent\n")
+        assert load_run(bad) is None
+
+    def test_missing_file_returns_none(self, tmp_path):
+        assert load_run(tmp_path / "does-not-exist.yaml") is None
+
+
 class TestGetLastRunTs:
     def test_no_runs_returns_none(self, tmp_path):
+        assert get_last_run_ts(tmp_path) is None
+
+    def test_corrupt_latest_run_does_not_crash(self, tmp_path):
+        # Latest file is corrupt -> degrade to None instead of AttributeError.
+        (tmp_path / "run-2026-04-20T17-00-00.yaml").write_text("a: b: c: broken\n")
         assert get_last_run_ts(tmp_path) is None
 
     def test_returns_latest_started_ts(self, tmp_path):

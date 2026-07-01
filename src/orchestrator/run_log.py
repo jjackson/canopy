@@ -1,4 +1,5 @@
 """Write and read improvement cycle run logs."""
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -32,10 +33,21 @@ def save_run(run: dict, runs_dir: Path) -> Path:
     return path
 
 
-def load_run(path: Path) -> dict:
-    """Load a run entry from a YAML file."""
-    with open(path) as f:
-        return yaml.safe_load(f)
+def load_run(path: Path) -> dict | None:
+    """Load a run entry from a YAML file.
+
+    Returns None (never raises) when the file is missing or malformed, so a
+    single corrupt run log can't brick callers that scan the runs dir
+    (e.g. `canopy brief`, digest, get_last_run_ts). Callers already guard
+    with `if run:`.
+    """
+    try:
+        with open(path) as f:
+            loaded = yaml.safe_load(f)
+    except (OSError, yaml.YAMLError) as e:
+        print(f"warning: skipping unreadable run log {path}: {e}", file=sys.stderr)
+        return None
+    return loaded if isinstance(loaded, dict) else None
 
 
 def get_last_run_ts(runs_dir: Path) -> str | None:
@@ -46,4 +58,4 @@ def get_last_run_ts(runs_dir: Path) -> str | None:
     if not runs:
         return None
     last = load_run(runs[-1])
-    return last.get("started")
+    return last.get("started") if last else None
