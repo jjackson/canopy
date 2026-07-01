@@ -61,7 +61,7 @@ not to bash functions you define and call yourself.)
 ```bash
 TOKEN_FILE=~/.claude/canopy/workbench-token
 test -s "$TOKEN_FILE" || { echo "ERROR: $TOKEN_FILE missing or empty"; exit 1; }
-CANOPY_WEB="${CANOPY_WEB_API_URL:-https://canopy-web-ujpz2cuyxq-uc.a.run.app}"
+CANOPY_WEB="${CANOPY_WEB_API_URL:-https://labs.connect.dimagi.com/canopy}"
 curl -s -o /dev/null -w "%{http_code}\n" "$CANOPY_WEB/health/" --max-time 8
 ```
 

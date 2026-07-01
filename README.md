@@ -90,7 +90,7 @@ Start with `canopy improve --dry-run` until you trust the proposals, then run th
 full cycle — it's gated by a circuit breaker and rate limiter, so it won't run away.
 
 Canopy also publishes insights, portfolio guidance, shareouts, and DDD run
-packages to **canopy-web**: https://canopy-web-ujpz2cuyxq-uc.a.run.app
+packages to **canopy-web**: https://labs.connect.dimagi.com/canopy
 
 The rest of the surface — `observations`, `registry`, `skills budget`/`dropped`,
 `structure-drift`, `version`, `test-audit` — is grouped under

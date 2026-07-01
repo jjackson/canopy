@@ -25,8 +25,8 @@ back to the actual human.
 
 ## Prerequisites
 
-- A reachable canopy-web at `$CANOPY_WEB_BASE` (default
-  `https://canopy-web-ujpz2cuyxq-uc.a.run.app`)
+- A reachable canopy-web at `$CANOPY_WEB_API_URL` (default
+  `https://labs.connect.dimagi.com/canopy`; `CANOPY_WEB_BASE` is a legacy alias)
 - A signed-in browser session at that URL — or willingness to sign in
   when the browser tab opens
 
@@ -51,7 +51,7 @@ npx tsx "$SCRIPT" "jjackson-laptop-prod"
 Pointed at a different canopy-web (e.g. local dev):
 
 ```bash
-CANOPY_WEB_BASE=http://localhost:8000 npx tsx "$SCRIPT"
+CANOPY_WEB_API_URL=http://localhost:8000 npx tsx "$SCRIPT"
 ```
 
 ## What it does
@@ -59,7 +59,7 @@ CANOPY_WEB_BASE=http://localhost:8000 npx tsx "$SCRIPT"
 1. **Binds a free loopback port** (`socket(0)` on `127.0.0.1`).
 2. **Generates a state nonce** (32 bytes urlsafe, binds the listener
    to this specific mint invocation).
-3. **Opens your browser** to `${CANOPY_WEB_BASE}/auth/cli/authorize/?cb=
+3. **Opens your browser** to `${CANOPY_WEB_API_URL}/auth/cli/authorize/?cb=
    http://127.0.0.1:NNNN/cb&state=<nonce>&label=<label>`.
 4. **canopy-web** (after `@login_required` bounce through OAuth if
    you're not already signed in) shows a one-click "Authorize CLI
@@ -114,7 +114,7 @@ internet beyond the redirect to your own laptop:
   picked up by the running hook. Run `/reload-plugins` to refresh, then
   retry. If still 401, run `/canopy:canopy-doctor` and check the
   workbench-token block.
-- **Wrong canopy-web** — set `CANOPY_WEB_BASE` to the right host before
+- **Wrong canopy-web** — set `CANOPY_WEB_API_URL` to the right host before
   invoking (e.g. for a labs/staging deploy).
 
 ## Related

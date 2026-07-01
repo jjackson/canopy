@@ -473,8 +473,8 @@ def shareout_gather(from_date, to_date, days, project, author, api_url, json_out
     """
     import datetime as dt
     import json as json_mod
-    import os
 
+    from orchestrator import canopy_web
     from orchestrator import shareout as shareout_mod
     from orchestrator.repo_map import load_repo_map
     from orchestrator.labels import load_labels
@@ -486,7 +486,7 @@ def shareout_gather(from_date, to_date, days, project, author, api_url, json_out
 
     if not (from_date or to_date or days):
         # Incremental default: continue from where the last shareout left off.
-        api = api_url or os.environ.get("CANOPY_WEB_API_URL", shareout_mod.DEFAULT_API)
+        api = canopy_web.resolve_base_url(api_url)
         token = shareout_mod.resolve_pat()
         latest_end = shareout_mod.fetch_latest_period_end(api, token) if token else None
         start, end = shareout_mod.resolve_default_range(latest_end)
@@ -524,11 +524,11 @@ def shareout_post(authoring_json, corpus_json, source_override, api_url):
     """Post an authored briefings doc to the canopy-web /shareouts feed."""
     import datetime as dt
     import json as json_mod
-    import os
 
+    from orchestrator import canopy_web
     from orchestrator import shareout as shareout_mod
 
-    api = api_url or os.environ.get("CANOPY_WEB_API_URL", shareout_mod.DEFAULT_API)
+    api = canopy_web.resolve_base_url(api_url)
     token = shareout_mod.resolve_pat()
     if not token:
         raise click.ClickException(
@@ -559,8 +559,7 @@ def shareout_post(authoring_json, corpus_json, source_override, api_url):
 @click.option("--api-url", default=None, help="canopy-web base URL")
 def shareout_clear(source, project, date_from, date_to, clear_all, api_url):
     """Delete shareouts from the canopy-web feed (filters AND-combine)."""
-    import os
-
+    from orchestrator import canopy_web
     from orchestrator import shareout as shareout_mod
 
     filters = {k: v for k, v in {
@@ -569,7 +568,7 @@ def shareout_clear(source, project, date_from, date_to, clear_all, api_url):
     if not filters and not clear_all:
         raise click.ClickException("refusing to clear ALL shareouts without --all")
 
-    api = api_url or os.environ.get("CANOPY_WEB_API_URL", shareout_mod.DEFAULT_API)
+    api = canopy_web.resolve_base_url(api_url)
     token = shareout_mod.resolve_pat()
     if not token:
         raise click.ClickException("no canopy-web PAT — run /canopy:canopy-web-pat-mint")
@@ -796,17 +795,14 @@ def portfolio_discover_cmd(max_age_days, as_json, api_url):
     which slugs are already curated, and prints the difference.
     """
     import json as json_mod
-    import os
+    from orchestrator import canopy_web
     from orchestrator.portfolio_discover import (
         discover_active_repos, fetch_curated_slugs, diff_against_curated,
     )
 
     active = discover_active_repos(max_age_days=max_age_days)
 
-    base_url = api_url or os.environ.get(
-        "CANOPY_WEB_API_URL",
-        "https://canopy-web-ujpz2cuyxq-uc.a.run.app",
-    )
+    base_url = canopy_web.resolve_base_url(api_url)
     token_file = Path.home() / ".claude" / "canopy" / "workbench-token"
     curated: set = set()
     curated_reachable = False
