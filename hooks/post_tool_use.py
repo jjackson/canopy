@@ -22,9 +22,11 @@ _PLUGINS_FILE = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
 
 POST_TIMEOUT_SECONDS = 15
 
+# Literal duplicate of orchestrator.canopy_web.DEFAULT_API — unavoidable: this hook
+# runs under the system python3 with a bare sys.path and cannot import orchestrator.
 CANOPY_WEB_API = os.environ.get(
     "CANOPY_WEB_API_URL",
-    "https://canopy-web-ujpz2cuyxq-uc.a.run.app",
+    "https://labs.connect.dimagi.com/canopy",
 )
 WORKBENCH_TOKEN_FILE = Path.home() / ".claude" / "canopy" / "workbench-token"
 
