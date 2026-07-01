@@ -280,6 +280,10 @@ Write two files to `<run_dir>/`:
 
 ```yaml
 schema_version: 1
+kind: concept
+gate: gating              # participates in render-loop convergence
+live_state_verified: true # scores live per-scene screenshots + captured page text
+calibration: provisional  # rubric not yet calibrated against defect fixtures
 rubric_name: ddd-concept-eval
 ran_at: <ISO timestamp>
 run_dir: <input>

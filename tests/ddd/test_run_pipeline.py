@@ -375,3 +375,113 @@ class TestComputeAutoIterate:
         for sc in (1.0, 2.0, 3.0, 3.5):  # 4 iterations, each better
             a, _ = compute_auto_iterate(s, _stub_verdict(sc, "warn"), _stub_verdict(sc, "warn"), mech)
             assert a == "continue"
+
+
+# ---------------------------------------------------------------------------
+# canopy#265 item 1 — generic aggregation + convergence over N verdicts
+# ---------------------------------------------------------------------------
+
+
+class TestAssembleExtraVerdicts:
+    def test_extra_verdict_paths_recorded(self) -> None:
+        from scripts.ddd.run_pipeline import assemble_run_state
+
+        state = _stub_state()
+        result = assemble_run_state(
+            state,
+            _stub_verdict(4.5),
+            _stub_verdict(4.0),
+            findings=[],
+            extra_verdict_paths={
+                "timing": "verdict-timing.json",
+                "why": "verdict-why.yaml",
+            },
+        )
+        assert result.verdicts == {
+            "concept": "verdict-concept.yaml",
+            "user_artifact": "verdict-user.yaml",
+            "timing": "verdict-timing.json",
+            "why": "verdict-why.yaml",
+        }
+
+    def test_extra_verdicts_cannot_shadow_the_gating_pair(self) -> None:
+        from scripts.ddd.run_pipeline import assemble_run_state
+
+        state = _stub_state()
+        result = assemble_run_state(
+            state,
+            _stub_verdict(4.5),
+            _stub_verdict(4.0),
+            findings=[],
+            extra_verdict_paths={"concept": "evil-override.yaml"},
+        )
+        assert result.verdicts["concept"] == "verdict-concept.yaml"
+
+
+class TestComputeConvergenceAll:
+    def test_all_gating_above_threshold_converges(self) -> None:
+        from scripts.ddd.run_pipeline import compute_convergence_all
+
+        assert compute_convergence_all(
+            {"concept": _stub_verdict(4.5), "user_artifact": _stub_verdict(4.0)}
+        )
+
+    def test_low_advisory_verdict_does_not_block(self) -> None:
+        from scripts.ddd.run_pipeline import compute_convergence_all
+
+        timing = _stub_verdict(2.0)
+        timing.gate = "advisory"
+        assert compute_convergence_all(
+            {
+                "concept": _stub_verdict(4.5),
+                "user_artifact": _stub_verdict(4.0),
+                "timing": timing,
+            }
+        )
+
+    def test_low_gating_extra_blocks(self) -> None:
+        from scripts.ddd.run_pipeline import compute_convergence_all
+
+        assert not compute_convergence_all(
+            {
+                "concept": _stub_verdict(4.5),
+                "user_artifact": _stub_verdict(4.0),
+                "extra_gate": _stub_verdict(3.0),
+            }
+        )
+
+    def test_blocked_gating_verdict_blocks(self) -> None:
+        from scripts.ddd.run_pipeline import compute_convergence_all
+
+        assert not compute_convergence_all(
+            {"concept": _stub_verdict(4.5, "blocked"), "user_artifact": _stub_verdict(4.0)}
+        )
+
+    def test_unverified_gating_verdict_blocks(self) -> None:
+        # item 3: a gating verdict whose anchor never touched live state must
+        # not be able to converge a run, whatever its score says
+        from scripts.ddd.run_pipeline import compute_convergence_all
+
+        unverified = _stub_verdict(4.5)
+        unverified.live_state_verified = False
+        assert not compute_convergence_all(
+            {"concept": unverified, "user_artifact": _stub_verdict(4.0)}
+        )
+
+    def test_no_gating_verdicts_never_converges(self) -> None:
+        from scripts.ddd.run_pipeline import compute_convergence_all
+
+        advisory = _stub_verdict(5.0)
+        advisory.gate = "advisory"
+        assert not compute_convergence_all({"timing": advisory})
+
+    def test_two_verdict_compute_convergence_delegates(self) -> None:
+        # the documented two-arg call keeps working and honors gating extras
+        from scripts.ddd.run_pipeline import compute_convergence
+
+        assert compute_convergence(_stub_verdict(4.5), _stub_verdict(4.0))
+        assert not compute_convergence(
+            _stub_verdict(4.5),
+            _stub_verdict(4.0),
+            extra={"other": _stub_verdict(2.0)},
+        )

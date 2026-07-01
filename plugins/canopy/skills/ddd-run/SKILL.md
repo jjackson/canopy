@@ -467,7 +467,15 @@ Skill('canopy:visual-judge', args={
 })
 ```
 
-Collect the verdict object and write it as `verdict-user.yaml` in the run dir.
+Collect the verdict object and write it as `verdict-user.yaml` in the run dir,
+stamping the unified verdict metadata (canopy#265 item 1) at the top:
+
+```yaml
+kind: user_artifact
+gate: gating              # participates in render-loop convergence
+live_state_verified: true # visual-judge scores live per-scene screenshots
+calibration: provisional
+```
 
 **Per-finding `fix_kind` on user-artifact findings.** For each dimension that
 scored ≤ 3, the visual-judge verdict carries a `fix_recommendation`. Add a

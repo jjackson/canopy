@@ -180,6 +180,10 @@ Write to the run dir (or alongside the spec file if no run dir is given):
 
 ```yaml
 schema_version: 1
+kind: actionability
+gate: advisory            # records + reports; never gates render convergence
+live_state_verified: false  # cold-derives from narration text, never live state — schema caps overall_score at 4
+calibration: provisional  # rubric not yet calibrated against defect fixtures
 rubric_name: ddd-narrative-actionability-eval
 ran_at: <ISO timestamp>
 spec_path: <input>

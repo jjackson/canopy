@@ -36,14 +36,20 @@ dimensions:
     label: "Evidence Sufficiency"
     weight: 0.25
     default_score: 3
+    # Out-of-chain anchor (canopy#265 item 3): "non-assumed" is decided by the
+    # run's evidence inventory (evidence.json, produced by ddd-evidence-audit's
+    # probes), which classified each item documented | implemented | assumed by
+    # actually reading the docs/code. The why-brief's own evidence status field
+    # is AI-authored text and is NOT authoritative for this dimension.
     anchor:
-      "5": "Every grounded claim has ≥2 independent non-assumed evidence items. No grounded claim relies on a single source."
-      "4": "All grounded claims have ≥1 real evidence item; one claim has only a single source."
-      "3": "Most claims have some evidence; ≤2 grounded claims rely solely on assumed evidence. (DEFAULT)"
-      "2": ">2 grounded claims have no real evidence, or the majority of evidence items are assumed."
-      "1": "All evidence is assumed, or grounded claims vastly outnumber real evidence items."
+      "5": "Every grounded claim has ≥2 independent evidence items the evidence inventory classifies documented or implemented. No grounded claim relies on a single source."
+      "4": "All grounded claims have ≥1 inventory-verified (documented/implemented) evidence item; one claim has only a single source."
+      "3": "Most claims have some inventory-verified evidence; ≤2 grounded claims rely solely on assumed evidence. (DEFAULT)"
+      "2": ">2 grounded claims have no inventory-verified evidence, or the majority of evidence items are assumed."
+      "1": "All evidence is assumed, or grounded claims vastly outnumber inventory-verified evidence items."
     deduction_rules:
-      - "grounded SpineItem with zero non-assumed evidence: max 2 per offending item"
+      - "grounded SpineItem with zero inventory-verified (documented/implemented) evidence: max 2 per offending item"
+      - "no evidence inventory (evidence.json / evidence-inventory.md) provided to the eval: max 3"
 
   - id: gap_honesty
     label: "Gap Honesty"
