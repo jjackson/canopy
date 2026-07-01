@@ -54,8 +54,10 @@ def test_create_agent_writes_full_layout(tmp_path):
         "CLAUDE.md",
         "persona.md",
         "config/gating.json",
+        "config/agent.json",
         ".claude/settings.json",
         "hooks/gating_guard.py",
+        "bin/echo-email",
         "skills/turn/SKILL.md",
         "skills/self-review/SKILL.md",
     ):
@@ -102,20 +104,57 @@ def test_create_agent_refuses_nonempty_dir(tmp_path):
     assert (target / "CLAUDE.md").exists()
 
 
+def test_gating_defaults_to_deny_rails_only(tmp_path):
+    """Issue #263 / shared-gog-gdrive.md §4: rails, not approval gates.
+
+    The templated gating ships deny rails + an EMPTY approve list — a PreToolUse
+    'ask' is a blocking modal that stalls autonomous work; approval is the turn
+    checklist's job.
+    """
+    create_agent(_spec(), tmp_path / "echo")
+    cfg = json.loads((tmp_path / "echo" / "config" / "gating.json").read_text())
+    assert cfg["approve"] == []
+    assert cfg["deny"], "expected the raw-gog-send deny rail out of the box"
+    rail = cfg["deny"][0]
+    assert rail["tool"] == "Bash"
+    assert "gog" in rail["pattern"]
+    assert "bin/echo-email" in rail["message"], "the rail must name the right path"
+    assert "rails" in cfg["_doc"].lower()
+
+
+def test_agent_json_carries_email_identity(tmp_path):
+    """Issue #261: `canopy email` resolves mailbox + gog client from config/agent.json."""
+    create_agent(_spec(), tmp_path / "echo")
+    agent = json.loads((tmp_path / "echo" / "config" / "agent.json").read_text())
+    assert agent["email"] == "echo@dimagi-ai.com"
+    assert agent["gog_client"] == "echo"
+
+
+def test_email_shim_is_executable_and_targets_canopy_engine(tmp_path):
+    create_agent(_spec(), tmp_path / "echo")
+    shim = tmp_path / "echo" / "bin" / "echo-email"
+    assert shim.stat().st_mode & 0o111, "shim should be executable"
+    src = shim.read_text()
+    assert '"email", "send"' in src and '"--repo"' in src
+    compile(src, str(shim), "exec")  # valid python
+    # The shim resolves identity from ITS OWN repo, and records the routing contract.
+    assert "thread_id" in src
+
+
 def test_gating_hook_blocks_deny_asks_approve_allows_reads(tmp_path):
-    """End-to-end: the generated hook enforces deny (exit 2) / approve (ask) / allow."""
+    """End-to-end: the generated hook enforces deny (exit 2) / approve (ask) / allow.
+
+    The deny rail under test is the TEMPLATED one (raw gog send); approve rules ship
+    empty by default (rails, not gates) so one is injected to prove the engine still
+    honors them for agents that opt in.
+    """
     create_agent(_spec(), tmp_path / "echo")
     root = tmp_path / "echo"
     hook = root / "hooks" / "gating_guard.py"
 
-    # Inject a deny rule for raw sends.
     gating = root / "config" / "gating.json"
     cfg = json.loads(gating.read_text())
-    cfg["deny"] = [{
-        "tool": "Bash",
-        "pattern": r"(?:^|[\n;&|(])\s*gog\s+gmail\s+(?:send|reply)\b",
-        "message": "BLOCKED: send via the wrapper.",
-    }]
+    cfg["approve"] = [{"tool": "Edit", "message": "Echo edits only with approval."}]
     gating.write_text(json.dumps(cfg))
 
     def run(payload):
@@ -124,15 +163,20 @@ def test_gating_hook_blocks_deny_asks_approve_allows_reads(tmp_path):
             input=json.dumps(payload), capture_output=True, text=True,
         )
 
-    # deny -> exit 2
+    # templated deny rail -> exit 2, message names the sanctioned path
     r = run({"tool_name": "Bash", "tool_input": {"command": "gog gmail send --to a@b.c"}})
+    assert r.returncode == 2
+    assert "bin/echo-email" in r.stderr
+
+    # chained invocation is also railed
+    r = run({"tool_name": "Bash", "tool_input": {"command": "cd /x && gog gmail reply --to a@b.c"}})
     assert r.returncode == 2
 
     # deny pattern only in prose (mid-line) -> NOT blocked
     r = run({"tool_name": "Bash", "tool_input": {"command": "git commit -m 'the gog gmail send rule'"}})
     assert r.returncode == 0
 
-    # approve (Edit) -> ask
+    # injected approve (Edit) -> ask
     r = run({"tool_name": "Edit", "tool_input": {"file_path": "/tmp/x"}})
     assert r.returncode == 0
     assert json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"] == "ask"

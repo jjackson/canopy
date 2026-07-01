@@ -8,8 +8,11 @@ writes-gated guarding via a config-driven PreToolUse hook (the generalization of
 
 v1 is deliberately self-contained: it COPIES the editable surface into the new repo
 (persona, turn checklist, skills, the gating hook) and ships a JSON gating config the
-hook reads. The shared "kit" extraction (canopy-web client, channel adapters, gating
-engine as an installable package) is a follow-up — see §4a of the operating-model doc.
+hook reads. Gating defaults to DENY RAILS ONLY with an empty `approve` list — approval
+lives procedurally in the turn checklist, never in a blocking hook modal (the §1a
+"rails, not gates" revision; see docs/architecture/shared-gog-gdrive.md §4). The email
+channel is a thin `bin/<slug>-email` shim over the shared `canopy email` engine
+(orchestrator.agent_email), with a deny rail blocking raw `gog gmail send/reply`.
 
 Gating config is JSON, not YAML, so the generated hook is stdlib-only (same rule as
 canopy's own hooks: a PreToolUse hook runs under system python3 which may lack PyYAML).
@@ -96,7 +99,7 @@ def create_agent(spec: AgentSpec, target_dir: Path, *, force: bool = False) -> l
         dest = target / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(_render(template, tokens))
-        if dest.name.endswith(".py"):
+        if dest.name.endswith(".py") or dest.parent.name == "bin":
             dest.chmod(0o755)
         written.append(dest)
     return written
@@ -239,12 +242,15 @@ if __name__ == "__main__":
 '''
 
 _GATING_JSON = '''{
-  "_doc": "Reads-free / writes-gated policy for {{AGENT_NAME}}, enforced by hooks/gating_guard.py. deny = hard block (exit 2). approve = escalate to a human (PreToolUse 'ask'). No match = allow. Patterns are regex tested against the Bash command, or the file_path for Edit/Write. See docs/agent-operating-model.md §6.6.",
-  "deny": [],
-  "approve": [
-    { "tool": "Edit",  "message": "{{AGENT_NAME}} edits files only with approval while running a turn." },
-    { "tool": "Write", "message": "{{AGENT_NAME}} writes files only with approval while running a turn." }
-  ]
+  "_doc": "Rails, not gates (docs/agent-operating-model.md §1a revision, Jon 2026-07-01; canopy docs/architecture/shared-gog-gdrive.md §4): hooks carry DENY rails only — make the wrong path impossible and name the right one, so {{AGENT_NAME}} self-corrects and keeps going at zero autonomy cost. `approve` stays EMPTY by default: a PreToolUse 'ask' is a blocking modal that stalls autonomous work and nags interactive sessions; approval semantics live in the procedural layer (skills/turn Step 2's 'present for approval'). Enforced by hooks/gating_guard.py: deny = hard block (exit 2). Patterns are regex tested against the Bash command, or the file_path for Edit/Write.",
+  "deny": [
+    {
+      "tool": "Bash",
+      "pattern": "(?:^|[\\\\n;&|(])\\\\s*gog\\\\s+gmail\\\\s+(send|reply)\\\\b",
+      "message": "BLOCKED: raw `gog gmail send/reply` bypasses {{AGENT_NAME}}'s HTML wrapper and thread_id capture. Send via bin/{{AGENT_SLUG}}-email (the shared canopy email engine) instead — write the body to a file and pass --body-file."
+    }
+  ],
+  "approve": []
 }
 '''
 
@@ -296,11 +302,15 @@ _CLAUDE_MD = '''# CLAUDE.md — {{AGENT_NAME}}
 Search/read run freely. **Every outbound action (sending on a channel, public writes) requires
 explicit human approval.** {{AGENT_NAME}} drafts; the human disposes.
 
-## Invariants are hooks, not memory
+## Invariants are hooks, not memory — and rails, not approval gates
 Hard behavioral rules do NOT belong in prose alone — prose relies on the model choosing to
-comply, which fails under load. Encode each as **enforcement**: a rule in `config/gating.json`
-that `hooks/gating_guard.py` turns into a hard block (deny) or a human-approval gate (approve).
-Add a new outbound action? Add an `approve` (or `deny`) rule — do not just write a sentence here.
+comply, which fails under load. Encode each as **enforcement**: a `deny` rule in
+`config/gating.json` that `hooks/gating_guard.py` turns into a hard block naming the right
+path (e.g. raw `gog gmail send` → `bin/{{AGENT_SLUG}}-email`). Keep the `approve` list EMPTY:
+a PreToolUse "ask" is a blocking modal that stalls autonomous work — approval semantics live
+in the turn checklist (Step 2's "present for approval"), not in hooks. See the operating
+model's §1a revision (rails, not gates). Add a new outbound action? Add a deny rail pointing
+at its one sanctioned path — do not just write a sentence here.
 
 ## Doing a turn — load the procedure, don't improvise
 "Do a turn" / "check your inbox" = the `skills/turn` procedure. **Re-read `skills/turn/SKILL.md`
@@ -371,8 +381,9 @@ description: >
 
 **Re-read this file at the start of every turn and follow it in order.** Running a turn from
 memory is how steps get dropped under load. All guardrails apply: **reads are free; every
-outbound action waits for explicit human approval** (the gating hook will force the gate, but
-do not rely on it as a substitute for drafting-then-asking).
+outbound action waits for explicit human approval.** Approval is PROCEDURAL — the gating hook
+carries deny rails only (it blocks wrong paths, it does not ask for you), so drafting-then-asking
+in Step 2 is the gate. There is no modal to catch you if you skip it.
 
 ## Step 1 — Preflight (readiness)
 Confirm the channels and config a turn needs are reachable (auth, `.env`, any board PAT). If a
@@ -388,6 +399,11 @@ decide ONE action (Reply / File / Remember / Escalate), and present it for appro
 Before every outbound reply, run the `self-review` skill: re-read the original request, extract
 EACH discrete ask, confirm the draft does exactly that (read any source they cited; don't
 reconstruct from memory), then lead with what you DID + a recommendation + options.
+
+**Email goes out ONLY via `bin/{{AGENT_SLUG}}-email`** (the shared canopy engine — HTML wrapper,
+reply threading; a deny rail blocks raw `gog gmail send`). Every send returns JSON with
+`thread_id` — **record it in {{AGENT_NAME}}'s state layer** so inbound triage can route the
+reply to the right scope. Auth flaky? `canopy email preflight --repo .` prints the exact fix.
 
 ## Step 3 — Skill-development self-check (every turn, explicitly)
 Answer out loud and report:
@@ -513,6 +529,31 @@ def get(key, default=None):
     return load().get(key, default)
 '''
 
+_EMAIL_SHIM = '''#!/usr/bin/env python3
+"""{{AGENT_NAME}}'s ONLY email send path — a thin shim over the shared canopy email engine.
+
+The HTML wrapper (Gmail display-wraps plain text at ~72 cols; HTML reflows), reply
+threading, and identity resolution all live in canopy (`canopy email send`), so fixes
+propagate fleet-wide. This shim only pins --repo so identity comes from THIS repo's
+config/agent.json (`email` + `gog_client`). The deny rail in config/gating.json blocks
+raw `gog gmail send/reply`, so email leaves {{AGENT_NAME}} only through here.
+
+SEND-SIDE CONTRACT: every successful send prints JSON with message_id + thread_id —
+record thread_id into {{AGENT_NAME}}'s state layer so inbound triage can route the reply.
+
+Usage:
+  bin/{{AGENT_SLUG}}-email --to "a@x,b@y" [--cc "c@z"] --subject "Re: ..." \\
+      --body-file body.txt [--reply-to-message-id <id>] [--dry-run]
+
+Auth check: `canopy email preflight --repo <this repo>` (exact `gog login` fix on failure).
+"""
+import os
+import sys
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+os.execvp("canopy", ["canopy", "email", "send", "--repo", REPO, *sys.argv[1:]])
+'''
+
 _ALLOWLIST = '''# Counterparts {{AGENT_NAME}} may ACT on (send/reply/write). One per line.
 # Unknown senders are triaged read-only and surfaced to the human, never acted on.
 # A line may be a full address (name@example.com) or a whole domain (@example.com).
@@ -528,9 +569,12 @@ A Claude Code agent built on the **canopy agent operating model** (see canopy
 ## How it works
 - **Persona** in `persona.md`; the operating contract in `CLAUDE.md`.
 - **A turn** is the unit of work: `skills/turn/SKILL.md` is the re-read-every-time checklist.
-- **Reads free, writes gated:** `hooks/gating_guard.py` reads `config/gating.json` and turns the
-  guardrail into enforcement — hard blocks (`deny`) and human-approval gates (`approve`) at the
-  tool-call boundary, so outbound actions can't slip through under load.
+- **Reads free, writes gated — rails, not gates:** `hooks/gating_guard.py` reads
+  `config/gating.json` and hard-blocks wrong paths (`deny` rails that name the right path) at
+  the tool-call boundary. Approval is procedural — the turn checklist's explicit
+  draft-then-ask step — never a blocking hook modal (`approve` stays empty by default).
+- **Email channel:** `bin/{{AGENT_SLUG}}-email` — a thin shim over the shared `canopy email`
+  engine; identity from `config/agent.json`. Raw `gog gmail send` is deny-railed.
 
 ## Run a turn
 In Claude Code, from this repo: "do a turn". {{AGENT_NAME}} re-reads `skills/turn/SKILL.md` and
@@ -539,10 +583,14 @@ follows it: preflight → process inbound (one counterpart at a time) → skill 
 ## Make it yours
 1. Fill in `persona.md` (voice, mandate detail, memory scope).
 2. Add domain skills under `skills/<name>/SKILL.md`.
-3. Add outbound actions as `approve`/`deny` rules in `config/gating.json` — not as prose.
+3. Add each outbound action as a `deny` rail in `config/gating.json` pointing at its one
+   sanctioned path — not as prose, and not as an `approve` rule (approval is the turn
+   checklist's job; hook modals stall autonomous work).
 4. Declare secrets in `config/secrets.yaml` (1Password refs) and run `canopy provision` — they land
-   in the worktree-clean global home `~/.{{AGENT_SLUG}}/.env`, read by `bin/_env.py`. Then wire a
-   channel adapter (email first).
+   in the worktree-clean global home `~/.{{AGENT_SLUG}}/.env`, read by `bin/_env.py`.
+5. Mint the agent's own gog identity (mailbox + OAuth client named `{{AGENT_SLUG}}`), then
+   `gog login {{MAILBOX}} --client {{AGENT_SLUG}} --services gmail,drive,docs,sheets,forms`.
+   Verify with `canopy email preflight --repo .`; send via `bin/{{AGENT_SLUG}}-email`.
 '''
 
 _GITIGNORE = '''.env
@@ -552,9 +600,10 @@ __pycache__/
 '''
 
 _AGENT_JSON = '''{
-  "_doc": "{{AGENT_NAME}}'s identity for its canopy-web workspace (/agents/{{AGENT_SLUG}}). Read by `canopy agent-publish`. slug + description come from .claude-plugin/plugin.json; these override/extend.",
+  "_doc": "{{AGENT_NAME}}'s identity for its canopy-web workspace (/agents/{{AGENT_SLUG}}) and for the shared email engine (`canopy email` resolves mailbox + gog client from here). Read by `canopy agent-publish`. slug + description come from .claude-plugin/plugin.json; these override/extend. gog_client is {{AGENT_NAME}}'s OWN gog OAuth client name — never another agent's (identity bleed is the fleet's one hard rule).",
   "name": "{{AGENT_NAME}}",
   "email": "{{MAILBOX}}",
+  "gog_client": "{{AGENT_SLUG}}",
   "persona": "{{MANDATE}}",
   "avatar_url": ""
 }
@@ -568,6 +617,7 @@ _TEMPLATES: dict[str, str] = {
     ".gitignore": _GITIGNORE,
     "config/secrets.yaml": _SECRETS_YAML,
     "bin/_env.py": _ENV_LOADER,
+    "bin/{{AGENT_SLUG}}-email": _EMAIL_SHIM,
     "config/gating.json": _GATING_JSON,
     "config/allowlist.txt": _ALLOWLIST,
     "config/agent.json": _AGENT_JSON,

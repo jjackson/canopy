@@ -25,11 +25,12 @@ enforce it.
 ## Tiers
 
 **FRAMEWORK** (agent-runtime substrate — must not import product):
-`agent_cli` · `agent_client` · `agent_factory` · `agent_web` · `canopy_web` ·
+`agent_cli` · `agent_client` · `agent_email` · `agent_factory` · `agent_web` · `canopy_web` ·
 `capture` · `transcripts` · `scanner` · `circuit_breaker` · `rate_limiter` ·
 `scheduler` · `paths` · `repo_map` · `repo_paths` · `registry` · `registry_sync` ·
 `skill_budget` · `skill_catalog` · `skill_runner` · `provision` · `run_log` ·
-`version_bump` · `doctor` · `agent_review` · `structure_drift`
+`version_bump` · `doctor` · `agent_review` · `structure_drift` · `eval_cli` ·
+`eval_rubric`
 
 **HUBS** (orchestration / composition roots — wire product into the CLI, the
 improvement pipeline, and the web server; allowed to import product, like
@@ -44,7 +45,7 @@ canopy-web's `api` app):
 
 Top-level `scripts/` (ddd, narrative, walkthrough), `video-engine/`, and
 `plugins/canopy/{skills,commands,agents}/` are all **product** — correct for a
-product plugin. The framework substrate is the 25 modules above.
+product plugin. The framework substrate is the 28 modules above.
 
 ## Enforcement
 
