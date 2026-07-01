@@ -54,6 +54,9 @@ from scripts.ddd.auth import (
     TOKEN_FILE,
     resolve_base_url as _resolve_base_url,
     resolve_token as _resolve_token,
+    resolve_ddd_workspace as _resolve_ws,
+    scoped_api_path as _scoped_api,
+    scoped_app_path as _scoped_app,
 )
 from scripts.ddd.review import _review_id_from_url
 
@@ -101,13 +104,14 @@ def run_package_url(narrative_slug: str, run_id: str, base_url: str | None = Non
     api = _resolve_base_url(base_url)
     feat = urllib.parse.quote(narrative_slug or run_id, safe="")
     rid = urllib.parse.quote(run_id, safe="")
-    return f"{api}/ddd/{feat}/{rid}"
+    return f"{api}{_scoped_app(f'/ddd/{feat}/{rid}', _resolve_ws(None))}"
 
 
 def narrative_landing_url(narrative_slug: str, base_url: str | None = None) -> str:
     """The canopy-web narrative landing page (versions list) for a slug."""
     api = _resolve_base_url(base_url)
-    return f"{api}/ddd/{urllib.parse.quote(narrative_slug, safe='')}"
+    path = f"/ddd/{urllib.parse.quote(narrative_slug, safe='')}"
+    return f"{api}{_scoped_app(path, _resolve_ws(None))}"
 
 
 def upload_narrative_video(
@@ -821,7 +825,7 @@ def publish_artifact(
 
     post_fn = _post if _post is not None else _default_post
     body = post_fn(
-        f"{api}/api/walkthroughs/",
+        f"{api}{_scoped_api('/api/walkthroughs/', _resolve_ws(None))}",
         pat,
         fields,
         filename,
