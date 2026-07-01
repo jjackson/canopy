@@ -69,6 +69,16 @@ skill use and otherwise control behavior. Echo's three mechanisms, weakest to st
 invariants + a thin always-loaded turn checklist + registering the agent plugins so Skill
 dispatch fires.** The factory should template all three.
 
+> **Revision (Jon, 2026-07-01) — rails, not approval gates.** Operational experience with hal
+> showed the two hook verbs are not equals: **deny rails** (block the wrong path, name the right
+> one; the agent self-corrects and keeps going) work well and cost autonomy nothing, while
+> **approve/ask rules** (blocking permission modals) stall autonomous work and nag interactive
+> sessions. The fleet default is now: hooks carry deny rails only; approval semantics live in the
+> procedural layer (the turn checklist's explicit approval step; ACE's pause-point state model).
+> The factory's templated `config/gating.json` defaults its `approve` list to empty. Full
+> rationale: `docs/architecture/shared-gog-gdrive.md` §4 and ACE's
+> `docs/superpowers/specs/2026-07-01-agent-operating-model-adoption.md § Gating`.
+
 ---
 
 ## 2. Why reef died — and why that's the good news
