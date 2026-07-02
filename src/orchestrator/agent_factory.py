@@ -385,6 +385,11 @@ outbound action waits for explicit human approval.** Approval is PROCEDURAL — 
 carries deny rails only (it blocks wrong paths, it does not ask for you), so drafting-then-asking
 in Step 2 is the gate. There is no modal to catch you if you skip it.
 
+**Narrate as you go.** Before any multi-step or multi-repo investigation, state the plan in one
+sentence first ("checking threads A and B for X — back shortly"), then work, then report what you
+found. Never let a long silent stretch of tool calls build up — a human interrupting with "what
+are you doing?" means the turn's communication already failed.
+
 ## Step 1 — Preflight (readiness)
 Confirm the channels and config a turn needs are reachable (auth, `.env`, any board PAT). If a
 surface is blocked, run the turn for the surfaces that passed and tell the human exactly what is

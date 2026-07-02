@@ -333,3 +333,35 @@ class TestCliHelp:
         runner = CliRunner()
         result = runner.invoke(main, ["sessions", "--help"])
         assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# Unknown-subcommand skill hint (CLI vs Skill-tool surface confusion)
+# ---------------------------------------------------------------------------
+
+
+class TestUnknownCommandSkillHint:
+    def test_unknown_command_that_is_a_skill_gets_a_hint(self):
+        runner = CliRunner()
+        fake_catalog = [{"name": "session-review", "qualified": "canopy:session-review"}]
+        with mock.patch("orchestrator.skill_catalog.build_catalog", return_value=fake_catalog):
+            result = runner.invoke(main, ["session-review"])
+        assert result.exit_code != 0
+        assert "No such command" in result.output
+        assert "canopy:session-review" in result.output
+        assert "Skill tool" in result.output
+
+    def test_unknown_command_that_is_not_a_skill_keeps_plain_error(self):
+        runner = CliRunner()
+        with mock.patch("orchestrator.skill_catalog.build_catalog", return_value=[]):
+            result = runner.invoke(main, ["definitely-not-a-thing"])
+        assert result.exit_code != 0
+        assert "No such command" in result.output
+        assert "Skill tool" not in result.output
+
+    def test_hint_survives_catalog_errors(self):
+        runner = CliRunner()
+        with mock.patch("orchestrator.skill_catalog.build_catalog", side_effect=OSError("boom")):
+            result = runner.invoke(main, ["session-review"])
+        assert result.exit_code != 0
+        assert "No such command" in result.output

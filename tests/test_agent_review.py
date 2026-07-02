@@ -110,6 +110,74 @@ def test_build_review_prompt_and_parse_findings(tmp_path):
     assert parse_findings("not a list") == []
 
 
+def test_pr_status_output_is_not_a_gating_block_or_failure(tmp_path):
+    # Hal's 2026-07 review: `gh pr view` output ("mergeable: MERGEABLE/BLOCKED",
+    # "blocked only on required review") was misread as gating friction / failures.
+    t = tmp_path / "turn.jsonl"
+    _write_transcript(t, str(tmp_path), [
+        ("Bash", {"command": "gh pr view 1253"},
+         "title: fix(mobile)\nmergeable: MERGEABLE/BLOCKED  +47/-5\nreview=REVIEW_REQUIRED"),
+        ("AskUserQuestion", {"questions": []},
+         'Your questions have been answered: "#1253 is green, blocked only on required review"'),
+    ])
+    s = friction_signals(t)
+    assert s["gating_blocks"] == []
+    assert s["failures"] == []
+    assert s["retry_loops"] == []
+
+
+def test_read_of_hook_source_is_not_a_gating_block(tmp_path):
+    # Reading the gating hook's own source contains "permissionDecision" — a Read can't be gated.
+    t = tmp_path / "turn.jsonl"
+    _write_transcript(t, str(tmp_path), [
+        ("Read", {"file_path": "/repo/hooks/gating_guard.py"},
+         'print(json.dumps({"hookSpecificOutput": {"permissionDecision": "ask"}}))'),
+    ])
+    assert friction_signals(t)["gating_blocks"] == []
+
+
+def test_cat_of_gating_config_is_not_a_gating_block(tmp_path):
+    # `cat config/gating.json` output carries "BLOCKED:" deep in the deny message — a real hook
+    # block IS the whole result, so the marker must appear at the head to count.
+    t = tmp_path / "turn.jsonl"
+    _write_transcript(t, str(tmp_path), [
+        ("Bash", {"command": "cat config/gating.json"},
+         "=== config/gating.json ===\n" + '{"_doc": "' + "policy prose " * 30 + '",\n'
+         '"deny": [{"message": "BLOCKED: raw gog gmail send bypasses the wrapper."}]}'),
+    ])
+    assert friction_signals(t)["gating_blocks"] == []
+
+
+def test_hook_ask_modal_counts_as_gating_block(tmp_path):
+    t = tmp_path / "turn.jsonl"
+    _write_transcript(t, str(tmp_path), [
+        ("Bash", {"command": "gog gmail send --to a@b.c"},
+         '{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask", '
+         '"permissionDecisionReason": "APPROVE Hal -> gog gmail send"}}'),
+    ])
+    s = friction_signals(t)
+    assert len(s["gating_blocks"]) == 1
+    assert s["failures"] == []
+
+
+def test_retry_loop_requires_similar_subject_not_just_tool_reuse(tmp_path):
+    # A failed Bash call followed by UNRELATED Bash calls is not a retry loop...
+    t = tmp_path / "turn.jsonl"
+    _write_transcript(t, str(tmp_path), [
+        ("Bash", {"command": "cat /nope/missing.json"}, "Exit code 1\ncat: not found"),
+        ("Bash", {"command": "git status --short"}, "clean"),
+        ("Bash", {"command": "ls -la /tmp"}, "total 0"),
+    ])
+    assert friction_signals(t)["retry_loops"] == []
+    # ...but the same command re-run right after failing IS.
+    t2 = tmp_path / "turn2.jsonl"
+    _write_transcript(t2, str(tmp_path), [
+        ("Bash", {"command": "cat /nope/missing.json"}, "Exit code 1\ncat: not found"),
+        ("Bash", {"command": "cat /nope/missing.json || true"}, "ok"),
+    ])
+    assert friction_signals(t2)["retry_loops"] == ["Bash"]
+
+
 def test_human_corrections_catches_safety_override_and_confusion():
     from orchestrator.agent_review import human_corrections
     entries = [
