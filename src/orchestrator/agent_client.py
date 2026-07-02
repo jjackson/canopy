@@ -59,6 +59,20 @@ class AgentClient:
                 "self_grades": self_grades or {}, "source": source}
         return self._call("POST", f"/api/agents/{self.slug}/syncs/", body)
 
+    def post_turn(self, *, cli_session_id, title, summary="", task_ext_ids=None,
+                  work_product_urls=None, session_slug="", share_token="",
+                  started_at=None, ended_at=None, source="turn") -> dict:
+        """Package one turn as a unit of work: the request(s) it advanced
+        (`task_ext_ids`), what it did (`summary`), the deliverables produced
+        (`work_product_urls`), and — optionally — a transcript link (`session_slug`
+        + `share_token`). Idempotent per (agent, cli_session_id) server-side."""
+        body = {"cli_session_id": cli_session_id, "title": title, "summary": summary,
+                "task_ext_ids": list(task_ext_ids or []),
+                "work_product_urls": list(work_product_urls or []),
+                "session_slug": session_slug, "share_token": share_token,
+                "started_at": started_at, "ended_at": ended_at, "source": source}
+        return self._call("POST", f"/api/agents/{self.slug}/turns/", body)
+
     def put_work_products(self, items: list[dict]) -> dict:
         return self._call("POST", f"/api/agents/{self.slug}/work-products/", {"work_products": items})
 
