@@ -92,6 +92,16 @@ from .results import ActionResult, RunReport
 try:
     from scripts.narrative.substitution import has_unresolved, resolve_string
 except Exception:  # pragma: no cover — portable-install fallback
+    import sys as _sys
+
+    print(
+        "WARNING: scripts.narrative.substitution not importable — late-binding "
+        "${var} resolution is DISABLED (resolve_string=identity, "
+        "has_unresolved=False); capture-bound scene URLs will film as literal "
+        "${...}. Entry points must put the canopy repo root on sys.path "
+        "BEFORE importing _lib.orchestrator.",
+        file=_sys.stderr,
+    )
 
     def resolve_string(text, variables):  # type: ignore[no-redef]
         return text

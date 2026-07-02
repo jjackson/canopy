@@ -74,17 +74,26 @@ except ImportError:
 # Recorder lib lives next to this script in _lib/. Add this script's dir to the
 # path so `python3 record_video.py` (invoked by path) can import it.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _lib.config import RecorderConfig  # noqa: E402
-from _lib.orchestrator import Recorder, SkipSameUrlRecorder  # noqa: E402
-from _lib.recorder import CURSOR_OVERLAY_JS  # noqa: E402
-from manifest import build_manifest  # noqa: E402
 
 # Placeholder substitution is shared with scripts/ddd/spec_qa.py (single source
 # of truth for what `${var}` means) — it lives at the repo root, so put that on
 # the path too for by-path invocations (`python3 record_video.py`).
+#
+# ORDER MATTERS: the repo root must be on sys.path BEFORE _lib.orchestrator is
+# imported. The orchestrator imports scripts.narrative.substitution defensively
+# and silently degrades to no-op stubs (has_unresolved=False, resolve_string=
+# identity) when the import fails — importing it first froze those stubs in
+# by-path invocations, so the unresolved-${var} nav guard never fired and every
+# late-bound capture var stayed a literal `${...}` in scene URLs (filmed as a
+# 404 page).
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+
+from _lib.config import RecorderConfig  # noqa: E402
+from _lib.orchestrator import Recorder, SkipSameUrlRecorder  # noqa: E402
+from _lib.recorder import CURSOR_OVERLAY_JS  # noqa: E402
+from manifest import build_manifest  # noqa: E402
 from scripts.narrative.substitution import (  # noqa: E402
     UnresolvedPlaceholderError,
     has_unresolved,
@@ -410,7 +419,10 @@ def build_scenes_from_spec(spec: dict, base_url: str, *, run_data: dict | None) 
     Each scene is ``{"url": str | None, "title": str, "actions": [...]}``.
     The URL comes from one of (in priority order):
       1. An explicit ``url:`` on the scene (the cleanest authoring path).
-      2. The first ``goto`` action's target — the scene's own canonical start.
+      2. A LEADING ``goto`` action's target (actions[0] only) — the scene's own
+         canonical start. A goto deeper in the list is a scripted mid-scene
+         navigation and must NOT be hoisted to scene start (it may depend on a
+         ``${var}`` captured by an earlier action in the same scene).
       3. The matching slide in ``run_data`` (legacy capture path).
       4. ``None`` — the orchestrator stays on the previous scene's ending page.
 
@@ -459,9 +471,14 @@ def build_scenes_from_spec(spec: dict, base_url: str, *, run_data: dict | None) 
         if explicit:
             url = _absolutize(explicit)
         if not url:
-            first_goto = next((a for a in actions if (a.get("kind") or "") == "goto"), None)
-            if first_goto:
-                url = _absolutize(first_goto.get("target") or first_goto.get("value") or "")
+            # Only a LEADING goto is the scene's canonical start URL. A goto
+            # deeper in the actions list is a scripted mid-scene navigation
+            # (e.g. publish → capture the new id → goto the ${id} detail page)
+            # — hoisting it to scene start navigates before the actions that
+            # bind its ${var} have run, filming a literal `/x/${id}/` 404.
+            leading = actions[0] if actions and isinstance(actions[0], dict) else None
+            if leading is not None and (leading.get("kind") or "") == "goto":
+                url = _absolutize(leading.get("target") or leading.get("value") or "")
         if not url:
             url = captured_urls.get(i)
 
