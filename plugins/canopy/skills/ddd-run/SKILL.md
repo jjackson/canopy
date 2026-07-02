@@ -446,7 +446,8 @@ Skill('canopy:visual-judge', args={
                     '1': 'Outputs appear fabricated or internally inconsistent.',
                 },
                 'deduction_rules': [
-                    'Placeholder / test data visible: max 2',
+                    'ENTITY-LEVEL placeholder / test data visible (test-user, Untitled, lorem, impossible values): max 2',
+                    'EXEMPT — never a trust deduction: an explicit TOP-LEVEL synthetic/demo-environment marker (a program picker reading "Labs Synthetic", a demo banner, a sandbox label). Honest framing that the demo is synthetic is intended and desirable — showing real program data would be worse. Only the entity-level records (names, orgs, dates, amounts) must look real.',
                 ],
             },
         ],
