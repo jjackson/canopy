@@ -16,9 +16,12 @@
  *
  *   1. ONLY shrink. A beat already shorter than its cap is never grown — that
  *      is `realignTimelineToAudio`'s job (it grows beats so VO never clips).
- *   2. Only shrink when the excess STRICTLY exceeds DEAD_THRESHOLD, so sub-3s
- *      settles ("leave anything under 3s") are left untouched and a video with
- *      no real dead air renders byte-comparably.
+ *   2. Only shrink when the excess STRICTLY exceeds DEAD_THRESHOLD. The product
+ *      call is a SHORT BREATH — a beat holds ~one breath (BREATH_SECONDS) after
+ *      its footage/voice settle, and any frozen-silent tail beyond ~0.8s is
+ *      trimmed. (This was 3.0s — "leave anything under 3s" — but that let a ~3s
+ *      frozen tail survive per beat, accumulating 15–20s of dead air across a
+ *      video and flip-flopping kept/trimmed across takes near the cliff.)
  *
  * Because the cap floors at `vo`, a beat is NEVER cut below its narration: a
  * held frame UNDER the voice is not dead air and must be preserved.
@@ -33,8 +36,12 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 
 /** Excess (current hold beyond the cap) must STRICTLY exceed this to shrink.
- * Product call: "leave anything under 3s" — sub-3s settles are intentional. */
-export const DEAD_THRESHOLD_SECONDS = 3.0;
+ * Product call: a SHORT BREATH — trim any frozen-silent tail beyond ~0.8s so a
+ * beat holds ~one breath after settling, not a lingering ~3s frozen frame.
+ * (Was 3.0s; lowered because a per-beat ~3s tail accumulated 15–20s of dead air
+ * across a video and flipped kept/trimmed across takes near the 3s cliff.)
+ * Reversible in one line; any spec/caller can override via the `threshold` opt. */
+export const DEAD_THRESHOLD_SECONDS = 0.8;
 
 /** One breath of settled frame kept after the longer of footage-motion / VO. */
 export const BREATH_SECONDS = 0.4;
@@ -49,7 +56,7 @@ export interface CapBeatArgs {
   vo: number;
   /** Settled-frame breath kept after max(motion, vo). Default 0.4s. */
   breath?: number;
-  /** Strict-excess threshold below which the beat is left alone. Default 3.0s. */
+  /** Strict-excess threshold below which the beat is left alone. Default 0.8s. */
   threshold?: number;
 }
 
@@ -256,12 +263,46 @@ export function footageMotionEndForBeat(
  * result — so a collapsed loading wait reads as a deliberate jump-cut. */
 export const INTERIOR_LEAD_IN_SECONDS = 1.2;
 
+/** Micro-motion gap (seconds) below which two interior freeze spans are treated
+ * as ONE frozen span. A near-static loading/held frame flickers — a cursor
+ * twitch or hover splits what is really one dead span into two short spans, and
+ * each falls under the excise threshold, so the whole dead span survives (the
+ * "flicker" mechanism). Merging across the twitch mirrors what
+ * {@link settlePointFromFreezeSpans} already does for the trailing tail via
+ * TAIL_MERGE_GAP_SECONDS; kept a touch tighter (0.8 vs 1.2) so a genuine
+ * mid-scene motion beat between two holds is never merged away. */
+export const FLICKER_MERGE_GAP_SECONDS = 0.8;
+
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
+
+/**
+ * Merge freeze spans separated by a micro-motion gap (≤ `mergeGapSeconds`) into
+ * one span. PURE. A cursor twitch over a static frame reads to `freezedetect` as
+ * a sliver of motion, splitting one dead span into several short ones; merging
+ * across sub-`mergeGap` gaps recovers the true frozen span so the interior
+ * excise (which gates on span length) can act on it. Input spans are in
+ * on-screen seconds; output is sorted and non-overlapping.
+ */
+export function mergeFreezeSpans(
+  spans: [number, number][],
+  mergeGapSeconds: number = FLICKER_MERGE_GAP_SECONDS,
+): [number, number][] {
+  if (spans.length === 0) return [];
+  const sorted = [...spans].sort((a, b) => a[0] - b[0]);
+  const out: [number, number][] = [[...sorted[0]] as [number, number]];
+  for (let i = 1; i < sorted.length; i++) {
+    const [s, e] = sorted[i];
+    const last = out[out.length - 1];
+    if (s - last[1] <= mergeGapSeconds) last[1] = Math.max(last[1], e);
+    else out.push([s, e]);
+  }
+  return out;
+}
 
 export interface InteriorExciseOpts {
   /** Spinner kept after the VO ends before the cut. Default 1.2s. */
   leadInSeconds?: number;
-  /** Silent-frozen span must STRICTLY exceed this to be cut. Default 3.0s. */
+  /** Silent-frozen span must STRICTLY exceed this to be cut. Default 0.8s. */
   thresholdSeconds?: number;
   /** A span whose end is within this of the total is a trailing tail (left to
    * the trailing cap), not an interior wait. Default 0.6s. */
@@ -381,7 +422,11 @@ export function exciseInteriorDeadAir(
     for (const [a, b] of segSpans) spans.push([onScreen + a, onScreen + b]);
     onScreen += s.duration_seconds;
   }
-  const cuts = interiorExciseRanges(spans, voSeconds, total, opts);
+  // Flicker-robust: merge spans split by a cursor twitch back into one frozen
+  // span before gating on length, so a mid-beat dead span that flickers is not
+  // lost to the excise threshold.
+  const merged = mergeFreezeSpans(spans);
+  const cuts = interiorExciseRanges(merged, voSeconds, total, opts);
   if (cuts.length === 0) return unchanged;
   const newSegs = spliceSegments(segs, cuts);
   const newTotal = newSegs.reduce((a, s) => a + s.duration_seconds, 0);
