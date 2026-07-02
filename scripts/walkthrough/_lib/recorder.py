@@ -843,6 +843,31 @@ def capture_value(
 # --------------------------------------------------------------------------- #
 
 
+def _config_with_action_timeout(cfg: RecorderConfig, action: dict[str, Any]) -> RecorderConfig:
+    """Apply a per-action ``timeout_ms`` override onto a config copy.
+
+    Playwright's ``locator.click`` waits for any scheduled navigation inside
+    the same timeout, so a ``must_succeed`` click whose POST does slow
+    server-side work (publish/submit minting records before the redirect)
+    aborts an otherwise healthy render at the global default. The override
+    can only LOOSEN the timeouts (``max`` with the preset), never tighten.
+    """
+    raw = action.get("timeout_ms")
+    try:
+        timeout_ms = int(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        timeout_ms = None
+    if not timeout_ms or timeout_ms <= 0:
+        return cfg
+    import dataclasses
+
+    return dataclasses.replace(
+        cfg,
+        interaction_timeout_ms=max(cfg.interaction_timeout_ms, timeout_ms),
+        goto_timeout_ms=max(cfg.goto_timeout_ms, timeout_ms),
+    )
+
+
 def execute_action(
     page: Page,
     action: dict[str, Any],
@@ -870,6 +895,7 @@ def execute_action(
     empty map (a direct test call with no later scenes still works).
     """
     cfg = config or RecorderConfig()
+    cfg = _config_with_action_timeout(cfg, action)
     if variables is None:
         variables = {}
     kind = (action.get("kind") or "").strip()

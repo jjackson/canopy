@@ -876,6 +876,24 @@ When NOT to use it: `scroll_to`, `hold`, `hover` — these are pacing/framing
 actions whose failure doesn't change product state. A skipped `scroll_to`
 costs a smoother camera pan, not a wrong demo.
 
+**`timeout_ms` for slow server-side actions.** Playwright's `locator.click`
+waits for any navigation the click schedules INSIDE the same timeout, so a
+`must_succeed` publish/submit click whose POST does real server work (minting
+records before the redirect) can abort an otherwise healthy render at the
+recorder's global 6s interaction timeout. Add a per-action `timeout_ms` to
+loosen it for that one action (it takes `max(timeout_ms, preset)` — an
+override can never tighten below the pace preset):
+
+```yaml
+actions:
+  - { kind: click, target: 'css:button[type=submit]:has-text("Create Solicitation")',
+      must_succeed: true, timeout_ms: 30000 }
+```
+
+Use it on the handful of navigating, state-minting clicks (publish, submit,
+award); leave ordinary clicks on the default so a genuinely-broken target
+still fails fast.
+
 **`click_menu` for the click that closes a dropdown.** `click_menu` clicks an
 item inside the currently-open dropdown / popover. Same target resolution as
 `click`, but the recorder uses a shorter `menu_click_settle_ms` (~700ms)
