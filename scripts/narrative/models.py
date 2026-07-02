@@ -173,6 +173,18 @@ class _ActionBase(BaseModel):
     Defaults to False (log + continue, one bad action never aborts the render).
     """
 
+    timeout_ms: int | None = None
+    """Per-action override of the recorder's interaction/navigation timeout.
+
+    Use on ``must_succeed`` clicks whose post-click navigation does slow
+    server-side work (a publish/submit POST that mints records before
+    redirecting): Playwright's ``locator.click`` waits for the scheduled
+    navigation inside the same timeout, so a slow POST aborts an otherwise
+    healthy render at the global 6s default. ``None`` (default) keeps the
+    RecorderConfig value; the recorder takes ``max(timeout_ms, config default)``
+    so an override can only loosen, never tighten below the preset.
+    """
+
 
 class GotoAction(_ActionBase):
     """Navigate to a URL. ``target`` is the URL (absolute or path-relative)."""
