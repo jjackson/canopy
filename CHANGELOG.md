@@ -9,6 +9,20 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.251] - 2026-07-02
+
+### Added
+- **`canopy agent doctor`** (`src/orchestrator/agent_doctor.py`) — per-AGENT health
+  check composing the existing point-checks into one command: identity
+  (`config/agent.json`), gating rails, secrets manifest (provisionable via
+  `canopy provision`), live gog email auth (`canopy email preflight` internals), and
+  canopy-web registration + board reachability. `canopy doctor` covers the plugin
+  install; this covers one agent repo on THIS machine. Born from hal (2026-07-02):
+  hal's gog setup existed somewhere, but the current machine had no credentials
+  file, no secrets manifest, and (until that turn) no canopy-web registration —
+  and nothing in the framework said so short of a failed turn. Wired into
+  `create-agent` § Channel + setup as the mandatory all-green finish line.
+
 ## [0.2.246] - 2026-07-01
 
 ### Added

@@ -115,6 +115,49 @@ def agent_commands(slug):
         click.echo(f"  #{c.id} {c.kind} -> {c.task_title or '(no task)'}  [{c.created_by}]  {c.payload or ''}")
 
 
+@agent.command("doctor")
+@click.option("--repo", type=click.Path(exists=True, file_okay=False),
+              help="Agent repo root (default: cwd). Identity from its config/agent.json.")
+@click.option("--slug", "slug", default="",
+              help="Agent slug — locate its local repo instead of --repo.")
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def agent_doctor(repo, slug, as_json):
+    """Diagnose ONE agent's operational readiness on THIS machine.
+
+    Read-only composition of the existing point-checks: identity
+    (config/agent.json), gating rails, secrets manifest (provisionable),
+    live gog email auth, canopy-web registration + board. Exits non-zero
+    if any check fails. `canopy doctor` covers the plugin install; this
+    covers the agent.
+    """
+    from pathlib import Path
+
+    from orchestrator.agent_doctor import run_agent_doctor
+    from orchestrator.agent_email import AgentEmailError, find_agent_repo
+
+    try:
+        repo_dir = Path(repo) if repo else (find_agent_repo(slug) if slug else Path.cwd())
+    except AgentEmailError as e:
+        raise click.ClickException(str(e))
+    results, overall_ok = run_agent_doctor(repo_dir)
+
+    if as_json:
+        click.echo(json.dumps({"ok": overall_ok, "repo": str(repo_dir),
+                               "checks": [r.to_dict() for r in results]}, indent=2))
+    else:
+        width = max(len(r.name) for r in results)
+        for r in results:
+            status = "OK  " if r.ok else "FAIL"
+            click.echo(f"  [{status}] {r.name.ljust(width)}  {r.detail}")
+        click.echo()
+        if overall_ok:
+            click.echo(f"All checks passed — agent at {repo_dir} is ready on this machine.")
+        else:
+            click.echo("Some checks failed — fix lines above (see also `canopy provision --check`).")
+    if not overall_ok:
+        raise SystemExit(1)
+
+
 @agent.command("tasks")
 @click.option("--slug", required=True)
 def agent_tasks(slug):
