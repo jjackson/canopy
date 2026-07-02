@@ -60,7 +60,10 @@ The scaffold is a skeleton. Walk the human through filling it in, in this order:
 4. **Channel + setup** — email is already wired: mint the agent's own mailbox + gog OAuth
    client (named `<slug>`), `gog login <mailbox> --client <slug> --services gmail,drive,docs,sheets,forms`,
    verify with `canopy email preflight --repo .`, send via `bin/<slug>-email`. Then declare
-   secrets in `config/secrets.yaml` and run `canopy provision`.
+   secrets in `config/secrets.yaml` and run `canopy provision`. Finish with
+   `canopy agent doctor --repo .` — one command verifying identity, rails, manifest, gog
+   auth, and canopy-web registration; it must be all-green before the agent's first turn
+   (and re-run it on any NEW machine — it catches setup that only ever lived on the old one).
 
 ## Step 4 — Register & ship
 - It's a Claude Code plugin: register it so the Skill tool can dispatch its skills (stronger than
