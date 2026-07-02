@@ -405,6 +405,21 @@ Before every outbound reply, run the `self-review` skill: re-read the original r
 EACH discrete ask, confirm the draft does exactly that (read any source they cited; don't
 reconstruct from memory), then lead with what you DID + a recommendation + options.
 
+**Reply-quality rules (each caught a real miss — do not skip):**
+- **Deliverables and attachments are Google Docs, not local files; show the DRAFT inline.** A
+  substantial artifact (a script, a report, a plan) goes in a shared gdoc and the reply links it;
+  it does NOT get pasted as a wall of text into the email body, and it is NOT stashed in a local
+  `.txt` you point the human at. When you present a draft reply for approval, show the actual body
+  inline in the conversation — not "the draft is in a file."
+- **Decide-then-show, in one coherent order.** Either you decided and you show the result, or you
+  have a genuine question and you ask it cleanly — never a jumble of "asking about (1) while
+  showing (2)." Number your asks/items and keep the order consistent between what you ask and what
+  you present. Don't manufacture a decision out of a thread you've already classified as not
+  actionable.
+- **Verify recipients before sending.** Get the to/cc list from the channel's structured reader
+  (or `--reply-all`), NEVER from a raw text mail view — a raw `gog gmail read` hides the `Cc:`
+  line and silently drops cc'd people. Confirm reply-all vs. direct deliberately.
+
 **Email goes out ONLY via `bin/{{AGENT_SLUG}}-email`** (the shared canopy engine — HTML wrapper,
 reply threading; a deny rail blocks raw `gog gmail send`). Every send returns JSON with
 `thread_id` — **record it in {{AGENT_NAME}}'s state layer** so inbound triage can route the
@@ -465,6 +480,11 @@ Run this before EVERY outbound action (it is the thing that gets dropped under l
 4. **Rate it** against the asks. If any ask is unmet or partially met, **fix it before sending.**
 5. **Lead with what you DID** + your recommendation + what else we could do — not junior questions.
 6. **Enumerate multiple asks**, one line each, showing how each was handled.
+7. **Deliverables are gdocs; the draft is inline.** Any substantial artifact goes in a shared
+   Google Doc the reply links — never pasted as a wall of text, never left in a local file. Present
+   the reply body itself inline for approval, not a pointer to where it lives.
+8. **Verify recipients.** Pull to/cc from the structured reader (or `--reply-all`), never a raw
+   text mail view (it hides `Cc:`). Confirm reply-all vs. direct on purpose.
 '''
 
 _SECRETS_YAML = '''# {{AGENT_NAME}}'s secrets + config, declarative. `canopy provision` materializes these from the

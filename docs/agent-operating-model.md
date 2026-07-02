@@ -79,6 +79,34 @@ dispatch fires.** The factory should template all three.
 > rationale: `docs/architecture/shared-gog-gdrive.md` §4 and ACE's
 > `docs/superpowers/specs/2026-07-01-agent-operating-model-adoption.md § Gating`.
 
+### 1b. Counterpart-communication primitives (the reply-quality checklist)
+
+The turn loop decides *what* an agent does; these decide whether the *message* back to a human
+lands. Each rule below is here because a fleet agent got it wrong in a live turn — they are the
+communication counterpart to the artifact `-eval` regime, and they belong in canopy (not any one
+agent) because a second agent wants every one of them verbatim. The factory templates them into
+every new agent's `turn` + `self-review` skills; existing agents adopt them by reference.
+
+1. **Self-review against the original words.** Before any outbound reply, extract EACH discrete
+   ask as a numbered checklist, confirm the draft does exactly that (read cited sources; don't
+   reconstruct from memory), and reflect the checklist back one line per ask.
+2. **Lead with what you DID** + a recommendation + options — not junior "which should I do?"
+   questions when the brief already gave you authority to decide.
+3. **Deliverables and attachments are Google Docs; the draft is shown inline.** A substantial
+   artifact goes in a shared gdoc the reply links — never a wall of pasted text, never a local
+   `.txt` you point at. When presenting a draft for approval, show the body itself in the
+   conversation.
+4. **Decide-then-show, in one coherent order.** Either you decided and you show the result, or you
+   ask a clean question — never a jumble of "asking about (1) while showing (2)." Keep ask-order
+   and show-order consistent, and don't manufacture a decision out of a thread already classified
+   as not actionable.
+5. **Verify recipients from the structured reader** (or `--reply-all`), never a raw text mail view
+   — raw reads hide `Cc:` and silently drop cc'd people. Choose reply-all vs. direct on purpose.
+
+Rules 1–2 already shipped in the factory templates; rules 3–5 were proven in echo and promoted
+here after ACE repeated all three by hand in a single turn (draft-in-a-txt-file, a jumbled
+non-actionable "decision," and a hand-parsed `Cc` list).
+
 ---
 
 ## 2. Why reef died — and why that's the good news
