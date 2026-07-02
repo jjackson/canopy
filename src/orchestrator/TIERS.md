@@ -30,7 +30,7 @@ enforce it.
 `scheduler` · `paths` · `repo_map` · `repo_paths` · `registry` · `registry_sync` ·
 `skill_budget` · `skill_catalog` · `skill_runner` · `provision` · `run_log` ·
 `version_bump` · `doctor` · `agent_review` · `structure_drift` · `eval_cli` ·
-`eval_rubric`
+`eval_rubric` · `turn_synthesis` · `session_upload`
 
 **HUBS** (orchestration / composition roots — wire product into the CLI, the
 improvement pipeline, and the web server; allowed to import product, like
@@ -40,12 +40,17 @@ canopy-web's `api` app):
 **PRODUCT** (canopy's own features — may import framework):
 `analyzer` · `proposer` · `reviewer` · `briefing` · `observations` · `proposals` ·
 `campaigns` · `tracker` · `labels` · `patterns` · `router` · `digest` · `harvest` ·
-`turn_synthesis` · `shareout` · `portfolio_discover` · `openclaw_harvest` ·
+`shareout` · `portfolio_discover` · `openclaw_harvest` ·
 `issue_origin` · `verify_findings` · `corpus` · `test_audit` · `prompts`
+
+> `turn_synthesis` was re-tiered PRODUCT → FRAMEWORK: it's a generic,
+> dependency-free transcript reducer (stdlib only, no product imports) — the
+> agent-agnostic substrate shared by share-session, harvest, and now
+> `session_upload` (the packageable transcript uploader behind `canopy agent turn`).
 
 Top-level `scripts/` (ddd, narrative, walkthrough), `video-engine/`, and
 `plugins/canopy/{skills,commands,agents}/` are all **product** — correct for a
-product plugin. The framework substrate is the 28 modules above.
+product plugin. The framework substrate is the 30 modules above.
 
 ## Enforcement
 

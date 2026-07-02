@@ -112,6 +112,27 @@ def test_catalog_from_repo_parses_frontmatter():
     }]
 
 
+def test_post_turn_packages_unit_of_work():
+    c, calls = _recorder_client([(200, "{}")])
+    c.post_turn(cli_session_id="sess-9", title="Drafted the donor one-pager",
+                summary="did X", task_ext_ids=["t1", "t2"],
+                work_product_urls=["https://doc/1"], session_slug="abc", share_token="tok")
+    method, url, body = calls[0]
+    assert (method, url) == ("POST", "https://x.test/api/agents/echo/turns/")
+    assert body["cli_session_id"] == "sess-9"
+    assert body["task_ext_ids"] == ["t1", "t2"]
+    assert body["work_product_urls"] == ["https://doc/1"]
+    assert body["share_token"] == "tok" and body["session_slug"] == "abc"
+
+
+def test_post_turn_transcript_optional_defaults_empty():
+    c, calls = _recorder_client([(200, "{}")])
+    c.post_turn(cli_session_id="sess-1", title="Packaged, no upload", task_ext_ids=["t1"])
+    body = calls[0][2]
+    assert body["session_slug"] == "" and body["share_token"] == ""
+    assert body["task_ext_ids"] == ["t1"] and body["work_product_urls"] == []
+
+
 def test_record_verdict_posts_to_step_verdict_endpoint():
     rec = []
     c = make_client(rec)

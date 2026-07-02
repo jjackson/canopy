@@ -446,10 +446,24 @@ If this turn produced a shareable deliverable, also `canopy agent work <items.js
 `/agents/{{AGENT_SLUG}}` is the shared trigger + approval surface — where teammates queue work and
 approve outbound actions.
 
+Then **package this turn** as a unit of work so `/agents/{{AGENT_SLUG}}` records what you did and
+ties it to the request(s) you advanced:
+```
+canopy agent turn --slug {{AGENT_SLUG}} --title "<what this turn did>" \
+  --task <ext_id> [--task <ext_id> …]      # the board task(s) this turn advanced
+  # --work-product-url <url> per deliverable produced this turn
+```
+**Optional transcript link (ASK FIRST):** uploading the transcript publishes to canopy-web — an
+outbound action — so it rides the same approval gate as a send. Only if the human says yes, append
+`--upload` (reduces THIS session to conversation-only, then hangs a `/share/<token>` link off the
+turn). Put that link in your close-out summary. Without `--upload`, the turn is still packaged
+(request → what you did → deliverables), just with no transcript.
+
 **CLOSE CHECKLIST — confirm each in the summary (these get silently skipped under load):**
 1. `self-review` ran on every outbound reply (Step 2).
 2. Skill-development self-check answered (Step 3).
 3. Workspace refreshed (`canopy agent skills` above).
+4. Turn packaged (`canopy agent turn …`); transcript uploaded ONLY if the human approved.
 
 **Shipping a skill change from a worktree** — emdash runs each turn in a worktree while `main` is
 checked out elsewhere, so `git checkout main` and `gh pr merge --delete-branch` FAIL ("main already

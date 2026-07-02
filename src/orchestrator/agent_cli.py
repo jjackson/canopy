@@ -1,5 +1,7 @@
 """`canopy agent …` — thin CLI over AgentClient for shell-driven agents."""
 import json
+from pathlib import Path
+
 import click
 
 from orchestrator.agent_client import AgentClient, catalog_from_repo, CanopyError
@@ -64,6 +66,50 @@ def agent_work(slug, json_file):
         items = json.load(open(json_file))
         _emit(_client(slug).put_work_products(items))
     except (CanopyError, RuntimeError) as e:
+        raise click.ClickException(str(e))
+
+
+@agent.command("turn")
+@click.option("--slug", required=True)
+@click.option("--title", required=True, help="What the turn did, in one line.")
+@click.option("--summary", default="", help="The close-out summary.")
+@click.option("--task", "task_ext_ids", multiple=True,
+              help="ext_id of a request this turn advanced (repeatable).")
+@click.option("--work-product-url", "work_product_urls", multiple=True,
+              help="url of a deliverable produced this turn (repeatable).")
+@click.option("--source", default="turn")
+@click.option("--session-id", "cli_session_id", default="",
+              help="Claude session id (the dedup key); auto-derived with --upload.")
+@click.option("--upload", is_flag=True,
+              help="Reduce + upload the transcript and link it to the turn (optional).")
+@click.option("--transcript", type=click.Path(exists=True), default=None,
+              help="Transcript .jsonl to upload (default: newest for the cwd).")
+@click.option("--full", is_flag=True, help="Upload the raw transcript instead of the reduced one.")
+@click.option("--visibility", type=click.Choice(["link", "private"]), default="link")
+def agent_turn(slug, title, summary, task_ext_ids, work_product_urls, source,
+               cli_session_id, upload, transcript, full, visibility):
+    """Package this turn as a unit of work; optionally upload its transcript.
+
+    The transcript is OPTIONAL — without --upload this just records the request(s)
+    advanced, the summary, and the deliverables. With --upload it reduces the
+    session (conversation-only) to a /share/<token> link hung off the turn."""
+    try:
+        session_slug = share_token = ""
+        if upload:
+            from orchestrator import session_upload
+            path = Path(transcript) if transcript else session_upload.discover_transcript(Path.cwd())
+            body = session_upload.upload_transcript(path, title=title, visibility=visibility, full=full)
+            session_slug = body.get("slug", "") or ""
+            share_token = body.get("share_token", "") or ""
+            cli_session_id = cli_session_id or body.get("cli_session_id", "") or path.stem
+        if not cli_session_id:
+            raise click.ClickException(
+                "pass --session-id (the Claude session id), or --upload to derive it from the transcript")
+        _emit(_client(slug).post_turn(
+            cli_session_id=cli_session_id, title=title, summary=summary,
+            task_ext_ids=list(task_ext_ids), work_product_urls=list(work_product_urls),
+            session_slug=session_slug, share_token=share_token, source=source))
+    except (CanopyError, RuntimeError, OSError) as e:
         raise click.ClickException(str(e))
 
 
