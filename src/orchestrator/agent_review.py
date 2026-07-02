@@ -87,10 +87,25 @@ DEFAULT_TURN_STEPS = (
     ("workspace-refresh", (r"agent-publish", r"/agents/")),
 )
 
+# NOTE: no bare "blocked" here — PR status output ("mergeable: MERGEABLE/BLOCKED") and prose
+# ("blocked only on required review") made every PR-triage turn look like a failure storm.
+# Gating friction is detected separately via _GATING_MARKERS.
 _ERROR_MARKERS = re.compile(
     r"(?:^|\b)(?:error|errno|traceback|exception|failed|not found|not been used|"
-    r"permission denied|blocked|fatal|✗|exit code [1-9]|"
+    r"permission denied|fatal|✗|exit code [1-9]|"
     r"4(?:00|01|03|04|09|22|29)|5(?:00|02|03))\b",
+    re.I,
+)
+# A gating block is a PreToolUse hook outcome — only tools the guard actually gates can
+# produce one (a Read of the hook's own source contains "permissionDecision" but is not a block).
+# When a hook fires, its message IS the whole tool result, so the marker sits at the head —
+# a `cat config/gating.json` carries the same strings, but buried past the file preamble.
+_GATABLE_TOOLS = {"Bash", "Edit", "Write", "NotebookEdit"}
+_GATING_HEAD = 300
+# No bare "PreToolUse" here — gating-policy prose mentions it constantly; hook RESULTS
+# always carry one of these instead.
+_GATING_MARKERS = re.compile(
+    r"hookSpecificOutput|permissionDecision|BLOCKED:|hook (?:denied|blocked)|blocked by .{0,20}hook",
     re.I,
 )
 _AUTH_MARKERS = re.compile(
@@ -114,6 +129,36 @@ def _result_text(call: dict) -> str:
     if isinstance(r, list):
         return " ".join(str(b.get("text", b) if isinstance(b, dict) else b) for b in r)
     return str(r or "")
+
+
+def _call_subject(call: dict) -> str:
+    """The most comparable piece of a call's input — command / path, else the whole input."""
+    inp = call.get("input")
+    if not isinstance(inp, dict):
+        return str(inp or "")
+    return str(
+        inp.get("command")
+        or inp.get("file_path")
+        or inp.get("notebook_path")
+        or json.dumps(inp, sort_keys=True)
+    )
+
+
+def _retried_after(calls: list[dict], i: int, window: int = 8) -> bool:
+    """True if the tool that failed at index i re-ran shortly after on a near-identical
+    subject. (The old check — same tool name appearing anywhere else in the turn — flagged
+    every Bash-heavy turn as a retry loop.)"""
+    tool = calls[i].get("name", "")
+    prefix = _call_subject(calls[i]).strip()[:30]
+    if not prefix:
+        return False
+    for later in calls[i + 1 : i + 1 + window]:
+        if later.get("name") != tool:
+            continue
+        other = _call_subject(later).strip()[:30]
+        if other and (other.startswith(prefix) or prefix.startswith(other)):
+            return True
+    return False
 
 
 def _transcript_cwd(path: Path) -> str:
@@ -170,27 +215,27 @@ def friction_signals(transcript_path: Path, steps=DEFAULT_TURN_STEPS) -> dict:
     asst_text = "\n".join(extract_assistant_text(entries)).lower()
 
     failures, gating_blocks, auth_hits = [], [], []
-    for c in calls:
+    failed_idx: list[int] = []
+    for i, c in enumerate(calls):
         res = _result_text(c)
         if not res:
             continue
         head = res[:600]
-        is_block = "BLOCKED" in res or "permissionDecision" in res or "exit code 2" in res
-        if is_block:
-            gating_blocks.append({"tool": c.get("name", ""), "evidence": head[:200]})
+        tool = c.get("name", "")
+        if tool in _GATABLE_TOOLS and _GATING_MARKERS.search(res[:_GATING_HEAD]):
+            gating_blocks.append({"tool": tool, "evidence": head[:200]})
         elif _ERROR_MARKERS.search(head):
+            failed_idx.append(i)
             failures.append({
-                "tool": c.get("name", ""),
+                "tool": tool,
                 "input": json.dumps(c.get("input", {}))[:160],
                 "evidence": head[:200],
             })
         if _AUTH_MARKERS.search(head):
-            auth_hits.append({"tool": c.get("name", ""), "evidence": head[:200]})
+            auth_hits.append({"tool": tool, "evidence": head[:200]})
 
-    # Retry loops: a tool name that appears again after one of its calls failed.
-    failed_tools = [f["tool"] for f in failures]
-    seq = [c.get("name", "") for c in calls]
-    retries = sorted({t for t in failed_tools if seq.count(t) > 1})
+    # Retry loops: the same tool re-run on a near-identical subject shortly after failing.
+    retries = sorted({calls[i].get("name", "") for i in failed_idx if _retried_after(calls, i)})
 
     # Checklist gaps: expected steps with no marker anywhere in tool inputs/assistant text.
     haystack = asst_text + "\n" + "\n".join(

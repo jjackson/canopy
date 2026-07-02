@@ -26,7 +26,43 @@ def find_registry() -> Path:
     raise click.ClickException("registry.yaml not found")
 
 
-@click.group()
+def _skill_hint(name: str) -> str | None:
+    """If an unknown subcommand is actually an installed skill, say how to invoke it.
+
+    Agents chronically conflate canopy's two surfaces — the deterministic CLI
+    (`canopy agent-review ...`) and the Claude Code skills (`canopy:session-review`,
+    invoked via the Skill tool). Hal ran `canopy session-review` and got a bare
+    "No such command"; this makes the error itself teach the distinction.
+    """
+    try:
+        from orchestrator.skill_catalog import build_catalog
+        matches = [e for e in build_catalog() if e.get("name") == name]
+    except Exception:
+        return None
+    if not matches:
+        return None
+    qualified = matches[0].get("qualified") or name
+    return (
+        f"Hint: {name!r} is a Claude Code skill, not a canopy CLI subcommand. "
+        f"Invoke it via the Skill tool as {qualified!r} (slash command /{qualified}). "
+        "The canopy CLI only exposes deterministic subcommands — see `canopy --help`."
+    )
+
+
+class SkillHintGroup(click.Group):
+    """Click group whose unknown-command error checks the installed skill catalog."""
+
+    def resolve_command(self, ctx, args):
+        try:
+            return super().resolve_command(ctx, args)
+        except click.UsageError as err:
+            hint = _skill_hint(args[0]) if args else None
+            if hint:
+                raise click.UsageError(err.format_message() + "\n" + hint, ctx=ctx)
+            raise
+
+
+@click.group(cls=SkillHintGroup)
 def main():
     """Canopy — self-improving MCP orchestration."""
 
