@@ -141,7 +141,13 @@ For each scene in `unified_spec.yaml`:
      auto-generated slug) is real production data the live product genuinely
      shows, so it is grounding, NOT a flaw. Do not coach the judge to penalize a
      real record's real name; when unsure whether a slug is fixture or real,
-     treat it as real and do not deduct.
+     treat it as real and do not deduct. Likewise, an explicit TOP-LEVEL
+     synthetic/demo-environment marker (a program picker reading "Labs
+     Synthetic", a demo banner, a sandbox label) is honest framing — a labs
+     walkthrough SHOULD disclose it runs on synthetic data (showing real
+     program data on camera would be worse), so its presence is never a flaw
+     on any dimension. The synthetic-data bar applies at the ENTITY level:
+     the records themselves (names, orgs, dates, amounts) must look real.
    - `narrative_anchors`: [`scene.concept_claim`, `scene.provenance`, the matching why_brief spine rationale (if resolvable)]
    - `narrative`: `scene.narrative` — the scene's FULL narration (not just the
      concept_claim), so the judge can compare what the narration CLAIMS happened

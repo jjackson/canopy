@@ -211,6 +211,13 @@ decision surface flaws a detached reviewer waves through.
   is the real (if ugly) name of a real entity in the running system. When you
   can't tell, treat it as real production data and do not deduct — penalizing
   the product for being real is the failure mode this mode exists to prevent.
+  **An explicit TOP-LEVEL synthetic/demo-environment marker is also never a
+  flaw** (a program picker reading "Labs Synthetic", a demo banner, a sandbox
+  label): a demo SHOULD disclose it runs on synthetic data — putting real
+  program data on camera would be worse — so honest environment framing is
+  intended, on any dimension including trust. The fixture-data penalty above
+  applies at the ENTITY level (the records themselves — names, orgs, dates,
+  amounts — must look real), not to the environment's honest self-labeling.
   The bar is "is this a polished, coherent, honest view *of a real product*",
   not "is this a chrome-free standalone graphic."
 
