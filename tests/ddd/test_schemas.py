@@ -419,9 +419,13 @@ class TestVerdictOutOfChainCap:
         )
 
     def test_metadata_fields_default(self):
+        # gate defaults to "advisory" (canopy#273 item 4): an unstamped legacy
+        # verdict must never become a gating, unverified verdict that blocks
+        # convergence forever. The gating kinds (concept, user_artifact) are
+        # stamped explicitly by their skills / KIND_DEFAULTS.
         v = self._verdict(4.0)
         assert v.kind is None
-        assert v.gate == "gating"
+        assert v.gate == "advisory"
         assert v.live_state_verified is None
         assert v.calibration is None
 

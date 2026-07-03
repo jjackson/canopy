@@ -38,7 +38,7 @@
       "title": "Kind"
     },
     "gate": {
-      "default": "gating",
+      "default": "advisory",
       "enum": [
         "gating",
         "advisory"

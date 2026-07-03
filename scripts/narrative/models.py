@@ -483,6 +483,7 @@ ACTION_CLASSES: tuple[type[_ActionBase], ...] = (
     GotoAction, ClickAction, ClickMenuAction, FillAction, SelectAction,
     TypeAction, PressAction, HoverAction, ScrollToAction, ScrollAction,
     WaitForAction, HoldAction, DrawAction, MapClickAction, MapZoomAction, CaptureAction,
+    SnapshotAction,
 )
 
 
@@ -739,11 +740,19 @@ class Verdict(BaseModel):
     aggregator and convergence are generic over kinds, so adding a judge is data,
     not assembler code. ``scripts.ddd.verdicts.load_verdict`` stamps this (and the
     two fields below) from KIND_DEFAULTS when the emitter didn't."""
-    gate: Literal["gating", "advisory"] = "gating"
+    gate: Literal["gating", "advisory"] = "advisory"
     """Whether this verdict participates in render-loop CONVERGENCE scoring.
     ``advisory`` verdicts are recorded and reported but a low score never blocks
     convergence (e.g. timing/video/why/actionability). Phase gates (why-eval's
-    pass-to-proceed) are a separate mechanism — this field is convergence-only."""
+    pass-to-proceed) are a separate mechanism — this field is convergence-only.
+
+    Defaults to ``advisory`` (canopy#273 item 4): a legacy/unstamped verdict
+    loaded via a bare ``model_validate`` must not become a gating, possibly
+    unverified verdict that hard-blocks convergence forever. The safe direction:
+    ``compute_convergence_all`` returns False when NO gating verdict is present,
+    so convergence stays demonstrated, not defaulted. The two gating kinds
+    (``concept``, ``user_artifact``) are stamped explicitly — by their skills at
+    write time and by ``scripts.ddd.verdicts.KIND_DEFAULTS`` at load time."""
     live_state_verified: bool | None = None
     """Whether the grading anchor touched live state (rendered screenshots, the
     produced mp4, a probed repo) rather than AI-authored text. ``False`` caps

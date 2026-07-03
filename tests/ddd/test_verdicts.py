@@ -19,7 +19,12 @@ import pytest
 import yaml
 
 from scripts.ddd.schemas.models import Verdict
-from scripts.ddd.verdicts import KIND_DEFAULTS, load_verdict
+from scripts.ddd.verdicts import (
+    EXTRA_VERDICT_FILENAMES,
+    KIND_DEFAULTS,
+    discover_extra_verdicts,
+    load_verdict,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -187,3 +192,68 @@ def test_kind_defaults_covers_all_six_families():
         "timing",
         "video",
     }
+
+
+# ---------------------------------------------------------------------------
+# discover_extra_verdicts — the ddd-run Step 4 plug (canopy#273 item 1)
+# ---------------------------------------------------------------------------
+
+
+def test_extra_filenames_cover_the_four_out_of_chain_artifacts():
+    assert set(EXTRA_VERDICT_FILENAMES) == {
+        "verdict-timing.json",
+        "verdict-video.json",
+        "verdict-why.yaml",
+        "verdict-actionability.yaml",
+    }
+
+
+def test_discover_empty_run_dir_returns_empty(tmp_path):
+    assert discover_extra_verdicts(tmp_path) == ({}, {})
+
+
+def test_discover_loads_present_artifacts_by_kind(tmp_path):
+    _write_concept_yaml(tmp_path / "verdict-why.yaml", overall=4.0)
+    (tmp_path / "verdict-timing.json").write_text(
+        json.dumps({"verdict": "pass", "overallScore": 4.5, "coverage": 1.0})
+    )
+
+    verdicts, paths = discover_extra_verdicts(tmp_path)
+
+    assert set(verdicts) == {"why", "timing"}
+    assert verdicts["why"].gate == "advisory"
+    assert verdicts["why"].live_state_verified is False
+    assert verdicts["timing"].gate == "advisory"
+    assert paths == {
+        "why": str(tmp_path / "verdict-why.yaml"),
+        "timing": str(tmp_path / "verdict-timing.json"),
+    }
+
+
+def test_discover_skips_na_artifacts(tmp_path):
+    # timing with a null verdict (no narrated form fields) carries nothing to
+    # aggregate — it must not appear in either dict
+    (tmp_path / "verdict-timing.json").write_text(
+        json.dumps({"verdict": None, "overallScore": None, "coverage": 0})
+    )
+    (tmp_path / "verdict-video.json").write_text(json.dumps({"scenes": []}))
+    assert discover_extra_verdicts(tmp_path) == ({}, {})
+
+
+def test_discover_ignores_the_gating_pair(tmp_path):
+    # verdict-concept.yaml / verdict-user.yaml are the gating pair, loaded
+    # explicitly by ddd-run — discovery only sweeps the extras
+    _write_concept_yaml(tmp_path / "verdict-concept.yaml")
+    _write_concept_yaml(tmp_path / "verdict-user.yaml")
+    assert discover_extra_verdicts(tmp_path) == ({}, {})
+
+
+def test_discovered_unverified_verdict_is_capped(tmp_path):
+    # the out-of-chain cap flows through discovery: an actionability verdict
+    # scoring 4.8 loads capped at 4.0 with the pre-cap score recorded
+    _write_concept_yaml(tmp_path / "verdict-actionability.yaml", overall=4.8)
+    verdicts, _ = discover_extra_verdicts(tmp_path)
+    v = verdicts["actionability"]
+    assert v.live_state_verified is False
+    assert v.overall_score == 4.0
+    assert v.uncapped_overall_score == 4.8

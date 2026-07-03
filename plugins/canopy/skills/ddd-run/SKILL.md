@@ -510,30 +510,52 @@ For dimensions that scored ≥ 4 (no finding emitted), `fix_recommendation` and
 ### Step 4 — Assemble + convergence
 
 Call `run_pipeline.assemble_run_state` to merge both verdict paths and findings
-into `run_state.yaml`:
+into `run_state.yaml`. Load the gating pair through the unified loader
+(`scripts.ddd.verdicts.load_verdict` — it stamps `kind`/`gate`/
+`live_state_verified` from `KIND_DEFAULTS` when the emitter didn't), then
+discover any **extra out-of-chain verdicts** present in the run dir —
+`verdict-timing.json` / `verdict-video.json` / `verdict-why.yaml` /
+`verdict-actionability.yaml` — so the four advisory verdicts flow through the
+same schema (canopy#273 item 1):
 
 ```python
 import json
 from scripts.ddd.run_pipeline import assemble_run_state, compute_convergence
 from scripts.ddd.runstate import load, save
+from scripts.ddd.verdicts import discover_extra_verdicts, load_verdict
 
 # The render manifest is the single source of truth for what was rendered.
 manifest = json.load(open(f"{run_dir}/walkthrough-run-data.json"))
 
+# Gating pair — through the unified loader, never a bare yaml.safe_load.
+concept_verdict = load_verdict(f"{run_dir}/verdict-concept.yaml")
+user_verdict = load_verdict(f"{run_dir}/verdict-user.yaml")
+
+# Any of verdict-timing.json / verdict-video.json / verdict-why.yaml /
+# verdict-actionability.yaml present in the run dir loads through the same
+# schema (kind/gate/live_state_verified stamped; the out-of-chain score cap
+# enforced at the schema layer). n/a artifacts are skipped automatically.
+extra_verdicts, extra_paths = discover_extra_verdicts(run_dir)
+
 state = load(run_id)
 state = assemble_run_state(
     state,
-    concept_verdict=<loaded concept verdict>,
-    user_verdict=<loaded user verdict>,
+    concept_verdict=concept_verdict,
+    user_verdict=user_verdict,
     findings=<merged findings from design_findings.json>,
     concept_path="<run_dir>/verdict-concept.yaml",
     user_path="<run_dir>/verdict-user.yaml",
     manifest=manifest,   # fills state.scenes_run / state.scene_filter from the manifest
+    extra_verdict_paths=extra_paths,   # recorded in state.verdicts alongside the pair
 )
 save(state)
 
-converged = compute_convergence(concept_verdict, user_verdict)
+converged = compute_convergence(concept_verdict, user_verdict, extra=extra_verdicts)
 ```
+
+Advisory verdicts (timing / video / why / actionability) are recorded and
+reported but never block convergence — each verdict's `gate` field decides its
+participation, so a future gating judge is data, not new assembler code.
 
 `scenes_run` / `scene_filter` are now populated by `assemble_run_state` from the
 manifest — do NOT hand-stamp them. (The manifest is produced by the render step:
@@ -574,7 +596,20 @@ auto_iterate_next_action, reason = compute_auto_iterate(
 > improves and stops the instant it stalls or regresses.
 
 Stamp `auto_iterate_next_action` and `auto_iterate_reason` onto run_state
-(both are optional fields on RunState) and `save(state)`. Then print the summary:
+(both are optional fields on RunState) and `save(state)`. Then print the
+summary. **Every verdict line MUST be rendered via
+`run_pipeline.format_verdict_line`** — a capped verdict (the out-of-chain cap
+fired because `live_state_verified: false`) renders as
+`4.0/5 (pass — capped from 4.8, not live-state verified)`, never as a bare
+`4.0/5` indistinguishable from an honest 4.0 (canopy#273 item 3):
+
+```python
+from scripts.ddd.run_pipeline import format_verdict_line
+
+concept_line = format_verdict_line(concept_verdict)
+user_line = format_verdict_line(user_verdict)
+advisory_lines = {k: format_verdict_line(v) for k, v in extra_verdicts.items()}
+```
 
 ```
 DDD Run — <run_id>
@@ -585,8 +620,9 @@ DDD Run — <run_id>
   Hosted deck (iter <N>): <DECK_URL>                                    # NEW — from Step 2b
   Hosted clip (iter <N>): <CLIP_URL>                                    # NEW — only if recorded
 
-  Concept judge:       <concept overall_score>/5  (<verdict>)
-  User-artifact judge: <user overall_score>/5     (<verdict>)
+  Concept judge:       <concept_line>
+  User-artifact judge: <user_line>
+  Advisory:            <kind>: <advisory_lines[kind]>                   # one line per extra verdict, if any
 
   Convergence (filtered): YES | NO  (threshold: 4.0)                    # "filtered" tag if partial
 
@@ -683,4 +719,5 @@ When the auto-gate does not post, build the links by hand:
 | `<run_dir>/verdict-concept.yaml` | ddd-concept-eval | Concept judge verdict |
 | `<run_dir>/design_findings.json` | ddd-concept-eval | Tagged design findings |
 | `<run_dir>/verdict-user.yaml` | canopy:visual-judge (user-artifact) | User-artifact judge verdict |
-| `<run_dir>/run_state.yaml` | assemble_run_state + save | phase=judged, verdict paths, findings |
+| `<run_dir>/run_state.yaml` | assemble_run_state + save | phase=judged, verdict paths (gating pair + any extras), findings |
+| `<run_dir>/verdict-timing.json` / `verdict-video.json` / `verdict-why.yaml` / `verdict-actionability.yaml` | other DDD skills (optional) | Advisory verdicts — discovered by Step 4 when present, recorded + reported, never convergence-blocking |
