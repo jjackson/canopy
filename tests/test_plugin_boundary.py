@@ -27,7 +27,7 @@ FRAMEWORK = {
     "scheduler", "paths", "repo_map", "repo_paths", "registry", "registry_sync",
     "skill_budget", "skill_catalog", "skill_runner", "provision", "run_log",
     "version_bump", "doctor", "agent_review", "structure_drift",
-    "eval_cli", "eval_rubric", "turn_synthesis", "session_upload",
+    "eval_cli", "eval_rubric", "turn_synthesis", "session_upload", "fleet_align",
 }
 # Orchestration hubs / composition roots — wire product features into the CLI, the
 # improvement pipeline, and the web server. Allowed to import product (like
