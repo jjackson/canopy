@@ -20,6 +20,7 @@ canopy's own hooks: a PreToolUse hook runs under system python3 which may lack P
 from __future__ import annotations
 
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -93,6 +94,13 @@ def create_agent(spec: AgentSpec, target_dir: Path, *, force: bool = False) -> l
             f"{target} is not empty; pass force=True to scaffold into it anyway"
         )
     tokens = spec.tokens()
+    if "@example.com" in tokens["MAILBOX"]:
+        print(
+            f"WARNING: no --mailbox given — scaffolding with placeholder "
+            f"{tokens['MAILBOX']!r}. Email will fail late and confusingly at gog "
+            f"send/login; set the real mailbox in config/agent.json before the first turn.",
+            file=sys.stderr,
+        )
     written: list[Path] = []
     for rel_path, template in _TEMPLATES.items():
         rel = _render(rel_path, tokens)        # path itself may carry {{AGENT_SLUG}}
@@ -248,6 +256,11 @@ _GATING_JSON = '''{
       "tool": "Bash",
       "pattern": "(?:^|[\\\\n;&|(])\\\\s*gog\\\\s+gmail\\\\s+(send|reply)\\\\b",
       "message": "BLOCKED: raw `gog gmail send/reply` bypasses {{AGENT_NAME}}'s HTML wrapper and thread_id capture. Send via bin/{{AGENT_SLUG}}-email (the shared canopy email engine) instead — write the body to a file and pass --body-file."
+    },
+    {
+      "tool": "Bash",
+      "pattern": "canopy\\\\s+email\\\\s+send\\\\b(?=[^\\\\n]*--account)",
+      "message": "BLOCKED: `canopy email send --account` overrides {{AGENT_NAME}}'s repo identity — one mailbox + one client per agent (identity bleed is the fleet's one hard rule). Send via bin/{{AGENT_SLUG}}-email, which pins this repo's identity."
     }
   ],
   "approve": []
@@ -582,7 +595,7 @@ record thread_id into {{AGENT_NAME}}'s state layer so inbound triage can route t
 
 Usage:
   bin/{{AGENT_SLUG}}-email --to "a@x,b@y" [--cc "c@z"] --subject "Re: ..." \\
-      --body-file body.txt [--reply-to-message-id <id>] [--dry-run]
+      --body-file body.txt [--reply-to-message-id <id>] [--reply-all] [--dry-run]
 
 Auth check: `canopy email preflight --repo <this repo>` (exact `gog login` fix on failure).
 """
@@ -590,7 +603,14 @@ import os
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-os.execvp("canopy", ["canopy", "email", "send", "--repo", REPO, *sys.argv[1:]])
+try:
+    os.execvp("canopy", ["canopy", "email", "send", "--repo", REPO, *sys.argv[1:]])
+except FileNotFoundError:
+    sys.exit(
+        "canopy CLI not on PATH — the shared email engine lives there.\\n"
+        "Install it (`uv tool install canopy`) or run from a canopy checkout: "
+        "`uv run canopy email send --repo <this repo> ...`"
+    )
 '''
 
 _ALLOWLIST = '''# Counterparts {{AGENT_NAME}} may ACT on (send/reply/write). One per line.

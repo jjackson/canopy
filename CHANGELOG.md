@@ -9,6 +9,73 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.256] - 2026-07-03
+
+### Added
+- **The generic verdict aggregator is now plugged into `ddd-run`** (canopy#273
+  item 1). `scripts.ddd.verdicts.discover_extra_verdicts(run_dir)` sweeps the
+  four out-of-chain verdict artifacts (`verdict-timing.json`,
+  `verdict-video.json`, `verdict-why.yaml`, `verdict-actionability.yaml`),
+  loads each through `load_verdict` (kind/gate/live_state_verified stamped,
+  out-of-chain score cap enforced at the schema layer), and returns
+  `(verdicts_by_kind, paths_by_kind)` shaped for
+  `assemble_run_state(extra_verdict_paths=...)` +
+  `compute_convergence(extra=...)`. `ddd-run` SKILL.md Step 4 and
+  `agents/ddd.md` Step 7 now wire it, so the advisory verdicts flow through
+  the unified schema in live runs instead of only in tests. Structure tests
+  pin the wiring; the reference drift gate guards the imports.
+- **Cap-visible verdict report lines** (canopy#273 item 3).
+  `run_pipeline.format_verdict_line(verdict)` renders a capped verdict as
+  `4.0/5 (pass — capped from 4.8, not live-state verified)` (from
+  `uncapped_overall_score`), never a bare `4.0/5` indistinguishable from an
+  honest score. `ddd-run` Step 5's summary renders every verdict line —
+  gating pair + advisories — through it.
+- **Structure test for the `verdict-user.yaml` metadata stamp** (canopy#273
+  item 2): `kind: user_artifact` / `gate: gating` / `live_state_verified: true`
+  can no longer silently drift out of the ddd-run SKILL.
+
+### Changed
+- **`Verdict.gate` now defaults to `advisory` (was `gating`)** (canopy#273
+  item 4). A legacy verdict loaded via bare `model_validate` previously became
+  a gating, unverified verdict that could hard-block convergence forever. The
+  flip is the safe direction: `compute_convergence_all` returns False when no
+  gating verdict is present, so convergence stays demonstrated, not defaulted.
+  The two gating kinds (`concept`, `user_artifact`) are unaffected — both are
+  stamped explicitly by their skills at write time and by
+  `verdicts.KIND_DEFAULTS` at load time. `Verdict.json` regenerated. Audit
+  found no other gating-by-default dependents (`.gate` is only read by
+  `compute_convergence_all`; test stubs now stamp explicitly).
+
+### Fixed
+- **`SnapshotAction` missing from `ACTION_CLASSES`** — the `snapshot` action
+  (0.2.253) was added to the `Action` union but not the class tuple, breaking
+  the single-source guard tests on main
+  (`tests/walkthrough/test_action_kinds_single_source.py`). One-line addition.
+## [0.2.255] - 2026-07-03
+
+### Added
+- **Email engine: `--reply-all`** (`canopy email send --reply-all --reply-to-message-id <id>`)
+  — derives To (original sender) + Cc (everyone else on the original To+Cc, de-duped,
+  excluding the agent) from the message's JSON headers. Ported from echo's
+  `derive_reply_all`; guards the silently-dropped-Cc bug (operating-model §1b rule 3).
+  Explicit `--cc` merges in; dry-run output now carries the same `message_id`/`thread_id`
+  keys as a real send so scripted callers never branch.
+- **Identity-bleed guards**: `canopy email send --account <other>` warns loudly when it
+  disagrees with the resolved repo identity, and the factory's templated gating.json
+  gains a deny rail on `canopy email send … --account` (the shim pins repo identity).
+- Factory: the email shim exits with an install hint when the `canopy` CLI is missing
+  (was a bare FileNotFoundError traceback); `create_agent` warns on the
+  `<slug>@example.com` mailbox placeholder instead of failing late at gog send.
+
+### Changed
+- **Email engine mark-read: no more Keychain** — now shells `gog gmail thread modify
+  --remove UNREAD` per thread (gog's own token bucket). The previous Gmail-API path
+  minted a token via macOS `security find-generic-password`, which blocks FOREVER on a
+  GUI prompt in non-interactive agent shells (dimagi-internal/ace#827 — hit live in an
+  ACE turn; echo's `echo_mark_read.py` carries the same class and should converge).
+- `send()` now has a 120s subprocess timeout — a hung gog fails the send loudly instead
+  of hanging the whole turn.
+
 ## [0.2.246] - 2026-07-01
 
 ### Added

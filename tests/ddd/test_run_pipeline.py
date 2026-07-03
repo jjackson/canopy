@@ -29,10 +29,18 @@ from scripts.ddd.schemas.models import Dimension, RunState, Verdict
 def _stub_verdict(
     overall_score: float,
     verdict_str: str = "pass",
+    gate: str = "gating",
 ) -> Verdict:
-    """Create a minimal Verdict for testing."""
+    """Create a minimal Verdict for testing.
+
+    ``gate`` is stamped explicitly (default ``gating``): these stubs stand in
+    for the concept / user_artifact pair, which the skills stamp at write time
+    and ``load_verdict`` stamps at load time. The MODEL default is ``advisory``
+    (canopy#273 item 4) — an unstamped legacy verdict must never gate.
+    """
     return Verdict(
         schema_version=1,
+        gate=gate,  # type: ignore[arg-type]
         dimensions={
             "concept_clarity": Dimension(score=overall_score, weight=1.0),
         },
@@ -485,3 +493,96 @@ class TestComputeConvergenceAll:
             _stub_verdict(4.0),
             extra={"other": _stub_verdict(2.0)},
         )
+
+    def test_capped_advisory_with_passing_gating_pair_converges(self) -> None:
+        """canopy#273 item 5: a capped advisory verdict (live_state_verified
+        False, uncapped score above the 4.0 cap) rides along with a passing
+        gating pair — the cap fires, the extra stays advisory, and convergence
+        is still True."""
+        from scripts.ddd.run_pipeline import compute_convergence
+
+        capped = Verdict(
+            kind="actionability",
+            gate="advisory",
+            live_state_verified=False,
+            dimensions={"coverage": Dimension(score=4.8, weight=1.0)},
+            overall_score=4.8,
+            verdict="pass",
+        )
+        # The schema-layer cap fired and recorded the pre-cap score.
+        assert capped.overall_score == 4.0
+        assert capped.uncapped_overall_score == 4.8
+
+        assert (
+            compute_convergence(
+                _stub_verdict(4.5),
+                _stub_verdict(4.0),
+                extra={"actionability": capped},
+            )
+            is True
+        )
+
+    def test_legacy_unstamped_verdict_is_advisory_not_gating(self) -> None:
+        """canopy#273 item 4: Verdict.gate defaults to 'advisory', so a legacy
+        verdict loaded via bare model_validate cannot hard-block convergence —
+        and alone it cannot converge a run either (no gating verdict present →
+        False, demonstrated not defaulted)."""
+        from scripts.ddd.run_pipeline import compute_convergence_all
+
+        legacy = Verdict.model_validate(
+            {
+                "dimensions": {"d": {"score": 2.0, "weight": 1.0}},
+                "overall_score": 2.0,
+                "verdict": "fail",
+            }
+        )
+        assert legacy.gate == "advisory"
+        # A low legacy verdict does not block a passing gating pair...
+        assert compute_convergence_all(
+            {
+                "concept": _stub_verdict(4.5),
+                "user_artifact": _stub_verdict(4.0),
+                "legacy": legacy,
+            }
+        )
+        # ...and by itself it can never demonstrate convergence.
+        assert not compute_convergence_all({"legacy": legacy})
+
+
+# ---------------------------------------------------------------------------
+# canopy#273 item 3 — cap-visible verdict report lines
+# ---------------------------------------------------------------------------
+
+
+class TestFormatVerdictLine:
+    def test_uncapped_verdict_renders_plain(self) -> None:
+        from scripts.ddd.run_pipeline import format_verdict_line
+
+        assert format_verdict_line(_stub_verdict(4.5)) == "4.5/5 (pass)"
+
+    def test_capped_verdict_names_the_cap(self) -> None:
+        from scripts.ddd.run_pipeline import format_verdict_line
+
+        capped = Verdict(
+            kind="why",
+            gate="advisory",
+            live_state_verified=False,
+            dimensions={"d": Dimension(score=4.8, weight=1.0)},
+            overall_score=4.8,
+            verdict="pass",
+        )
+        line = format_verdict_line(capped)
+        assert line == "4.0/5 (pass — capped from 4.8, not live-state verified)"
+
+    def test_unverified_below_cap_renders_plain(self) -> None:
+        # the cap never fired (score already <= 4.0) — nothing to annotate
+        from scripts.ddd.run_pipeline import format_verdict_line
+
+        v = Verdict(
+            gate="advisory",
+            live_state_verified=False,
+            dimensions={"d": Dimension(score=3.5, weight=1.0)},
+            overall_score=3.5,
+            verdict="warn",
+        )
+        assert format_verdict_line(v) == "3.5/5 (warn)"

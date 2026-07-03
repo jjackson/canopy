@@ -50,6 +50,48 @@ _FILENAME_KINDS = {
     "verdict-video": "video",
 }
 
+# The out-of-chain verdict artifacts a run dir may carry beyond the gating pair
+# (concept / user_artifact). /canopy:ddd-run Step 4 discovers whichever of these
+# are present and feeds them through the aggregator (canopy#273 item 1).
+EXTRA_VERDICT_FILENAMES: tuple[str, ...] = (
+    "verdict-timing.json",
+    "verdict-video.json",
+    "verdict-why.yaml",
+    "verdict-actionability.yaml",
+)
+
+
+def discover_extra_verdicts(
+    run_dir: str | Path,
+) -> tuple[dict[str, Verdict], dict[str, str]]:
+    """Load every extra (non-gating-pair) verdict artifact present in *run_dir*.
+
+    Scans for ``EXTRA_VERDICT_FILENAMES`` (timing / video / why / actionability),
+    loads each through :func:`load_verdict` (which stamps kind / gate /
+    live_state_verified from KIND_DEFAULTS), and skips artifacts that carry
+    nothing to aggregate (``load_verdict`` returned ``None``).
+
+    Returns ``(verdicts_by_kind, paths_by_kind)`` — shaped for direct pass-through
+    to ``run_pipeline.compute_convergence(extra=verdicts_by_kind)`` and
+    ``run_pipeline.assemble_run_state(extra_verdict_paths=paths_by_kind)``.
+    Missing files are simply absent from the result; an empty run dir yields
+    ``({}, {})``.
+    """
+    run_dir = Path(run_dir)
+    verdicts: dict[str, Verdict] = {}
+    paths: dict[str, str] = {}
+    for name in EXTRA_VERDICT_FILENAMES:
+        path = run_dir / name
+        if not path.exists():
+            continue
+        verdict = load_verdict(path)
+        if verdict is None:
+            continue  # n/a artifact (timing with no fields; video with no scenes)
+        kind = verdict.kind or _FILENAME_KINDS[path.stem]
+        verdicts[kind] = verdict
+        paths[kind] = str(path)
+    return verdicts, paths
+
 
 def load_verdict(path: str | Path, *, kind: str | None = None) -> Verdict | None:
     """Load any DDD verdict artifact as a unified ``Verdict``.

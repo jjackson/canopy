@@ -190,6 +190,33 @@ def compute_convergence(
 
 
 # ---------------------------------------------------------------------------
+# Verdict report line (cap visibility — canopy#273 item 3)
+# ---------------------------------------------------------------------------
+
+
+def format_verdict_line(verdict: Verdict) -> str:
+    """Render one verdict as a report line, keeping the out-of-chain cap VISIBLE.
+
+    A capped verdict (``live_state_verified: false`` whose pre-cap score exceeded
+    ``LIVE_STATE_UNVERIFIED_CAP``; the schema validator records the original in
+    ``uncapped_overall_score``) must never render indistinguishably from an
+    honest score. It renders as::
+
+        4.0/5 (pass — capped from 4.8, not live-state verified)
+
+    while an uncapped verdict renders as ``4.5/5 (pass)``. The ddd-run summary
+    (and any other reporter) should call this instead of formatting scores
+    inline, so the cap annotation can't drift out of the prose.
+    """
+    if verdict.uncapped_overall_score is not None:
+        return (
+            f"{verdict.overall_score:.1f}/5 ({verdict.verdict} — capped from "
+            f"{verdict.uncapped_overall_score:.1f}, not live-state verified)"
+        )
+    return f"{verdict.overall_score:.1f}/5 ({verdict.verdict})"
+
+
+# ---------------------------------------------------------------------------
 # Progress-aware auto-iterate (replaces the old raw MAX_ITERATIONS=3 stop)
 # ---------------------------------------------------------------------------
 

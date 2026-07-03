@@ -11,6 +11,7 @@ from orchestrator.agent_email import (
     AgentEmailError,
     EmailIdentity,
     build_send_command,
+    derive_reply_all,
     mark_read,
     normalize,
     parse_send_result,
@@ -126,13 +127,16 @@ def test_send_dry_run_never_invokes_gog():
     assert result["account"] == "hal@dimagi-ai.com"
     assert result["plain"] == "hello world\n"
     assert "<p>hello world</p>" in result["html"]
+    # shape parity with a real send: same routing keys, empty — callers never branch
+    assert result["message_id"] == "" and result["thread_id"] == ""
 
 
 def test_send_invokes_gog_and_parses_result():
     seen = {}
 
-    def fake_runner(cmd, capture_output, text):
+    def fake_runner(cmd, capture_output, text, timeout):
         seen["cmd"] = cmd
+        seen["timeout"] = timeout
         seen["plain"] = Path(cmd[cmd.index("--body-file") + 1]).read_text()
         return SimpleNamespace(returncode=0, stdout='{"id": "m9", "threadId": "t9"}', stderr="")
 
@@ -146,40 +150,102 @@ def test_send_invokes_gog_and_parses_result():
 
 
 def test_send_failure_raises_with_stderr():
-    def fake_runner(cmd, capture_output, text):
+    def fake_runner(cmd, capture_output, text, timeout):
         return SimpleNamespace(returncode=1, stdout="", stderr="invalid_grant: bad token")
 
     with pytest.raises(AgentEmailError, match="invalid_grant"):
         send(IDENT, to="a@x.com", subject="s", body_text="x\n", runner=fake_runner)
 
 
+def test_send_timeout_raises_instead_of_hanging_the_turn():
+    def hung_runner(cmd, capture_output, text, timeout):
+        raise subprocess.TimeoutExpired(cmd, timeout)
+
+    with pytest.raises(AgentEmailError, match="timed out"):
+        send(IDENT, to="a@x.com", subject="s", body_text="x\n", runner=hung_runner)
+
+
 # --------------------------------------------------------------------------------------
-# mark-read
+# reply-all derivation (§1b rule 3 — raw reads hide Cc and drop cc'd people)
 # --------------------------------------------------------------------------------------
 
-def test_mark_read_posts_unread_removal_per_thread():
+def _thread_json(message_id="m1", frm="Dr. C <c@partner.org>",
+                 to="ace@dimagi-ai.com, hal@dimagi-ai.com",
+                 cc="ops@partner.org"):
+    return json.dumps({"thread": {"messages": [{
+        "id": message_id,
+        "payload": {"headers": [
+            {"name": "From", "value": frm},
+            {"name": "To", "value": to},
+            {"name": "Cc", "value": cc},
+        ]},
+    }]}})
+
+
+def _reply_runner(stdout, returncode=0):
+    def runner(cmd, capture_output, text, timeout):
+        assert cmd[:3] == ["gog", "gmail", "read"] and "--json" in cmd
+        return SimpleNamespace(returncode=returncode, stdout=stdout, stderr="")
+    return runner
+
+
+def test_derive_reply_all_sender_to_and_others_cc_excluding_self():
+    to, cc = derive_reply_all(IDENT, "m1", runner=_reply_runner(_thread_json()))
+    assert to == "c@partner.org"
+    # hal (self) and the sender are excluded; the other To recipient + Cc survive
+    assert cc == "ace@dimagi-ai.com, ops@partner.org"
+
+
+def test_derive_reply_all_missing_from_header_raises():
+    bad = _thread_json(frm="")
+    with pytest.raises(AgentEmailError, match="no From header"):
+        derive_reply_all(IDENT, "m1", runner=_reply_runner(bad))
+
+
+def test_derive_reply_all_read_failure_raises():
+    with pytest.raises(AgentEmailError, match="could not read"):
+        derive_reply_all(IDENT, "m1", runner=_reply_runner("", returncode=1))
+
+
+# --------------------------------------------------------------------------------------
+# mark-read (via gog thread modify — NEVER the macOS Keychain, dimagi-internal/ace#827)
+# --------------------------------------------------------------------------------------
+
+def test_mark_read_shells_gog_thread_modify_per_thread():
     calls = []
 
-    class FakeResponse:
-        def __enter__(self):
-            return self
+    def fake_runner(cmd, capture_output, text, timeout):
+        calls.append(cmd)
+        if cmd[4] == "bad2":
+            return SimpleNamespace(returncode=1, stdout="", stderr="not found")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        def __exit__(self, *a):
-            return False
-
-    def fake_opener(req):
-        calls.append(req)
-        if "bad" in req.full_url:
-            raise OSError("HTTP 404")
-        return FakeResponse()
-
-    results = mark_read(IDENT, ["t1", "bad2"], token="tok", opener=fake_opener)
+    results = mark_read(IDENT, ["t1", "bad2"], runner=fake_runner)
     assert results[0] == {"thread_id": "t1", "ok": True, "error": ""}
-    assert results[1]["ok"] is False and "404" in results[1]["error"]
-    req = calls[0]
-    assert req.full_url.endswith("/threads/t1/modify")
-    assert req.get_header("Authorization") == "Bearer tok"
-    assert json.loads(req.data) == {"removeLabelIds": ["UNREAD"]}
+    assert results[1]["ok"] is False and "not found" in results[1]["error"]
+    assert calls[0] == ["gog", "gmail", "thread", "modify", "t1", "--remove", "UNREAD",
+                        "--account", "hal@dimagi-ai.com", "--client", "hal"]
+
+
+def test_mark_read_never_touches_the_keychain():
+    """The #827 hang class: `security find-generic-password` blocks forever on a GUI
+    prompt in non-interactive shells. The runner must only ever see gog commands."""
+    def fake_runner(cmd, capture_output, text, timeout):
+        assert cmd[0] == "gog", f"non-gog subprocess in mark_read: {cmd}"
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    mark_read(IDENT, ["t1", "t2"], runner=fake_runner)
+
+
+def test_mark_read_timeout_is_per_thread_and_keeps_going():
+    def flaky_runner(cmd, capture_output, text, timeout):
+        if cmd[4] == "slow":
+            raise subprocess.TimeoutExpired(cmd, timeout)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    results = mark_read(IDENT, ["slow", "t2"], runner=flaky_runner)
+    assert results[0]["ok"] is False and "timed out" in results[0]["error"]
+    assert results[1]["ok"] is True
 
 
 # --------------------------------------------------------------------------------------

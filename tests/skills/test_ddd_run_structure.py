@@ -166,6 +166,69 @@ def test_skill_has_convergence_step() -> None:
     )
 
 
+def test_skill_wires_extra_verdicts_into_aggregator() -> None:
+    """Step 4 must plug the generic aggregator in (canopy#273 item 1): discover
+    any out-of-chain verdict artifacts in the run dir via load_verdict /
+    discover_extra_verdicts and pass them through extra_verdict_paths +
+    compute_convergence(extra=...). The reference-resolution drift gate
+    (tests/skills/test_ddd_skill_references.py) guards that these imports keep
+    resolving against scripts.ddd."""
+    content = (SKILL_DIR / "SKILL.md").read_text()
+    assert "discover_extra_verdicts" in content, (
+        "Step 4 must discover extra verdicts via scripts.ddd.verdicts.discover_extra_verdicts"
+    )
+    assert "load_verdict" in content, (
+        "Step 4 must load the gating pair via scripts.ddd.verdicts.load_verdict"
+    )
+    assert "extra_verdict_paths=" in content, (
+        "Step 4 must record extras via assemble_run_state(extra_verdict_paths=...)"
+    )
+    assert "extra=extra_verdicts" in content, (
+        "Step 4 must pass extras via compute_convergence(extra=...)"
+    )
+    for artifact in (
+        "verdict-timing.json",
+        "verdict-video.json",
+        "verdict-why.yaml",
+        "verdict-actionability.yaml",
+    ):
+        assert artifact in content, (
+            f"Step 4 must name {artifact} as a discoverable extra verdict"
+        )
+
+
+def test_skill_stamps_user_verdict_metadata() -> None:
+    """verdict-user.yaml must carry the unified verdict metadata stamp
+    (canopy#273 item 2) — kind: user_artifact / gate: gating /
+    live_state_verified: true. This is the one gating stamp written by THIS
+    skill (the concept judge stamps its own); silent drift here would turn the
+    user-artifact verdict advisory and break convergence."""
+    content = (SKILL_DIR / "SKILL.md").read_text()
+    assert "kind: user_artifact" in content, (
+        "SKILL.md must stamp kind: user_artifact on verdict-user.yaml"
+    )
+    assert "gate: gating" in content, (
+        "SKILL.md must stamp gate: gating on verdict-user.yaml"
+    )
+    assert "live_state_verified: true" in content, (
+        "SKILL.md must stamp live_state_verified: true on verdict-user.yaml"
+    )
+
+
+def test_skill_report_renders_cap_visible_verdict_lines() -> None:
+    """Step 5's summary must render verdict lines via
+    run_pipeline.format_verdict_line (canopy#273 item 3), so a capped verdict
+    ("capped from X — not live-state verified") is never indistinguishable
+    from an honest score."""
+    content = (SKILL_DIR / "SKILL.md").read_text()
+    assert "format_verdict_line" in content, (
+        "Step 5 must render verdict lines via run_pipeline.format_verdict_line"
+    )
+    assert "capped from" in content, (
+        "Step 5 must document the capped-score rendering (capped from X)"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Command file
 # ---------------------------------------------------------------------------
