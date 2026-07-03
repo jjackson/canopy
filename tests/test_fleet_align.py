@@ -258,12 +258,35 @@ def test_judge_survives_bad_llm_output(monkeypatch):
     assert fa.judge(findings, runner=lambda p, m: "not json") == findings  # deterministic findings stand
 
 
-# ── patch rendering ────────────────────────────────────────────────────────────
+# ── change brief (the AI apply agent's spec — NOT a mechanical patch) ─────────
 
-def test_render_patch_only_for_distribute_from_template():
-    d = fa.Finding("distribute", "self-review", "canopy-template", ["eva"], "…")
-    patch = fa.render_patch(d)
-    assert patch and patch["target_relpath"].endswith("self-review/SKILL.md")
-    assert "self-review" in patch["new_text"]
-    assert fa.render_patch(fa.Finding("promote", "self-review", "echo", ["canopy-template"], "…")) is None
-    assert fa.render_patch(fa.Finding("reconcile", "turn", "hal", [], "…")) is None
+def test_change_brief_gives_reference_text_not_a_mutation(monkeypatch):
+    # The brief hands the AI the template's exact text for the MISSING steps — no file mutation here.
+    tmpl = ("# Self-review\n"
+            "1. **Re-read the original request.** actual message.\n"
+            "2. **Verify recipients.** pull to/cc from the structured reader, not a raw view.\n")
+    monkeypatch.setattr(fa.agent_factory, "_SELF_REVIEW_SKILL", tmpl)
+    d = fa.Finding("distribute", "self-review", "canopy-template", ["eva"], "…", detail=["verify recipients"])
+    brief = fa.change_brief(d)
+    assert brief["target_relpath"].endswith("self-review/SKILL.md")
+    assert "old" not in brief and "new" not in brief         # never a computed file edit
+    assert len(brief["add_reference"]) == 1 and "Verify recipients" in brief["add_reference"][0]
+    assert "Re-read the original request" not in brief["add_reference"][0]  # only the MISSING step
+    assert "do NOT regenerate" in brief["instruction"]
+
+
+def test_change_brief_gating_approve_gives_remove_hint_and_applicability_instruction():
+    approve = fa.Finding("distribute", "gating", "canopy-template", ["eva"],
+                         "gating: still carry deprecated `approve` rules", detail=["eva: 3 approve rule(s)"])
+    b1 = fa.change_brief(approve)
+    assert b1["remove_hint"] and "approve" in b1["remove_hint"]
+    deny = fa.Finding("distribute", "gating", "canopy-template", ["eva"],
+                      "gating: missing template deny rail(s)", detail=["gog gmail send"])
+    b2 = fa.change_brief(deny)
+    assert "ONLY IF" in b2["instruction"]                    # applicability + placeholder-substitution is the AI's job
+    assert "{{AGENT" in b2["instruction"] or "placeholder" in b2["instruction"].lower()
+
+
+def test_change_brief_none_for_promote_and_reconcile():
+    assert fa.change_brief(fa.Finding("promote", "self-review", "echo", ["canopy-template"], "…")) is None
+    assert fa.change_brief(fa.Finding("reconcile", "turn", "hal", [], "…")) is None

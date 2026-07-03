@@ -61,38 +61,57 @@ Decide implement / defer / skip per finding. Bias:
   (the §1b story: "ACE re-did echo's fixes by hand" → it belonged in canopy).
 - **RECONCILE / legacy** — never auto-apply; note what's worth harvesting from the ancestor.
 
-## Step 3 — Execute, behind ONE consolidated gate (dry-run vs apply)
+## Step 3 — Execute: dispatch an AI to make the edit + PR (never programmatic splicing)
 
-Read-only until here. Then present a single gate: **"open these N PRs?"**
+Read-only until here. Then present ONE consolidated gate: **"apply these N findings?"**
 
-- **dry-run (default preview):** for each accepted finding, show the exact change and PR plan
-  without writing anything. For a **DISTRIBUTE-from-template** finding the change is mechanical —
-  re-stamp the laggard's artifact from the CURRENT template (`fleet_align.render_patch` returns the
-  template text; substitute the agent's identity: `{{AGENT_NAME}}`→name from `config/agent.json`,
-  `{{AGENT_SLUG}}`→repo dir name). Show the diff.
-- **apply:** for each accepted finding, in the **laggard's own repo** (an emdash worktree; `main`
-  is checked out elsewhere): branch → write the file → commit → `gh pr create`. For a **PROMOTE**,
-  the PR goes into **canopy** instead (edit the factory template string in
-  `src/orchestrator/agent_factory.py`) — and because that touches `plugins/canopy/` indirectly via
-  the template, **run `canopy version bump`** and follow the plugin-update flow. Merge per the
-  "no human review, merge it yourself" convention. **Never `gh pr merge --delete-branch`** in a
-  worktree (main is checked out elsewhere → it fails); use `gh pr merge <n> --squash`.
+**The edit is done by an AI, not by string/JSON surgery in Python.** This matches canopy's own
+architecture — the pipeline stops at proposals; a Claude Code agent implements (as in
+`/canopy:improve` and `agent-review`). Brittle programmatic splicing can't renumber cleanly across
+every skill's shape, substitute identity placeholders, or judge applicability. The AI can. Python's
+job ended at the *brief*.
 
-One PR per finding (or a tight batch). This changes *code* only — it never sends on anyone's
-behalf; the runtime reads-free/writes-gated guardrail still holds.
+Get the machine-readable briefs (each distribute finding carries a `change_brief`):
+```
+canopy fleet-align --json-output
+```
+
+For each accepted DISTRIBUTE finding, **dispatch a Claude Code agent** (Task tool, general-purpose)
+into the **laggard's own repo**, handing it the finding + its `change_brief`. Instruct it to:
+> Make the SMALLEST surgical edit to `<change_brief.target_relpath>` that adopts the improvement.
+> `add_reference` is the template's exact text for the step(s) this agent is missing — splice it
+> into the agent's EXISTING file (renumber to continue its list, keep everything else, do NOT
+> regenerate). `remove_hint` names a block to delete. Substitute the agent's real name/slug for any
+> `{{AGENT_NAME}}`/`{{AGENT_SLUG}}`. If a step names a channel this agent doesn't have (e.g. an
+> email deny rail but no email adapter), adapt or skip it and say so. Then, in the laggard's repo
+> (an emdash worktree; `main` is checked out elsewhere): branch → commit → `gh pr create`.
+> **In dry-run, stop after opening the PR (do NOT merge).** In apply mode, `gh pr merge <n> --squash`
+> (NEVER `--delete-branch` in a worktree). Report the PR URL + exactly what you changed/skipped.
+
+- **PROMOTE** → the PR goes into **canopy**, editing the factory template string in
+  `src/orchestrator/agent_factory.py`; because that touches `plugins/canopy/`, the agent runs
+  `canopy version bump` and follows the plugin-update flow. Existing agents then adopt it via the
+  same distribute path — **never by re-scaffolding.**
+- **RECONCILE / legacy** — never auto-applied; surface for a human to harvest.
+
+One PR per finding (or a tight batch). This changes *code* only — it never sends on anyone's behalf.
 
 ## Step 4 — Measure (close the loop)
 
 Re-run `canopy fleet-align --no-llm` and confirm the targeted divergence is gone (the laggard no
-longer shows as stale, the deprecated `approve` rule cleared). Report before→after. A change that
-doesn't collapse the finding isn't done — this is what makes it a loop, not a report.
+longer shows as stale). Report before→after. A change that doesn't collapse the finding isn't done —
+this is what makes it a loop, not a report.
 
 ## Notes
 
-- **Gating is delicate.** `config/gating.json` carries agent-specific channel config; don't blind
-  re-stamp it. Apply only the specific delta the finding names (e.g. drop the deprecated `approve`
-  block, add the missing deny rail *iff the agent has that channel* — heed the applicability note).
-- Legacy agents (no `config/agent.json`, e.g. echo) are never treated as stale laggards — they're
-  the ancestor. Harvest their good ideas via PROMOTE, don't "fix" them toward the template.
-- Backed by `src/orchestrator/fleet_align.py`; sibling to `agent-review`. Design:
+- **Never regenerate an agent's file.** Agents evolve their own artifacts; the edit is always a
+  minimal in-place splice, and it is made by a dispatched AI with judgment — not a template re-stamp
+  and not deterministic string surgery.
+- **Gating is delicate.** `config/gating.json` carries agent-specific channel config. Drop the
+  deprecated `approve` block; add a missing deny rail *only if the agent has that channel* (heed the
+  `change_brief` applicability instruction).
+- Legacy agents (no `config/agent.json`, e.g. echo) are never stale laggards — they're the ancestor.
+  Harvest their good ideas via PROMOTE, don't "fix" them toward the template.
+- `canopy fleet-align` is read-only analysis; it emits `change_brief`s for the apply agent. Backed
+  by `src/orchestrator/fleet_align.py`; sibling to `agent-review`. Design:
   `docs/superpowers/specs/2026-07-03-fleet-align-design.md`.

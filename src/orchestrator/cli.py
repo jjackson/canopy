@@ -1605,14 +1605,19 @@ def agent_review_cmd(agent, hours, no_llm, model, as_json):
 @click.option("--no-evidence", is_flag=True, help="Skip the recent-session evidence search")
 @click.option("--no-llm", is_flag=True, help="Deterministic findings only; skip the claude -p judgment pass")
 @click.option("--model", default="sonnet", help="Model for the judgment pass")
-@click.option("--json-output", "as_json", is_flag=True, help="Output findings as JSON")
+@click.option("--json-output", "as_json", is_flag=True, help="Output findings + change briefs as JSON (for the apply agent)")
 def fleet_align_cmd(extra_repos, hours, no_evidence, no_llm, model, as_json):
     """Cross-agent improvement spread — compare the factory-stamped agent fleet against the
     template and each other, and surface what to DISTRIBUTE (backport a better/newer version into
     laggards) or PROMOTE (lift a converged pattern into canopy). For each finding it then searches
     the laggards' RECENT SESSIONS for evidence the gap actually cost something, and (unless
     --no-llm) runs a judgment pass that confirms direction + weighs that evidence. The *spread*
-    verb of the operating model; sibling to `agent-review` (which measures ONE agent). Read-only.
+    verb of the operating model; sibling to `agent-review` (which measures ONE agent).
+
+    Read-only ANALYSIS. Applying a finding (the surgical edit + PR + merge) is dispatched to a
+    Claude Code agent by the `fleet-align` skill — matching canopy's pipeline-stops-at-proposals
+    architecture — not done by brittle programmatic splicing here. `--json-output` emits each
+    distribute finding's change brief (target file + the template's reference text) for that agent.
     See docs/superpowers/specs/2026-07-03-fleet-align-design.md.
     """
     import json as json_mod
@@ -1630,9 +1635,15 @@ def fleet_align_cmd(extra_repos, hours, no_evidence, no_llm, model, as_json):
     findings = fa.evidence_rank(findings)
 
     if as_json:
+        rows = []
+        for f in findings:
+            row = f.as_dict()
+            brief = fa.change_brief(f)
+            if brief:
+                row["change_brief"] = brief  # the AI apply agent's spec
+            rows.append(row)
         click.echo(json_mod.dumps(
-            {"fleet": [a.slug for a in agents], "unreadable_logins": unreadable,
-             "findings": [f.as_dict() for f in findings]},
+            {"fleet": [a.slug for a in agents], "unreadable_logins": unreadable, "findings": rows},
             indent=2, default=str,
         ))
         return
