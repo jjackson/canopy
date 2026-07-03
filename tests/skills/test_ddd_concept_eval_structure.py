@@ -17,6 +17,7 @@ RUBRIC_PATH = SKILL_DIR / "rubric.yaml"
 
 EXPECTED_DIMS = {
     "concept_clarity",
+    "use_case_soundness",     # added in 11729cd — catch trivial use cases, even post-acceptance
     "design_soundness",
     "visual_polish",          # carved out of design_soundness in v0.2.153
     "why_groundedness",
