@@ -9,6 +9,31 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.255] - 2026-07-03
+
+### Added
+- **Email engine: `--reply-all`** (`canopy email send --reply-all --reply-to-message-id <id>`)
+  — derives To (original sender) + Cc (everyone else on the original To+Cc, de-duped,
+  excluding the agent) from the message's JSON headers. Ported from echo's
+  `derive_reply_all`; guards the silently-dropped-Cc bug (operating-model §1b rule 3).
+  Explicit `--cc` merges in; dry-run output now carries the same `message_id`/`thread_id`
+  keys as a real send so scripted callers never branch.
+- **Identity-bleed guards**: `canopy email send --account <other>` warns loudly when it
+  disagrees with the resolved repo identity, and the factory's templated gating.json
+  gains a deny rail on `canopy email send … --account` (the shim pins repo identity).
+- Factory: the email shim exits with an install hint when the `canopy` CLI is missing
+  (was a bare FileNotFoundError traceback); `create_agent` warns on the
+  `<slug>@example.com` mailbox placeholder instead of failing late at gog send.
+
+### Changed
+- **Email engine mark-read: no more Keychain** — now shells `gog gmail thread modify
+  --remove UNREAD` per thread (gog's own token bucket). The previous Gmail-API path
+  minted a token via macOS `security find-generic-password`, which blocks FOREVER on a
+  GUI prompt in non-interactive agent shells (dimagi-internal/ace#827 — hit live in an
+  ACE turn; echo's `echo_mark_read.py` carries the same class and should converge).
+- `send()` now has a 120s subprocess timeout — a hung gog fails the send loudly instead
+  of hanging the whole turn.
+
 ## [0.2.246] - 2026-07-01
 
 ### Added

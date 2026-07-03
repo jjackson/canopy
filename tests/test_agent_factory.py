@@ -185,3 +185,29 @@ def test_gating_hook_blocks_deny_asks_approve_allows_reads(tmp_path):
     r = run({"tool_name": "Bash", "tool_input": {"command": "git status"}})
     assert r.returncode == 0
     assert r.stdout.strip() == ""
+
+
+def test_gating_hook_rails_identity_override_but_allows_shim_and_other_email_cmds(tmp_path):
+    """The identity-bleed rail: `canopy email send --account` from a Bash call is denied
+    (identity comes from the repo's agent.json via the shim); the shim path, other
+    canopy email subcommands, and --account on non-send subcommands stay free."""
+    create_agent(_spec(), tmp_path / "echo")
+    root = tmp_path / "echo"
+    hook = root / "hooks" / "gating_guard.py"
+
+    def run(command):
+        return subprocess.run(
+            [sys.executable, str(hook)],
+            input=json.dumps({"tool_name": "Bash", "tool_input": {"command": command}}),
+            capture_output=True, text=True,
+        )
+
+    r = run("canopy email send --account other@dimagi-ai.com --to x@y.z "
+            "--subject s --body-file b.txt")
+    assert r.returncode == 2
+    assert "identity" in r.stderr.lower()
+
+    assert run("bin/echo-email --to x@y.z --subject s --body-file b.txt").returncode == 0
+    assert run("canopy email send --repo . --to x@y.z --subject s --body-file b.txt").returncode == 0
+    assert run("canopy email preflight --account other@dimagi-ai.com").returncode == 0
+    assert run("canopy email mark-read --account other@dimagi-ai.com t1").returncode == 0
