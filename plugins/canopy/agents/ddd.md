@@ -516,8 +516,18 @@ Invoke `ddd-run` with:
 2. Render via `canopy:walkthrough`
 3. Parallel dispatch: `ddd-concept-eval` (concept judge) + `canopy:visual-judge`
    (user-artifact judge, `audience="feature user"`)
-4. `run_pipeline.assemble_run_state` → `run_state.yaml` with `phase: judged`
-5. `run_pipeline.compute_convergence` → convergence bool
+4. `scripts.ddd.verdicts.discover_extra_verdicts` — `load_verdict()`s any of
+   `verdict-timing.json` / `verdict-video.json` / `verdict-why.yaml` /
+   `verdict-actionability.yaml` present in the run dir through the unified
+   verdict schema (kind/gate/live_state_verified stamped, out-of-chain score
+   cap enforced at the schema layer)
+5. `run_pipeline.assemble_run_state(..., extra_verdict_paths=...)` →
+   `run_state.yaml` with `phase: judged` (gating pair + any extra verdicts)
+6. `run_pipeline.compute_convergence(..., extra=...)` → convergence bool
+   (each verdict's `gate` decides participation — advisory verdicts report but
+   never block; the summary renders every score via
+   `run_pipeline.format_verdict_line`, so a capped verdict shows as
+   `4.0/5 (pass — capped from 4.8, not live-state verified)`)
 
 After `ddd-run` returns, load `<run_dir>/run_state.yaml` and
 `<run_dir>/design_findings.json`.
