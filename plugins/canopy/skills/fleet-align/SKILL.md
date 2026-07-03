@@ -7,9 +7,10 @@ description: >
   or PROMOTE (lift a converged pattern into canopy). For every finding it searches the laggards'
   RECENT SESSIONS for evidence the gap actually cost something, and weighs that evidence in a
   judgment pass — a finding with real evidence outranks a speculative one. Then, behind a
-  consolidated gate, it ships the change as a PR (dry-run previews; apply opens PRs). Use when
-  asked to "align the agents", "spread improvements across agents", "fleet-align", or to run the
-  fleet self-improvement loop. Read-only until the gate.
+  consolidated gate, it dispatches an AI to ship the change as a surgical PR. Invoke it with NO
+  arguments — it auto-discovers the whole fleet. Use when asked to "align the agents", "spread
+  improvements across agents", "fleet-align", or to run the fleet self-improvement loop. Read-only
+  until the gate.
 ---
 
 ## Preamble (run first)
@@ -40,17 +41,22 @@ the tool searches the laggards' recent turns for the moment the change would hav
 judgment pass ranks evidence-backed findings above speculative ones. Zero evidence is a real
 result — it says "structurally real, but hasn't bitten yet; low priority."
 
-## Step 1 — Analyze (read-only)
+## Step 1 — Analyze (read-only) — just run it, no arguments
 
 ```
-canopy fleet-align [--hours N] [--no-llm] [--repo <dir> ...] [--json-output]
+canopy fleet-align
 ```
 
-This discovers agents (marker: `skills/turn/SKILL.md`, so legacy agents like echo are included),
-diffs each shared artifact against the factory template + peers, attaches recent-session evidence,
-runs the claude -p judgment pass (skip with `--no-llm`), and prints findings **ranked by evidence
-first**. Each carries: kind, artifact, reference, laggards, the specific markers, a judge
-rationale, a recommended action, and any evidence excerpts.
+That's the whole command. It **auto-discovers every agent on the machine** (marker:
+`skills/turn/SKILL.md`, so legacy agents like echo are included), diffs each shared artifact
+against the factory template + peers, attaches recent-session evidence, runs the claude -p judgment
+pass, and prints findings **ranked by evidence first**. Each carries: kind, artifact, reference,
+laggards, the specific markers, a judge rationale, a recommended action, and any evidence excerpts.
+You never pass which agents to look at — it finds them.
+
+**Advanced overrides (optional, rarely needed):** `--no-llm` (skip the judgment pass — faster,
+deterministic-only), `--hours N` (evidence window, default 14d), `--no-evidence`, `--repo <dir>`
+(add a repo outside the default bases), `--model`.
 
 ## Step 2 — Triage
 
@@ -71,10 +77,9 @@ architecture — the pipeline stops at proposals; a Claude Code agent implements
 every skill's shape, substitute identity placeholders, or judge applicability. The AI can. Python's
 job ended at the *brief*.
 
-Get the machine-readable briefs (each distribute finding carries a `change_brief`):
-```
-canopy fleet-align --json-output
-```
+To get the machine-readable briefs, **the skill itself** runs `canopy fleet-align --json-output`
+under the hood (an internal step — the user never types flags). Each distribute finding then
+carries a `change_brief` (target file + the template's exact reference text).
 
 For each accepted DISTRIBUTE finding, **dispatch a Claude Code agent** (Task tool, general-purpose)
 into the **laggard's own repo**, handing it the finding + its `change_brief`. Instruct it to:
@@ -98,9 +103,10 @@ One PR per finding (or a tight batch). This changes *code* only — it never sen
 
 ## Step 4 — Measure (close the loop)
 
-Re-run `canopy fleet-align --no-llm` and confirm the targeted divergence is gone (the laggard no
-longer shows as stale). Report before→after. A change that doesn't collapse the finding isn't done —
-this is what makes it a loop, not a report.
+Re-run `canopy fleet-align` (add `--no-llm` if you just want the fast deterministic check) and
+confirm the targeted divergence is gone (the laggard no longer shows as stale). Report
+before→after. A change that doesn't collapse the finding isn't done — this is what makes it a loop,
+not a report.
 
 ## Notes
 
