@@ -1599,6 +1599,48 @@ def agent_review_cmd(agent, hours, no_llm, model, as_json):
         click.echo("\nNo findings synthesized.")
 
 
+@main.command("fleet-align")
+@click.option("--repo", "extra_repos", multiple=True, help="Add an agent repo not under the default bases (repeatable)")
+@click.option("--hours", default=336, type=int, help="Evidence look-back window (default: 14 days)")
+@click.option("--no-evidence", is_flag=True, help="Skip the recent-session evidence search")
+@click.option("--no-llm", is_flag=True, help="Deterministic findings only; skip the claude -p judgment pass")
+@click.option("--model", default="sonnet", help="Model for the judgment pass")
+@click.option("--json-output", "as_json", is_flag=True, help="Output findings as JSON")
+def fleet_align_cmd(extra_repos, hours, no_evidence, no_llm, model, as_json):
+    """Cross-agent improvement spread — compare the factory-stamped agent fleet against the
+    template and each other, and surface what to DISTRIBUTE (backport a better/newer version into
+    laggards) or PROMOTE (lift a converged pattern into canopy). For each finding it then searches
+    the laggards' RECENT SESSIONS for evidence the gap actually cost something, and (unless
+    --no-llm) runs a judgment pass that confirms direction + weighs that evidence. The *spread*
+    verb of the operating model; sibling to `agent-review` (which measures ONE agent). Read-only.
+    See docs/superpowers/specs/2026-07-03-fleet-align-design.md.
+    """
+    import json as json_mod
+    from orchestrator import fleet_align as fa
+
+    agents = fa.discover_agents(extra_repos=extra_repos)
+    if not agents:
+        raise click.ClickException("No agent repos found (marker: skills/turn/SKILL.md). Pass --repo <dir>.")
+    findings = fa.analyze(agents)
+    unreadable = 0
+    if not no_evidence:
+        unreadable = fa.gather_evidence(findings, agents, hours=hours)
+    if not no_llm:
+        findings = fa.judge(findings, model=model)
+    findings = fa.evidence_rank(findings)
+
+    if as_json:
+        click.echo(json_mod.dumps(
+            {"fleet": [a.slug for a in agents], "unreadable_logins": unreadable,
+             "findings": [f.as_dict() for f in findings]},
+            indent=2, default=str,
+        ))
+        return
+    click.echo(fa.format_report(agents, findings))
+    if unreadable:
+        click.echo(f"\n⚠ half-blind: {unreadable} user login(s) unreadable — evidence may be incomplete.")
+
+
 @main.group("harvest")
 def harvest():
     """Architect/harvester corpus tools — cross-user, origin-anchored session assembly for Hal.
