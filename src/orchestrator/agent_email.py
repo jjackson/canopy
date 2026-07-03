@@ -17,8 +17,9 @@ Three subcommands:
   Emits a JSON result with `message_id` + `thread_id`; the SEND-SIDE CONTRACT is that
   every caller records `thread_id` into the agent's state layer (ACE: run comms-log;
   echo: contact-memory) so inbound triage can route the reply.
-- `mark-read` — remove the UNREAD label via the Gmail API with the agent's own gog
-  OAuth (gog has no mark-read command, and API reads don't clear the flag).
+- `mark-read` — remove the UNREAD label via `gog gmail thread modify` (API reads don't
+  clear the flag). Auth rides gog's own token bucket — never the macOS Keychain, which
+  blocks forever on a GUI prompt in non-interactive shells (dimagi-internal/ace#827).
 - `preflight` — gog auth liveness for the agent's client, with the exact `gog login …`
   remediation (and the API-not-enabled self-heal echo's preflight learned the hard way).
 
@@ -35,8 +36,6 @@ import re
 import subprocess
 import sys
 import tempfile
-import urllib.parse
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -190,6 +189,9 @@ def parse_send_result(stdout: str) -> dict:
     return {"message_id": str(message_id), "thread_id": str(thread_id), "raw": raw}
 
 
+SEND_TIMEOUT = 120  # seconds — a hung gog must not hang the whole turn
+
+
 def send(
     identity: EmailIdentity,
     *,
@@ -203,12 +205,14 @@ def send(
 ) -> dict:
     """Send an HTML multipart email as the agent. Returns the normalized JSON result.
 
-    dry_run renders the plain + HTML bodies without invoking gog.
+    dry_run renders the plain + HTML bodies without invoking gog; its result carries the
+    same message_id/thread_id keys (empty) as a real send so scripted callers never branch.
     """
     plain = normalize(body_text)
     html_body = to_html(plain)
     if dry_run:
-        return {"dry_run": True, "account": identity.account, "client": identity.client,
+        return {"dry_run": True, "message_id": "", "thread_id": "",
+                "account": identity.account, "client": identity.client,
                 "to": to, "subject": subject, "plain": plain, "html": html_body}
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as tf:
         tf.write(plain)
@@ -218,7 +222,13 @@ def send(
             identity, to=to, subject=subject, plain_path=plain_path,
             html_body=html_body, cc=cc, reply_to_message_id=reply_to_message_id,
         )
-        r = runner(cmd, capture_output=True, text=True)
+        try:
+            r = runner(cmd, capture_output=True, text=True, timeout=SEND_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            raise AgentEmailError(
+                f"gog gmail send timed out after {SEND_TIMEOUT}s as {identity.account} — "
+                "check network; the message may NOT have been sent."
+            )
         if r.returncode != 0:
             raise AgentEmailError(
                 f"gog gmail send failed (exit {r.returncode}) as {identity.account}: "
@@ -230,76 +240,98 @@ def send(
 
 
 # --------------------------------------------------------------------------------------
-# mark-read
+# reply-all derivation (ported from echo's bin/echo_email.py — guards a bug that happened)
 # --------------------------------------------------------------------------------------
 
-def _refresh_token(identity: EmailIdentity, *, runner=subprocess.run) -> str:
-    """The agent's gog refresh token: env override, else the macOS keychain entry gog wrote."""
-    env_key = identity.slug.upper().replace("-", "_") + "_GOOGLE_REFRESH_TOKEN"
-    if os.environ.get(env_key):
-        return os.environ[env_key].strip()
-    r = runner(
-        ["security", "find-generic-password", "-s", "gogcli", "-a",
-         f"token:{identity.client}:{identity.account}", "-w"],
-        capture_output=True, text=True,
-    )
-    raw = (r.stdout or "").strip()
-    if r.returncode != 0 or not raw:
-        raise AgentEmailError(
-            f"no gog refresh token in the keychain for {identity.account} (client "
-            f"{identity.client}) — run: gog login {identity.account} "
-            f"--client {identity.client} --services {LOGIN_SERVICES}"
-        )
-    return json.loads(raw)["refresh_token"]
+def _headers_of(msg: dict) -> dict:
+    return {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
 
 
-def gmail_access_token(
+def derive_reply_all(
     identity: EmailIdentity,
+    message_id: str,
     *,
-    gog_dir: str | None = None,
     runner=subprocess.run,
-    opener=urllib.request.urlopen,
-) -> str:
-    """Mint a Gmail API access token from the agent's own gog OAuth client + refresh token."""
-    creds_path = os.path.join(gog_dir or GOG_CONFIG_DIR, f"credentials-{identity.client}.json")
-    try:
-        creds = json.load(open(creds_path))
-    except OSError as e:
-        raise AgentEmailError(
-            f"gog client credentials missing: {creds_path} — copy the agent's OWN OAuth "
-            f"client JSON there (1Password AI-Agents), never another agent's"
-        ) from e
-    body = urllib.parse.urlencode({
-        "client_id": creds["client_id"], "client_secret": creds["client_secret"],
-        "refresh_token": _refresh_token(identity, runner=runner),
-        "grant_type": "refresh_token"}).encode()
-    with opener("https://oauth2.googleapis.com/token", body) as r:
-        return json.load(r)["access_token"]
+) -> tuple[str, str]:
+    """Return (to, cc) for a reply-all, read from the original message's JSON headers.
 
+    To = the original sender. Cc = everyone else on the original To+Cc, de-duped,
+    excluding the agent's own address and the sender. Uses `--json` because the default
+    `gog gmail read` text view omits Cc — silently dropping cc'd people is the bug this
+    guards against (it happened; operating-model §1b rule 3).
+    """
+    from email.utils import getaddresses
+
+    r = runner(
+        ["gog", "gmail", "read", message_id, "--account", identity.account,
+         "--client", identity.client, "--json"],
+        capture_output=True, text=True, timeout=60,
+    )
+    if r.returncode != 0:
+        raise AgentEmailError(
+            f"reply-all: could not read original message {message_id}: "
+            f"{(r.stderr or '').strip()[:200]}"
+        )
+    try:
+        data = json.loads(r.stdout)
+    except ValueError:
+        raise AgentEmailError(f"reply-all: unparseable gog read output for {message_id}")
+    msgs = data.get("thread", {}).get("messages", [])
+    msg = next((m for m in msgs if m.get("id") == message_id), None) or (msgs[-1] if msgs else None)
+    if not msg:
+        raise AgentEmailError(f"reply-all: no message found for {message_id}")
+    h = _headers_of(msg)
+    sender = getaddresses([h.get("from", "")])
+    sender_email = sender[0][1].lower() if sender else ""
+    if not sender_email:
+        raise AgentEmailError(f"reply-all: original message {message_id} has no From header")
+    others = getaddresses([h.get("to", ""), h.get("cc", "")])
+    cc, seen = [], {sender_email, identity.account.lower()}
+    for _name, email in others:
+        e = email.lower()
+        if not e or e in seen:
+            continue
+        seen.add(e)
+        cc.append(email)
+    return sender_email, ", ".join(cc)
+
+
+# --------------------------------------------------------------------------------------
+# mark-read
+# --------------------------------------------------------------------------------------
 
 def mark_read(
     identity: EmailIdentity,
     thread_ids: list[str],
     *,
-    token: str | None = None,
-    gog_dir: str | None = None,
     runner=subprocess.run,
-    opener=urllib.request.urlopen,
 ) -> list[dict]:
-    """Remove the UNREAD label from each thread as the agent. Per-thread results, keeps going."""
-    tok = token or gmail_access_token(identity, gog_dir=gog_dir, runner=runner, opener=opener)
+    """Remove the UNREAD label from each thread as the agent. Per-thread results, keeps going.
+
+    Shells out to `gog gmail thread modify` — gog's own token bucket handles auth, same
+    as every other gog call in a turn. The previous implementation minted an access
+    token itself via the macOS Keychain `security` call, which blocks FOREVER on a GUI
+    prompt in non-interactive agent shells (dimagi-internal/ace#827) — never reintroduce
+    a Keychain read here.
+    """
     results = []
     for th in thread_ids:
-        req = urllib.request.Request(
-            f"https://gmail.googleapis.com/gmail/v1/users/me/threads/{th}/modify",
-            data=json.dumps({"removeLabelIds": ["UNREAD"]}).encode(),
-            headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"},
-            method="POST")
         try:
-            with opener(req):
-                results.append({"thread_id": th, "ok": True, "error": ""})
-        except Exception as e:  # noqa: BLE001 — report per-thread, keep going
-            results.append({"thread_id": th, "ok": False, "error": str(e)[:200]})
+            r = runner(
+                ["gog", "gmail", "thread", "modify", th, "--remove", "UNREAD",
+                 "--account", identity.account, "--client", identity.client],
+                capture_output=True, text=True, timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            results.append({"thread_id": th, "ok": False, "error": "timed out after 30s"})
+            continue
+        except FileNotFoundError:
+            raise AgentEmailError("gog CLI not found on PATH (brew install steipete/tap/gogcli)")
+        if r.returncode == 0:
+            results.append({"thread_id": th, "ok": True, "error": ""})
+        else:
+            err = (r.stderr or r.stdout or "").strip().replace("\n", " ")
+            results.append({"thread_id": th, "ok": False, "error": err[:200]})
     return results
 
 
@@ -394,9 +426,22 @@ def preflight(
 
 def _identity_from_opts(repo: str | None, agent: str | None,
                         account: str | None, client: str | None) -> EmailIdentity:
-    if account:  # fully explicit identity — no repo needed
-        return EmailIdentity(slug=agent or account.split("@")[0],
-                             account=account, client=client or agent or account.split("@")[0])
+    if account:  # fully explicit identity — no repo needed, but warn on identity bleed
+        explicit = EmailIdentity(slug=agent or account.split("@")[0],
+                                 account=account, client=client or agent or account.split("@")[0])
+        try:
+            repo_dir = Path(repo) if repo else (find_agent_repo(agent) if agent else Path.cwd())
+            resolved = resolve_email_identity(repo_dir)
+        except AgentEmailError:
+            resolved = None
+        if resolved and resolved.account.lower() != explicit.account.lower():
+            sys.stderr.write(
+                f"WARNING: sending as {explicit.account} from {resolved.slug!r}'s repo "
+                f"(its identity is {resolved.account}). One mailbox + one client per agent "
+                "is the fleet's one hard rule — make sure this cross-identity send is "
+                "deliberate.\n"
+            )
+        return explicit
     repo_dir = Path(repo) if repo else (find_agent_repo(agent) if agent else Path.cwd())
     ident = resolve_email_identity(repo_dir)
     if client:
@@ -426,22 +471,34 @@ def email_group():
 
 @email_group.command("send")
 @_with_identity_options
-@click.option("--to", required=True, help="Comma-separated recipients.")
+@click.option("--to", help="Comma-separated recipients (required unless --reply-all).")
 @click.option("--cc")
 @click.option("--subject", required=True)
 @click.option("--body-file", required=True, type=click.Path(exists=True, dir_okay=False),
               help="Plain-text body: single-line paragraphs, blank-line separated; '- ' bullets.")
 @click.option("--reply-to-message-id", help="Thread the send as a reply to this message id.")
+@click.option("--reply-all", is_flag=True,
+              help="Derive To (original sender) + Cc (everyone else on To+Cc) from the "
+                   "original message's headers — raw reads hide Cc and drop cc'd people. "
+                   "Requires --reply-to-message-id; explicit --cc is merged in.")
 @click.option("--dry-run", is_flag=True, help="Render plain + HTML bodies without sending.")
 def email_send(repo, agent, account, client, to, cc, subject, body_file,
-               reply_to_message_id, dry_run):
+               reply_to_message_id, reply_all, dry_run):
     """Send an HTML multipart email as the agent (the fleet's ONLY send path).
 
     Emits JSON with message_id + thread_id — record thread_id into the agent's state
     layer (comms-log / contact-memory) so inbound triage can route the reply.
     """
+    if reply_all and not reply_to_message_id:
+        raise click.ClickException("--reply-all requires --reply-to-message-id")
+    if not reply_all and not to:
+        raise click.ClickException("--to is required (or pass --reply-all)")
     try:
         ident = _identity_from_opts(repo, agent, account, client)
+        if reply_all:
+            derived_to, derived_cc = derive_reply_all(ident, reply_to_message_id)
+            to = derived_to
+            cc = ", ".join(x for x in (derived_cc, cc) if x) or None
         result = send(
             ident, to=to, subject=subject, body_text=Path(body_file).read_text(),
             cc=cc, reply_to_message_id=reply_to_message_id, dry_run=dry_run,
@@ -455,7 +512,7 @@ def email_send(repo, agent, account, client, to, cc, subject, body_file,
 @_with_identity_options
 @click.argument("thread_ids", nargs=-1, required=True)
 def email_mark_read(repo, agent, account, client, thread_ids):
-    """Remove the UNREAD label from THREAD_IDS via the Gmail API (gog has no mark-read)."""
+    """Remove the UNREAD label from THREAD_IDS (gog thread modify; API reads don't clear it)."""
     try:
         ident = _identity_from_opts(repo, agent, account, client)
         results = mark_read(ident, list(thread_ids))
