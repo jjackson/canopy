@@ -1,8 +1,21 @@
 # fleet-align — cross-agent improvement spread
 
-**Status:** design (approved 2026-07-03)
+**Status:** implemented (analysis); apply is AI-dispatched from the skill
 **Author:** Jonathan Jackson + Claude
 **Related:** `docs/agent-operating-model.md` (§4a boundary, §1b reply-quality primitives, §6.5 spread/execute/measure), `src/orchestrator/agent_review.py` (Build 2, per-agent friction), `plugins/canopy/skills/alignment/SKILL.md` (2-repo directional precursor)
+
+> **Revision (2026-07-03) — apply is AI-dispatched, not programmatic.** The sections below describe
+> a Python `render_patch`/`--apply` that computes and writes the file edit. That was built and
+> rejected: deterministic string/JSON surgery can't renumber every skill shape, substitute identity
+> placeholders, judge applicability (e.g. don't add an email deny rail to an agent with no email
+> adapter), or combine same-file findings. Corrected design, matching canopy's pipeline-stops-at-
+> proposals architecture: **Python does the analysis only** (discover / diff / evidence / judge /
+> rank) and emits a deterministic `change_brief` per distribute finding (target file + the
+> template's exact reference text + an instruction). **The edit + PR + merge is dispatched to a
+> Claude Code agent by the `fleet-align` skill** — from canopy, into the laggard's repo, as a
+> minimal in-place splice (never a regeneration). `canopy fleet-align` is read-only; there is no
+> `--apply` flag on the CLI. Where the text below says `render_patch`/`--apply`, read
+> `change_brief` + skill-dispatched AI apply.
 
 ## Problem
 

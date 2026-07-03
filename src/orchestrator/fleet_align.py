@@ -497,23 +497,64 @@ def judge(findings: list[Finding], *, runner=_run_claude, model: str = "sonnet")
     return [f for f in kept if f.kind != "drop"]
 
 
-# ── patch rendering (what `apply` would change) ───────────────────────────────
+# ── change brief (deterministic spec that seeds the AI apply) ─────────────────
+# We do NOT programmatically splice files. Matching canopy's own architecture (the pipeline stops
+# at proposals; a Claude Code agent implements), the fleet-align SKILL dispatches an AI to make the
+# surgical edit + PR with judgment — placement, identity substitution, applicability, combining
+# same-file findings — none of which brittle string/JSON surgery does well. Python's job is only to
+# hand that AI a precise brief: which file, what the template has that the agent lacks (the exact
+# reference text), and what to remove. The edit itself is the AI's.
 
-def render_patch(finding: Finding) -> Optional[dict]:
-    """The concrete change for a distribute-from-template finding: re-stamp the laggard's artifact
-    from the CURRENT factory template (identity re-substituted). Returns {target_relpath, new_text,
-    template_attr} or None when the change isn't mechanical (promote/reconcile need human/LLM)."""
+def _template_step_blocks(template_text: str) -> dict:
+    """Map each normalized numbered-step marker → the full step text (lead line + continuations)."""
+    starts = [(m.start(), _norm(m.group(1), [])) for m in _NUM_STEP.finditer(template_text)]
+    blocks = {}
+    for i, (pos, marker) in enumerate(starts):
+        end = starts[i + 1][0] if i + 1 < len(starts) else len(template_text)
+        block = template_text[pos:end].rstrip()
+        h = re.search(r"\n#{1,6}\s", block)  # stop a trailing block at the next heading
+        if h:
+            block = block[:h.start()].rstrip()
+        blocks[marker] = block
+    return blocks
+
+
+def change_brief(finding: Finding) -> Optional[dict]:
+    """A deterministic brief for the AI that will make the edit — NOT a mechanical patch. Returns
+    {target_relpath, add_reference[], remove_hint, instruction} for a distribute-from-template
+    finding, or None when the change needs full human/LLM judgment (promote/reconcile)."""
     if finding.kind != "distribute" or finding.reference != "canopy-template":
         return None
     art = next((a for a in ARTIFACTS if a[0] == finding.artifact), None)
     if not art:
         return None
-    _name, relpath, attr, _kind = art
+    _name, relpath, attr, kind = art
     text = getattr(agent_factory, attr, None)
     if text is None:
         return None
-    return {"target_relpath": str(relpath), "template_attr": attr, "new_text": text,
-            "pr_title": f"chore(fleet-align): resync {finding.artifact} to the factory template"}
+    add_reference, remove_hint = [], None
+    if kind == "skill":
+        blocks = _template_step_blocks(text)
+        add_reference = [blocks[m] for m in finding.detail if m in blocks]  # exact template text of the missing steps
+        instruction = ("Splice these template steps into the agent's EXISTING "
+                       f"{relpath} — renumber to continue its list, preserve everything else, do NOT "
+                       "regenerate the file. If a step names a channel the agent lacks, adapt or skip it.")
+    elif kind == "gating":
+        if "approve" in finding.summary:
+            remove_hint = "the deprecated `approve` array (rails, not gates — approval lives in the turn checklist)"
+            instruction = (f"Edit {relpath} to empty the `approve` array, preserving formatting, `_doc`, "
+                           "and all `deny` rules. Structured JSON edit, not a rewrite.")
+        else:
+            add_reference = list(finding.detail)  # the missing deny patterns
+            instruction = (f"Add the missing deny rail(s) to {relpath} ONLY IF this agent actually has the "
+                           "matching channel (e.g. an email adapter/bin shim); substitute the agent's real "
+                           "name/slug for any {{AGENT_NAME}}/{{AGENT_SLUG}} placeholders. Otherwise skip.")
+    else:
+        return None
+    if not add_reference and not remove_hint:
+        return None
+    return {"target_relpath": str(relpath), "artifact": finding.artifact,
+            "add_reference": add_reference, "remove_hint": remove_hint, "instruction": instruction}
 
 
 def evidence_rank(findings: list[Finding]) -> list[Finding]:
