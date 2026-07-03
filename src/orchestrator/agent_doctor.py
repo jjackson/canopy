@@ -52,7 +52,12 @@ def check_identity(repo: Path) -> tuple[CheckResult, EmailIdentity | None]:
 
 
 def check_gating(repo: Path) -> CheckResult:
-    """config/gating.json must exist and parse — the agent's rails."""
+    """config/gating.json must exist and parse — the agent's rails.
+
+    An outbound-capable agent (it has an email shim) with ZERO deny rails is the exact
+    unsafe state the rails exist to prevent, so that combination fails rather than
+    passing on "the file parses".
+    """
     name = "Gating rails"
     path = Path(repo) / "config" / "gating.json"
     if not path.exists():
@@ -62,7 +67,51 @@ def check_gating(repo: Path) -> CheckResult:
     except (json.JSONDecodeError, OSError) as e:
         return CheckResult(name, False, f"{path} unreadable: {e}")
     deny, approve = data.get("deny", []), data.get("approve", [])
+    shims = list((Path(repo) / "bin").glob("*-email"))
+    if not deny and shims:
+        return CheckResult(
+            name, False,
+            f"0 deny rails but {shims[0].name} exists — an outbound-capable agent "
+            "needs at least the raw-send rail (see the factory's templated gating.json)",
+        )
     return CheckResult(name, True, f"{len(deny)} deny rail(s), {len(approve)} approve rule(s)")
+
+
+def check_hook_wiring(repo: Path) -> CheckResult:
+    """The rails are only real if the PreToolUse hook is actually REGISTERED.
+
+    config/gating.json without .claude/settings.json wiring hooks/gating_guard.py is
+    decorative — the exact "set up somewhere, not on this repo" drift class this doctor
+    exists to catch. Checks: guard file exists + settings.json references it under a
+    PreToolUse matcher.
+    """
+    name = "Hook wiring"
+    guard = Path(repo) / "hooks" / "gating_guard.py"
+    if not guard.exists():
+        return CheckResult(name, False, f"{guard} missing — rails have no enforcement")
+    settings_path = Path(repo) / ".claude" / "settings.json"
+    if not settings_path.exists():
+        return CheckResult(
+            name, False,
+            f"{settings_path} missing — gating_guard.py is never invoked; wire it as a "
+            "PreToolUse hook (see the factory's templated settings.json)",
+        )
+    try:
+        settings = json.loads(settings_path.read_text())
+    except (json.JSONDecodeError, OSError) as e:
+        return CheckResult(name, False, f"{settings_path} unreadable: {e}")
+    pre = settings.get("hooks", {}).get("PreToolUse", [])
+    wired = any(
+        "gating_guard.py" in (h.get("command") or "")
+        for entry in pre for h in entry.get("hooks", [])
+    )
+    if not wired:
+        return CheckResult(
+            name, False,
+            f"{settings_path} has no PreToolUse hook invoking gating_guard.py — "
+            "the rails in config/gating.json are decorative until it does",
+        )
+    return CheckResult(name, True, "gating_guard.py registered as a PreToolUse hook")
 
 
 def check_secrets_manifest(repo: Path) -> CheckResult:
@@ -72,11 +121,25 @@ def check_secrets_manifest(repo: Path) -> CheckResult:
     name = "Secrets manifest"
     path = Path(repo) / "config" / "secrets.yaml"
     if not path.exists():
+        # Escape hatch for agents with their own provisioning (ACE: .env.tpl +
+        # `op inject`) — declared, not inferred, so absence stays a failure by default.
+        agent_json = Path(repo) / "config" / "agent.json"
+        try:
+            provisioning = json.loads(agent_json.read_text()).get("provisioning", "")
+        except (OSError, ValueError):
+            provisioning = ""
+        if provisioning:
+            return CheckResult(
+                name, True,
+                f"self-managed ({provisioning}) — declared in agent.json; "
+                "no canopy provision manifest expected",
+            )
         return CheckResult(
             name, False,
             f"{path} not found — agent state won't survive a new machine; "
             "declare secrets there and run `canopy provision` "
-            "(see create-agent § Channel + setup)",
+            "(see create-agent § Channel + setup), or declare \"provisioning\" "
+            "in config/agent.json if this agent provisions itself",
         )
     try:
         secrets = load_manifest(Path(repo))
@@ -102,7 +165,9 @@ def check_email_auth(
     if identity is None:
         return CheckResult(name, False, "skipped — identity unresolved")
     ok, lines = preflight(identity, gog_dir=gog_dir or GOG_CONFIG_DIR, runner=runner)
-    detail = lines[0] if lines else ("ready" if ok else "failed")
+    # Keep the WHOLE remediation — preflight's multi-line FIX blocks carry the exact
+    # command / console URL; truncating to the first line hides the actual fix.
+    detail = " ".join(l.strip() for l in lines) if lines else ("ready" if ok else "failed")
     return CheckResult(name, ok, detail.removeprefix("OK: ").removeprefix("FIX: "))
 
 
@@ -148,6 +213,7 @@ def run_agent_doctor(
     results = [
         ident_result,
         check_gating(repo),
+        check_hook_wiring(repo),
         check_secrets_manifest(repo),
         check_email_auth(identity, gog_dir=gog_dir, runner=runner),
         check_registration(identity, client_factory=client_factory),

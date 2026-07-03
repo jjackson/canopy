@@ -7,6 +7,7 @@ from click.testing import CliRunner
 from orchestrator.agent_doctor import (
     check_email_auth,
     check_gating,
+    check_hook_wiring,
     check_identity,
     check_registration,
     check_secrets_manifest,
@@ -21,17 +22,27 @@ from orchestrator.cli import main
 # --------------------------------------------------------------------------------------
 
 def _agent_repo(tmp_path, *, email="hal@dimagi-ai.com", slug="hal",
-                gating=True, secrets=True):
+                gating=True, secrets=True, hooks=True, agent_json_extra=None):
     repo = tmp_path / slug
     (repo / ".claude-plugin").mkdir(parents=True)
     (repo / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": slug}))
     (repo / "config").mkdir()
-    (repo / "config" / "agent.json").write_text(
-        json.dumps({"name": slug.title(), "email": email}))
+    agent = {"name": slug.title(), "email": email}
+    agent.update(agent_json_extra or {})
+    (repo / "config" / "agent.json").write_text(json.dumps(agent))
     if gating:
         (repo / "config" / "gating.json").write_text(
             json.dumps({"deny": [{"tool": "Bash", "pattern": "x", "message": "m"}],
                         "approve": []}))
+    if hooks:
+        (repo / "hooks").mkdir()
+        (repo / "hooks" / "gating_guard.py").write_text("# guard\n")
+        (repo / ".claude").mkdir()
+        (repo / ".claude" / "settings.json").write_text(json.dumps({
+            "hooks": {"PreToolUse": [{"matcher": "Bash|Edit|Write",
+                                      "hooks": [{"type": "command",
+                                                 "command": "python3 \"$CLAUDE_PROJECT_DIR/hooks/gating_guard.py\""}]}]}
+        }))
     if secrets:
         (repo / "config" / "secrets.yaml").write_text(
             "secrets:\n"
@@ -147,7 +158,7 @@ def test_run_agent_doctor_all_green(tmp_path):
         repo, gog_dir=_gog_home(tmp_path), runner=_ok_runner,
         client_factory=_client_factory())
     assert ok
-    assert [r.ok for r in results] == [True] * 5
+    assert [r.ok for r in results] == [True] * 6
 
 
 def test_run_agent_doctor_identity_failure_degrades_dependents(tmp_path):
@@ -177,5 +188,77 @@ def test_cli_agent_doctor_json_and_exit_code(tmp_path, monkeypatch):
     payload = json.loads(result.output)
     assert payload["ok"] is False
     names = [c["name"] for c in payload["checks"]]
-    assert names == ["Identity", "Gating rails", "Secrets manifest",
+    assert names == ["Identity", "Gating rails", "Hook wiring", "Secrets manifest",
                      "Email auth (gog)", "canopy-web board"]
+
+
+# --------------------------------------------------------------------------------------
+# review tweaks (2026-07-03): hook wiring, zero-rails, self-managed provisioning,
+# full remediation
+# --------------------------------------------------------------------------------------
+
+def test_hook_wiring_green_when_guard_registered(tmp_path):
+    result = check_hook_wiring(_agent_repo(tmp_path))
+    assert result.ok
+
+
+def test_hook_wiring_fails_without_settings_json(tmp_path):
+    repo = _agent_repo(tmp_path)
+    (repo / ".claude" / "settings.json").unlink()
+    result = check_hook_wiring(repo)
+    assert not result.ok and "never invoked" in result.detail
+
+
+def test_hook_wiring_fails_when_settings_dont_reference_guard(tmp_path):
+    repo = _agent_repo(tmp_path)
+    (repo / ".claude" / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": []}}))
+    result = check_hook_wiring(repo)
+    assert not result.ok and "decorative" in result.detail
+
+
+def test_hook_wiring_fails_without_guard_file(tmp_path):
+    repo = _agent_repo(tmp_path)
+    (repo / "hooks" / "gating_guard.py").unlink()
+    result = check_hook_wiring(repo)
+    assert not result.ok and "no enforcement" in result.detail
+
+
+def test_gating_zero_rails_fails_for_outbound_capable_agent(tmp_path):
+    repo = _agent_repo(tmp_path)
+    (repo / "config" / "gating.json").write_text(json.dumps({"deny": [], "approve": []}))
+    (repo / "bin").mkdir()
+    (repo / "bin" / "hal-email").write_text("#!/usr/bin/env python3\n")
+    result = check_gating(repo)
+    assert not result.ok and "outbound-capable" in result.detail
+
+
+def test_gating_zero_rails_ok_without_email_shim(tmp_path):
+    repo = _agent_repo(tmp_path)
+    (repo / "config" / "gating.json").write_text(json.dumps({"deny": [], "approve": []}))
+    result = check_gating(repo)
+    assert result.ok
+
+
+def test_secrets_self_managed_provisioning_declared_in_agent_json(tmp_path):
+    repo = _agent_repo(tmp_path, secrets=False,
+                       agent_json_extra={"provisioning": ".env.tpl + op inject"})
+    result = check_secrets_manifest(repo)
+    assert result.ok and "self-managed" in result.detail
+
+
+def test_secrets_missing_still_fails_without_declared_provisioning(tmp_path):
+    repo = _agent_repo(tmp_path, secrets=False)
+    result = check_secrets_manifest(repo)
+    assert not result.ok and "provisioning" in result.detail
+
+
+def test_email_auth_keeps_full_multiline_remediation():
+    ident = SimpleNamespace(slug="hal", account="hal@dimagi-ai.com", client="hal")
+    def runner(cmd, capture_output, text, timeout):
+        return SimpleNamespace(returncode=1, stdout="", stderr="oauth broken")
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        result = check_email_auth(ident, gog_dir=d, runner=runner)
+    assert not result.ok
+    # the FULL fix block survives, not just line 1
+    assert "gog login" in result.detail and "Do NOT reuse" in result.detail
