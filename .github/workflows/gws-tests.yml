@@ -1,0 +1,50 @@
+name: gws-mcp tests
+
+# Drift gates + unit tests for the canopy-gws MCP server (the TypeScript
+# Google Workspace server under plugins/canopy/mcp/). Fully offline: the
+# suite exercises exported handlers with mocked Google clients and parses
+# the server source statically — no Google auth, no network.
+#
+# Note: canopy gitignores package-lock.json repo-wide, so this job uses
+# `npm install` (not `npm ci`). Committing a lockfile scoped to
+# plugins/canopy/ is a tracked follow-up for deterministic CI installs.
+
+on:
+  push:
+    paths:
+      - 'plugins/canopy/mcp/**'
+      - 'plugins/canopy/test/**'
+      - 'plugins/canopy/scripts/**'
+      - 'plugins/canopy/package.json'
+      - 'plugins/canopy/tsconfig.json'
+      - 'plugins/canopy/vitest.config.ts'
+      - 'plugins/canopy/.claude-plugin/plugin.json'
+      - '.github/workflows/gws-tests.yml'
+  pull_request:
+    paths:
+      - 'plugins/canopy/mcp/**'
+      - 'plugins/canopy/test/**'
+      - 'plugins/canopy/scripts/**'
+      - 'plugins/canopy/package.json'
+      - 'plugins/canopy/tsconfig.json'
+      - 'plugins/canopy/vitest.config.ts'
+      - 'plugins/canopy/.claude-plugin/plugin.json'
+      - '.github/workflows/gws-tests.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugins/canopy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Type-check (tsc --noEmit)
+        run: npx tsc --noEmit
+      - name: Run vitest suite
+        run: npx vitest run

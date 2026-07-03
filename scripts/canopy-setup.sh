@@ -12,6 +12,7 @@
 #   4. workbench-token (per-human PAT; mint via /canopy:canopy-web-pat-mint)
 #   5. canopy CLI installed from main checkout
 #   6. video-engine node deps (npm ci) for local Remotion render (best-effort)
+#   7. canopy-gws MCP node deps (npm install in the installed plugin dir; best-effort)
 #
 # Exit code: 0 if all required steps pass, 1 otherwise.
 # Stdlib bash + python3 only; no plugin dependencies.
@@ -32,27 +33,27 @@ echo
 
 # ---------- 1. State dir ----------
 if [ -d "$CANOPY_STATE_DIR" ]; then
-  echo "[1/6] state dir       : OK ($CANOPY_STATE_DIR)"
+  echo "[1/7] state dir       : OK ($CANOPY_STATE_DIR)"
 elif mkdir -p "$CANOPY_STATE_DIR"; then
-  echo "[1/6] state dir       : CREATED ($CANOPY_STATE_DIR)"
+  echo "[1/7] state dir       : CREATED ($CANOPY_STATE_DIR)"
 else
-  echo "[1/6] state dir       : FAIL — could not create $CANOPY_STATE_DIR"
+  echo "[1/7] state dir       : FAIL — could not create $CANOPY_STATE_DIR"
   FAILED=1
 fi
 
 # ---------- 2. Main checkout ----------
 if [ -d "$MAIN_CHECKOUT/.git" ]; then
-  echo "[2/6] main checkout   : OK ($MAIN_CHECKOUT)"
+  echo "[2/7] main checkout   : OK ($MAIN_CHECKOUT)"
 else
   if ! command -v git >/dev/null 2>&1; then
-    echo "[2/6] main checkout   : FAIL — git not installed"
+    echo "[2/7] main checkout   : FAIL — git not installed"
     FAILED=1
   else
     mkdir -p "$(dirname "$MAIN_CHECKOUT")"
     if git clone --quiet "$REPO_URL" "$MAIN_CHECKOUT" 2>/dev/null; then
-      echo "[2/6] main checkout   : CLONED ($MAIN_CHECKOUT)"
+      echo "[2/7] main checkout   : CLONED ($MAIN_CHECKOUT)"
     else
-      echo "[2/6] main checkout   : FAIL — \`git clone $REPO_URL $MAIN_CHECKOUT\` failed"
+      echo "[2/7] main checkout   : FAIL — \`git clone $REPO_URL $MAIN_CHECKOUT\` failed"
       FAILED=1
     fi
   fi
@@ -78,16 +79,16 @@ PY
 }
 
 if hook_already_registered; then
-  echo "[3/6] post-tool hook  : OK (already registered)"
+  echo "[3/7] post-tool hook  : OK (already registered)"
 elif [ -f "$MAIN_CHECKOUT/hooks/install.py" ]; then
   if python3 "$MAIN_CHECKOUT/hooks/install.py" >/dev/null 2>&1; then
-    echo "[3/6] post-tool hook  : REGISTERED → $MAIN_CHECKOUT/hooks/post_tool_use.py"
+    echo "[3/7] post-tool hook  : REGISTERED → $MAIN_CHECKOUT/hooks/post_tool_use.py"
   else
-    echo "[3/6] post-tool hook  : FAIL — $MAIN_CHECKOUT/hooks/install.py errored"
+    echo "[3/7] post-tool hook  : FAIL — $MAIN_CHECKOUT/hooks/install.py errored"
     FAILED=1
   fi
 else
-  echo "[3/6] post-tool hook  : SKIP — $MAIN_CHECKOUT/hooks/install.py missing (step 2 must succeed first)"
+  echo "[3/7] post-tool hook  : SKIP — $MAIN_CHECKOUT/hooks/install.py missing (step 2 must succeed first)"
   FAILED=1
 fi
 
@@ -97,9 +98,9 @@ if [ -s "$TOKEN_FILE" ]; then
   if [ "$PERMS" != "600" ]; then
     chmod 600 "$TOKEN_FILE"
   fi
-  echo "[4/6] workbench token : OK ($TOKEN_FILE)"
+  echo "[4/7] workbench token : OK ($TOKEN_FILE)"
 else
-  echo "[4/6] workbench token : MISSING — mint a PAT to enable workbench writes + walkthrough sharing"
+  echo "[4/7] workbench token : MISSING — mint a PAT to enable workbench writes + walkthrough sharing"
   NEXT_STEPS+=(
     "Mint a per-human canopy-web Personal Access Token:"
     "  /canopy:canopy-web-pat-mint"
@@ -147,13 +148,13 @@ install_cli() {
 }
 
 if command -v canopy >/dev/null 2>&1; then
-  echo "[5/6] canopy CLI      : OK ($(command -v canopy))"
+  echo "[5/7] canopy CLI      : OK ($(command -v canopy))"
 elif [ -f "$MAIN_CHECKOUT/pyproject.toml" ]; then
   METHOD=$(install_cli "$MAIN_CHECKOUT") || true
   if [ -n "${METHOD:-}" ] && command -v canopy >/dev/null 2>&1; then
-    echo "[5/6] canopy CLI      : INSTALLED via $METHOD ($(command -v canopy))"
+    echo "[5/7] canopy CLI      : INSTALLED via $METHOD ($(command -v canopy))"
   elif [ -n "${METHOD:-}" ]; then
-    echo "[5/6] canopy CLI      : INSTALLED via $METHOD — but \`canopy\` not on current PATH"
+    echo "[5/7] canopy CLI      : INSTALLED via $METHOD — but \`canopy\` not on current PATH"
     NEXT_STEPS+=(
       "Add ~/.local/bin to your shell PATH so the \`canopy\` CLI is reachable:"
       "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc"
@@ -161,7 +162,7 @@ elif [ -f "$MAIN_CHECKOUT/pyproject.toml" ]; then
     )
     FAILED=1
   else
-    echo "[5/6] canopy CLI      : FAIL — uv install failed and no pipx fallback"
+    echo "[5/7] canopy CLI      : FAIL — uv install failed and no pipx fallback"
     NEXT_STEPS+=(
       "Install uv (or pipx) manually and re-run /canopy:setup:"
       "  brew install uv     # recommended"
@@ -170,7 +171,7 @@ elif [ -f "$MAIN_CHECKOUT/pyproject.toml" ]; then
     FAILED=1
   fi
 else
-  echo "[5/6] canopy CLI      : SKIP — main checkout missing (step 2 must succeed first)"
+  echo "[5/7] canopy CLI      : SKIP — main checkout missing (step 2 must succeed first)"
   FAILED=1
 fi
 
@@ -181,19 +182,43 @@ fi
 # renders video) shouldn't fail setup — this step never sets FAILED.
 ENGINE_DIR="$MAIN_CHECKOUT/video-engine"
 if [ ! -f "$ENGINE_DIR/package.json" ]; then
-  echo "[6/6] video engine    : SKIP — $ENGINE_DIR/package.json missing"
+  echo "[6/7] video engine    : SKIP — $ENGINE_DIR/package.json missing"
 elif [ -d "$ENGINE_DIR/node_modules" ]; then
-  echo "[6/6] video engine    : OK (node_modules present)"
+  echo "[6/7] video engine    : OK (node_modules present)"
 elif ! command -v npm >/dev/null 2>&1; then
-  echo "[6/6] video engine    : SKIP — npm not installed (needed only for local video render)"
+  echo "[6/7] video engine    : SKIP — npm not installed (needed only for local video render)"
   NEXT_STEPS+=(
     "Install Node/npm, then build the video engine for local render:"
     "  (cd $ENGINE_DIR && npm ci)"
   )
 elif (cd "$ENGINE_DIR" && npm ci >/dev/null 2>&1); then
-  echo "[6/6] video engine    : INSTALLED (npm ci in $ENGINE_DIR)"
+  echo "[6/7] video engine    : INSTALLED (npm ci in $ENGINE_DIR)"
 else
-  echo "[6/6] video engine    : SKIP — \`npm ci\` failed in $ENGINE_DIR (run it by hand to see why)"
+  echo "[6/7] video engine    : SKIP — \`npm ci\` failed in $ENGINE_DIR (run it by hand to see why)"
+fi
+
+# ---------- 7. canopy-gws MCP node deps (best-effort) ----------
+# The canopy-gws MCP server (plugins/canopy/mcp/gws-server.ts) runs via
+# `npx tsx` from the INSTALLED plugin dir; its imports resolve against a
+# node_modules that ships uncommitted. Install it once per plugin version.
+# Best-effort: a machine without npm shouldn't fail setup — this step never
+# sets FAILED. Note the server also needs per-agent GWS_* identity env
+# (GWS_IDENTITY_MODE / GWS_SA_KEY_PATH) — it fails loud at startup without it.
+GWS_PLUGIN_DIR="$(python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugins.json')); print(d['plugins']['canopy@canopy'][0]['installPath'])" 2>/dev/null || true)"
+if [ -z "$GWS_PLUGIN_DIR" ] || [ ! -f "$GWS_PLUGIN_DIR/package.json" ]; then
+  echo "[7/7] gws MCP deps    : SKIP — installed plugin dir (or its package.json) not found"
+elif [ -d "$GWS_PLUGIN_DIR/node_modules" ]; then
+  echo "[7/7] gws MCP deps    : OK (node_modules present in $GWS_PLUGIN_DIR)"
+elif ! command -v npm >/dev/null 2>&1; then
+  echo "[7/7] gws MCP deps    : SKIP — npm not installed (needed for the canopy-gws MCP server)"
+  NEXT_STEPS+=(
+    "Install Node/npm, then install the canopy-gws MCP deps:"
+    "  (cd $GWS_PLUGIN_DIR && npm install --no-audit --no-fund)"
+  )
+elif (cd "$GWS_PLUGIN_DIR" && npm install --no-audit --no-fund >/dev/null 2>&1); then
+  echo "[7/7] gws MCP deps    : INSTALLED (npm install in $GWS_PLUGIN_DIR)"
+else
+  echo "[7/7] gws MCP deps    : SKIP — \`npm install\` failed in $GWS_PLUGIN_DIR (run it by hand to see why)"
 fi
 
 # Note: /canopy:walkthrough-share now uses the same ~/.claude/canopy/workbench-token
