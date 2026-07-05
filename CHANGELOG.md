@@ -9,6 +9,21 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.260] - 2026-07-05
+
+### Added
+- **`canopy agent doctor`** (`src/orchestrator/agent_doctor.py`) — per-AGENT health
+  check composing the existing point-checks into one command: identity
+  (`config/agent.json`), gating rails, **hook wiring** (gating_guard.py actually
+  registered as a PreToolUse hook — rails without it are decorative), secrets
+  manifest (or a declared self-managed `provisioning` in agent.json — the ACE
+  case), live gog email auth (full multi-line remediation preserved), and
+  canopy-web registration + board reachability. Zero deny rails on an
+  outbound-capable agent (email shim present) FAILS. `canopy doctor` covers the
+  plugin install; this covers one agent repo on THIS machine. Born from hal
+  (2026-07-02); review tweaks from the ACE flagship session (2026-07-03).
+  Wired into `create-agent` § Channel + setup as the mandatory finish line.
+
 ## [0.2.256] - 2026-07-03
 
 ### Added
