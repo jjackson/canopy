@@ -9,7 +9,7 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
-## [0.2.261] - 2026-07-05
+## [0.2.262] - 2026-07-05
 
 ### Added
 - **canopy-gws MCP server** (`plugins/canopy/mcp/gws-server.ts` + `mcp/gws/`) — ACE's
