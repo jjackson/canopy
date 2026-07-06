@@ -49,10 +49,25 @@ def test_friction_signals_detects_failures_blocks_retries_auth(tmp_path):
 
 def test_friction_signals_flags_checklist_gaps(tmp_path):
     t = tmp_path / "turn.jsonl"
-    # A turn that does none of the expected steps -> all gaps.
-    _write_transcript(t, str(tmp_path), [("Read", {"file_path": "/x"}, "ok")])
+    # A turn (it loaded skills/turn) that does none of the expected steps -> all gaps.
+    _write_transcript(t, str(tmp_path), [
+        ("Read", {"file_path": "/repo/skills/turn/SKILL.md"}, "Hal's turn loop..."),
+        ("Read", {"file_path": "/x"}, "ok"),
+    ])
     gaps = set(friction_signals(t)["checklist_gaps"])
     assert {"preflight", "self-review", "skill-self-check", "workspace-refresh"} <= gaps
+
+
+def test_non_turn_session_not_graded_against_turn_steps(tmp_path):
+    # An `architect ddd` / harvest session is NOT a turn — grading it against the turn-step
+    # checklist flagged every one as a 4-gap "failure storm" (hal's 2026-07 review). No turn
+    # marker anywhere -> no checklist gaps.
+    t = tmp_path / "architect.jsonl"
+    _write_transcript(t, str(tmp_path), [
+        ("Bash", {"command": "canopy harvest map ddd --full"}, "331 sessions, whole-corpus"),
+        ("Write", {"file_path": "/repo/ledgers/ddd.md"}, "File created successfully"),
+    ])
+    assert friction_signals(t)["checklist_gaps"] == []
 
 
 def test_friction_signals_credits_steps_that_ran(tmp_path):
@@ -176,6 +191,36 @@ def test_retry_loop_requires_similar_subject_not_just_tool_reuse(tmp_path):
         ("Bash", {"command": "cat /nope/missing.json || true"}, "ok"),
     ])
     assert friction_signals(t2)["retry_loops"] == ["Bash"]
+
+
+def test_auth_marker_does_not_fire_on_successful_write(tmp_path):
+    # hal's 2026-07 review: a SUCCESSFUL Write of a memory file named
+    # `email-oauth-not-minted.md` was flagged as auth_friction because "oauth" is in the path.
+    # A completed file write is never runtime friction.
+    t = tmp_path / "turn.jsonl"
+    _write_transcript(t, str(tmp_path), [
+        ("Write", {"file_path": "/repo/memory/email-oauth-not-minted.md"},
+         "File created successfully at: /repo/memory/email-oauth-not-minted.md"),
+    ])
+    s = friction_signals(t)
+    assert s["auth_friction"] == [], "a successful write is not auth friction"
+    assert s["failures"] == []
+
+
+def test_skill_collision_flags_loading_another_plugins_same_named_skill(tmp_path):
+    # hal's 2026-07 review: "do a turn" loaded `ace:turn` (ACE's turn loop) instead of hal's own
+    # skills/turn — a silent wrong-skill load the mechanical signals were blind to.
+    t = tmp_path / "turn.jsonl"
+    _write_transcript(t, str(tmp_path), [
+        ("Skill", {"skill": "ace:turn"}, "ACE's turn skill loaded"),
+        ("Skill", {"skill": "canopy:improve"}, "improve skill loaded"),   # not owned -> fine
+        ("Skill", {"skill": "architect"}, "own bare skill -> fine"),
+    ])
+    s = friction_signals(t, own_skills=frozenset({"turn", "architect", "self-review"}))
+    cols = s["skill_collisions"]
+    assert len(cols) == 1
+    assert cols[0]["invoked"] == "ace:turn" and cols[0]["own_skill"] == "turn"
+    assert "skill_collision" in FRICTION_TYPES
 
 
 def test_human_corrections_catches_safety_override_and_confusion():

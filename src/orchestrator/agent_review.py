@@ -37,6 +37,7 @@ FRICTION_TYPES = (
     "checklist_gap",   # an expected turn step never ran
     "skill_capture",   # a multi-step manual pattern that should be a skill
     "auth_friction",   # auth/credential/setup blockers
+    "skill_collision", # loaded ANOTHER plugin's same-named skill (e.g. ace:turn) over its own
 )
 
 # Human-correction mining — the lens agent-review was BLIND to (echo's last turn taught us: it
@@ -112,6 +113,21 @@ _AUTH_MARKERS = re.compile(
     r"(?:not logged in|no token|invalid token|unauthorized|401|403|api .*not enabled|"
     r"credentials?|oauth|1password|op read|op inject)",
     re.I,
+)
+# A completed file write is never runtime friction — but its success result (or a path/filename
+# that happens to contain "oauth", "error", …) would otherwise match the error/auth markers.
+# hal's 2026-07 review flagged a successful Write of `email-oauth-not-minted.md` as auth_friction.
+_EDITOR_TOOLS = {"Edit", "Write", "NotebookEdit"}
+_WRITE_OK = re.compile(
+    r"file (?:created|updated|written) successfully|successfully (?:created|wrote|updated|saved)|"
+    r"file state is current",
+    re.I,
+)
+# The turn-step checklist only means something for a TURN. Applying it to an `architect ddd` /
+# harvest session flagged every one as a 4-gap "failure storm" (hal's 2026-07 review). A session
+# counts as a turn only if it actually engaged the turn loop.
+_TURN_MARKERS = re.compile(
+    r"skills/turn|/turn/skill|[\w-]*turn-close|\bdo a turn\b|\btake a turn\b", re.I
 )
 
 
@@ -208,23 +224,43 @@ def find_turn_transcripts(
     return [f for _, f in sorted(out, reverse=True)]
 
 
-def friction_signals(transcript_path: Path, steps=DEFAULT_TURN_STEPS) -> dict:
-    """Deterministic per-turn friction signals. No LLM — pure structural extraction."""
+def friction_signals(
+    transcript_path: Path,
+    steps=DEFAULT_TURN_STEPS,
+    own_skills: frozenset[str] = frozenset(),
+) -> dict:
+    """Deterministic per-turn friction signals. No LLM — pure structural extraction.
+
+    `own_skills` is the set of skill dir-names the agent owns (repo/skills/*); it powers
+    `skill_collisions` — loading another plugin's same-named skill (e.g. `ace:turn`) over its own.
+    """
     entries = read_transcript(transcript_path)
     calls = extract_tool_calls(entries)
     asst_text = "\n".join(extract_assistant_text(entries)).lower()
 
-    failures, gating_blocks, auth_hits = [], [], []
+    failures, gating_blocks, auth_hits, skill_collisions = [], [], [], []
     failed_idx: list[int] = []
     for i, c in enumerate(calls):
+        tool = c.get("name", "")
+        # Skill collision: the agent loaded a namespaced skill (`plugin:name`) whose bare name is
+        # one of ITS OWN skills — i.e. another plugin's version shadowed the agent's. Silent (the
+        # skill loads fine), so no error/auth marker ever fires; only this cross-ref catches it.
+        if tool == "Skill":
+            sk = str(c.get("input", {}).get("skill", "")).strip()
+            if ":" in sk and sk.rsplit(":", 1)[-1] in own_skills:
+                skill_collisions.append({"invoked": sk, "own_skill": sk.rsplit(":", 1)[-1]})
         res = _result_text(c)
         if not res:
             continue
         head = res[:600]
-        tool = c.get("name", "")
         if tool in _GATABLE_TOOLS and _GATING_MARKERS.search(res[:_GATING_HEAD]):
             gating_blocks.append({"tool": tool, "evidence": head[:200]})
-        elif _ERROR_MARKERS.search(head):
+            continue
+        # A completed file write is not runtime friction — skip error/auth scanning on its
+        # success result so an "oauth"/"error" in the path/name can't masquerade as a failure.
+        if tool in _EDITOR_TOOLS and _WRITE_OK.search(head):
+            continue
+        if _ERROR_MARKERS.search(head):
             failed_idx.append(i)
             failures.append({
                 "tool": tool,
@@ -237,14 +273,18 @@ def friction_signals(transcript_path: Path, steps=DEFAULT_TURN_STEPS) -> dict:
     # Retry loops: the same tool re-run on a near-identical subject shortly after failing.
     retries = sorted({calls[i].get("name", "") for i in failed_idx if _retried_after(calls, i)})
 
-    # Checklist gaps: expected steps with no marker anywhere in tool inputs/assistant text.
-    haystack = asst_text + "\n" + "\n".join(
+    # Checklist gaps: expected TURN steps with no marker anywhere in tool inputs/assistant text.
+    # Only graded on sessions that actually engaged the turn loop — an architect/harvest run is
+    # not a turn and grading it against turn steps is pure noise.
+    user_text = "\n".join(extract_user_messages(entries))
+    haystack = asst_text + "\n" + user_text.lower() + "\n" + "\n".join(
         f"{c.get('name','')} {json.dumps(c.get('input',{}))}" for c in calls
     ).lower()
+    is_turn = bool(_TURN_MARKERS.search(haystack))
     missing_steps = [
         label for label, markers in steps
         if not any(re.search(m, haystack) for m in markers)
-    ]
+    ] if is_turn else []
 
     return {
         "session_id": transcript_path.stem,
@@ -256,6 +296,7 @@ def friction_signals(transcript_path: Path, steps=DEFAULT_TURN_STEPS) -> dict:
         "auth_friction": auth_hits,
         "retry_loops": retries,
         "checklist_gaps": missing_steps,
+        "skill_collisions": skill_collisions,
     }
 
 
@@ -285,6 +326,10 @@ def build_review_prompt(repo: Path, corpus: list[dict]) -> str:
         "and turn a `safety_override` into a hard invariant (hook_rule), never just prose guidance.\n"
         "- A `confusion` correction means the agent's turn structure/communication failed — recommend "
         "a skill_edit that fixes how it presents (e.g. decide-then-show, not ask-then-show-something-else).\n"
+        "- a `skill_collisions` entry means a generic skill NAME (turn/architect/…) resolved to "
+        "ANOTHER plugin's skill (e.g. `ace:turn`) instead of the agent's own — recommend a "
+        "skill_edit/claude_update that namespaces the agent's skill or forces reading it from disk, "
+        "so the agent never silently runs a sibling's procedure.\n"
         "- prefer hook_rule for any 'never do X' invariant; prefer new_skill/skill_edit when a manual "
         "multi-step pattern repeats; only include findings with real evidence in the corpus.\n"
         "Output ONLY the YAML list.\n"
@@ -318,7 +363,11 @@ def run_review(
         return {"error": f"could not resolve agent repo for {slug_or_path!r}"}
 
     transcripts = find_turn_transcripts(repo, hours=hours, projects_dir=projects_dir)
-    corpus = [friction_signals(t) for t in transcripts]
+    skills_dir = repo / "skills"
+    own_skills = frozenset(
+        p.name for p in skills_dir.iterdir() if p.is_dir()
+    ) if skills_dir.is_dir() else frozenset()
+    corpus = [friction_signals(t, own_skills=own_skills) for t in transcripts]
     result = {
         "agent": repo.name,
         "repo": str(repo),
