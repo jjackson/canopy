@@ -39,7 +39,7 @@ strands the work. So the PR is a record-keeping + CI step, not a review gate.
 # from the worktree branch, once work is committed:
 git push -u origin <branch>
 gh pr create --title "..." --body "...\n\nCloses #<issue>"   # link the issue if any
-gh pr merge <n> --merge                                       # auto-merge immediately
+gh pr merge <n> --merge --auto      # queues the merge; lands as soon as check-version is green
 ```
 
 Then follow the plugin-update steps below (`/canopy:update` etc.) if
@@ -49,16 +49,20 @@ Then follow the plugin-update steps below (`/canopy:update` etc.) if
   durable record. The direct-merge commands above are the fallback for when
   `gh` is unavailable or a merge conflict needs hand-resolving in the main
   checkout — not the default.
-- **Auto-merge — do not wait for review.** `gh pr merge --merge` right after
-  creating the PR. The merge button isn't gated on CI for this private repo, so
-  a red CI check won't block you; glance at the run, but the merge is yours to
-  make.
-- **Verify before merging** (this is the real gate, since no human reviews):
-  the suite passes (or only known-unrelated failures remain) and — for
+- **`main` is branch-protected — the merge IS gated on CI.** canopy is a
+  **public** repo with branch protection: `check-version` is a **required status
+  check** and `enforce_admins` is on. `gh pr merge --merge` on a PR whose
+  `check-version` hasn't gone green is rejected ("base branch policy prohibits
+  the merge"). Use `--auto` to queue the merge so it lands the moment the check
+  passes, or wait for green and merge. Don't reach for `--admin` to force past a
+  red check — a red `check-version` means the version isn't bumped right; fix
+  that instead (see the STOP block below).
+- **No human reviews, but CI is a real gate now.** Required reviewers are NOT
+  configured, so you still merge your own PR — but `check-version` will block a
+  bad bump, unlike the old private-repo era where it was advisory. Before
+  merging: the suite passes (or only known-unrelated failures remain) and — for
   `plugins/canopy/` changes — `canopy version verify` is green.
-- Branch protection / required reviewers are NOT configured, so this is purely
-  a discipline convention. Keep PRs scoped and the body honest about what was
-  and wasn't verified.
+- Keep PRs scoped and the body honest about what was and wasn't verified.
 
 ## Tech Stack
 - Python 3.11+, PyYAML, Click
@@ -356,11 +360,14 @@ pick up." Without it:
 - Every existing Claude session keeps running the OLD cached copy of your skill
 - Your PR effectively didn't ship — you changed `main` but nobody will ever see it
 
-**This is a ridiculous, silent failure mode.** PR #49 (silent video recording) merged
-exactly this way: plugin files changed, VERSION was not bumped, the CI `check-version`
-job failed and was visible in the PR UI — but the merge button isn't gated on it
-(canopy is private, no GitHub Pro), so the PR went in anyway and `/canopy:update`
-reported `UP_TO_DATE` forever after.
+**This is a historically ridiculous, silent failure mode.** PR #49 (silent video
+recording) merged exactly this way: plugin files changed, VERSION was not bumped, the
+CI `check-version` job failed — but back then canopy was **private with no GitHub
+Pro**, so the merge button wasn't gated on the check and the PR went in anyway,
+leaving `/canopy:update` reporting `UP_TO_DATE` forever after. **That hole is now
+closed:** canopy is public and `check-version` is a **required status check** on
+`main`, so a missing/bad bump now blocks the merge rather than merely reddening the
+PR UI. The Claude Code push guard (below) still catches it even earlier.
 
 **The fix is layered prevention:**
 
@@ -369,8 +376,9 @@ reported `UP_TO_DATE` forever after.
 2. **Local pre-push hook** — refuses to push a branch where `plugins/canopy/` changed
    but VERSION didn't advance beyond origin/main. Catches the mistake before the PR
    is even opened. See § Git Hooks below — you must opt in with `git config core.hooksPath`.
-3. **CI version-check workflow** — runs `canopy version verify-bump` on every PR.
-   Visible in the PR UI but advisory only on private repos without GitHub Pro.
+3. **CI version-check workflow** — runs `canopy version verify-bump` on every PR, and
+   is now a **required status check** on `main`: a red `check-version` blocks the merge
+   (no longer advisory-only, since the repo went public).
 
 **Mental checklist before EVERY canopy commit touching `plugins/canopy/`:**
 
@@ -431,8 +439,10 @@ Claude Code guard above supersedes them for the AI flow; keep these for humans.
   advancing past origin/main.
 
 Bypass either hook with `git push --no-verify` / `git commit --no-verify` — almost
-always the wrong call. The hooks are advisory by design (no server-side enforcement
-available without GitHub Pro), so discipline is the failure mode they protect against.
+always the wrong call. These local hooks are still advisory (they only fire if a human
+opts in), but they're no longer the *only* backstop: since the repo went public,
+`check-version` is a **required status check** on `main` that enforces the bump
+server-side. The hooks now just catch the mistake earlier, before the push.
 
 ### Update workflow (the ONLY way to update)
 1. Make changes to skills/commands/agents in `plugins/canopy/` **OR** to the CLI/package in
