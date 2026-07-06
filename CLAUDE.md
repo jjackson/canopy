@@ -39,7 +39,8 @@ strands the work. So the PR is a record-keeping + CI step, not a review gate.
 # from the worktree branch, once work is committed:
 git push -u origin <branch>
 gh pr create --title "..." --body "...\n\nCloses #<issue>"   # link the issue if any
-gh pr merge <n> --merge --auto      # queues the merge; lands as soon as check-version is green
+gh pr checks <n>                    # wait for check-version to pass (~10s)
+gh pr merge <n> --merge             # then merge; a red check-version rejects the merge
 ```
 
 Then follow the plugin-update steps below (`/canopy:update` etc.) if
@@ -53,10 +54,12 @@ Then follow the plugin-update steps below (`/canopy:update` etc.) if
   **public** repo with branch protection: `check-version` is a **required status
   check** and `enforce_admins` is on. `gh pr merge --merge` on a PR whose
   `check-version` hasn't gone green is rejected ("base branch policy prohibits
-  the merge"). Use `--auto` to queue the merge so it lands the moment the check
-  passes, or wait for green and merge. Don't reach for `--admin` to force past a
-  red check — a red `check-version` means the version isn't bumped right; fix
-  that instead (see the STOP block below).
+  the merge"). Repo-level auto-merge is **disabled** (`gh pr merge --auto` errors
+  with "Auto merge is not allowed for this repository"), so the flow is: wait for
+  `check-version` (it runs in ~10s — `gh pr checks <n>`), then `gh pr merge
+  --merge`. Don't reach for `--admin` to force past a red check — a red
+  `check-version` means the version isn't bumped right; fix that instead (see the
+  STOP block below).
 - **No human reviews, but CI is a real gate now.** Required reviewers are NOT
   configured, so you still merge your own PR — but `check-version` will block a
   bad bump, unlike the old private-repo era where it was advisory. Before
