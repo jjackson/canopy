@@ -9,6 +9,40 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.262] - 2026-07-05
+
+### Added
+- **canopy-gws MCP server** (`plugins/canopy/mcp/gws-server.ts` + `mcp/gws/`) — ACE's
+  domain-neutral Google Workspace atoms extracted into canopy as a shared per-agent
+  MCP (jjackson/canopy#262, implements the shared-gog-gdrive design's Drive half).
+  32 atoms ported verbatim from ACE's production `ace-gdrive` server: all
+  `drive_*` (17), `docs_*` (4), `sheets_*` (7), `slides_*` (3), plus
+  `get_google_form_definition` and `read_personal_drive_doc`. The 10 ACE-aware atoms
+  (resolve_opp_path, update_yaml_file, validate_run_state, render_run_readme, …)
+  stay in ACE. Registered in the plugin's `mcpServers` as `canopy-gws` — every agent
+  with canopy installed gets the Workspace atoms.
+- **Per-agent identity contract, fail-loud** (`mcp/gws/lib/identity.ts`): the server
+  resolves WHO it acts as from session env only — `GWS_IDENTITY_MODE=sa` +
+  `GWS_SA_KEY_PATH` (sa mode implemented; `gog` mode fails loud as a tracked
+  follow-up), `GWS_ROOT_FOLDER_ID` (surfaced via `drive_diagnose`), and
+  `GWS_ALLOWED_DRIVE_IDS` (write allowlist enforced by the Shared-Drive write probe,
+  generalizing ACE's `assertParentOnSharedDrive`). Missing identity env is a fatal
+  startup error naming the vars; there is no default identity fallback.
+- **Node toolchain for the plugin** (`plugins/canopy/package.json` + `tsconfig.json`
+  + `vitest.config.ts`): per-API `@googleapis/*` subpackages via the google-shim
+  (not the 194 MB `googleapis` meta-package), tsx, typescript, vitest.
+  `google-auth-library` is pinned exactly to the version `googleapis-common` pins so
+  npm dedupes to one copy (two copies break tsc with nominal `#private` mismatches).
+  `/canopy:setup` gains step 7 (npm install in the installed plugin dir) and
+  `/canopy:update` installs deps after the rsync.
+- **Offline test suite + CI drift gates** (`plugins/canopy/test/gws/`, 12 files /
+  ~115 tests): registration-coverage snapshot gate (32 atoms, prefix allowlist, no
+  dupes, plugin.json wiring, fail-loud-identity source check, no-ACE-atom-leak),
+  identity-contract tests, allowlist write-probe tests, and the portable
+  handler/retry/classifier tests from ACE (mocked Google clients, no network).
+  New `.github/workflows/gws-tests.yml` runs `npm install` + `tsc --noEmit` +
+  `vitest run` on plugin-node paths.
+
 ## [0.2.260] - 2026-07-05
 
 ### Added

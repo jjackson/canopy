@@ -37,6 +37,7 @@ echo "PULLING: git pull origin main" && \
 git pull origin main 2>&1 && \
 mkdir -p ~/.claude/plugins/cache/canopy/canopy/$NEW_VERSION && \
 rsync -a ~/.claude/plugins/marketplaces/canopy/plugins/canopy/ ~/.claude/plugins/cache/canopy/canopy/$NEW_VERSION/ && \
+( cd ~/.claude/plugins/cache/canopy/canopy/$NEW_VERSION && { command -v npm >/dev/null 2>&1 && npm install --no-audit --no-fund >/dev/null 2>&1 && echo "GWS DEPS: installed" || echo "GWS DEPS: skipped (npm missing or install failed — canopy-gws MCP needs: cd $PWD && npm install)"; } ) && \
 cd ~/.claude/plugins/marketplaces/canopy && python3 -c "
 import json, subprocess, os
 from datetime import datetime, timezone

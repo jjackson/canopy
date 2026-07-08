@@ -1,0 +1,30 @@
+{
+  "name": "canopy-plugin",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Node toolchain for the canopy plugin's MCP servers (canopy-gws). Skills/commands/agents are markdown and need none of this; only the TypeScript MCP server does.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "mcp:gws": "npx tsx mcp/gws-server.ts"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@googleapis/docs": "^9.2.1",
+    "@googleapis/drive": "^20.1.0",
+    "@googleapis/forms": "^6.0.1",
+    "@googleapis/sheets": "^13.0.1",
+    "@googleapis/slides": "^5.0.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "google-auth-library": "10.5.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "zod": "^3.25.28"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "vitest": "^4.1.3"
+  }
+}
