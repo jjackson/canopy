@@ -62,6 +62,7 @@ class EmailIdentity:
     slug: str        # agent slug, e.g. "hal"
     account: str     # mailbox, e.g. hal@dimagi-ai.com
     client: str      # gog client name (credentials-<client>.json), usually == slug
+    repo: Path | None = None  # agent repo root — lets preflight read config/secrets.yaml
 
 
 def resolve_email_identity(repo_dir: Path) -> EmailIdentity:
@@ -81,7 +82,8 @@ def resolve_email_identity(repo_dir: Path) -> EmailIdentity:
             f"{Path(repo_dir) / 'config' / 'agent.json'}"
         )
     client = (ident.get("gog_client") or "").strip() or ident["slug"]
-    return EmailIdentity(slug=ident["slug"], account=account, client=client)
+    return EmailIdentity(slug=ident["slug"], account=account, client=client,
+                         repo=Path(repo_dir))
 
 
 def find_agent_repo(slug: str) -> Path:
@@ -386,6 +388,60 @@ def _oauth_remedy(identity: EmailIdentity, stderr: str) -> list[str] | None:
     return lines
 
 
+def _provision_remedy(identity: EmailIdentity, creds: str) -> list[str] | None:
+    """Route the missing-client fix through the DECLARATIVE path when the agent's repo
+    declares this gog client in `config/secrets.yaml`.
+
+    The manual "copy the JSON into place" instruction is the fallback of last resort — an
+    agent that declares its client for provisioning (hal is the reference) should never be
+    told to hand-shuffle keys. This helper distinguishes the three real failure modes the
+    old message collapsed into one:
+      * declared, but the 1Password item doesn't resolve  -> vault it, THEN provision
+      * declared and resolvable, just not materialized here -> run `canopy provision`
+      * not declared at all                                -> None (caller's manual fallback)
+    Returns remediation lines, or None to fall back.
+    """
+    repo = getattr(identity, "repo", None)
+    if repo is None:
+        return None
+    try:
+        from orchestrator import provision as _provision
+    except ImportError:
+        return None
+    try:
+        secrets = _provision.load_manifest(Path(repo))
+    except Exception:
+        return None
+    want = os.path.basename(creds)  # credentials-<client>.json
+    match = next(
+        (s for s in secrets
+         if os.path.basename(_provision.resolve_target(s.target, Path(repo))) == want),
+        None,
+    )
+    if match is None:
+        return None
+    prov_cmd = f"canopy provision --repo {repo}"
+    try:
+        _provision._op_read(match.op_ref)
+    except Exception as e:
+        # The item isn't in 1Password (missing or misnamed) — the true blocker.
+        return [
+            f"FIX: {identity.slug}'s gog client isn't in 1Password yet: {match.op_ref}",
+            f"     Create {identity.slug}'s OWN OAuth client (its own Google Cloud project — "
+            "never reuse another agent's; identity bleed is the fleet's one hard rule),",
+            f"     vault the client JSON at that ref, then materialize it: {prov_cmd}",
+            f"     ({str(e).splitlines()[0][:140] if str(e) else 'op read failed'})",
+        ]
+    # The item resolves — it just hasn't been written to this machine.
+    login_cmd = (f"gog login {identity.account} --client {identity.client} "
+                 f"--services {LOGIN_SERVICES}")
+    return [
+        f"FIX: {identity.slug}'s gog client is in 1Password but not on this machine.",
+        f"     Materialize it: {prov_cmd}",
+        f"     Then log in once (interactive): {login_cmd}",
+    ]
+
+
 def preflight(
     identity: EmailIdentity,
     *,
@@ -398,10 +454,14 @@ def preflight(
                  f"--services {LOGIN_SERVICES}")
     creds = os.path.join(gog_home, f"credentials-{identity.client}.json")
     if not os.path.exists(creds):
+        remedy = _provision_remedy(identity, creds)
+        if remedy:
+            return False, remedy
         return False, [
             f"FIX: gog `{identity.client}` client credentials missing: {creds}",
             f"     Copy {identity.slug}'s OWN OAuth client JSON there (1Password AI-Agents).",
             f"     Do NOT reuse another agent's client — identity bleed is the fleet's one hard rule.",
+            f"     Better: declare it in config/secrets.yaml so `canopy provision` places it.",
             f"     Then: {login_cmd}",
         ]
     cfg_path = os.path.join(gog_home, "config.json")
@@ -452,6 +512,7 @@ def _identity_from_opts(repo: str | None, agent: str | None,
                                  account=account, client=client or agent or account.split("@")[0])
         try:
             repo_dir = Path(repo) if repo else (find_agent_repo(agent) if agent else Path.cwd())
+            explicit.repo = repo_dir
             resolved = resolve_email_identity(repo_dir)
         except AgentEmailError:
             resolved = None
