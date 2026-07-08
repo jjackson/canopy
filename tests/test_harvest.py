@@ -1,5 +1,8 @@
 """Tests for the harvest corpus engine (cross-user, origin-anchored, blindness-flagging)."""
 import json
+import os
+
+import pytest
 
 from orchestrator.harvest import (
     assemble_corpus,
@@ -85,6 +88,9 @@ def test_human_messages_filters_noise(tmp_path):
     assert msgs == ["real intent here", "more steering"]
 
 
+@pytest.mark.skipif(os.environ.get("CI") == "true",
+                    reason="walks the real /Users/* of THIS machine (asserts the "
+                           "acedimagi account exists) — meaningless on a CI runner")
 def test_user_session_roots_real_machine():
     # smoke: on the real machine this should at least find acedimagi
     roots = user_session_roots()
