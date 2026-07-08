@@ -82,6 +82,28 @@ def test_to_html_paragraphs_and_bullets():
     assert "<ul><li>one</li><li>two</li></ul>" in out
 
 
+def test_to_html_numbered_list_becomes_ol_keeping_numbers():
+    # canopy #291: `1. `/`2. ` must render as <ol> (auto-numbered), not a number-stripped <ul>.
+    out = to_html("1. alpha\n2. beta\n")
+    assert "<ol><li>alpha</li><li>beta</li></ol>" in out
+    assert "<ul>" not in out
+
+
+def test_to_html_coalesces_list_run_across_blank_lines():
+    # canopy #291: blank-separated bullets must be ONE <ul>, not several single-item lists.
+    out = to_html("- one\n\n- two\n\n- three\n")
+    assert "<ul><li>one</li><li>two</li><li>three</li></ul>" in out
+    assert out.count("<ul>") == 1
+
+
+def test_to_html_ace836_repro_ol_then_ul():
+    # The exact repro from ace#836 / canopy #291: an ordered list then a bullet list.
+    out = to_html("1. alpha\n2. beta\n\n- one\n- two\n")
+    assert "<ol><li>alpha</li><li>beta</li></ol>" in out
+    assert "<ul><li>one</li><li>two</li></ul>" in out
+    assert out.count("<ol>") == 1 and out.count("<ul>") == 1
+
+
 def test_to_html_linkifies_and_escapes():
     out = to_html("see https://example.com/x?a=1 & <tags>\n")
     assert '<a href="https://example.com/x?a=1">' in out

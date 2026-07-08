@@ -135,20 +135,61 @@ def _linkify(escaped: str) -> str:
     return URL_RE.sub(lambda m: f'<a href="{m.group(1)}">{m.group(1)}</a>', escaped)
 
 
+def _list_kind(line: str) -> str | None:
+    """'ol' for a numbered item (`1.`), 'ul' for a bullet (`- * +`), None if not a list line."""
+    m = LIST_RE.match(line)
+    if not m:
+        return None
+    return "ol" if m.group(1).rstrip().endswith(".") else "ul"
+
+
 def to_html(plain: str) -> str:
-    blocks = re.split(r"\n\s*\n", plain.strip())
-    parts = []
-    for b in blocks:
-        lines = [l for l in b.split("\n") if l.strip()]
-        if lines and all(LIST_RE.match(l) for l in lines):
-            lis = "".join(
-                f"<li>{_linkify(html.escape(LIST_RE.sub('', l).strip(), quote=False))}</li>"
-                for l in lines
-            )
-            parts.append(f"<ul>{lis}</ul>")
-        else:
-            text = " ".join(l.strip() for l in lines)
+    """Markdown-ish plain text -> minimal HTML. Numbered lines become <ol> (numbers preserved),
+    bullets become <ul>; a run of same-kind items coalesces into ONE list even across blank lines
+    (canopy #291 — numbered lists were losing their numbers and runs were fragmenting into many
+    single-item lists)."""
+    lines = plain.strip().split("\n")
+    parts: list[str] = []
+    para: list[str] = []
+
+    def flush_para():
+        if para:
+            text = " ".join(l.strip() for l in para)
             parts.append(f"<p>{_linkify(html.escape(text, quote=False))}</p>")
+            para.clear()
+
+    i, n = 0, len(lines)
+    while i < n:
+        kind = _list_kind(lines[i])
+        if kind:
+            flush_para()
+            items: list[str] = []
+            while i < n:
+                if _list_kind(lines[i]) == kind:
+                    items.append(LIST_RE.sub("", lines[i]).strip())
+                    i += 1
+                elif not lines[i].strip():
+                    # blank line: only stays in the list if a same-kind item follows
+                    j = i
+                    while j < n and not lines[j].strip():
+                        j += 1
+                    if j < n and _list_kind(lines[j]) == kind:
+                        i = j
+                    else:
+                        break
+                else:
+                    break
+            lis = "".join(
+                f"<li>{_linkify(html.escape(it, quote=False))}</li>" for it in items
+            )
+            parts.append(f"<{kind}>{lis}</{kind}>")
+        elif not lines[i].strip():
+            flush_para()
+            i += 1
+        else:
+            para.append(lines[i])
+            i += 1
+    flush_para()
     return ('<html><body style="font-family:Arial,Helvetica,sans-serif;'
             'font-size:14px;line-height:1.5;color:#222">' + "".join(parts) + "</body></html>")
 
