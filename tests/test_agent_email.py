@@ -190,21 +190,55 @@ def _reply_runner(stdout, returncode=0):
 
 
 def test_derive_reply_all_sender_to_and_others_cc_excluding_self():
-    to, cc = derive_reply_all(IDENT, "m1", runner=_reply_runner(_thread_json()))
+    to, cc, msg_id = derive_reply_all(IDENT, message_id="m1",
+                                      runner=_reply_runner(_thread_json()))
     assert to == "c@partner.org"
     # hal (self) and the sender are excluded; the other To recipient + Cc survive
     assert cc == "ace@dimagi-ai.com, ops@partner.org"
+    assert msg_id == "m1"
 
 
 def test_derive_reply_all_missing_from_header_raises():
     bad = _thread_json(frm="")
     with pytest.raises(AgentEmailError, match="no From header"):
-        derive_reply_all(IDENT, "m1", runner=_reply_runner(bad))
+        derive_reply_all(IDENT, message_id="m1", runner=_reply_runner(bad))
 
 
 def test_derive_reply_all_read_failure_raises():
     with pytest.raises(AgentEmailError, match="could not read"):
-        derive_reply_all(IDENT, "m1", runner=_reply_runner("", returncode=1))
+        derive_reply_all(IDENT, message_id="m1", runner=_reply_runner("", returncode=1))
+
+
+def test_derive_reply_all_requires_exactly_one_id():
+    with pytest.raises(AgentEmailError, match="exactly one"):
+        derive_reply_all(IDENT, runner=_reply_runner(_thread_json()))
+    with pytest.raises(AgentEmailError, match="exactly one"):
+        derive_reply_all(IDENT, thread_id="t1", message_id="m1",
+                         runner=_reply_runner(_thread_json()))
+
+
+def _multi_message_thread():
+    """A thread where the LATEST message is the agent's own send — reply-all must
+    target the latest NON-self message (echo's live lesson), not the agent's."""
+    def msg(mid, frm, to, cc=""):
+        return {"id": mid, "payload": {"headers": [
+            {"name": "From", "value": frm},
+            {"name": "To", "value": to},
+            {"name": "Cc", "value": cc},
+        ]}}
+    return json.dumps({"thread": {"messages": [
+        msg("m1", "Dr. C <c@partner.org>", "hal@dimagi-ai.com", "ops@partner.org"),
+        msg("m2", "Colleague <k@partner.org>", "hal@dimagi-ai.com, c@partner.org"),
+        msg("m3", "Hal <hal@dimagi-ai.com>", "k@partner.org"),
+    ]}})
+
+
+def test_derive_reply_all_thread_mode_targets_latest_non_self_message():
+    to, cc, msg_id = derive_reply_all(IDENT, thread_id="t1",
+                                      runner=_reply_runner(_multi_message_thread()))
+    assert to == "k@partner.org"          # sender of the latest NON-hal message (m2)
+    assert cc == "c@partner.org"          # m2's other recipient, minus hal + sender
+    assert msg_id == "m2"                 # threading targets m2, NOT the thread id
 
 
 # --------------------------------------------------------------------------------------
