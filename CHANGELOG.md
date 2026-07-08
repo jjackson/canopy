@@ -9,6 +9,15 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.263] - 2026-07-08
+
+### Added
+- **CI runs the python suite** (`.github/workflows/python-tests.yml`) — closes the gap
+  that let #274 land with an untiered module and silently break main's
+  `test_plugin_boundary` (fixed in #287). Offline suite only (walkthrough/browser
+  tests excluded — they need playwright + a display and run locally via
+  `uv sync --extra browser`).
+
 ## [0.2.262] - 2026-07-05
 
 ### Added

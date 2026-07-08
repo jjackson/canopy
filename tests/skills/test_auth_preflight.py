@@ -99,6 +99,9 @@ def test_op_fail_recovery_hint(tmp_path: Path) -> None:
     assert "op signin --account dimagi.1password.com" in result.stdout
 
 
+@pytest.mark.skipif(os.environ.get("CI") == "true",
+                    reason="probes the REAL gh/op/aws on this machine; CI has an "
+                           "unauthenticated gh, which is a different (failing) path")
 def test_not_installed_is_not_a_failure(tmp_path: Path) -> None:
     """When tools are missing entirely, the script should report NOT INSTALLED
     and still exit 0 (we treat absence as best-effort, not failure)."""
