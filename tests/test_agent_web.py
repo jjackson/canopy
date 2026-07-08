@@ -51,7 +51,7 @@ def test_catalog_from_repo_lists_skills(tmp_path):
     repo = _agent(tmp_path)
     cat = {e["name"] for e in catalog_from_repo(repo)}
     assert "turn" in cat
-    assert "self-review" in cat
+    assert "agent-turn-review" in cat
 
 
 def test_gh_blob_base_parses_github_remotes(tmp_path):
