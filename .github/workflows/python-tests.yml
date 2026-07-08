@@ -1,0 +1,21 @@
+# Python test suite — the gap that let #274 land with an untiered module and
+# silently break main's `test_plugin_boundary` (fixed in #287). check-version
+# and docs-sync validate metadata; nothing validated the code until the gws
+# node workflow arrived, and that only covers plugins/canopy/test/gws.
+#
+# Browser-dependent walkthrough tests need playwright + a display; they're
+# excluded here (they run locally via `uv sync --extra browser`). Everything
+# else — orchestrator, ddd, skills structure gates, plugin boundary — runs.
+name: Python tests
+on: [push, pull_request]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Run pytest (offline suite; browser extras excluded)
+        run: |
+          uv sync
+          uv run pytest -q --ignore=tests/walkthrough -p no:cacheprovider
