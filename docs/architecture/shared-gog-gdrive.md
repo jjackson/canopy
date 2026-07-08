@@ -54,6 +54,22 @@ identity, rules, secrets, and domain skills are the agent's"*):
   (client_id + client_secret) — reusing it across agents is fine and reduces setup; the failure the
   fleet was built to avoid is acting as another agent's MAILBOX, governed by `--account`, not the
   client.
+- **⚠️ The shared OAuth app MUST be "Internal" user type — or email silently breaks every 7 days.**
+  A Google Cloud OAuth app in **"External" + publishing status "Testing"** expires every account's
+  refresh token after **7 days**, so `gog` reads/sends start failing about a week after each login
+  with no config change. `provision` + `preflight` cannot see this (the credential file and the
+  1Password item are both fine) — it looks like the login "just stopped working." Since the agent
+  mailboxes live in the Dimagi Workspace, set the `canopy` app's consent-screen **user type to
+  Internal**: no 7-day expiry, no Google verification, no 100-test-user cap. **If fleet email keeps
+  dying roughly weekly, this is the cause — not provisioning.** (The headless alternative that
+  removes interactive login entirely is a service account with domain-wide delegation — the `sa`
+  identity mode in §5; a bigger lift, and the `canopy email`/gog path would need to support it.)
+- **Migration status (2026-07-08):** `hal` and every agent minted by the factory use the shared
+  `canopy` client (item `Canopy - gog OAuth client` in 1Password AI-Agents). `echo` is
+  **grandfathered** on its own hand-placed `credentials-echo.json`, which is NOT yet declared in
+  its `config/secrets.yaml` — so echo would strand on a fresh machine exactly like hal did. Migrate
+  echo (declare the shared client in its `secrets.yaml`) when convenient; until then it's a known
+  latent gap, not a surprise.
 - **Tiers (generalizing ACE's model):** `act` = static allowlist (`config/allowlist.txt`) — senders
   who may steer the agent's work; `correspond` = **derived from the agent's own state** (ACE: LLO
   contacts in the routed run's `run_state.yaml`; echo: contacts with an existing contact-memory
