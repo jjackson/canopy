@@ -210,8 +210,10 @@ def to_html(plain: str) -> str:
             para.append(lines[i])
             i += 1
     flush_para()
-    return ('<html><body style="font-family:Arial,Helvetica,sans-serif;'
-            'font-size:14px;line-height:1.5;color:#222">' + "".join(parts) + "</body></html>")
+    # No font-family / size / color override: let the mail client render in its own
+    # default (e.g. Gmail's default sans) so the message reads as a native reply,
+    # not a styled-looking blast (Jonathan's pet peeve, 2026-07-08).
+    return "<html><body>" + "".join(parts) + "</body></html>"
 
 
 # --------------------------------------------------------------------------------------

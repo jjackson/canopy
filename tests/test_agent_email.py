@@ -111,6 +111,13 @@ def test_to_html_linkifies_and_escapes():
     assert "&amp;" in out
 
 
+def test_to_html_uses_client_default_font():
+    # No font-family/size/color override — render in the client's default font.
+    out = to_html("hello\n")
+    assert "font-family" not in out
+    assert "<html><body>" in out
+
+
 def test_to_html_markdown_link_gets_clean_anchor_text():
     out = to_html("shipped [PR #867](https://github.com/dimagi-internal/connect-labs/pull/867)\n")
     # anchor text is the label, not the raw URL
