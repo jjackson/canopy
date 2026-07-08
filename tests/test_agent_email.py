@@ -271,6 +271,48 @@ def test_preflight_missing_creds_gives_exact_login_remediation(tmp_path):
     assert "gog login hal@dimagi-ai.com --client hal --services" in joined
 
 
+def _provision_repo(tmp_path, op_ref="op://AI-Agents/Hal - gog OAuth client/notesPlain"):
+    """An agent repo whose config/secrets.yaml declares the gog client for provisioning."""
+    repo = _agent_repo(tmp_path)
+    (repo / "config" / "secrets.yaml").write_text(
+        "secrets:\n"
+        "  - name: hal gog OAuth client JSON\n"
+        f'    op: "{op_ref}"\n'
+        '    target: "~/Library/Application Support/gogcli/credentials-hal.json"\n'
+    )
+    return repo
+
+
+def test_preflight_missing_creds_routes_through_provision_when_declared(tmp_path, monkeypatch):
+    # Declared + 1Password item resolves -> tell the user to `canopy provision`, not hand-copy.
+    from orchestrator import provision
+    monkeypatch.setattr(provision, "_op_read", lambda ref: "{\"client_id\": \"x\"}")
+    ident = EmailIdentity(slug="hal", account="hal@dimagi-ai.com", client="hal",
+                          repo=_provision_repo(tmp_path))
+    ok, lines = preflight(ident, gog_dir=_gog_home(tmp_path, creds=False))
+    assert not ok
+    joined = "\n".join(lines)
+    assert "canopy provision" in joined
+    assert "gog login hal@dimagi-ai.com --client hal" in joined
+    assert "Copy hal's OWN OAuth client JSON there" not in joined  # not the manual fallback
+
+
+def test_preflight_missing_1password_item_is_the_named_blocker(tmp_path, monkeypatch):
+    # Declared but the 1Password item doesn't resolve -> that IS the blocker, named exactly.
+    from orchestrator import provision
+    def boom(ref):
+        raise provision.ProvisionError(f"`op read {ref}` failed: isn't an item")
+    monkeypatch.setattr(provision, "_op_read", boom)
+    ident = EmailIdentity(slug="hal", account="hal@dimagi-ai.com", client="hal",
+                          repo=_provision_repo(tmp_path))
+    ok, lines = preflight(ident, gog_dir=_gog_home(tmp_path, creds=False))
+    assert not ok
+    joined = "\n".join(lines)
+    assert "op://AI-Agents/Hal - gog OAuth client/notesPlain" in joined
+    assert "canopy provision" in joined
+    assert "isn't in 1Password yet" in joined
+
+
 def test_preflight_unmapped_account(tmp_path):
     ok, lines = preflight(IDENT, gog_dir=_gog_home(tmp_path, mapped=False))
     assert not ok
