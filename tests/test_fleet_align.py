@@ -26,7 +26,7 @@ name: self-review
 """
 
 BASELINE = {
-    "self-review": fa.extract_skill_markers(TEMPLATE_SELF_REVIEW, []),
+    "agent-turn-review": fa.extract_skill_markers(TEMPLATE_SELF_REVIEW, []),
     "turn": set(),
     "gating": {"deny": {"BLOCK_RAW_SEND"}, "approve_count": 0},
 }
@@ -37,8 +37,8 @@ def _write_agent(root, slug, *, self_review=None, gating=None, turn="# Turn\n## 
     (d / "skills" / "turn").mkdir(parents=True)
     (d / "skills" / "turn" / "SKILL.md").write_text(turn)
     if self_review is not None:
-        (d / "skills" / "self-review").mkdir(parents=True)
-        (d / "skills" / "self-review" / "SKILL.md").write_text(self_review)
+        (d / "skills" / "agent-turn-review").mkdir(parents=True)
+        (d / "skills" / "agent-turn-review" / "SKILL.md").write_text(self_review)
     if gating is not None:
         (d / "config").mkdir(parents=True, exist_ok=True)
         (d / "config" / "gating.json").write_text(json.dumps(gating))
@@ -70,7 +70,7 @@ def test_stale_agents_grouped_into_one_distribute_finding(tmp_path):
     agents = fa.discover_agents(bases=[tmp_path])
     findings = fa.analyze(agents, baseline=BASELINE)
 
-    sr = [f for f in findings if f.artifact == "self-review"]
+    sr = [f for f in findings if f.artifact == "agent-turn-review"]
     assert len(sr) == 1
     f = sr[0]
     assert f.kind == "distribute"
@@ -111,12 +111,12 @@ def test_convergent_extra_step_is_promoted(tmp_path):
 def test_identity_tokens_are_normalized_out(tmp_path):
     # The agent's own name appearing in a step must NOT read as a divergence from the template.
     tmpl = "# Self-review\n1. **Reply as <agent> to the request.**\n"
-    baseline = {"self-review": fa.extract_skill_markers(tmpl, []), "turn": set(), "gating": {"deny": set(), "approve_count": 0}}
+    baseline = {"agent-turn-review": fa.extract_skill_markers(tmpl, []), "turn": set(), "gating": {"deny": set(), "approve_count": 0}}
     _write_agent(tmp_path, "eva", self_review="# Self-review\n1. **Reply as Eva to the request.**\n",
                  gating={"deny": [], "approve": []})
     agents = fa.discover_agents(bases=[tmp_path])
     findings = fa.analyze(agents, baseline=baseline)
-    assert [f for f in findings if f.artifact == "self-review"] == []
+    assert [f for f in findings if f.artifact == "agent-turn-review"] == []
 
 
 def test_divergent_lineage_flagged_not_itemized_as_stale(tmp_path):
@@ -125,7 +125,7 @@ def test_divergent_lineage_flagged_not_itemized_as_stale(tmp_path):
     _write_agent(tmp_path, "echo", self_review=weird, gating={"deny": [], "approve": []}, agent_json=False)
     agents = fa.discover_agents(bases=[tmp_path])
     findings = fa.analyze(agents, baseline=BASELINE)
-    sr = [f for f in findings if f.artifact == "self-review"]
+    sr = [f for f in findings if f.artifact == "agent-turn-review"]
     assert len(sr) == 1
     assert sr[0].kind == "reconcile"
     assert sr[0].reference == "echo"
@@ -135,7 +135,7 @@ def test_no_findings_when_fleet_matches_template(tmp_path):
     _write_agent(tmp_path, "eva", self_review=TEMPLATE_SELF_REVIEW, gating={"deny": [{"pattern": "BLOCK_RAW_SEND"}], "approve": []})
     agents = fa.discover_agents(bases=[tmp_path])
     findings = fa.analyze(agents, baseline=BASELINE)
-    assert [f for f in findings if f.artifact == "self-review"] == []
+    assert [f for f in findings if f.artifact == "agent-turn-review"] == []
     assert "aligned" in fa.format_report(agents, [])
 
 
@@ -145,7 +145,7 @@ def test_legacy_agent_is_never_a_stale_laggard(tmp_path):
     _write_agent(tmp_path, "echo", self_review=stale, gating={"deny": [], "approve": []}, agent_json=False)
     agents = fa.discover_agents(bases=[tmp_path])
     findings = fa.analyze(agents, baseline=BASELINE)
-    sr = [f for f in findings if f.artifact == "self-review"]
+    sr = [f for f in findings if f.artifact == "agent-turn-review"]
     assert sr and all(f.kind != "distribute" for f in sr)
     assert sr[0].kind == "reconcile"
 
@@ -153,7 +153,7 @@ def test_legacy_agent_is_never_a_stale_laggard(tmp_path):
 # ── evidence ──────────────────────────────────────────────────────────────────
 
 def test_probe_selection_matches_known_findings():
-    recip = fa.Finding("distribute", "self-review", "canopy-template", ["eva"], "…", detail=["verify recipients"])
+    recip = fa.Finding("distribute", "agent-turn-review", "canopy-template", ["eva"], "…", detail=["verify recipients"])
     assert fa._probe_for(recip) is not None
     none = fa.Finding("distribute", "gating", "canopy-template", ["eva"], "deprecated approve rules", detail=["eva: 3 approve rule(s)"])
     assert fa._probe_for(none) is None  # no probe for the approve-cleanup finding → honest zero
@@ -162,7 +162,7 @@ def test_probe_selection_matches_known_findings():
 def test_gather_evidence_attaches_matching_sessions(tmp_path, monkeypatch):
     _write_agent(tmp_path, "eva", self_review=TEMPLATE_SELF_REVIEW, gating={"deny": [], "approve": []})
     agents = fa.discover_agents(bases=[tmp_path])
-    finding = fa.Finding("distribute", "self-review", "canopy-template", ["eva"], "…", detail=["verify recipients"])
+    finding = fa.Finding("distribute", "agent-turn-review", "canopy-template", ["eva"], "…", detail=["verify recipients"])
 
     fake = tmp_path / "sess.jsonl"
     fake.write_text("{}")
@@ -180,7 +180,7 @@ def test_evidence_search_spans_all_logins(tmp_path, monkeypatch):
     # eva's turns live under a DIFFERENT login — the search must find them cross-user.
     _write_agent(tmp_path, "eva", self_review=TEMPLATE_SELF_REVIEW, gating={"deny": [], "approve": []})
     agents = fa.discover_agents(bases=[tmp_path])
-    finding = fa.Finding("distribute", "self-review", "canopy-template", ["eva"], "…", detail=["verify recipients"])
+    finding = fa.Finding("distribute", "agent-turn-review", "canopy-template", ["eva"], "…", detail=["verify recipients"])
 
     login_a = tmp_path / "Users" / "acedimagi" / ".claude" / "projects"
     login_b = tmp_path / "Users" / "jjackson" / ".claude" / "projects"
@@ -205,7 +205,7 @@ def test_promote_gathers_source_side_positive_evidence(tmp_path, monkeypatch):
     # A PROMOTE (or reconcile) referencing echo → search ECHO's sessions for the pattern in USE.
     _write_agent(tmp_path, "echo", self_review="# sr\n1. **Rate it, tough.**\n", agent_json=False)
     agents = fa.discover_agents(bases=[tmp_path])
-    f = fa.Finding("promote", "self-review", "echo", ["canopy-template"], "…", detail=["rate it, tough"])
+    f = fa.Finding("promote", "agent-turn-review", "echo", ["canopy-template"], "…", detail=["rate it, tough"])
 
     sess = tmp_path / "echo-sess.jsonl"
     sess.write_text("{}")
@@ -216,7 +216,7 @@ def test_promote_gathers_source_side_positive_evidence(tmp_path, monkeypatch):
     fa.gather_evidence([f], agents, hours=100, projects_dir=tmp_path)
     assert len(f.evidence) == 1
     assert f.evidence[0].agent == "echo"
-    assert "self-review discipline" in f.evidence[0].signal
+    assert "turn-review discipline" in f.evidence[0].signal
 
 
 def test_reconcile_with_no_source_probe_gets_no_evidence(tmp_path, monkeypatch):
@@ -230,7 +230,7 @@ def test_reconcile_with_no_source_probe_gets_no_evidence(tmp_path, monkeypatch):
 
 def test_evidence_rank_floats_backed_findings_up():
     a = fa.Finding("distribute", "gating", "canopy-template", ["eva"], "no evidence")
-    b = fa.Finding("distribute", "self-review", "canopy-template", ["eva"], "backed")
+    b = fa.Finding("distribute", "agent-turn-review", "canopy-template", ["eva"], "backed")
     b.evidence = [fa.Evidence("eva", "s1", "2026-07-01", "recipient / cc handling", "…")]
     assert fa.evidence_rank([a, b])[0] is b
 
@@ -239,7 +239,7 @@ def test_evidence_rank_floats_backed_findings_up():
 
 def test_judge_applies_verdict_and_drops(monkeypatch):
     findings = [
-        fa.Finding("distribute", "self-review", "canopy-template", ["eva"], "keep me"),
+        fa.Finding("distribute", "agent-turn-review", "canopy-template", ["eva"], "keep me"),
         fa.Finding("distribute", "gating", "canopy-template", ["eva"], "drop me"),
     ]
     verdict = json.dumps([
@@ -254,7 +254,7 @@ def test_judge_applies_verdict_and_drops(monkeypatch):
 
 
 def test_judge_survives_bad_llm_output(monkeypatch):
-    findings = [fa.Finding("distribute", "self-review", "canopy-template", ["eva"], "x")]
+    findings = [fa.Finding("distribute", "agent-turn-review", "canopy-template", ["eva"], "x")]
     assert fa.judge(findings, runner=lambda p, m: "not json") == findings  # deterministic findings stand
 
 
@@ -265,10 +265,10 @@ def test_change_brief_gives_reference_text_not_a_mutation(monkeypatch):
     tmpl = ("# Self-review\n"
             "1. **Re-read the original request.** actual message.\n"
             "2. **Verify recipients.** pull to/cc from the structured reader, not a raw view.\n")
-    monkeypatch.setattr(fa.agent_factory, "_SELF_REVIEW_SKILL", tmpl)
-    d = fa.Finding("distribute", "self-review", "canopy-template", ["eva"], "…", detail=["verify recipients"])
+    monkeypatch.setattr(fa.agent_factory, "_AGENT_TURN_REVIEW_SKILL", tmpl)
+    d = fa.Finding("distribute", "agent-turn-review", "canopy-template", ["eva"], "…", detail=["verify recipients"])
     brief = fa.change_brief(d)
-    assert brief["target_relpath"].endswith("self-review/SKILL.md")
+    assert brief["target_relpath"].endswith("agent-turn-review/SKILL.md")
     assert "old" not in brief and "new" not in brief         # never a computed file edit
     assert len(brief["add_reference"]) == 1 and "Verify recipients" in brief["add_reference"][0]
     assert "Re-read the original request" not in brief["add_reference"][0]  # only the MISSING step
@@ -288,5 +288,5 @@ def test_change_brief_gating_approve_gives_remove_hint_and_applicability_instruc
 
 
 def test_change_brief_none_for_promote_and_reconcile():
-    assert fa.change_brief(fa.Finding("promote", "self-review", "echo", ["canopy-template"], "…")) is None
+    assert fa.change_brief(fa.Finding("promote", "agent-turn-review", "echo", ["canopy-template"], "…")) is None
     assert fa.change_brief(fa.Finding("reconcile", "turn", "hal", [], "…")) is None

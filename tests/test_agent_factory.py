@@ -59,7 +59,7 @@ def test_create_agent_writes_full_layout(tmp_path):
         "hooks/gating_guard.py",
         "bin/echo-email",
         "skills/turn/SKILL.md",
-        "skills/self-review/SKILL.md",
+        "skills/agent-turn-review/SKILL.md",
     ):
         assert required in names, f"missing {required}"
 

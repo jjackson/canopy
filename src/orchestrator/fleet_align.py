@@ -46,7 +46,8 @@ DEFAULT_BASES = (
 # (None = no template baseline, compare peers only). `kind` picks the extractor.
 ARTIFACTS = (
     ("turn", Path("skills") / "turn" / "SKILL.md", "_TURN_SKILL", "skill"),
-    ("self-review", Path("skills") / "self-review" / "SKILL.md", "_SELF_REVIEW_SKILL", "skill"),
+    ("agent-turn-review", Path("skills") / "agent-turn-review" / "SKILL.md",
+     "_AGENT_TURN_REVIEW_SKILL", "skill"),
     ("gating", Path("config") / "gating.json", "_GATING_JSON", "gating"),
 )
 
@@ -315,7 +316,7 @@ _EVIDENCE_PROBES = (
 # "this isn't theoretical, echo runs it constantly" strengthens a PROMOTE far more than the mere
 # absence of it elsewhere. Keyed by artifact; searched in the reference/divergent agent's sessions.
 _SOURCE_PROBES = {
-    "self-review": (re.compile(r"(?i)\bself[- ]?review\b|\bfaithfulness\b|re-?read the (?:original|request)|\brate it\b|extract each (?:discrete )?ask"), "source actively runs this self-review discipline"),
+    "agent-turn-review": (re.compile(r"(?i)\b(?:agent[- ]?turn[- ]?review|self[- ]?review)\b|\bfaithfulness\b|re-?read the (?:original|request)|\brate it\b|grounded commitment|extract each (?:discrete )?ask"), "source actively runs this turn-review discipline"),
     "turn": (re.compile(r"(?i)skill[- ]?(?:development )?self[- ]?check|(?:create or improve|repeat(?:ed)? .* by hand).{0,20}skill"), "source actively runs this turn discipline"),
 }
 

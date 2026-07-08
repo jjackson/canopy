@@ -414,9 +414,11 @@ For EACH inbound item in order: read it, check the sender against `config/allowl
 decide ONE action (Reply / File / Remember / Escalate), and present it for approval.
 **Never reason about two counterparts in one step** — the cardinal rule.
 
-Before every outbound reply, run the `self-review` skill: re-read the original request, extract
-EACH discrete ask, confirm the draft does exactly that (read any source they cited; don't
-reconstruct from memory), then lead with what you DID + a recommendation + options.
+Before every outbound reply, run the `agent-turn-review` skill (it invokes the fleet-wide
+`canopy:agent-turn-review`): re-read the original request, extract EACH discrete ask, confirm the
+draft does exactly that (read any source they cited; don't reconstruct from memory), confirm every
+"I'll do X" is something you can actually execute (no vague "sync with <person>"), then lead with
+what you DID + a recommendation + options.
 
 **Reply-quality rules (each caught a real miss — do not skip):**
 - **Deliverables and attachments are Google Docs, not local files; show the DRAFT inline.** A
@@ -473,7 +475,7 @@ turn). Put that link in your close-out summary. Without `--upload`, the turn is 
 (request → what you did → deliverables), just with no transcript.
 
 **CLOSE CHECKLIST — confirm each in the summary (these get silently skipped under load):**
-1. `self-review` ran on every outbound reply (Step 2).
+1. `agent-turn-review` ran on every outbound reply (Step 2).
 2. Skill-development self-check answered (Step 3).
 3. Workspace refreshed (`canopy agent skills` above).
 4. Turn packaged (`canopy agent turn …`); transcript uploaded ONLY if the human approved.
@@ -483,35 +485,35 @@ checked out elsewhere, so `git checkout main` and `gh pr merge --delete-branch` 
 checked out"). Instead: `gh pr merge <n> --squash`, then verify with `gh pr view <n> --json state`.
 
 ## Related skills
-- `self-review` — gate every outbound reply against the original request before sending.
+- `agent-turn-review` — gate every outbound reply against the original request AND against what you
+  can actually execute (invokes the fleet-wide `canopy:agent-turn-review`) before sending.
 - canopy plugin (installed alongside this agent) — `create-agent`, `agent-publish`, `improve`, and
   the fleet self-improvement loop. {{AGENT_NAME}} has canopy's skills available; use them.
 '''
 
-_SELF_REVIEW_SKILL = '''---
-name: self-review
+_AGENT_TURN_REVIEW_SKILL = '''---
+name: agent-turn-review
 description: >
-  Audit a drafted deliverable/reply against the ORIGINAL request before sending. Use before every
-  outbound action. Extract each discrete ask, confirm the deliverable does exactly that, fix gaps.
+  {{AGENT_NAME}}'s pre-send review — invokes the fleet-wide `canopy:agent-turn-review` discipline,
+  then adds {{AGENT_NAME}}'s specifics. Run before EVERY outbound reply / deliverable / PR.
 ---
 
-# Self-review — does the deliverable do what was actually asked?
+# Agent turn review ({{AGENT_NAME}})
 
-Run this before EVERY outbound action (it is the thing that gets dropped under load).
+Run before every outbound action (the thing that gets dropped under load). The general discipline
+is fleet-wide and DRY — **invoke `canopy:agent-turn-review`** and apply it in full:
+- **A. Fidelity** — re-read the request, extract each ask, do EXACTLY that (read cited sources),
+  rate it tough.
+- **B. Grounded commitments** — every "I'll do X" needs a concrete, executable mechanism; a vague
+  "sync with / coordinate with / loop in <person>" is vapor — convert it to a runnable check or a
+  draft-then-ask message, or cut it.
+- **C. Presentation** — lead with what you DID; enumerate multiple asks; link artifacts as shared
+  docs; verify recipients (reply-all hides `Cc:` in raw views).
 
-1. **Re-read the original request.** Not your memory of it — the actual message.
-2. **Extract EACH discrete ask** as a checklist (number them).
-3. **For each ask, confirm the draft does exactly that.** Read any source/link they cited; do not
-   substitute your own summary for the thing they asked for (e.g. linking your scan when they
-   asked for the report).
-4. **Rate it** against the asks. If any ask is unmet or partially met, **fix it before sending.**
-5. **Lead with what you DID** + your recommendation + what else we could do — not junior questions.
-6. **Enumerate multiple asks**, one line each, showing how each was handled.
-7. **Deliverables are gdocs; the draft is inline.** Any substantial artifact goes in a shared
-   Google Doc the reply links — never pasted as a wall of text, never left in a local file. Present
-   the reply body itself inline for approval, not a pointer to where it lives.
-8. **Verify recipients.** Pull to/cc from the structured reader (or `--reply-all`), never a raw
-   text mail view (it hides `Cc:`). Confirm reply-all vs. direct on purpose.
+## {{AGENT_NAME}}-specifics
+- **Send path:** outbound comms go ONLY via {{AGENT_NAME}}'s sanctioned path (draft-then-ask). §B's
+  "concrete action" for coordination is a check you actually run or a message you actually send here.
+- **Gated in:** `turn` (before shipping/replying, and the close checklist).
 '''
 
 _SECRETS_YAML = '''# {{AGENT_NAME}}'s secrets + config, declarative. `canopy provision` materializes these from the
@@ -694,5 +696,5 @@ _TEMPLATES: dict[str, str] = {
     ".claude/settings.json": _SETTINGS_JSON,
     "hooks/gating_guard.py": _GATING_GUARD,
     "skills/turn/SKILL.md": _TURN_SKILL,
-    "skills/self-review/SKILL.md": _SELF_REVIEW_SKILL,
+    "skills/agent-turn-review/SKILL.md": _AGENT_TURN_REVIEW_SKILL,
 }
