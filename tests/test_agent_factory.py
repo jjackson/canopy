@@ -127,7 +127,9 @@ def test_agent_json_carries_email_identity(tmp_path):
     create_agent(_spec(), tmp_path / "echo")
     agent = json.loads((tmp_path / "echo" / "config" / "agent.json").read_text())
     assert agent["email"] == "echo@dimagi-ai.com"
-    assert agent["gog_client"] == "echo"
+    # gog_client is the SHARED fleet OAuth client, not the per-agent slug — the mailbox is the
+    # per-agent identity; the client is reused fleet-wide.
+    assert agent["gog_client"] == "canopy"
 
 
 def test_email_shim_is_executable_and_targets_canopy_engine(tmp_path):

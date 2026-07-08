@@ -260,5 +260,5 @@ def test_email_auth_keeps_full_multiline_remediation():
     with tempfile.TemporaryDirectory() as d:
         result = check_email_auth(ident, gog_dir=d, runner=runner)
     assert not result.ok
-    # the FULL fix block survives, not just line 1
-    assert "gog login" in result.detail and "Do NOT reuse" in result.detail
+    # the FULL fix block survives, not just line 1 (an early line AND the last line both present)
+    assert "gog login" in result.detail and "SHARED fleet OAuth client" in result.detail

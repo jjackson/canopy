@@ -23,9 +23,11 @@ Three subcommands:
 - `preflight` — gog auth liveness for the agent's client, with the exact `gog login …`
   remediation (and the API-not-enabled self-heal echo's preflight learned the hard way).
 
-Identity is per-agent and never shared: one mailbox + one gog client per agent
-(`credentials-<client>.json` in the gogcli config dir) — reusing another agent's client
-is the session/thread identity bleed the fleet was built to avoid.
+Two identities, and only ONE of them is per-agent. The gog *client* (`credentials-<client>.json`)
+is the APP identity — client_id + client_secret, "which app asks Google for access" — and it is a
+SHARED fleet app (`canopy`), reused by every agent's mailbox. The per-agent, never-shared identity
+is the *mailbox* (`--account`): the session/thread identity bleed the fleet was built to avoid is
+acting as another agent's MAILBOX, which is governed by --account, not the client.
 """
 from __future__ import annotations
 
@@ -426,19 +428,19 @@ def _provision_remedy(identity: EmailIdentity, creds: str) -> list[str] | None:
     except Exception as e:
         # The item isn't in 1Password (missing or misnamed) — the true blocker.
         return [
-            f"FIX: {identity.slug}'s gog client isn't in 1Password yet: {match.op_ref}",
-            f"     Create {identity.slug}'s OWN OAuth client (its own Google Cloud project — "
-            "never reuse another agent's; identity bleed is the fleet's one hard rule),",
-            f"     vault the client JSON at that ref, then materialize it: {prov_cmd}",
+            f"FIX: the `{identity.client}` gog OAuth client isn't in 1Password yet: {match.op_ref}",
+            f"     This is the SHARED fleet app (client_id + client_secret), minted ONCE for all "
+            "agents — not a per-agent client.",
+            f"     Vault the client JSON at that ref, then materialize it: {prov_cmd}",
             f"     ({str(e).splitlines()[0][:140] if str(e) else 'op read failed'})",
         ]
     # The item resolves — it just hasn't been written to this machine.
     login_cmd = (f"gog login {identity.account} --client {identity.client} "
                  f"--services {LOGIN_SERVICES}")
     return [
-        f"FIX: {identity.slug}'s gog client is in 1Password but not on this machine.",
+        f"FIX: the `{identity.client}` gog client is in 1Password but not on this machine.",
         f"     Materialize it: {prov_cmd}",
-        f"     Then log in once (interactive): {login_cmd}",
+        f"     Then consent {identity.slug}'s mailbox into it once (interactive): {login_cmd}",
     ]
 
 
@@ -459,9 +461,9 @@ def preflight(
             return False, remedy
         return False, [
             f"FIX: gog `{identity.client}` client credentials missing: {creds}",
-            f"     Copy {identity.slug}'s OWN OAuth client JSON there (1Password AI-Agents).",
-            f"     Do NOT reuse another agent's client — identity bleed is the fleet's one hard rule.",
+            f"     This is the SHARED fleet OAuth client (client_id + client_secret), not per-agent.",
             f"     Better: declare it in config/secrets.yaml so `canopy provision` places it.",
+            f"     Or copy the shared client JSON there from 1Password (AI-Agents).",
             f"     Then: {login_cmd}",
         ]
     cfg_path = os.path.join(gog_home, "config.json")
@@ -519,7 +521,7 @@ def _identity_from_opts(repo: str | None, agent: str | None,
         if resolved and resolved.account.lower() != explicit.account.lower():
             sys.stderr.write(
                 f"WARNING: sending as {explicit.account} from {resolved.slug!r}'s repo "
-                f"(its identity is {resolved.account}). One mailbox + one client per agent "
+                f"(its identity is {resolved.account}). One mailbox per agent, never shared, "
                 "is the fleet's one hard rule — make sure this cross-identity send is "
                 "deliberate.\n"
             )

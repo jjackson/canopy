@@ -260,7 +260,7 @@ _GATING_JSON = '''{
     {
       "tool": "Bash",
       "pattern": "canopy\\\\s+email\\\\s+send\\\\b(?=[^\\\\n]*--account)",
-      "message": "BLOCKED: `canopy email send --account` overrides {{AGENT_NAME}}'s repo identity — one mailbox + one client per agent (identity bleed is the fleet's one hard rule). Send via bin/{{AGENT_SLUG}}-email, which pins this repo's identity."
+      "message": "BLOCKED: `canopy email send --account` overrides {{AGENT_NAME}}'s repo identity — one mailbox per agent, never shared (identity bleed is the fleet's one hard rule). Send via bin/{{AGENT_SLUG}}-email, which pins this repo's identity."
     }
   ],
   "approve": []
@@ -520,6 +520,15 @@ _SECRETS_YAML = '''# {{AGENT_NAME}}'s secrets + config, declarative. `canopy pro
 # there and get recreated every turn, so it lives ONCE in the global home and every worktree reads
 # it (via bin/_env.py). No values here — only 1Password refs (`op:`) and non-secret literals
 # (`value:`). Provision with `canopy provision` (or `--check` to dry-run) from this repo.
+#
+# The gog OAuth client is the SHARED fleet app (`canopy`), not per-agent: a gog "client" is the APP
+# identity (client_id + client_secret), reused by every agent's mailbox. The per-agent, never-shared
+# identity is the mailbox ({{MAILBOX}}). `canopy provision` places credentials-canopy.json; then a
+# one-time `gog login {{MAILBOX}} --client canopy ...` consents this mailbox into it.
+secrets:
+  - name: canopy gog OAuth client JSON
+    op: "op://AI-Agents/Canopy - gog OAuth client/notesPlain"
+    target: "~/Library/Application Support/gogcli/credentials-canopy.json"
 env:
   target: "~/.{{AGENT_SLUG}}/.env"
   mode: "0600"
@@ -647,9 +656,11 @@ follows it: preflight → process inbound (one counterpart at a time) → skill 
    checklist's job; hook modals stall autonomous work).
 4. Declare secrets in `config/secrets.yaml` (1Password refs) and run `canopy provision` — they land
    in the worktree-clean global home `~/.{{AGENT_SLUG}}/.env`, read by `bin/_env.py`.
-5. Mint the agent's own gog identity (mailbox + OAuth client named `{{AGENT_SLUG}}`), then
-   `gog login {{MAILBOX}} --client {{AGENT_SLUG}} --services gmail,drive,docs,sheets,forms`.
-   Verify with `canopy email preflight --repo .`; send via `bin/{{AGENT_SLUG}}-email`.
+5. The agent's own thing is its MAILBOX ({{MAILBOX}}); the gog OAuth client is the SHARED fleet
+   app (`canopy`), already declared in config/secrets.yaml — `canopy provision` places it. Then
+   consent this mailbox into it once: `gog login {{MAILBOX}} --client canopy --services
+   gmail,drive,docs,sheets,forms`. Verify with `canopy email preflight --repo .`; send via
+   `bin/{{AGENT_SLUG}}-email`.
 '''
 
 _GITIGNORE = '''.env
@@ -659,10 +670,10 @@ __pycache__/
 '''
 
 _AGENT_JSON = '''{
-  "_doc": "{{AGENT_NAME}}'s identity for its canopy-web workspace (/agents/{{AGENT_SLUG}}) and for the shared email engine (`canopy email` resolves mailbox + gog client from here). Read by `canopy agent-publish`. slug + description come from .claude-plugin/plugin.json; these override/extend. gog_client is {{AGENT_NAME}}'s OWN gog OAuth client name — never another agent's (identity bleed is the fleet's one hard rule).",
+  "_doc": "{{AGENT_NAME}}'s identity for its canopy-web workspace (/agents/{{AGENT_SLUG}}) and for the shared email engine (`canopy email` resolves mailbox + gog client from here). Read by `canopy agent-publish`. slug + description come from .claude-plugin/plugin.json; these override/extend. gog_client is the SHARED fleet OAuth client (`canopy`), reused by every agent's mailbox; the per-agent, never-shared identity is `email` (identity bleed = acting as another agent's mailbox, governed by --account, not the client).",
   "name": "{{AGENT_NAME}}",
   "email": "{{MAILBOX}}",
-  "gog_client": "{{AGENT_SLUG}}",
+  "gog_client": "canopy",
   "persona": "{{MANDATE}}",
   "avatar_url": ""
 }
