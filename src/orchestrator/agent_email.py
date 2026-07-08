@@ -53,6 +53,9 @@ LOGIN_SERVICES = "gmail,drive,docs,sheets,forms"
 
 LIST_RE = re.compile(r"^\s*([-*+]|\d+\.)\s+")
 URL_RE = re.compile(r"(https?://[^\s<>()]+)")
+# Markdown-style inline link: [display text](https://url) — lets agents write a
+# clean anchor label instead of pasting a raw URL into outbound mail.
+MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
 
 
 class AgentEmailError(Exception):
@@ -131,8 +134,25 @@ def normalize(text: str) -> str:
     return "\n".join(collapsed).strip() + "\n"
 
 
-def _linkify(escaped: str) -> str:
+def _autolink(escaped: str) -> str:
     return URL_RE.sub(lambda m: f'<a href="{m.group(1)}">{m.group(1)}</a>', escaped)
+
+
+def _linkify(escaped: str) -> str:
+    """Turn links clickable. Markdown `[text](url)` becomes an anchor with clean
+    display text; bare URLs elsewhere are still auto-linked (shown as the URL).
+    Runs on already-HTML-escaped text — the `[...](...)` literals survive escaping.
+    Bare URLs inside a markdown link's target are not re-linked (we only autolink
+    the segments between markdown matches)."""
+    out: list[str] = []
+    last = 0
+    for m in MD_LINK_RE.finditer(escaped):
+        out.append(_autolink(escaped[last:m.start()]))
+        text, url = m.group(1), m.group(2)
+        out.append(f'<a href="{url}">{text}</a>')
+        last = m.end()
+    out.append(_autolink(escaped[last:]))
+    return "".join(out)
 
 
 def _list_kind(line: str) -> str | None:

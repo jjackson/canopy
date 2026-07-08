@@ -111,6 +111,27 @@ def test_to_html_linkifies_and_escapes():
     assert "&amp;" in out
 
 
+def test_to_html_markdown_link_gets_clean_anchor_text():
+    out = to_html("shipped [PR #867](https://github.com/dimagi-internal/connect-labs/pull/867)\n")
+    # anchor text is the label, not the raw URL
+    assert '<a href="https://github.com/dimagi-internal/connect-labs/pull/867">PR #867</a>' in out
+    # the raw URL must NOT appear as visible text outside the href
+    assert ">https://github.com/dimagi-internal/connect-labs/pull/867<" not in out
+
+
+def test_to_html_markdown_and_bare_url_coexist():
+    out = to_html("see [the deck](https://example.com/w/abc) or https://example.com/raw\n")
+    assert '<a href="https://example.com/w/abc">the deck</a>' in out
+    # the bare URL is still auto-linked (shown as itself)
+    assert '<a href="https://example.com/raw">https://example.com/raw</a>' in out
+
+
+def test_to_html_markdown_link_inside_bullet():
+    out = to_html("- [issue #865](https://example.com/i/865)\n")
+    assert "<ul>" in out
+    assert '<a href="https://example.com/i/865">issue #865</a>' in out
+
+
 # --------------------------------------------------------------------------------------
 # send
 # --------------------------------------------------------------------------------------
