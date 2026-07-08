@@ -249,51 +249,72 @@ def _headers_of(msg: dict) -> dict:
 
 def derive_reply_all(
     identity: EmailIdentity,
-    message_id: str,
     *,
+    thread_id: str | None = None,
+    message_id: str | None = None,
     runner=subprocess.run,
-) -> tuple[str, str]:
-    """Return (to, cc) for a reply-all, read from the original message's JSON headers.
+) -> tuple[str, str, str]:
+    """Return (to, cc, reply_to_message_id) for a reply-all.
 
-    To = the original sender. Cc = everyone else on the original To+Cc, de-duped,
-    excluding the agent's own address and the sender. Uses `--json` because the default
-    `gog gmail read` text view omits Cc — silently dropping cc'd people is the bug this
-    guards against (it happened; operating-model §1b rule 3).
+    Two modes (exactly one of thread_id / message_id):
+    - **thread_id (preferred)** — reads the thread and replies to its LATEST non-self
+      message: To = that sender, Cc = everyone else on its To+Cc,
+      reply_to_message_id = its id. `gog gmail read` is a THREAD reader and 404s on a
+      bare message id — which is every multi-message thread's latest id. That bug bit
+      echo live; thread mode is the shape that avoids it.
+    - **message_id** — replies to that specific message when its id happens to be
+      readable (single-message threads / thread-head ids). Kept for callers that only
+      hold a message id; falls back to the latest message when the id isn't in the
+      returned thread.
+
+    Cc is de-duped and excludes the agent's own address and the sender. Uses `--json`
+    because the default text view omits Cc — silently dropping cc'd people is the bug
+    this guards against (it happened; operating-model §1b rule 3).
     """
     from email.utils import getaddresses
 
+    if bool(thread_id) == bool(message_id):
+        raise AgentEmailError("reply-all: pass exactly one of thread_id / message_id")
+    read_id = thread_id or message_id
     r = runner(
-        ["gog", "gmail", "read", message_id, "--account", identity.account,
+        ["gog", "gmail", "read", read_id, "--account", identity.account,
          "--client", identity.client, "--json"],
         capture_output=True, text=True, timeout=60,
     )
     if r.returncode != 0:
+        hint = " (pass a THREAD id — gog reads threads, not bare message ids)" if message_id else ""
         raise AgentEmailError(
-            f"reply-all: could not read original message {message_id}: "
-            f"{(r.stderr or '').strip()[:200]}"
+            f"reply-all: could not read {read_id}: "
+            f"{(r.stderr or '').strip()[:200]}{hint}"
         )
     try:
         data = json.loads(r.stdout)
     except ValueError:
-        raise AgentEmailError(f"reply-all: unparseable gog read output for {message_id}")
+        raise AgentEmailError(f"reply-all: unparseable gog read output for {read_id}")
     msgs = data.get("thread", {}).get("messages", [])
-    msg = next((m for m in msgs if m.get("id") == message_id), None) or (msgs[-1] if msgs else None)
-    if not msg:
-        raise AgentEmailError(f"reply-all: no message found for {message_id}")
+    if not msgs:
+        raise AgentEmailError(f"reply-all: no messages in {read_id}")
+    self_lc = identity.account.lower()
+    if thread_id:
+        # the message being replied to = latest one not sent by the agent itself
+        msg = next((m for m in reversed(msgs)
+                    if self_lc not in _headers_of(m).get("from", "").lower()), msgs[-1])
+    else:
+        msg = next((m for m in msgs if m.get("id") == message_id), None) or msgs[-1]
     h = _headers_of(msg)
     sender = getaddresses([h.get("from", "")])
     sender_email = sender[0][1].lower() if sender else ""
     if not sender_email:
-        raise AgentEmailError(f"reply-all: original message {message_id} has no From header")
+        raise AgentEmailError(f"reply-all: message in {read_id} has no From header")
     others = getaddresses([h.get("to", ""), h.get("cc", "")])
-    cc, seen = [], {sender_email, identity.account.lower()}
+    cc, seen = [], {sender_email, self_lc}
     for _name, email in others:
         e = email.lower()
         if not e or e in seen:
             continue
         seen.add(e)
         cc.append(email)
-    return sender_email, ", ".join(cc)
+    return sender_email, ", ".join(cc), msg.get("id") or (message_id or "")
 
 
 # --------------------------------------------------------------------------------------
@@ -477,28 +498,40 @@ def email_group():
 @click.option("--body-file", required=True, type=click.Path(exists=True, dir_okay=False),
               help="Plain-text body: single-line paragraphs, blank-line separated; '- ' bullets.")
 @click.option("--reply-to-message-id", help="Thread the send as a reply to this message id.")
+@click.option("--thread-id",
+              help="Thread to reply into (preferred for --reply-all): recipients + the "
+                   "threading message-id derive from the thread's LATEST non-self message. "
+                   "gog reads THREADS — a bare message id 404s on multi-message threads.")
 @click.option("--reply-all", is_flag=True,
-              help="Derive To (original sender) + Cc (everyone else on To+Cc) from the "
-                   "original message's headers — raw reads hide Cc and drop cc'd people. "
-                   "Requires --reply-to-message-id; explicit --cc is merged in.")
+              help="Derive To (original sender) + Cc (everyone else on To+Cc) from JSON "
+                   "headers — raw reads hide Cc and drop cc'd people. Pass --thread-id "
+                   "(preferred) or --reply-to-message-id; explicit --cc is merged in.")
 @click.option("--dry-run", is_flag=True, help="Render plain + HTML bodies without sending.")
 def email_send(repo, agent, account, client, to, cc, subject, body_file,
-               reply_to_message_id, reply_all, dry_run):
+               reply_to_message_id, thread_id, reply_all, dry_run):
     """Send an HTML multipart email as the agent (the fleet's ONLY send path).
 
     Emits JSON with message_id + thread_id — record thread_id into the agent's state
     layer (comms-log / contact-memory) so inbound triage can route the reply.
     """
-    if reply_all and not reply_to_message_id:
-        raise click.ClickException("--reply-all requires --reply-to-message-id")
+    if reply_all and not (thread_id or reply_to_message_id):
+        raise click.ClickException("--reply-all requires --thread-id (preferred) or --reply-to-message-id")
+    if thread_id and not reply_all:
+        raise click.ClickException("--thread-id is only meaningful with --reply-all")
     if not reply_all and not to:
         raise click.ClickException("--to is required (or pass --reply-all)")
     try:
         ident = _identity_from_opts(repo, agent, account, client)
         if reply_all:
-            derived_to, derived_cc = derive_reply_all(ident, reply_to_message_id)
+            derived_to, derived_cc, derived_msg_id = derive_reply_all(
+                ident, thread_id=thread_id,
+                message_id=None if thread_id else reply_to_message_id,
+            )
             to = derived_to
             cc = ", ".join(x for x in (derived_cc, cc) if x) or None
+            reply_to_message_id = reply_to_message_id or derived_msg_id
+            if thread_id:
+                reply_to_message_id = derived_msg_id
         result = send(
             ident, to=to, subject=subject, body_text=Path(body_file).read_text(),
             cc=cc, reply_to_message_id=reply_to_message_id, dry_run=dry_run,

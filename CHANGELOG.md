@@ -9,6 +9,18 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.264] - 2026-07-08
+
+### Changed
+- **Email engine `--reply-all` gains thread mode** (`--thread-id`, preferred): recipients
+  AND the threading message-id derive from the thread's LATEST non-self message. Ports
+  echo's live lesson — `gog gmail read` is a THREAD reader; a bare message id 404s on any
+  multi-message thread, and replying to your own latest message is never right.
+  `derive_reply_all` now returns `(to, cc, reply_to_message_id)` and takes exactly one of
+  `thread_id`/`message_id` (message-id mode kept for single-message threads). Unblocks
+  echo's convergence onto the engine with its documented `--reply-all --thread-id`
+  invocation unchanged.
+
 ## [0.2.263] - 2026-07-08
 
 ### Added
