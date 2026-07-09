@@ -44,7 +44,20 @@ import click
 from orchestrator.agent_web import AgentWebError, resolve_identity
 from orchestrator.repo_paths import resolve_repo_path
 
-GOG_CONFIG_DIR = os.path.expanduser("~/Library/Application Support/gogcli")
+def _default_gog_config_dir() -> str:
+    """Mirror gog's own resolution so canopy finds the dir gog writes to:
+    $GOG_HOME override, else macOS ~/Library/Application Support/gogcli,
+    else XDG ~/.config/gogcli. Hardcoding the macOS path broke headless Linux."""
+    home = os.environ.get("GOG_HOME")
+    if home:
+        return os.path.expanduser(home)
+    if sys.platform == "darwin":
+        return os.path.expanduser("~/Library/Application Support/gogcli")
+    xdg = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(xdg, "gogcli")
+
+
+GOG_CONFIG_DIR = _default_gog_config_dir()
 # Every Google surface a turn commonly touches — one login covers them all, so an
 # agent doesn't re-consent per service. gmail is the only one THIS engine needs.
 LOGIN_SERVICES = "gmail,drive,docs,sheets,forms"
