@@ -277,3 +277,87 @@ def agent_set(slug, task_id, **fields):
         _emit(_client(slug).patch_task(task_id, **fields))
     except (CanopyError, RuntimeError) as e:
         raise click.ClickException(str(e))
+
+
+def normalize_task_status(s):
+    """Human text ("In progress") AND canonical tokens ("in_progress") → the board's vocabulary.
+
+    "blocked"/"waiting" are not a status — waiting on a person is expressed by `assigned`
+    being that person; such items are still in progress on the outcome.
+    """
+    s = (s or "").strip().lower().replace("-", " ").replace("_", " ")
+    if s in ("done", "complete", "completed", "shipped", "closed"):
+        return "done"
+    if s in ("declined", "rejected", "dropped", "wontfix", "won't do", "cancelled", "canceled"):
+        return "declined"
+    if s in ("in progress", "doing", "wip", "active", "started", "ongoing",
+             "blocked", "waiting", "on hold", "hold", "stuck"):
+        return "in_progress"
+    return "suggested"
+
+
+def parse_task_links(cell):
+    """`"label|url, label2|url2"` → [{label, url}, …]; bare http urls get label "link"."""
+    out = []
+    for part in (cell or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "|" in part:
+            label, url = part.split("|", 1)
+            out.append({"label": label.strip()[:200], "url": url.strip()[:500]})
+        elif part.startswith("http"):
+            out.append({"label": "link", "url": part[:500]})
+    return out
+
+
+def next_task_ext_id(tasks):
+    """Next free T<N> given the board's current tasks, so adds don't collide."""
+    import re
+
+    mx = 0
+    for t in tasks or []:
+        m = re.match(r"^T(\d+)$", str(t.get("ext_id") or "").strip())
+        if m:
+            mx = max(mx, int(m.group(1)))
+    return f"T{mx + 1}"
+
+
+@agent.command("add")
+@click.option("--slug", required=True)
+@click.option("--title", required=True)
+@click.option("--ext-id", default=None, help="Stable id (default: next free T<N> from the board).")
+@click.option("--next-action", default="", help="The single concrete next step, verb-first.")
+@click.option("--status", default="suggested",
+              help="suggested (default) / in_progress / done / declined — human synonyms accepted.")
+@click.option("--owner", default="", help="The human stakeholder who owns the outcome — never the agent.")
+@click.option("--assigned", default="", help="Who the next action waits on (the agent, or a person).")
+@click.option("--confidence", default="", help="high / low, for suggested items.")
+@click.option("--due", default=None, help="YYYY-MM-DD.")
+@click.option("--links", default="", help='"label|url, label2|url2" (bare urls OK).')
+@click.option("--notes", default="")
+def agent_add(slug, title, ext_id, next_action, status, owner, assigned, confidence, due, links, notes):
+    """Create ONE task on the board (upsert via tasks/sync; auto-assigns the next T<N>)."""
+    import re
+
+    conf = confidence.strip().lower()
+    due = (due or "").strip()
+    try:
+        client = _client(slug)
+        task = {
+            "ext_id": (ext_id or next_task_ext_id(client.list_tasks()))[:64],
+            "title": title.strip()[:300],
+            "next_action": next_action.strip()[:300],
+            "status": normalize_task_status(status),
+            "owner": owner.strip()[:120],
+            "assigned": assigned.strip()[:120],
+            "confidence": conf if conf in ("high", "low") else "",
+            "due": due if re.match(r"^\d{4}-\d{2}-\d{2}$", due) else None,
+            "links": parse_task_links(links),
+            "notes": notes.strip(),
+            "source": "task-tracker",
+        }
+        result = client.sync_tasks([task])
+        _emit({"added": task["ext_id"], "result": result})
+    except (CanopyError, RuntimeError) as e:
+        raise click.ClickException(str(e))

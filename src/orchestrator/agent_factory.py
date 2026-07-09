@@ -681,6 +681,54 @@ _AGENT_JSON = '''{
 }
 '''
 
+_TASK_TRACKER_SKILL = '''---
+name: task-tracker
+description: >
+  {{AGENT_NAME}}'s project/task state — one board task per iterative thread/project, so
+  multi-turn work has durable state and history instead of living only in email archaeology.
+  Backed by canopy-web's /api/agents/{{AGENT_SLUG}}/tasks/ (kanban at /agents/{{AGENT_SLUG}});
+  all verbs come from the installed canopy CLI. Use when taking on any work that will span
+  turns, when a new request arrives, and at every turn's board-drain and close.
+---
+
+# Task Tracker — {{AGENT_NAME}}'s iterative-work state
+
+**One board task per iterative thread/project** — an email thread you'll act on across turns, a
+feature-request doc you're working through, a multi-PR initiative. Single-turn one-offs don't
+need a task; the close-out summary covers them.
+
+## The vocabulary (echo conventions, fleet-wide)
+- **Title** — the outcome. **Next action** — the single concrete next step, *verb-first*.
+- **Status** — `suggested` ({{AGENT_NAME}} proposed it; a human validates) → `in_progress` →
+  `done` / `declined`. There is no "blocked": *waiting on a person* is expressed by **Assigned**.
+- **Owner** — the human stakeholder who owns the outcome — **never {{AGENT_NAME}}**.
+- **Assigned** — who the next action waits on: {{AGENT_NAME}}, or the person it's on.
+- **Links** — every stable artifact: the thread, the doc, PRs, the project folder. Working state
+  (item maps, dossiers, notes) hangs off the task via links — NOT committed into target repos.
+
+## Verbs (installed canopy CLI — no bespoke script)
+```
+canopy agent add  --slug {{AGENT_SLUG}} --title "…" --next-action "…" \\
+    --status in_progress --owner <human> --assigned {{AGENT_NAME}} \\
+    --links "Thread|https://…, Doc|https://…"          # create (auto T<N>)
+canopy agent set  --slug {{AGENT_SLUG}} --task-id <id> \\
+    --rationale "why" --plan "first steps" --source-url <url>   # store context — never re-derive
+canopy agent tasks --slug {{AGENT_SLUG}}                # read the board (JSON)
+canopy agent commands --slug {{AGENT_SLUG}}             # drain queued human actions each turn
+canopy agent apply --slug {{AGENT_SLUG}} --id <N> --note "what I did"
+```
+
+## Turn-loop wiring
+- **Start of turn:** `commands` → act → `apply` (the board is a control surface: humans
+  Accept / Decline / Dispatch there).
+- **Taking on multi-turn work:** create the task (status `in_progress` if a human asked for it,
+  `suggested` if {{AGENT_NAME}} is proposing it) and immediately `set` rationale + plan + links.
+- **During work:** keep **Next action** current — it is the card headline a human scans.
+- **Close of turn:** package every turn that advanced a task —
+  `canopy agent turn --slug {{AGENT_SLUG}} --title "…" --task <ext_id> --work-product-url <url>`.
+  This builds the per-task history spine: which turn did what, with which deliverables.
+'''
+
 _TEMPLATES: dict[str, str] = {
     ".claude-plugin/plugin.json": _PLUGIN_JSON,
     "CLAUDE.md": _CLAUDE_MD,
@@ -697,4 +745,5 @@ _TEMPLATES: dict[str, str] = {
     "hooks/gating_guard.py": _GATING_GUARD,
     "skills/turn/SKILL.md": _TURN_SKILL,
     "skills/agent-turn-review/SKILL.md": _AGENT_TURN_REVIEW_SKILL,
+    "skills/task-tracker/SKILL.md": _TASK_TRACKER_SKILL,
 }
