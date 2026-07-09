@@ -265,7 +265,8 @@ def test_change_brief_gives_reference_text_not_a_mutation(monkeypatch):
     tmpl = ("# Self-review\n"
             "1. **Re-read the original request.** actual message.\n"
             "2. **Verify recipients.** pull to/cc from the structured reader, not a raw view.\n")
-    monkeypatch.setattr(fa.agent_factory, "_AGENT_TURN_REVIEW_SKILL", tmpl)
+    monkeypatch.setattr(fa.agent_factory, "_TEMPLATES",
+                        {**fa.agent_factory._TEMPLATES, "skills/agent-turn-review/SKILL.md": tmpl})
     d = fa.Finding("distribute", "agent-turn-review", "canopy-template", ["eva"], "…", detail=["verify recipients"])
     brief = fa.change_brief(d)
     assert brief["target_relpath"].endswith("agent-turn-review/SKILL.md")
@@ -290,3 +291,41 @@ def test_change_brief_gating_approve_gives_remove_hint_and_applicability_instruc
 def test_change_brief_none_for_promote_and_reconcile():
     assert fa.change_brief(fa.Finding("promote", "agent-turn-review", "echo", ["canopy-template"], "…")) is None
     assert fa.change_brief(fa.Finding("reconcile", "turn", "hal", [], "…")) is None
+
+
+def test_step_headings_are_number_agnostic():
+    # "close the turn" at Step 4 vs Step 5 is the SAME step — inserting an extra step upstream must
+    # not make every downstream step read as "missing" (echo's 2026-07 false-positive storm).
+    tmpl = "## Step 3 — skill self-check\n## Step 4 — close the turn\n"
+    agent = "## Step 2 — drain the board\n## Step 4 — skill self-check\n## Step 5 — close the turn\n"
+    assert fa.extract_skill_markers(tmpl, []) <= fa.extract_skill_markers(agent, [])
+    assert "§close the turn" in fa.extract_skill_markers(agent, [])   # number stripped
+
+
+def test_artifact_taxonomy_is_derived_from_factory_stamp_table():
+    # Every skill the factory stamps is auto-covered — so a newly-added shared skill (task-tracker)
+    # can never silently go un-checked (the gap that let eva lack it). Not a hardcoded list.
+    names = {a[0] for a in fa.ARTIFACTS}
+    stamped_skills = {
+        p.split("/")[1] for p in fa.agent_factory._TEMPLATES
+        if p.startswith("skills/") and p.endswith("/SKILL.md")
+    }
+    assert stamped_skills <= names, f"un-checked stamped skills: {stamped_skills - names}"
+    assert "gating" in names
+
+
+def test_agent_missing_a_whole_stamped_skill_is_flagged(tmp_path, monkeypatch):
+    # eva predates task-tracker → it lacks skills/task-tracker/SKILL.md entirely. The marker-diff
+    # only compares agents that HAVE the file, so the whole-skill gap needs its own finding.
+    monkeypatch.setattr(fa.agent_factory, "_TEMPLATES",
+                        {**fa.agent_factory._TEMPLATES, "skills/task-tracker/SKILL.md": "# Task tracker\n"})
+    _write_agent(tmp_path, "eva", self_review=TEMPLATE_SELF_REVIEW,
+                 gating={"deny": [{"pattern": "BLOCK_RAW_SEND"}], "approve": []})  # no task-tracker skill
+    (tmp_path / "hal" / "skills" / "task-tracker").mkdir(parents=True)
+    (tmp_path / "hal" / "skills" / "task-tracker" / "SKILL.md").write_text("# Task tracker\n")
+    _write_agent(tmp_path, "hal", self_review=TEMPLATE_SELF_REVIEW,
+                 gating={"deny": [{"pattern": "BLOCK_RAW_SEND"}], "approve": []})
+    agents = fa.discover_agents(bases=[tmp_path])
+    findings = fa.analyze(agents, baseline=BASELINE)
+    miss = [f for f in findings if f.artifact == "task-tracker" and "missing the whole skill" in f.summary]
+    assert len(miss) == 1 and miss[0].laggards == ["eva"] and miss[0].kind == "distribute"
