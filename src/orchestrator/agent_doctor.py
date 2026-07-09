@@ -38,17 +38,33 @@ from orchestrator.agent_client import AgentClient, CanopyError
 from orchestrator.provision import ProvisionError, load_env_block, load_manifest
 
 
+_PLACEHOLDER_DOMAINS = {"example.com", "example.org", "example.net"}
+
+
+def _is_placeholder_mailbox(addr: str) -> bool:
+    """The factory stamps `<slug>@example.com` when no real address is given — resolvable, but
+    NOT a configured agent. Treat that (and an empty address) as not-ready."""
+    a = (addr or "").strip().lower()
+    return not a or a.rsplit("@", 1)[-1] in _PLACEHOLDER_DOMAINS
+
+
 def check_identity(repo: Path) -> tuple[CheckResult, EmailIdentity | None]:
-    """config/agent.json (+ plugin.json) must yield a full email identity."""
+    """config/agent.json (+ plugin.json) must yield a full, NON-placeholder email identity."""
     name = "Identity"
     try:
         ident = resolve_email_identity(repo)
     except AgentEmailError as e:
         return CheckResult(name, False, str(e)), None
-    return CheckResult(
-        name, True,
-        f"slug={ident.slug} mailbox={ident.account} gog_client={ident.client}",
-    ), ident
+    detail = f"slug={ident.slug} mailbox={ident.account} gog_client={ident.client}"
+    # A resolvable-but-placeholder mailbox passes the resolver but silently reads as "ready" — the
+    # exact trap that let eva sit on `eva@example.com`. Flag it instead of rubber-stamping it.
+    if _is_placeholder_mailbox(ident.account):
+        return CheckResult(
+            name, False,
+            f"{detail} — mailbox is the factory PLACEHOLDER; set a real address in "
+            'config/agent.json ("email") and mint/vault it before wiring email',
+        ), ident
+    return CheckResult(name, True, detail), ident
 
 
 def check_gating(repo: Path) -> CheckResult:
