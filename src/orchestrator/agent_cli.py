@@ -166,20 +166,54 @@ def agent_commands(slug):
               help="Agent repo root (default: cwd). Identity from its config/agent.json.")
 @click.option("--slug", "slug", default="",
               help="Agent slug — locate its local repo instead of --repo.")
+@click.option("--all", "all_agents", is_flag=True,
+              help="Run across EVERY discovered agent in the fleet (ignores --repo/--slug).")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def agent_doctor(repo, slug, as_json):
-    """Diagnose ONE agent's operational readiness on THIS machine.
+def agent_doctor(repo, slug, all_agents, as_json):
+    """Diagnose ONE agent's operational readiness on THIS machine (or the whole fleet with --all).
 
     Read-only composition of the existing point-checks: identity
     (config/agent.json), gating rails, secrets manifest (provisionable),
     live gog email auth, canopy-web registration + board. Exits non-zero
     if any check fails. `canopy doctor` covers the plugin install; this
-    covers the agent.
+    covers the agent. `--all` sweeps every discovered agent and exits
+    non-zero if ANY agent has a failing check — the fleet readiness gate
+    that complements `canopy fleet-align` (which checks shared-artifact drift).
     """
     from pathlib import Path
 
     from orchestrator.agent_doctor import run_agent_doctor
     from orchestrator.agent_email import AgentEmailError, find_agent_repo
+
+    if all_agents:
+        from orchestrator.fleet_align import discover_agents
+        fleet = []
+        for a in sorted(discover_agents(), key=lambda x: x.slug):
+            results, ok = run_agent_doctor(a.path)
+            fleet.append((a.slug, str(a.path), results, ok))
+        any_fail = any(not ok for *_, ok in fleet)
+        if as_json:
+            click.echo(json.dumps({
+                "ok": not any_fail,
+                "agents": [
+                    {"slug": s, "repo": p, "ok": ok,
+                     "checks": [r.to_dict() for r in rs]}
+                    for s, p, rs, ok in fleet
+                ],
+            }, indent=2))
+        else:
+            for s, p, rs, ok in fleet:
+                click.echo(f"[{'OK  ' if ok else 'FAIL'}] {s}")
+                for r in rs:
+                    if not r.ok:
+                        click.echo(f"         - {r.name}: {r.detail}")
+            click.echo()
+            n_fail = sum(1 for *_, ok in fleet if not ok)
+            click.echo(f"{n_fail}/{len(fleet)} agent(s) have failing checks — fix above."
+                       if any_fail else f"All {len(fleet)} agent(s) ready on this machine.")
+        if any_fail:
+            raise SystemExit(1)
+        return
 
     try:
         repo_dir = Path(repo) if repo else (find_agent_repo(slug) if slug else Path.cwd())
