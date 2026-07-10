@@ -46,6 +46,57 @@ import click
 from orchestrator.agent_web import AgentWebError, resolve_identity
 from orchestrator.repo_paths import resolve_repo_path
 
+# The installed `canopy` CLI is a uv tool — it does NOT pick up merges to main until
+# someone reruns `uv tool install --reinstall`. That gap once shipped a stale-engine
+# email (2026-07-10: the no-forced-font fix was merged and in the plugin cache, but the
+# lagging installed engine still sent Arial). Before any send, refuse when the RUNNING
+# engine is OLDER than the marketplace clone — merged email fixes exist that this
+# process doesn't have. A dev checkout running AHEAD of the clone is fine.
+MARKETPLACE_CLONE = Path.home() / ".claude/plugins/marketplaces/canopy"
+
+
+def _version_tuple(v: str) -> tuple[int, ...]:
+    parts = []
+    for p in v.split("."):
+        m = re.match(r"\d+", p)
+        parts.append(int(m.group(0)) if m else 0)
+    return tuple(parts)
+
+
+def engine_staleness_error(clone_dir: Path | None = None) -> str | None:
+    """Refusal message when the running engine lags the marketplace clone, else None.
+
+    None also when the check can't resolve (no clone, no dist metadata) or when
+    CANOPY_EMAIL_SKIP_ENGINE_CHECK=1 — the guard is best-effort and must never
+    brick sending on machines without a plugin install.
+    """
+    if os.environ.get("CANOPY_EMAIL_SKIP_ENGINE_CHECK") == "1":
+        return None
+    clone = clone_dir or MARKETPLACE_CLONE
+    try:
+        clone_text = (clone / "pyproject.toml").read_text()
+    except OSError:
+        return None
+    m = re.search(r'^version\s*=\s*"([^"]+)"', clone_text, re.M)
+    if not m:
+        return None
+    clone_v = m.group(1)
+    try:
+        from importlib.metadata import version
+
+        running_v = version("canopy")
+    except Exception:
+        return None
+    if _version_tuple(running_v) >= _version_tuple(clone_v):
+        return None
+    return (
+        f"installed canopy engine v{running_v} lags the marketplace clone v{clone_v} — "
+        f"merged email fixes may not be in this process. "
+        f"Fix: (cd {clone} && git pull) && uv tool install --reinstall {clone} "
+        f"(bypass: CANOPY_EMAIL_SKIP_ENGINE_CHECK=1)"
+    )
+
+
 def _default_gog_config_dir() -> str:
     """Mirror gog's own resolution so canopy finds the dir gog writes to:
     $GOG_HOME override, else macOS ~/Library/Application Support/gogcli,
@@ -653,6 +704,9 @@ def email_send(repo, agent, account, client, to, cc, subject, body_file,
     Emits JSON with message_id + thread_id — record thread_id into the agent's state
     layer (comms-log / contact-memory) so inbound triage can route the reply.
     """
+    stale = engine_staleness_error()
+    if stale:
+        raise click.ClickException(f"REFUSING to send — {stale}")
     if reply_all and not (thread_id or reply_to_message_id):
         raise click.ClickException("--reply-all requires --thread-id (preferred) or --reply-to-message-id")
     if thread_id and not reply_all:
@@ -712,5 +766,9 @@ def email_preflight(repo, agent, account, client):
     ok, lines = preflight(ident)
     for line in lines:
         click.echo(line)
+    stale = engine_staleness_error()
+    if stale:
+        ok = False
+        click.echo(f"FIX: {stale}")
     if not ok:
         sys.exit(1)
