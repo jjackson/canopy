@@ -435,3 +435,62 @@ def test_preflight_api_not_enabled_self_heal(tmp_path):
     joined = "\n".join(lines)
     assert "NOT a token problem" in joined
     assert "https://console.developers.google.com" in joined
+
+
+# --- engine staleness guard (the 2026-07-10 Arial-email regression) ---------
+
+from orchestrator.agent_email import _version_tuple, engine_staleness_error
+
+
+def _write_clone(tmp_path, version):
+    clone = tmp_path / "marketplace-canopy"
+    clone.mkdir()
+    (clone / "pyproject.toml").write_text(
+        f'[project]\nname = "canopy"\nversion = "{version}"\n'
+    )
+    return clone
+
+
+def _running_version():
+    from importlib.metadata import version
+
+    return version("canopy")
+
+
+def test_version_tuple_handles_plain_and_suffixed_parts():
+    assert _version_tuple("0.2.270") == (0, 2, 270)
+    assert _version_tuple("1.0.0rc1") == (1, 0, 0)
+    assert _version_tuple("0.2.270") < _version_tuple("0.2.271")
+
+
+def test_staleness_fires_when_clone_is_ahead(tmp_path, monkeypatch):
+    monkeypatch.delenv("CANOPY_EMAIL_SKIP_ENGINE_CHECK", raising=False)
+    clone = _write_clone(tmp_path, "999.0.0")
+    err = engine_staleness_error(clone_dir=clone)
+    assert err is not None
+    assert "999.0.0" in err
+    assert _running_version() in err
+    assert "uv tool install --reinstall" in err
+
+
+def test_staleness_quiet_when_running_matches_clone(tmp_path, monkeypatch):
+    monkeypatch.delenv("CANOPY_EMAIL_SKIP_ENGINE_CHECK", raising=False)
+    clone = _write_clone(tmp_path, _running_version())
+    assert engine_staleness_error(clone_dir=clone) is None
+
+
+def test_staleness_quiet_when_running_is_ahead_of_clone(tmp_path, monkeypatch):
+    monkeypatch.delenv("CANOPY_EMAIL_SKIP_ENGINE_CHECK", raising=False)
+    clone = _write_clone(tmp_path, "0.0.1")
+    assert engine_staleness_error(clone_dir=clone) is None
+
+
+def test_staleness_quiet_when_clone_missing(tmp_path, monkeypatch):
+    monkeypatch.delenv("CANOPY_EMAIL_SKIP_ENGINE_CHECK", raising=False)
+    assert engine_staleness_error(clone_dir=tmp_path / "nope") is None
+
+
+def test_staleness_env_bypass(tmp_path, monkeypatch):
+    clone = _write_clone(tmp_path, "999.0.0")
+    monkeypatch.setenv("CANOPY_EMAIL_SKIP_ENGINE_CHECK", "1")
+    assert engine_staleness_error(clone_dir=clone) is None
