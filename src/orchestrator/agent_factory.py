@@ -446,11 +446,17 @@ Answer out loud and report:
 2. **Did I hand-repeat a multi-step pattern that SHOULD be a skill?** If so, build it now (or say
    why it is genuinely one-off). Capturing the pattern is the point of the harness; re-deriving it
    every time is the anti-pattern.
+3. **Did friction this turn suggest a fix to my own skills?** A stale checklist step, a wrong
+   command in a SKILL.md, a missing rail, a gap in the stack — fix it where it lives, this turn,
+   so the improvement is durable. Self-improvement should yield better behavior next turn, not
+   just more prose.
 
 ## Step 4 — Close the turn
-Give the human ONE combined summary: per counterpart — proposed action, what was approved & done,
-what is parked; plus anything still blocked from preflight. Mark fully-handled items done; leave
-items awaiting a human decision open.
+Give the human ONE concise combined summary, distilled in chat — never an internal markdown
+file. **Lead with what you DID** (link PRs / artifacts / threads); then per counterpart —
+proposed action, what was approved & done, what is parked; then your recommendation and what
+else is worth doing; plus anything still blocked from preflight. Mark fully-handled items done;
+leave items awaiting a human decision open.
 
 Then refresh {{AGENT_NAME}}'s canopy-web workspace so `/agents/{{AGENT_SLUG}}` reflects this turn
 (the installed canopy plugin provides the shared client — no per-agent client to maintain):
@@ -702,9 +708,15 @@ need a task; the close-out summary covers them.
 - **Status** — `suggested` ({{AGENT_NAME}} proposed it; a human validates) → `in_progress` →
   `done` / `declined`. There is no "blocked": *waiting on a person* is expressed by **Assigned**.
 - **Owner** — the human stakeholder who owns the outcome — **never {{AGENT_NAME}}**.
-- **Assigned** — who the next action waits on: {{AGENT_NAME}}, or the person it's on.
+- **Assigned** — who the next action waits on: {{AGENT_NAME}}, or the person it's on (renders as
+  an amber "Waiting on X" on the board).
+- **Confidence** — `high` / `low`, for suggested items (how sure {{AGENT_NAME}} is).
+- **Due** — `YYYY-MM-DD`; past-due un-done tasks are flagged on the board.
 - **Links** — every stable artifact: the thread, the doc, PRs, the project folder. Working state
   (item maps, dossiers, notes) hangs off the task via links — NOT committed into target repos.
+
+The board groups by **who has the ball**: Suggested · Waiting on a human · {{AGENT_NAME}}
+working · Done.
 
 ## Verbs (installed canopy CLI — no bespoke script)
 ```
@@ -718,11 +730,38 @@ canopy agent commands --slug {{AGENT_SLUG}}             # drain queued human act
 canopy agent apply --slug {{AGENT_SLUG}} --id <N> --note "what I did"
 ```
 
-## Turn-loop wiring
-- **Start of turn:** `commands` → act → `apply` (the board is a control surface: humans
-  Accept / Decline / Dispatch there).
+## Acting on board commands (the canopy-web DB is the source of truth)
+The board at `/agents/{{AGENT_SLUG}}` is a **control surface**: a human can Accept a suggested
+task, Decline it (with a reason), or Dispatch ("do this now") — each queues a command
+{{AGENT_NAME}} drains. **At the start of every turn, check the queue:**
+```
+canopy agent commands --slug {{AGENT_SLUG}}      # list actions queued for {{AGENT_NAME}}
+# ... do the work (under the normal guardrails — outbound actions still need approval) ...
+canopy agent apply --slug {{AGENT_SLUG}} --id <N> --note "what I did"   # mark it handled
+```
+- **Accept** already flipped the task to in_progress / assigned {{AGENT_NAME}}; the queued
+  command means "go do it."
+- **Dispatch** ("do this now") is the same — just act and apply.
+When {{AGENT_NAME}} *suggests* a task, store the context immediately (`set` — rationale, plan,
+source url) so it is never re-derived later.
+
+## Project folder per work item (so links are clean)
+When taking on a work item that produces deliverables, give it a **Drive project folder** and
+keep its deliverables there, so the tracker links to one stable place instead of a loose doc:
+```
+gog drive mkdir "<Work item>" --parent "$PARENT_FOLDER_ID" --account {{MAILBOX}} --client canopy
+gog drive move <docId> --parent <projectFolderId> --account {{MAILBOX}} --client canopy
+```
+Put the **folder** link in the task's Links (gdoc deliverables get created in / moved into it).
+Keep {{AGENT_NAME}}'s Drive parent-folder id in the worktree-clean global `.env`
+(`~/.{{AGENT_SLUG}}/.env`, read via `bin/_env.py`) — e.g. `{{AGENT_SLUG}}_DRIVE_FOLDER_ID`.
+
+## When to use (turn-loop wiring)
+- **Start of every turn:** drain `commands` → act → `apply`. The board is a trigger surface
+  alongside the inbox.
 - **Taking on multi-turn work:** create the task (status `in_progress` if a human asked for it,
-  `suggested` if {{AGENT_NAME}} is proposing it) and immediately `set` rationale + plan + links.
+  `suggested` if {{AGENT_NAME}} is proposing it), immediately `set` rationale + plan + links,
+  and give it a **project folder** whose link goes in Links.
 - **During work:** keep **Next action** current — it is the card headline a human scans.
 - **Close of turn:** package every turn that advanced a task —
   `canopy agent turn --slug {{AGENT_SLUG}} --title "…" --task <ext_id> --work-product-url <url>`.
