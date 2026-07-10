@@ -494,3 +494,55 @@ def test_staleness_env_bypass(tmp_path, monkeypatch):
     clone = _write_clone(tmp_path, "999.0.0")
     monkeypatch.setenv("CANOPY_EMAIL_SKIP_ENGINE_CHECK", "1")
     assert engine_staleness_error(clone_dir=clone) is None
+
+
+# --------------------------------------------------------------------------------------
+# narrow-reply guard (dropped_participants — hal 2026-07-10: a reply on a 4-person
+# thread went to one person; the item's owner never saw the answer)
+# --------------------------------------------------------------------------------------
+
+from orchestrator.agent_email import dropped_participants
+
+
+def _guard_runner(thread_json, get_ok=True):
+    """Answers `gog gmail get <msg> --json` with a threadId, then
+    `gog gmail read <thread> --json` with the thread fixture."""
+    def runner(cmd, capture_output, text, timeout):
+        if cmd[:3] == ["gog", "gmail", "get"]:
+            if not get_ok:
+                return SimpleNamespace(returncode=1, stdout="", stderr="404")
+            return SimpleNamespace(returncode=0, stdout=json.dumps(
+                {"message": {"threadId": "T1"}}), stderr="")
+        assert cmd[:3] == ["gog", "gmail", "read"]
+        return SimpleNamespace(returncode=0, stdout=thread_json, stderr="")
+    return runner
+
+
+def test_narrow_reply_lists_dropped_thread_participants():
+    # thread audience: c@partner.org (sender) + ops@partner.org + ace (self excluded)
+    dropped = dropped_participants(
+        IDENT, message_id="m1", to="c@partner.org", cc=None,
+        runner=_guard_runner(_thread_json()))
+    assert dropped == ["ace@dimagi-ai.com", "ops@partner.org"]
+
+
+def test_narrow_reply_quiet_when_everyone_is_covered():
+    dropped = dropped_participants(
+        IDENT, message_id="m1",
+        to="c@partner.org", cc="ops@partner.org, ace@dimagi-ai.com",
+        runner=_guard_runner(_thread_json()))
+    assert dropped == []
+
+
+def test_narrow_reply_guard_is_best_effort_on_read_failure():
+    dropped = dropped_participants(
+        IDENT, message_id="m1", to="c@partner.org", cc=None,
+        runner=_guard_runner(_thread_json(), get_ok=False))
+    assert dropped == []
+
+
+def test_narrow_reply_accepts_thread_id_directly():
+    dropped = dropped_participants(
+        IDENT, thread_id="T1", to="c@partner.org", cc="ops@partner.org",
+        runner=_guard_runner(_thread_json()))
+    assert dropped == ["ace@dimagi-ai.com"]

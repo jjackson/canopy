@@ -448,6 +448,48 @@ def derive_reply_all(
     return sender_email, ", ".join(cc), msg.get("id") or (message_id or "")
 
 
+def dropped_participants(
+    identity: EmailIdentity,
+    *,
+    message_id: str | None = None,
+    thread_id: str | None = None,
+    to: str | None,
+    cc: str | None,
+    runner=subprocess.run,
+) -> list[str]:
+    """Thread participants a manual-recipient reply would DROP (best-effort).
+
+    A reply sent with explicit --to into an existing thread silently narrows the
+    audience — the exact failure that hit hal on 2026-07-10 (an answer on a
+    4-person thread went to one person; the item's owner never saw it). This
+    computes what reply-all WOULD target (latest non-self message's sender +
+    To/Cc, via derive_reply_all) minus the agent itself and the chosen To/Cc.
+
+    Best-effort by design: any read/parse failure returns [] rather than
+    blocking a send the agent may legitimately need to make — the caller turns
+    a NON-EMPTY result into a refusal, so only a confirmed drop blocks.
+    """
+    try:
+        tid = thread_id
+        if not tid and message_id:
+            r = runner(
+                ["gog", "gmail", "get", message_id, "--account", identity.account,
+                 "--client", identity.client, "--json"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if r.returncode != 0:
+                return []
+            tid = json.loads(r.stdout).get("message", {}).get("threadId")
+        if not tid:
+            return []
+        d_to, d_cc, _ = derive_reply_all(identity, thread_id=tid, runner=runner)
+    except Exception:
+        return []
+    split = lambda s: {a.strip().lower() for a in (s or "").split(",") if a.strip()}
+    participants = (split(d_to) | split(d_cc)) - {identity.account.lower()}
+    return sorted(participants - split(to) - split(cc))
+
+
 # --------------------------------------------------------------------------------------
 # mark-read
 # --------------------------------------------------------------------------------------
@@ -696,9 +738,14 @@ def email_group():
               help="Derive To (original sender) + Cc (everyone else on To+Cc) from JSON "
                    "headers — raw reads hide Cc and drop cc'd people. Pass --thread-id "
                    "(preferred) or --reply-to-message-id; explicit --cc is merged in.")
+@click.option("--narrow", is_flag=True,
+              help="Deliberately reply to FEWER people than are on the thread. Without "
+                   "this flag, a reply (--reply-to-message-id) whose To/Cc drops known "
+                   "thread participants is refused — reply-all is the default on "
+                   "existing threads.")
 @click.option("--dry-run", is_flag=True, help="Render plain + HTML bodies without sending.")
 def email_send(repo, agent, account, client, to, cc, subject, body_file,
-               reply_to_message_id, thread_id, reply_all, dry_run):
+               reply_to_message_id, thread_id, reply_all, narrow, dry_run):
     """Send an HTML multipart email as the agent (the fleet's ONLY send path).
 
     Emits JSON with message_id + thread_id — record thread_id into the agent's state
@@ -715,6 +762,17 @@ def email_send(repo, agent, account, client, to, cc, subject, body_file,
         raise click.ClickException("--to is required (or pass --reply-all)")
     try:
         ident = _identity_from_opts(repo, agent, account, client)
+        if reply_to_message_id and not reply_all and not narrow:
+            dropped = dropped_participants(
+                ident, message_id=reply_to_message_id, to=to, cc=cc,
+            )
+            if dropped:
+                raise click.ClickException(
+                    "REFUSING narrow reply — this thread has participants missing from "
+                    f"To/Cc: {', '.join(dropped)}. Reply-all is the default on existing "
+                    "threads (--reply-all --thread-id <id>); pass --narrow to "
+                    "deliberately drop them."
+                )
         if reply_all:
             derived_to, derived_cc, derived_msg_id = derive_reply_all(
                 ident, thread_id=thread_id,
