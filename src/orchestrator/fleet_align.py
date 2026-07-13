@@ -137,6 +137,55 @@ def discover_agents(bases=DEFAULT_BASES, extra_repos=()) -> list[Agent]:
     return list(seen.values())
 
 
+def _git(path, *args) -> tuple[int, str]:
+    try:
+        r = subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True, timeout=10)
+        return r.returncode, r.stdout.strip()
+    except Exception:
+        return 1, ""
+
+
+def checkout_warnings(bases=DEFAULT_BASES, extra_repos=()) -> list[str]:
+    """Offline checkout-drift check (local refs only — never fetches): a repo whose origin
+    default branch carries the agent marker but whose WORKING TREE is on another branch or
+    behind it is stale — or entirely invisible — to discovery, with no error. This is the
+    failure mode that hid ACE (2026-07-13: primary checkout parked on a feature branch 621
+    commits behind main → "Fleet (3)")."""
+    warnings: list[str] = []
+    candidates: list[Path] = []
+    for base in bases:
+        base = Path(base)
+        if base.is_dir():
+            candidates.extend(sorted(p for p in base.iterdir() if p.is_dir()))
+    candidates.extend(Path(r) for r in extra_repos)
+    seen: set[str] = set()
+    for path in candidates:
+        if path.name in seen or not (path / ".git").exists():
+            continue
+        seen.add(path.name)
+        default = next((ref for ref in ("origin/main", "origin/master")
+                        if _git(path, "rev-parse", "--verify", "--quiet", ref)[0] == 0), None)
+        if default is None:
+            continue
+        if _git(path, "cat-file", "-e", f"{default}:{AGENT_MARKER.as_posix()}")[0] != 0:
+            continue  # not an agent on the origin default branch — irrelevant
+        _, branch = _git(path, "rev-parse", "--abbrev-ref", "HEAD")
+        rc, behind = _git(path, "rev-list", "--count", f"HEAD..{default}")
+        behind_n = int(behind) if rc == 0 and behind.isdigit() else 0
+        default_name = default.split("/", 1)[1]
+        if branch == default_name and not behind_n:
+            continue
+        state = f"on branch {branch!r}" if branch != default_name else f"on {default_name}"
+        if behind_n:
+            state += f", {behind_n} commit(s) behind {default}"
+        warnings.append(
+            f"{path.name}: agent exists on {default} but the checkout is {state} — fleet-align "
+            f"reads the working tree, so this agent is stale or invisible here. Fix: "
+            f"git -C {path} checkout {default_name} && git -C {path} pull --ff-only"
+        )
+    return warnings
+
+
 # ── marker extraction ───────────────────────────────────────────────────────
 
 def _identity_tokens(agent: Agent) -> list[str]:
