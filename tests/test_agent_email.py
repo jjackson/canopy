@@ -199,6 +199,15 @@ def test_send_dry_run_never_invokes_gog():
     assert "<p>hello world</p>" in result["html"]
     # shape parity with a real send: same routing keys, empty — callers never branch
     assert result["message_id"] == "" and result["thread_id"] == ""
+    # cc always present (empty string when unset) — recipients are verified from
+    # the dry-run, so hiding cc'd people there defeats the verification.
+    assert result["cc"] == ""
+
+
+def test_send_dry_run_shows_cc():
+    result = send(IDENT, to="a@x.com", cc="boss@x.com", subject="s",
+                  body_text="hi\n", dry_run=True)
+    assert result["cc"] == "boss@x.com"
 
 
 def test_send_invokes_gog_and_parses_result():

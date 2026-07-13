@@ -354,9 +354,13 @@ def send(
     plain = normalize(body_text)
     html_body = to_html(plain)
     if dry_run:
+        # cc must appear here even when empty — the dry-run is HOW an agent verifies
+        # recipients before approval, and omitting it hides cc'd people (same failure
+        # class as the raw text mail view dropping the Cc: line).
         return {"dry_run": True, "message_id": "", "thread_id": "",
                 "account": identity.account, "client": identity.client,
-                "to": to, "subject": subject, "plain": plain, "html": html_body}
+                "to": to, "cc": cc or "", "subject": subject,
+                "plain": plain, "html": html_body}
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as tf:
         tf.write(plain)
         plain_path = tf.name
