@@ -107,21 +107,34 @@ def test_create_agent_refuses_nonempty_dir(tmp_path):
 
 
 def test_gating_defaults_to_deny_rails_only(tmp_path):
-    """Issue #263 / shared-gog-gdrive.md §4: rails, not approval gates.
+    """Issue #263 / shared-gog-gdrive.md §4: rails, not approval gates — now mounts-based.
 
-    The templated gating ships deny rails + an EMPTY approve list — a PreToolUse
-    'ask' is a blocking modal that stalls autonomous work; approval is the turn
-    checklist's job.
+    The templated gating carries channel MOUNTS (baseline deny rails ship centrally in the
+    canopy plugin's agent-core/gating-baseline.json and are merged by the hook at call time)
+    plus an EMPTY local deny list and an EMPTY approve list.
     """
     create_agent(_spec(), tmp_path / "echo")
     cfg = json.loads((tmp_path / "echo" / "config" / "gating.json").read_text())
     assert cfg["approve"] == []
-    assert cfg["deny"], "expected the raw-gog-send deny rail out of the box"
-    rail = cfg["deny"][0]
-    assert rail["tool"] == "Bash"
-    assert "gog" in rail["pattern"]
-    assert "bin/echo-email" in rail["message"], "the rail must name the right path"
+    assert cfg["deny"] == []           # agent-specific ADDITIONS only; baseline is central
+    assert cfg["channels"] == ["email"]
+    assert cfg["slug"] == "echo"
     assert "rails" in cfg["_doc"].lower()
+    assert "add-only" in cfg["_doc"].lower()
+
+
+def test_gating_baseline_ships_in_plugin():
+    """The fleet-baseline rails live once, in the versioned plugin — a rail fix propagates
+    via /canopy:update, never via per-agent backports."""
+    base = json.loads((Path(__file__).resolve().parents[1]
+                       / "plugins" / "canopy" / "agent-core" / "gating-baseline.json").read_text())
+    email = base["channels"]["email"]
+    pats = [r["pattern"] for r in email]
+    assert any("gog" in p and "gmail" in p for p in pats), "raw gog send rail missing"
+    assert any("--account" in p for p in pats), "identity-bleed rail missing"
+    for r in email:
+        assert "{slug}" in r["message"], "baseline messages are slug-templated at call time"
+        assert "{{" not in json.dumps(r), "stamp-time tokens do not belong in the runtime baseline"
 
 
 def test_agent_json_carries_email_identity(tmp_path):
@@ -161,10 +174,14 @@ def test_gating_hook_blocks_deny_asks_approve_allows_reads(tmp_path):
     cfg["approve"] = [{"tool": "Edit", "message": "Echo edits only with approval."}]
     gating.write_text(json.dumps(cfg))
 
+    import os as _os
+    env = {**_os.environ,
+           "CANOPY_PLUGIN_DIR": str(Path(__file__).resolve().parents[1] / "plugins" / "canopy")}
+
     def run(payload):
         return subprocess.run(
             [sys.executable, str(hook)],
-            input=json.dumps(payload), capture_output=True, text=True,
+            input=json.dumps(payload), capture_output=True, text=True, env=env,
         )
 
     # templated deny rail -> exit 2, message names the sanctioned path
@@ -199,11 +216,15 @@ def test_gating_hook_rails_identity_override_but_allows_shim_and_other_email_cmd
     root = tmp_path / "echo"
     hook = root / "hooks" / "gating_guard.py"
 
+    import os as _os
+    env = {**_os.environ,
+           "CANOPY_PLUGIN_DIR": str(Path(__file__).resolve().parents[1] / "plugins" / "canopy")}
+
     def run(command):
         return subprocess.run(
             [sys.executable, str(hook)],
             input=json.dumps({"tool_name": "Bash", "tool_input": {"command": command}}),
-            capture_output=True, text=True,
+            capture_output=True, text=True, env=env,
         )
 
     r = run("canopy email send --account other@dimagi-ai.com --to x@y.z "
@@ -241,3 +262,43 @@ def test_stub_skills_reference_agent_core(tmp_path):
         assert "canopy-update-check.sh" in text, f"{name} stub must staleness-check the core"
         assert "{{" not in text
         assert len(text) < 3000, f"{name} looks like a full copy, not a stub"
+
+
+def test_gating_hook_fails_closed_when_baseline_unreadable(tmp_path):
+    """channels mounted + baseline unresolvable → deny (exit 2) with the /canopy:update fix.
+    A stale/absent canopy install must never silently run an agent without its fleet rails."""
+    import os as _os
+    create_agent(_spec(), tmp_path / "echo")
+    hook = tmp_path / "echo" / "hooks" / "gating_guard.py"
+    env = {**_os.environ, "CANOPY_PLUGIN_DIR": str(tmp_path / "nonexistent")}
+    r = subprocess.run(
+        [sys.executable, str(hook)],
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "git status"}}),
+        capture_output=True, text=True, env=env,
+    )
+    assert r.returncode == 2
+    assert "canopy:update" in r.stderr
+
+
+def test_gating_hook_legacy_config_stays_local_only(tmp_path):
+    """A config WITHOUT `channels` (legacy full-copy style, e.g. ACE's plugin-level setup)
+    keeps local-rails-only behavior — no baseline lookup, no fail-closed brick."""
+    import os as _os
+    create_agent(_spec(), tmp_path / "echo")
+    root = tmp_path / "echo"
+    gating = root / "config" / "gating.json"
+    gating.write_text(json.dumps({
+        "deny": [{"tool": "Bash", "pattern": "forbidden_local_thing", "message": "BLOCKED: local rail."}],
+        "approve": [],
+    }))
+    env = {**_os.environ, "CANOPY_PLUGIN_DIR": str(tmp_path / "nonexistent")}
+
+    def run(command):
+        return subprocess.run(
+            [sys.executable, str(root / "hooks" / "gating_guard.py")],
+            input=json.dumps({"tool_name": "Bash", "tool_input": {"command": command}}),
+            capture_output=True, text=True, env=env,
+        )
+
+    assert run("forbidden_local_thing now").returncode == 2
+    assert run("git status").returncode == 0        # no channels → no baseline → no brick

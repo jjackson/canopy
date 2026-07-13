@@ -147,6 +147,32 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CONFIG = os.path.join(os.path.dirname(HERE), "config", "gating.json")
 
 
+def _baseline_rails(cfg):
+    """Fleet-baseline deny rails for this agent's mounted channels, from the INSTALLED canopy
+    plugin (agent-core/gating-baseline.json) — so a rail fix ships once and reaches every agent
+    via /canopy:update. Returns [] for legacy configs (no `channels` key: local rails only), or
+    None when channels are mounted but the baseline is unresolvable (caller fails CLOSED).
+    CANOPY_PLUGIN_DIR overrides the plugin dir (tests / unusual installs)."""
+    channels = cfg.get("channels")
+    if not channels:
+        return []
+    slug = cfg.get("slug") or os.path.basename(os.path.dirname(HERE))
+    try:
+        plugin_dir = os.environ.get("CANOPY_PLUGIN_DIR")
+        if not plugin_dir:
+            reg = json.load(open(os.path.expanduser("~/.claude/plugins/installed_plugins.json")))
+            plugin_dir = reg["plugins"]["canopy@canopy"][0]["installPath"]
+        base = json.load(open(os.path.join(plugin_dir, "agent-core", "gating-baseline.json")))
+    except Exception:
+        return None
+    rails = []
+    for ch in channels:
+        for rule in base.get("channels", {}).get(ch, []):
+            rails.append({k: (v.replace("{slug}", slug) if isinstance(v, str) else v)
+                          for k, v in rule.items()})
+    return rails
+
+
 def _subject(tool_name, tool_input):
     """The string a rule's pattern is tested against, per tool."""
     if not isinstance(tool_input, dict):
@@ -224,7 +250,17 @@ def main():
     subject = _subject(tool_name, data.get("tool_input"))
     cwd = data.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR", "")
 
-    for rule in cfg.get("deny", []):
+    baseline = _baseline_rails(cfg)
+    if baseline is None:
+        # channels are mounted but the fleet baseline is unreadable — fail CLOSED, with the fix.
+        sys.stderr.write(
+            "BLOCKED (fail closed): {{AGENT_SLUG}}'s config/gating.json mounts channels but the "
+            "canopy fleet gating baseline (agent-core/gating-baseline.json) is unreadable. "
+            "Fix: run /canopy:update (or `uv tool install canopy` / check "
+            "~/.claude/plugins/installed_plugins.json), then retry.\n")
+        sys.exit(2)
+
+    for rule in baseline + cfg.get("deny", []):
         if _matches(rule, tool_name, subject):
             msg = rule.get("message") or "BLOCKED by {{AGENT_SLUG}} gating policy (deny rule)."
             sys.stderr.write(msg.rstrip() + "\n")
@@ -250,19 +286,10 @@ if __name__ == "__main__":
 '''
 
 _GATING_JSON = '''{
-  "_doc": "Rails, not gates (docs/agent-operating-model.md §1a revision, Jon 2026-07-01; canopy docs/architecture/shared-gog-gdrive.md §4): hooks carry DENY rails only — make the wrong path impossible and name the right one, so {{AGENT_NAME}} self-corrects and keeps going at zero autonomy cost. `approve` stays EMPTY by default: a PreToolUse 'ask' is a blocking modal that stalls autonomous work and nags interactive sessions; approval semantics live in the procedural layer (skills/turn Step 2's 'present for approval'). Enforced by hooks/gating_guard.py: deny = hard block (exit 2). Patterns are regex tested against the Bash command, or the file_path for Edit/Write.",
-  "deny": [
-    {
-      "tool": "Bash",
-      "pattern": "(?:^|[\\\\n;&|(])\\\\s*gog\\\\s+gmail\\\\s+(send|reply)\\\\b",
-      "message": "BLOCKED: raw `gog gmail send/reply` bypasses {{AGENT_NAME}}'s HTML wrapper and thread_id capture. Send via bin/{{AGENT_SLUG}}-email (the shared canopy email engine) instead — write the body to a file and pass --body-file."
-    },
-    {
-      "tool": "Bash",
-      "pattern": "canopy\\\\s+email\\\\s+send\\\\b(?=[^\\\\n]*--account)",
-      "message": "BLOCKED: `canopy email send --account` overrides {{AGENT_NAME}}'s repo identity — one mailbox per agent, never shared (identity bleed is the fleet's one hard rule). Send via bin/{{AGENT_SLUG}}-email, which pins this repo's identity."
-    }
-  ],
+  "_doc": "Rails, not gates (docs/agent-operating-model.md §1a revision, Jon 2026-07-01; canopy docs/architecture/shared-gog-gdrive.md §4): hooks carry DENY rails only — make the wrong path impossible and name the right one, so {{AGENT_NAME}} self-corrects and keeps going at zero autonomy cost. `channels` mounts the FLEET-BASELINE deny rails shipped in the installed canopy plugin (agent-core/gating-baseline.json) — hooks/gating_guard.py merges them in front of this file's own `deny` list at call time, so a baseline rail fix reaches every agent via /canopy:update. ADD-ONLY: this file can add rails; it can never remove a baseline one. `approve` stays EMPTY by default: a PreToolUse 'ask' is a blocking modal that stalls autonomous work; approval semantics live in the procedural layer (skills/turn Step 2's 'present for approval'). Patterns are regex tested against the Bash command, or the file_path for Edit/Write.",
+  "slug": "{{AGENT_SLUG}}",
+  "channels": ["email"],
+  "deny": [],
   "approve": []
 }
 '''
