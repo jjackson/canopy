@@ -51,9 +51,13 @@ Initial docs:
 - `agent-core/turn.md` and `agent-core/task-tracker.md` — seeded verbatim from the v0.2.271
   factory templates (which just absorbed echo's task-tracker and hal's turn-close promotions,
   PR #311).
-- `agent-core/self-review.md` — **new to the stamp table.** `self-review` exists in every fleet
-  agent but is not currently factory-stamped; chunk A harvests the fleet's converged text
-  (reconciling echo/eva/hal's copies) into the core and adds a stub stamp to `_TEMPLATES`.
+- ~~`agent-core/self-review.md`~~ — **dropped during planning.** Reading the fleet's copies showed
+  hal's and eva's `self-review` are verbatim identical and the discipline is exactly what the
+  fleet-wide `canopy:agent-turn-review` plugin skill already covers (fidelity / grounded
+  commitments / presentation). Minting a core doc would create a third copy of the same
+  discipline. Instead, migration replaces each agent's `skills/self-review` with a supersession
+  stub pointing at `agent-turn-review`, moving any genuinely agent-unique review notes into that
+  agent's `agent-turn-review` specifics section.
 
 `agent-turn-review` stays a plugin skill (it is already central; it is also legitimately invoked
 outside agent repos). Its stamped stub is already thin — unchanged by this design.
@@ -116,15 +120,17 @@ inside hal turns), so the loop is proven, not aspirational.
 
 ## 5. Migration
 
-1. **Canopy PR — chunk A (framework):** create `agent-core/{turn,task-tracker,self-review}.md`
+1. **Canopy PR — chunk A (framework):** create `agent-core/{turn,task-tracker}.md`
    from the v0.2.271 templates; shrink the factory templates to stub stampers; version bump.
    Tests: factory stamps stubs; stub resolution one-liner works from a stamped repo; template
    docs exist and are non-empty; fleet-align taxonomy still derives.
 2. **Per-agent PRs (echo, eva, hal):** replace each full skill with the stub, moving that
    agent's unique content into its local-notes (hal's architect steps and repo-awareness stay
    hal's; echo's legacy sheet machinery is dropped per PR #311's judgment or parked in echo's
-   notes). This **subsumes the parked distribute findings**: echo's two missing turn steps and
-   hal's missing task-tracker arrive via the core automatically.
+   notes). Also: stamp the thin `agent-turn-review` stub where missing (echo, hal), and replace
+   `skills/self-review` with the supersession stub (§3.1). This **subsumes the parked distribute
+   findings**: echo's two missing turn steps and hal's missing task-tracker arrive via the core
+   automatically.
 3. **Canopy PR — chunk B (gating):** baseline rail set + engine entry point + shim template;
    then per-agent PRs swap the copied hook for the shim + mounts-based config. Hal's missing
    deny rail is fixed here (or, if chunk B lags, patched directly in hal's gating.json as a
