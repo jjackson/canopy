@@ -117,6 +117,10 @@ LOGIN_SERVICES = "gmail,drive,docs,sheets,forms"
 
 LIST_RE = re.compile(r"^\s*([-*+]|\d+\.)\s+")
 URL_RE = re.compile(r"(https?://[^\s<>()]+)")
+# Sentence punctuation that hugs a URL belongs to the prose, not the link.
+# "…/edit." linkified whole once sent two broken doc links (Google 404s the
+# doc id + trailing dot) — echo → Fiorenzo, 2026-07-13.
+TRAILING_PUNCT_RE = re.compile(r"[.,;:!?'\"]+$")
 # Markdown-style inline link: [display text](https://url) — lets agents write a
 # clean anchor label instead of pasting a raw URL into outbound mail.
 MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
@@ -199,7 +203,15 @@ def normalize(text: str) -> str:
 
 
 def _autolink(escaped: str) -> str:
-    return URL_RE.sub(lambda m: f'<a href="{m.group(1)}">{m.group(1)}</a>', escaped)
+    def repl(m: re.Match) -> str:
+        url = m.group(1)
+        tail = ""
+        punct = TRAILING_PUNCT_RE.search(url)
+        if punct:
+            url, tail = url[: punct.start()], punct.group(0)
+        return f'<a href="{url}">{url}</a>{tail}'
+
+    return URL_RE.sub(repl, escaped)
 
 
 def _linkify(escaped: str) -> str:

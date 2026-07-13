@@ -139,6 +139,26 @@ def test_to_html_markdown_link_inside_bullet():
     assert '<a href="https://example.com/i/865">issue #865</a>' in out
 
 
+def test_to_html_bare_url_sheds_trailing_sentence_punctuation():
+    # echo → Fiorenzo 2026-07-13: "…/edit." linkified whole sent two broken gdoc
+    # links (Google 404s the id + trailing dot). Punctuation stays in the prose.
+    out = to_html("guide is at https://docs.google.com/document/d/abc123/edit. Next point.\n")
+    assert '<a href="https://docs.google.com/document/d/abc123/edit">' in out
+    assert '</a>. Next point.' in out
+
+
+def test_to_html_bare_url_sheds_trailing_comma_and_question_mark():
+    out = to_html("see https://example.com/a, or https://example.com/b?\n")
+    assert '<a href="https://example.com/a">https://example.com/a</a>,' in out
+    assert '<a href="https://example.com/b">https://example.com/b</a>?' in out
+
+
+def test_to_html_bare_url_keeps_interior_punctuation():
+    # Only TRAILING punctuation is shed — query strings and dotted paths survive.
+    out = to_html("https://example.com/x?a=1&b=2\n")
+    assert '<a href="https://example.com/x?a=1&amp;b=2">' in out
+
+
 # --------------------------------------------------------------------------------------
 # send
 # --------------------------------------------------------------------------------------
