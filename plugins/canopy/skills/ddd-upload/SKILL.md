@@ -30,7 +30,7 @@ Terminal step of the DDD loop: once a run has converged, UPLOAD its artifacts to
 canopy-web so they package together under the run. The result is a single
 navigable view — **`/ddd/<narrative-slug>/<run_id>`** — that links the run's hero
 video, docs/deck, narrative, and companion links. The skill returns **that
-package URL**, not a loose `/w/<artifact-id>` single-artifact link.
+package URL**, not a loose `/walkthrough/<artifact-id>` single-artifact link.
 
 ## How packaging works (why you get one navigable view, not loose links)
 
@@ -56,7 +56,7 @@ A run that does NOT converge but gets **stuck** (the orchestrator's
 STILL produce a navigable package — that's exactly when you want to open
 `/ddd/<slug>/<run_id>`, poke each scene's deep-link, and decide what to do next.
 A non-converged run must never leave the user with no package, or with only a
-loose `/w/<artifact-id>` link.
+loose `/walkthrough/<artifact-id>` link.
 
 Pass **`--stuck`** (CLI) / `release=False` (`upload_run`). In this mode the script:
 
@@ -71,7 +71,7 @@ The narrative + partial guards (Steps 0 / 0.5) still apply — a review package 
 still have a narrative and (for a clean package) cover the full spec.
 
 **Do NOT** fall back to `scripts/walkthrough-share/upload.py` to hand-make a link
-for a stuck run — that produces a loose, mis-roled `/w/` artifact that masquerades
+for a stuck run — that produces a loose, mis-roled `/walkthrough/` artifact that masquerades
 as the run's package. Always go through this skill so the link is the real
 `/ddd/<slug>/<run_id>` package.
 
@@ -92,8 +92,9 @@ aimed at a **prospective user of the feature** — not an internal reviewer, not
 developer.  Sections, in order:
 
 1. **Hero video** at the top: the converged walkthrough recording embedded as a
-   `<video>` (direct .mp4 / data URI) or `<iframe>` (canopy-web share page URLs
-   containing `/w/`).
+   `<video>` (direct .mp4 / data URI, or a canopy-web `/walkthrough/` share URL
+   rewritten to its `/content` byte stream) or `<iframe>` (genuinely external
+   embeds only).
 2. **What you can do** — one bullet per scene's `concept_claim`.  Capabilities.
 3. **Why it works this way** — the `why_brief.problem` context followed by each
    `spine[].claim` + `spine[].rationale`.  Grounded reasoning.

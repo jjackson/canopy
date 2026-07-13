@@ -9,6 +9,18 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.276] - 2026-07-13
+
+### Fixed
+- **`walkthrough-share` + `ddd-upload` follow canopy-web's token-gated walkthrough model**
+  (canopy-web PR #194): upload scripts now read the owner-only `share_url`
+  (`…/walkthrough/<id>?t=<token>`) from the 201 response instead of the removed raw
+  `share_token` field, print `/walkthrough/<id>` viewer URLs instead of the reclaimed
+  pre-tenancy `/w/<id>` form, and the DDD docs-page hero embed rewrites both
+  `/walkthrough/<id>` and legacy `/w/<id>` share URLs to their `/content` byte stream
+  with the token preserved. Without this, published "Share:" links were login-gated
+  rather than public.
+
 ## [0.2.264] - 2026-07-08
 
 ### Changed

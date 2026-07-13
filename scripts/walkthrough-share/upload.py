@@ -433,11 +433,14 @@ def main(argv: list[str] | None = None) -> int:
     if not wid:
         fail(f"unexpected response: {body}")
 
-    # The /w/ viewer lives at the same host as the API base.
-    print(f"View: {api}/w/{wid}")
-    share_token = body.get("share_token")
-    if visibility == "link" and share_token:
-        print(f"Share: {api}/w/{wid}?t={share_token}")
+    # The viewer lives at /walkthrough/<id> on the same host as the API base
+    # (/w/ was reclaimed as the workspace tenant prefix in mid-2026).
+    print(f"View: {api}/walkthrough/{wid}")
+    # Public walkthroughs are token-gated: the API returns the owner-only
+    # share_url (…/walkthrough/<id>?t=<token>) and never the raw token.
+    share_url = body.get("share_url")
+    if visibility == "link" and share_url:
+        print(f"Share: {share_url}")
     return 0
 
 

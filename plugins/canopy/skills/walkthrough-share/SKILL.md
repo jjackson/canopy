@@ -24,8 +24,8 @@ relative screenshot/CSS references inlined as base64 data URIs before upload,
 so the single file renders standalone inside the canopy-web viewer's iframe.
 MP4 videos upload as-is.
 
-The viewer page (`/w/<id>`) lets the owner toggle visibility, copy a share
-link, rotate the token, or delete. Non-owners just see the player.
+The viewer page (`/walkthrough/<id>`) lets the owner toggle visibility, copy
+the tokened share link, rotate it, or delete. Non-owners just see the player.
 
 ## Required state
 
@@ -75,7 +75,7 @@ python3 "$UPLOAD" \
   screenshots/walkthroughs/my-demo.mp4 \
   --public
 
-# Upload a video WITH companion links the /w/<id> viewer renders:
+# Upload a video WITH companion links the /walkthrough/<id> viewer renders:
 # - back to the narrative that generated it
 # - the still-frame (deck) version of the same demo
 # - the app pages the demo walked through (one per scene url in the spec)
@@ -83,7 +83,7 @@ python3 "$UPLOAD" \
   screenshots/walkthroughs/my-demo.mp4 \
   --public \
   --narrative-url "https://canopy-web.../review/42/?t=abc" \
-  --companion-url "https://canopy-web.../w/<deck-uuid>?t=def" \
+  --companion-url "https://canopy-web.../walkthrough/<deck-uuid>?t=def" \
   --spec docs/walkthroughs/my-demo.yaml \
   --link "Connect microplanning::https://connect.dimagi.com/microplanning"
 ```
@@ -94,13 +94,13 @@ The script prints:
 inlining HTML assets from <dir>…
 uploading <N> MB to <api>…
 attaching <N> companion link(s)   # only when links are passed
-View: <api>/w/<uuid>
-Share: <api>/w/<uuid>?t=<token>   # only with --public
+View: <api>/walkthrough/<uuid>
+Share: <api>/walkthrough/<uuid>?t=<token>   # only with --public (the server-returned share_url)
 ```
 
 Pass the `Share:` line back to the user verbatim.
 
-## Companion links (the `/w/<id>` viewer panels)
+## Companion links (the `/walkthrough/<id>` viewer panels)
 
 The viewer page renders attached links in two panels under the player:
 
@@ -166,7 +166,7 @@ DM you want to share it in. The URL is unguessable — but treat it like any
 other unlisted-link share (don't paste in public unless you mean it).
 
 To revoke a share link without deleting the walkthrough, visit the viewer
-page at `/w/<uuid>` and click "Rotate token" — the old URL stops working
+page at `/walkthrough/<uuid>` and click "Rotate link" — the old URL stops working
 immediately.
 
 ## Used by
