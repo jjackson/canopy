@@ -50,6 +50,16 @@ adds agent-specifics (send path, paired reviewers); the general discipline lives
 10. **Verify recipients** from the structured reader / `--reply-all`, never a raw text mail view
     (it hides `Cc:`). Confirm reply-all vs. direct on purpose.
 
+## D. Echo check — fresh read-through, EVERY revision
+11. **Re-run this review on every revision of a draft, not only the first.** A "delta check" of
+    just your latest edits is how edit-introduced defects ship — the requester's corrections change
+    the draft's context, so the whole thing gets re-reviewed. (Origin: echo, caught twice in one
+    turn — Jonathan, 2026-07-13; promoted fleet-wide from echo's stub.)
+12. **Then read the FULL draft top to bottom with fresh eyes for prose echoes:** the same phrase or
+    fragment twice ("proposal… My proposal"), the same content announced twice (intro names the
+    extras AND a later section re-introduces them), the same term leaned on 3+ times. Fix by
+    varying or cutting — one announcement, one detail pass, per fact.
+
 ## Adopting it in an agent (the thin extension)
 Keep a repo-local `skills/agent-turn-review/SKILL.md` that (a) says "invoke `canopy:agent-turn-review`
 and apply it", and (b) lists only agent-specifics: the sanctioned send path (§B's draft-then-ask
