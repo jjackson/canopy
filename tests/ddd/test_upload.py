@@ -192,6 +192,21 @@ class TestBuildDocsPage:
         # The bare viewer page must not be framed.
         assert '<iframe src="https://canopy.example.com/w/abc123?t=tok"' not in result
 
+    def test_canopy_walkthrough_url_embeds_content_stream_as_video(self):
+        """The current /walkthrough/<id> viewer URL (what token-gated uploads
+        return) rewrites to its /content stream with the token preserved."""
+        spec = _make_spec()
+        why = _make_why_brief()
+        result = build_docs_page(
+            spec, why, "https://canopy.example.com/walkthrough/abc123?t=tok"
+        )
+        assert "<video" in result
+        assert "https://canopy.example.com/walkthrough/abc123/content?t=tok" in result
+        assert (
+            '<iframe src="https://canopy.example.com/walkthrough/abc123?t=tok"'
+            not in result
+        )
+
     def test_canopy_content_url_is_not_double_rewritten(self):
         """An already-/content URL embeds as <video> unchanged (idempotent)."""
         spec = _make_spec()
@@ -250,8 +265,12 @@ class TestBuildDocsPage:
 
 
 class TestPublishArtifact:
-    def _mock_post(self, *, wid="art123", share_token="tok99"):
-        """Return a fake _post callable that records call args."""
+    def _mock_post(self, *, wid="art123", share_url=None):
+        """Return a fake _post callable that records call args.
+
+        Mirrors canopy-web's token-gated contract: the 201 body carries an
+        owner-only ``share_url`` (never a raw ``share_token``).
+        """
         calls: list[dict] = []
 
         def fake_post(url, pat, fields, filename, content_type, file_bytes):
@@ -265,14 +284,19 @@ class TestPublishArtifact:
                     file_bytes=file_bytes,
                 )
             )
-            return {"id": wid, "share_token": share_token}
+            body = {"id": wid}
+            if share_url is not None:
+                body["share_url"] = share_url
+            return body
 
         fake_post.calls = calls
         return fake_post
 
-    def test_returns_hosted_url(self, monkeypatch):
+    def test_returns_share_url_from_response(self, monkeypatch):
         monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
-        mock = self._mock_post(wid="abc", share_token="s1")
+        mock = self._mock_post(
+            wid="abc", share_url="https://canopy.test/walkthrough/abc?t=s1"
+        )
         url = publish_artifact(
             "<html>hi</html>",
             kind="html",
@@ -280,8 +304,19 @@ class TestPublishArtifact:
             base_url="https://canopy.test",
             _post=mock,
         )
-        assert "abc" in url
-        assert url.startswith("https://canopy.test/w/")
+        assert url == "https://canopy.test/walkthrough/abc?t=s1"
+
+    def test_falls_back_to_bare_viewer_url_without_share_url(self, monkeypatch):
+        monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
+        mock = self._mock_post(wid="abc")
+        url = publish_artifact(
+            "<html>hi</html>",
+            kind="html",
+            title="Test doc",
+            base_url="https://canopy.test",
+            _post=mock,
+        )
+        assert url == "https://canopy.test/walkthrough/abc"
 
     def test_posts_to_walkthroughs_endpoint(self, monkeypatch):
         monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
@@ -336,34 +371,8 @@ class TestPublishArtifact:
         )
         assert mock.calls[0]["file_bytes"] == "héllo".encode("utf-8")
 
-    def test_includes_share_token_in_url_when_present(self, monkeypatch):
-        monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
-        mock = self._mock_post(wid="xyz", share_token="mytok")
-        url = publish_artifact(
-            b"data",
-            kind="video",
-            title="v",
-            base_url="https://canopy.test",
-            _post=mock,
-        )
-        assert "mytok" in url
-
-    def test_url_without_share_token(self, monkeypatch):
-        """When server returns no share_token, URL still works (no ?t= param)."""
-        monkeypatch.setenv("CANOPY_WEB_PAT", "test-pat")
-
-        def fake_post(url, pat, fields, filename, content_type, file_bytes):
-            return {"id": "noshare"}  # no share_token key
-
-        url = publish_artifact(
-            b"data",
-            kind="video",
-            title="v",
-            base_url="https://canopy.test",
-            _post=fake_post,
-        )
-        assert url == "https://canopy.test/w/noshare"
-        assert "?" not in url
+    # (share_url-present and share_url-absent behavior is covered above by
+    # test_returns_share_url_from_response / test_falls_back_to_bare_viewer_url_…)
 
 
 # ---------------------------------------------------------------------------

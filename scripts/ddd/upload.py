@@ -98,7 +98,7 @@ def run_package_url(narrative_slug: str, run_id: str, base_url: str | None = Non
     canopy-web routes the navigable package (video + deck + narrative + links)
     at ``/ddd/<narrative>/<runId>``, where the narrative slug is the ``narrative_slug``
     the plugin sends (a slug in real use). This is the link a human should get
-    — NOT a loose ``/w/<artifact-id>`` single-artifact URL. Path segments are
+    — NOT a loose ``/walkthrough/<artifact-id>`` single-artifact URL. Path segments are
     URL-quoted defensively in case a narrative_slug carries unsafe characters.
     """
     api = _resolve_base_url(base_url)
@@ -456,19 +456,22 @@ section {
 # ---------------------------------------------------------------------------
 
 
-# A canopy-web walkthrough URL: the viewer page ``/w/<id>`` or its byte stream
-# ``/w/<id>/content`` (optionally with a ``?t=`` share token, stripped here).
-_CANOPY_W_RE = re.compile(r"/w/[^/?#]+(?:/content)?/?$")
+# A canopy-web walkthrough URL: the viewer page ``/walkthrough/<id>`` (or the
+# legacy pre-tenancy ``/w/<id>`` form baked into old artifacts) or its byte
+# stream ``…/content`` (optionally with a ``?t=`` share token, kept intact).
+_CANOPY_W_RE = re.compile(r"/(?:w|walkthrough)/[^/?#]+(?:/content)?/?$")
 
 
 def _to_content_url(url: str) -> str:
     """Rewrite a canopy-web viewer URL to its public byte-stream URL.
 
-    ``https://host/w/<id>?t=tok`` -> ``https://host/w/<id>/content?t=tok``.
-    The viewer page (``/w/<id>``) is auth-gated (redirects to Google login) and
-    sends ``X-Frame-Options: DENY``, so framing it renders blank; the
-    ``/content`` endpoint serves the bytes token-gated and same-origin
-    frameable. Idempotent if already a ``/content`` URL.
+    ``https://host/walkthrough/<id>?t=tok`` ->
+    ``https://host/walkthrough/<id>/content?t=tok`` (same for legacy ``/w/``
+    URLs, whose /content path 302-redirects server-side). The viewer page is
+    auth-gated for anonymous callers and sends ``X-Frame-Options: DENY``, so
+    framing it renders blank; the ``/content`` endpoint serves the bytes
+    token-gated and same-origin frameable. Idempotent if already a
+    ``/content`` URL.
     """
     base, sep, query = url.partition("?")
     base = base.rstrip("/")
@@ -521,10 +524,10 @@ def build_docs_page(spec: UnifiedSpec, why_brief: WhyBrief, video_url: str, post
         narrative_lede = html.escape(_first)
 
     # Embed the hero as the actual video bytes, not the canopy-web viewer page.
-    # A canopy-web /w/<id> URL (viewer or content) is rewritten to the public
-    # /w/<id>/content stream and played inline with <video>; .mp4 / data: URIs
-    # likewise. Only a genuinely external embed (no /w/ path, e.g. a Loom share)
-    # falls back to an <iframe>.
+    # A canopy-web /walkthrough/<id> URL (viewer or content; legacy /w/<id>
+    # too) is rewritten to the public …/content stream and played inline with
+    # <video>; .mp4 / data: URIs likewise. Only a genuinely external embed
+    # (no walkthrough path, e.g. a Loom share) falls back to an <iframe>.
     _path = video_url.split("?", 1)[0]
     is_canopy_artifact = (
         video_url.startswith("http://") or video_url.startswith("https://")
@@ -791,7 +794,9 @@ def publish_artifact(
     Returns
     -------
     str
-        The hosted view URL (e.g. ``https://canopy-web.../w/<id>``).
+        The hosted view URL — the tokened share link when the server returns
+        one (``https://canopy-web.../walkthrough/<id>?t=<token>``), else the
+        bare viewer URL.
     """
     if kind not in _CT_BY_KIND:
         raise ValueError(f"kind must be 'html' or 'video', got {kind!r}")
@@ -837,10 +842,13 @@ def publish_artifact(
     if not wid:
         raise RuntimeError(f"canopy-web returned unexpected response: {body}")
 
-    share_token = body.get("share_token")
-    if share_token:
-        return f"{api}/w/{wid}?t={share_token}"
-    return f"{api}/w/{wid}"
+    # Public walkthroughs are token-gated: canopy-web returns the owner-only
+    # tokened share_url (…/walkthrough/<id>?t=<token>) and never the raw
+    # token. Fall back to the bare viewer URL (session-authed access only).
+    share_url = body.get("share_url")
+    if share_url:
+        return share_url
+    return f"{api}/walkthrough/{wid}"
 
 
 # ---------------------------------------------------------------------------
