@@ -2,6 +2,7 @@
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -214,3 +215,16 @@ def test_gating_hook_rails_identity_override_but_allows_shim_and_other_email_cmd
     assert run("canopy email send --repo . --to x@y.z --subject s --body-file b.txt").returncode == 0
     assert run("canopy email preflight --account other@dimagi-ai.com").returncode == 0
     assert run("canopy email mark-read --account other@dimagi-ai.com t1").returncode == 0
+
+
+def test_agent_core_docs_exist_and_are_agent_agnostic():
+    """The stubs stamped by the factory point at agent-core docs shipped in the plugin;
+    those docs must exist, be substantial, and carry no stamp-time {{TOKEN}}s
+    (they are read at RUNTIME by any agent — identity lives in the stub)."""
+    root = Path(__file__).resolve().parents[1] / "plugins" / "canopy" / "agent-core"
+    for name in ("turn", "task-tracker"):
+        doc = root / f"{name}.md"
+        assert doc.is_file(), f"missing agent-core doc: {doc}"
+        text = doc.read_text()
+        assert len(text) > 1000, f"{doc} suspiciously small — did the template body move here?"
+        assert "{{" not in text, f"stamp-time token leaked into runtime doc {doc}"
