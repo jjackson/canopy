@@ -1624,7 +1624,10 @@ def fleet_align_cmd(extra_repos, hours, no_evidence, no_llm, model, as_json):
     from orchestrator import fleet_align as fa
 
     agents = fa.discover_agents(extra_repos=extra_repos)
+    drift = fa.checkout_warnings(extra_repos=extra_repos)
     if not agents:
+        for w in drift:
+            click.echo(f"⚠ {w}")
         raise click.ClickException("No agent repos found (marker: skills/turn/SKILL.md). Pass --repo <dir>.")
     findings = fa.analyze(agents)
     unreadable = 0
@@ -1643,10 +1646,13 @@ def fleet_align_cmd(extra_repos, hours, no_evidence, no_llm, model, as_json):
                 row["change_brief"] = brief  # the AI apply agent's spec
             rows.append(row)
         click.echo(json_mod.dumps(
-            {"fleet": [a.slug for a in agents], "unreadable_logins": unreadable, "findings": rows},
+            {"fleet": [a.slug for a in agents], "unreadable_logins": unreadable,
+             "checkout_warnings": drift, "findings": rows},
             indent=2, default=str,
         ))
         return
+    for w in drift:
+        click.echo(f"⚠ {w}")
     click.echo(fa.format_report(agents, findings))
     if unreadable:
         click.echo(f"\n⚠ half-blind: {unreadable} user login(s) unreadable — evidence may be incomplete.")

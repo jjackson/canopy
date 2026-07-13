@@ -355,3 +355,51 @@ def test_scoped_variant_of_template_rail_counts_as_present(tmp_path):
     missing = [f for f in findings if f.artifact == "gating" and "missing" in f.summary]
     assert len(missing) == 1, [f.summary for f in findings]
     assert missing[0].laggards == ["eva"]  # ace's scoped variant covers the rail
+
+
+def _git_agent_repo(tmp_path, name, *, marker=True):
+    """A 'remote' repo with the agent marker on main, cloned into a discovery base."""
+    import subprocess as sp
+    remote = tmp_path / "remotes" / name
+    remote.mkdir(parents=True)
+    def g(cwd, *args):
+        sp.run(["git", "-C", str(cwd), *args], check=True, capture_output=True,
+               env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                    "GIT_COMMITTER_EMAIL": "t@t", "PATH": __import__("os").environ["PATH"],
+                    "HOME": str(tmp_path)})
+    g(remote, "init", "-b", "main")
+    if marker:
+        (remote / "skills" / "turn").mkdir(parents=True)
+        (remote / "skills" / "turn" / "SKILL.md").write_text("# Turn stub\n")
+    (remote / "README.md").write_text(name)
+    g(remote, "add", "-A")
+    g(remote, "commit", "-m", "init")
+    base = tmp_path / "base"
+    base.mkdir(exist_ok=True)
+    clone = base / name
+    g(tmp_path, "clone", "-q", str(remote), str(clone))
+    return base, clone, g
+
+
+def test_checkout_drift_warning_catches_hidden_agent(tmp_path):
+    """The ACE failure mode: agent exists on origin/main but the checkout sits on a stale
+    feature branch without the marker → discovery misses it silently. checkout_warnings
+    must surface it (offline, local refs only)."""
+    base, clone, g = _git_agent_repo(tmp_path, "acelike")
+    # park the checkout on a feature branch that predates the marker
+    g(clone, "checkout", "-q", "-b", "old-feature")
+    g(clone, "rm", "-rq", "skills")
+    g(clone, "commit", "-qm", "no marker here")
+
+    warnings = fa.checkout_warnings(bases=[base])
+    assert len(warnings) == 1
+    assert "acelike" in warnings[0]
+    assert "origin/main" in warnings[0]
+    # and discovery indeed cannot see it — the warning is the only breadcrumb
+    assert fa.discover_agents(bases=[base]) == []
+
+
+def test_checkout_drift_warning_quiet_when_clean_or_irrelevant(tmp_path):
+    base, clone, g = _git_agent_repo(tmp_path, "cleanagent")           # on main, current
+    _git_agent_repo(tmp_path, "notanagent", marker=False)             # no marker on main
+    assert fa.checkout_warnings(bases=[base]) == []
