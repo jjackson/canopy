@@ -261,6 +261,26 @@ def _compare_skill(name, agents, template_markers, per_agent) -> list[Finding]:
     return findings
 
 
+_RAIL_TOKEN = re.compile(r"[a-z][a-z0-9_-]+")
+
+
+def _rail_tokens(pattern: str) -> frozenset:
+    """A deny pattern's command signature: the literal word tokens, regex syntax stripped."""
+    return frozenset(_RAIL_TOKEN.findall(pattern.lower()))
+
+
+def _rail_covered(tmpl_pattern: str, agent_patterns) -> bool:
+    """A template deny rail counts as PRESENT when some agent rail targets the same command —
+    exact match, or the template's token signature is a subset of an agent pattern's. A
+    deliberately SCOPED variant (e.g. ACE narrowing the raw-gog-send rail to its own identity
+    because its hook fires machine-wide) is coverage, not absence — flagging it every cycle is
+    the re-flag noise fleet-align's own discipline says to drop."""
+    want = _rail_tokens(tmpl_pattern)
+    if not want:
+        return tmpl_pattern in set(agent_patterns)
+    return any(want <= _rail_tokens(p) for p in agent_patterns)
+
+
 def _compare_gating(name, agents, template_g, per_agent) -> list[Finding]:
     findings: list[Finding] = []
     tmpl_deny = template_g.get("deny", set())
@@ -276,7 +296,8 @@ def _compare_gating(name, agents, template_g, per_agent) -> list[Finding]:
     # missing template deny rails
     missing_groups: dict[frozenset, list[str]] = {}
     for a in agents:
-        missing = tmpl_deny - per_agent[a.slug].get("deny", set())
+        agent_deny = per_agent[a.slug].get("deny", set())
+        missing = {t for t in tmpl_deny if not _rail_covered(t, agent_deny)}
         if missing:
             missing_groups.setdefault(frozenset(missing), []).append(a.slug)
     for missing, slugs in missing_groups.items():
