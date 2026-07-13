@@ -385,116 +385,32 @@ _TURN_SKILL = '''---
 name: turn
 description: >
   {{AGENT_NAME}}'s full turn-of-work orchestrator. Use when a human says "do a turn", "check your
-  inbox", or otherwise triggers {{AGENT_NAME}} to work. Sequences the whole turn: preflight →
-  process inbound (one counterpart at a time) → skill self-check → close-out. This is THE entry
-  point for a turn.
+  inbox", or otherwise triggers {{AGENT_NAME}} to work. The canonical procedure is fleet-wide and
+  lives in the installed canopy plugin (agent-core/turn.md); this stub binds it to {{AGENT_NAME}}'s
+  identity. THE entry point for a turn.
 ---
 
-# Turn — {{AGENT_NAME}}'s full turn of work
+# Turn — {{AGENT_NAME}} (stub over the fleet-canonical core)
 
-**Re-read this file at the start of every turn and follow it in order.** Running a turn from
-memory is how steps get dropped under load. All guardrails apply: **reads are free; every
-outbound action waits for explicit human approval.** Approval is PROCEDURAL — the gating hook
-carries deny rails only (it blocks wrong paths, it does not ask for you), so drafting-then-asking
-in Step 2 is the gate. There is no modal to catch you if you skip it.
+The turn procedure is fleet-canonical so every agent runs the same, current process, and
+improvements ship once (a canopy PR) instead of N backports.
 
-**Narrate as you go.** Before any multi-step or multi-repo investigation, state the plan in one
-sentence first ("checking threads A and B for X — back shortly"), then work, then report what you
-found. Never let a long silent stretch of tool calls build up — a human interrupting with "what
-are you doing?" means the turn's communication already failed.
+1. **Resolve the installed canopy plugin and check freshness:**
+   ```bash
+   CANOPY=$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude/plugins/installed_plugins.json'))); print(d['plugins']['canopy@canopy'][0]['installPath'])")
+   bash "$CANOPY/scripts/canopy-update-check.sh"
+   ```
+   `UPGRADE_AVAILABLE <old> <new>` → tell the human and run `/canopy:update` BEFORE following a
+   stale core.
+2. **Read `$CANOPY/agent-core/turn.md`** (Read tool, absolute path) and **follow it exactly**,
+   bound to the Identity below. Where it says `<slug>`, use this Identity.
 
-## Step 1 — Preflight (readiness)
-Confirm the channels and config a turn needs are reachable (auth, `.env`, any board PAT). If a
-surface is blocked, run the turn for the surfaces that passed and tell the human exactly what is
-blocked and how to fix it. Do not abort the whole turn for one blocker.
+## Identity
+- Name: **{{AGENT_NAME}}** · slug: `{{AGENT_SLUG}}` · mailbox: `{{MAILBOX}}`
+- Email shim: `bin/{{AGENT_SLUG}}-email` · board: `/agents/{{AGENT_SLUG}}`
 
-## Step 2 — Process inbound, one counterpart at a time
-For EACH inbound item in order: read it, check the sender against `config/allowlist.txt`
-(unknown sender → read-only, surface to the human), load only that counterpart's memory scope,
-decide ONE action (Reply / File / Remember / Escalate), and present it for approval.
-**Never reason about two counterparts in one step** — the cardinal rule.
-
-Before every outbound reply, run the `agent-turn-review` skill (it invokes the fleet-wide
-`canopy:agent-turn-review`): re-read the original request, extract EACH discrete ask, confirm the
-draft does exactly that (read any source they cited; don't reconstruct from memory), confirm every
-"I'll do X" is something you can actually execute (no vague "sync with <person>"), then lead with
-what you DID + a recommendation + options.
-
-**Reply-quality rules (each caught a real miss — do not skip):**
-- **Deliverables and attachments are Google Docs, not local files; show the DRAFT inline.** A
-  substantial artifact (a script, a report, a plan) goes in a shared gdoc and the reply links it;
-  it does NOT get pasted as a wall of text into the email body, and it is NOT stashed in a local
-  `.txt` you point the human at. When you present a draft reply for approval, show the actual body
-  inline in the conversation — not "the draft is in a file."
-- **Decide-then-show, in one coherent order.** Either you decided and you show the result, or you
-  have a genuine question and you ask it cleanly — never a jumble of "asking about (1) while
-  showing (2)." Number your asks/items and keep the order consistent between what you ask and what
-  you present. Don't manufacture a decision out of a thread you've already classified as not
-  actionable.
-- **Verify recipients before sending.** Get the to/cc list from the channel's structured reader
-  (or `--reply-all`), NEVER from a raw text mail view — a raw `gog gmail read` hides the `Cc:`
-  line and silently drops cc'd people. Confirm reply-all vs. direct deliberately.
-
-**Email goes out ONLY via `bin/{{AGENT_SLUG}}-email`** (the shared canopy engine — HTML wrapper,
-reply threading; a deny rail blocks raw `gog gmail send`). Every send returns JSON with
-`thread_id` — **record it in {{AGENT_NAME}}'s state layer** so inbound triage can route the
-reply to the right scope. Auth flaky? `canopy email preflight --repo .` prints the exact fix.
-
-## Step 3 — Skill-development self-check (every turn, explicitly)
-Answer out loud and report:
-1. **Did I create or improve a skill this turn?** Name it.
-2. **Did I hand-repeat a multi-step pattern that SHOULD be a skill?** If so, build it now (or say
-   why it is genuinely one-off). Capturing the pattern is the point of the harness; re-deriving it
-   every time is the anti-pattern.
-3. **Did friction this turn suggest a fix to my own skills?** A stale checklist step, a wrong
-   command in a SKILL.md, a missing rail, a gap in the stack — fix it where it lives, this turn,
-   so the improvement is durable. Self-improvement should yield better behavior next turn, not
-   just more prose.
-
-## Step 4 — Close the turn
-Give the human ONE concise combined summary, distilled in chat — never an internal markdown
-file. **Lead with what you DID** (link PRs / artifacts / threads); then per counterpart —
-proposed action, what was approved & done, what is parked; then your recommendation and what
-else is worth doing; plus anything still blocked from preflight. Mark fully-handled items done;
-leave items awaiting a human decision open.
-
-Then refresh {{AGENT_NAME}}'s canopy-web workspace so `/agents/{{AGENT_SLUG}}` reflects this turn
-(the installed canopy plugin provides the shared client — no per-agent client to maintain):
-```
-canopy agent skills        # mirror the skill catalog (registers the agent if new)
-```
-If this turn produced a shareable deliverable, also `canopy agent work <items.json>`. The board at
-`/agents/{{AGENT_SLUG}}` is the shared trigger + approval surface — where teammates queue work and
-approve outbound actions.
-
-Then **package this turn** as a unit of work so `/agents/{{AGENT_SLUG}}` records what you did and
-ties it to the request(s) you advanced:
-```
-canopy agent turn --slug {{AGENT_SLUG}} --title "<what this turn did>" \
-  --task <ext_id> [--task <ext_id> …]      # the board task(s) this turn advanced
-  # --work-product-url <url> per deliverable produced this turn
-```
-**Optional transcript link (ASK FIRST):** uploading the transcript publishes to canopy-web — an
-outbound action — so it rides the same approval gate as a send. Only if the human says yes, append
-`--upload` (reduces THIS session to conversation-only, then hangs a `/share/<token>` link off the
-turn). Put that link in your close-out summary. Without `--upload`, the turn is still packaged
-(request → what you did → deliverables), just with no transcript.
-
-**CLOSE CHECKLIST — confirm each in the summary (these get silently skipped under load):**
-1. `agent-turn-review` ran on every outbound reply (Step 2).
-2. Skill-development self-check answered (Step 3).
-3. Workspace refreshed (`canopy agent skills` above).
-4. Turn packaged (`canopy agent turn …`); transcript uploaded ONLY if the human approved.
-
-**Shipping a skill change from a worktree** — emdash runs each turn in a worktree while `main` is
-checked out elsewhere, so `git checkout main` and `gh pr merge --delete-branch` FAIL ("main already
-checked out"). Instead: `gh pr merge <n> --squash`, then verify with `gh pr view <n> --json state`.
-
-## Related skills
-- `agent-turn-review` — gate every outbound reply against the original request AND against what you
-  can actually execute (invokes the fleet-wide `canopy:agent-turn-review`) before sending.
-- canopy plugin (installed alongside this agent) — `create-agent`, `agent-publish`, `improve`, and
-  the fleet self-improvement loop. {{AGENT_NAME}} has canopy's skills available; use them.
+## {{AGENT_NAME}}-local notes (the ONLY hand-edited section — fleet-process changes go to canopy)
+- (none yet)
 '''
 
 _AGENT_TURN_REVIEW_SKILL = '''---
@@ -690,82 +606,30 @@ _AGENT_JSON = '''{
 _TASK_TRACKER_SKILL = '''---
 name: task-tracker
 description: >
-  {{AGENT_NAME}}'s project/task state — one board task per iterative thread/project, so
-  multi-turn work has durable state and history instead of living only in email archaeology.
-  Backed by canopy-web's /api/agents/{{AGENT_SLUG}}/tasks/ (kanban at /agents/{{AGENT_SLUG}});
-  all verbs come from the installed canopy CLI. Use when taking on any work that will span
-  turns, when a new request arrives, and at every turn's board-drain and close.
+  {{AGENT_NAME}}'s project/task state — one board task per iterative thread/project, backed by
+  canopy-web (kanban at /agents/{{AGENT_SLUG}}). The canonical procedure is fleet-wide and lives
+  in the installed canopy plugin (agent-core/task-tracker.md); this stub binds it to
+  {{AGENT_NAME}}. Use when taking on multi-turn work, when a new request arrives, and at every
+  turn's board-drain and close.
 ---
 
-# Task Tracker — {{AGENT_NAME}}'s iterative-work state
+# Task Tracker — {{AGENT_NAME}} (stub over the fleet-canonical core)
 
-**One board task per iterative thread/project** — an email thread you'll act on across turns, a
-feature-request doc you're working through, a multi-PR initiative. Single-turn one-offs don't
-need a task; the close-out summary covers them.
+1. **Resolve the installed canopy plugin and check freshness:**
+   ```bash
+   CANOPY=$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude/plugins/installed_plugins.json'))); print(d['plugins']['canopy@canopy'][0]['installPath'])")
+   bash "$CANOPY/scripts/canopy-update-check.sh"
+   ```
+   `UPGRADE_AVAILABLE` → tell the human and run `/canopy:update` BEFORE following a stale core.
+2. **Read `$CANOPY/agent-core/task-tracker.md`** and **follow it exactly**, bound to the
+   Identity below. Where it says `<slug>`/`<mailbox>`, use this Identity.
 
-## The vocabulary (echo conventions, fleet-wide)
-- **Title** — the outcome. **Next action** — the single concrete next step, *verb-first*.
-- **Status** — `suggested` ({{AGENT_NAME}} proposed it; a human validates) → `in_progress` →
-  `done` / `declined`. There is no "blocked": *waiting on a person* is expressed by **Assigned**.
-- **Owner** — the human stakeholder who owns the outcome — **never {{AGENT_NAME}}**.
-- **Assigned** — who the next action waits on: {{AGENT_NAME}}, or the person it's on (renders as
-  an amber "Waiting on X" on the board).
-- **Confidence** — `high` / `low`, for suggested items (how sure {{AGENT_NAME}} is).
-- **Due** — `YYYY-MM-DD`; past-due un-done tasks are flagged on the board.
-- **Links** — every stable artifact: the thread, the doc, PRs, the project folder. Working state
-  (item maps, dossiers, notes) hangs off the task via links — NOT committed into target repos.
+## Identity
+- Name: **{{AGENT_NAME}}** · slug: `{{AGENT_SLUG}}` · mailbox: `{{MAILBOX}}`
+- Board: `/agents/{{AGENT_SLUG}}` · Drive folder id env: `{{AGENT_SLUG}}_DRIVE_FOLDER_ID`
 
-The board groups by **who has the ball**: Suggested · Waiting on a human · {{AGENT_NAME}}
-working · Done.
-
-## Verbs (installed canopy CLI — no bespoke script)
-```
-canopy agent add  --slug {{AGENT_SLUG}} --title "…" --next-action "…" \\
-    --status in_progress --owner <human> --assigned {{AGENT_NAME}} \\
-    --links "Thread|https://…, Doc|https://…"          # create (auto T<N>)
-canopy agent set  --slug {{AGENT_SLUG}} --task-id <id> \\
-    --rationale "why" --plan "first steps" --source-url <url>   # store context — never re-derive
-canopy agent tasks --slug {{AGENT_SLUG}}                # read the board (JSON)
-canopy agent commands --slug {{AGENT_SLUG}}             # drain queued human actions each turn
-canopy agent apply --slug {{AGENT_SLUG}} --id <N> --note "what I did"
-```
-
-## Acting on board commands (the canopy-web DB is the source of truth)
-The board at `/agents/{{AGENT_SLUG}}` is a **control surface**: a human can Accept a suggested
-task, Decline it (with a reason), or Dispatch ("do this now") — each queues a command
-{{AGENT_NAME}} drains. **At the start of every turn, check the queue:**
-```
-canopy agent commands --slug {{AGENT_SLUG}}      # list actions queued for {{AGENT_NAME}}
-# ... do the work (under the normal guardrails — outbound actions still need approval) ...
-canopy agent apply --slug {{AGENT_SLUG}} --id <N> --note "what I did"   # mark it handled
-```
-- **Accept** already flipped the task to in_progress / assigned {{AGENT_NAME}}; the queued
-  command means "go do it."
-- **Dispatch** ("do this now") is the same — just act and apply.
-When {{AGENT_NAME}} *suggests* a task, store the context immediately (`set` — rationale, plan,
-source url) so it is never re-derived later.
-
-## Project folder per work item (so links are clean)
-When taking on a work item that produces deliverables, give it a **Drive project folder** and
-keep its deliverables there, so the tracker links to one stable place instead of a loose doc:
-```
-gog drive mkdir "<Work item>" --parent "$PARENT_FOLDER_ID" --account {{MAILBOX}} --client canopy
-gog drive move <docId> --parent <projectFolderId> --account {{MAILBOX}} --client canopy
-```
-Put the **folder** link in the task's Links (gdoc deliverables get created in / moved into it).
-Keep {{AGENT_NAME}}'s Drive parent-folder id in the worktree-clean global `.env`
-(`~/.{{AGENT_SLUG}}/.env`, read via `bin/_env.py`) — e.g. `{{AGENT_SLUG}}_DRIVE_FOLDER_ID`.
-
-## When to use (turn-loop wiring)
-- **Start of every turn:** drain `commands` → act → `apply`. The board is a trigger surface
-  alongside the inbox.
-- **Taking on multi-turn work:** create the task (status `in_progress` if a human asked for it,
-  `suggested` if {{AGENT_NAME}} is proposing it), immediately `set` rationale + plan + links,
-  and give it a **project folder** whose link goes in Links.
-- **During work:** keep **Next action** current — it is the card headline a human scans.
-- **Close of turn:** package every turn that advanced a task —
-  `canopy agent turn --slug {{AGENT_SLUG}} --title "…" --task <ext_id> --work-product-url <url>`.
-  This builds the per-task history spine: which turn did what, with which deliverables.
+## {{AGENT_NAME}}-local notes (the ONLY hand-edited section — fleet-process changes go to canopy)
+- (none yet)
 '''
 
 _TEMPLATES: dict[str, str] = {
