@@ -166,20 +166,54 @@ def agent_commands(slug):
               help="Agent repo root (default: cwd). Identity from its config/agent.json.")
 @click.option("--slug", "slug", default="",
               help="Agent slug — locate its local repo instead of --repo.")
+@click.option("--all", "all_agents", is_flag=True,
+              help="Run across EVERY discovered agent in the fleet (ignores --repo/--slug).")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def agent_doctor(repo, slug, as_json):
-    """Diagnose ONE agent's operational readiness on THIS machine.
+def agent_doctor(repo, slug, all_agents, as_json):
+    """Diagnose ONE agent's operational readiness on THIS machine (or the whole fleet with --all).
 
     Read-only composition of the existing point-checks: identity
     (config/agent.json), gating rails, secrets manifest (provisionable),
     live gog email auth, canopy-web registration + board. Exits non-zero
     if any check fails. `canopy doctor` covers the plugin install; this
-    covers the agent.
+    covers the agent. `--all` sweeps every discovered agent and exits
+    non-zero if ANY agent has a failing check — the fleet readiness gate
+    that complements `canopy fleet-align` (which checks shared-artifact drift).
     """
     from pathlib import Path
 
     from orchestrator.agent_doctor import run_agent_doctor
     from orchestrator.agent_email import AgentEmailError, find_agent_repo
+
+    if all_agents:
+        from orchestrator.fleet_align import discover_agents
+        fleet = []
+        for a in sorted(discover_agents(), key=lambda x: x.slug):
+            results, ok = run_agent_doctor(a.path)
+            fleet.append((a.slug, str(a.path), results, ok))
+        any_fail = any(not ok for *_, ok in fleet)
+        if as_json:
+            click.echo(json.dumps({
+                "ok": not any_fail,
+                "agents": [
+                    {"slug": s, "repo": p, "ok": ok,
+                     "checks": [r.to_dict() for r in rs]}
+                    for s, p, rs, ok in fleet
+                ],
+            }, indent=2))
+        else:
+            for s, p, rs, ok in fleet:
+                click.echo(f"[{'OK  ' if ok else 'FAIL'}] {s}")
+                for r in rs:
+                    if not r.ok:
+                        click.echo(f"         - {r.name}: {r.detail}")
+            click.echo()
+            n_fail = sum(1 for *_, ok in fleet if not ok)
+            click.echo(f"{n_fail}/{len(fleet)} agent(s) have failing checks — fix above."
+                       if any_fail else f"All {len(fleet)} agent(s) ready on this machine.")
+        if any_fail:
+            raise SystemExit(1)
+        return
 
     try:
         repo_dir = Path(repo) if repo else (find_agent_repo(slug) if slug else Path.cwd())
@@ -241,5 +275,89 @@ def agent_set(slug, task_id, **fields):
     """Patch a task (store rationale/source/plan/status/…)."""
     try:
         _emit(_client(slug).patch_task(task_id, **fields))
+    except (CanopyError, RuntimeError) as e:
+        raise click.ClickException(str(e))
+
+
+def normalize_task_status(s):
+    """Human text ("In progress") AND canonical tokens ("in_progress") → the board's vocabulary.
+
+    "blocked"/"waiting" are not a status — waiting on a person is expressed by `assigned`
+    being that person; such items are still in progress on the outcome.
+    """
+    s = (s or "").strip().lower().replace("-", " ").replace("_", " ")
+    if s in ("done", "complete", "completed", "shipped", "closed"):
+        return "done"
+    if s in ("declined", "rejected", "dropped", "wontfix", "won't do", "cancelled", "canceled"):
+        return "declined"
+    if s in ("in progress", "doing", "wip", "active", "started", "ongoing",
+             "blocked", "waiting", "on hold", "hold", "stuck"):
+        return "in_progress"
+    return "suggested"
+
+
+def parse_task_links(cell):
+    """`"label|url, label2|url2"` → [{label, url}, …]; bare http urls get label "link"."""
+    out = []
+    for part in (cell or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "|" in part:
+            label, url = part.split("|", 1)
+            out.append({"label": label.strip()[:200], "url": url.strip()[:500]})
+        elif part.startswith("http"):
+            out.append({"label": "link", "url": part[:500]})
+    return out
+
+
+def next_task_ext_id(tasks):
+    """Next free T<N> given the board's current tasks, so adds don't collide."""
+    import re
+
+    mx = 0
+    for t in tasks or []:
+        m = re.match(r"^T(\d+)$", str(t.get("ext_id") or "").strip())
+        if m:
+            mx = max(mx, int(m.group(1)))
+    return f"T{mx + 1}"
+
+
+@agent.command("add")
+@click.option("--slug", required=True)
+@click.option("--title", required=True)
+@click.option("--ext-id", default=None, help="Stable id (default: next free T<N> from the board).")
+@click.option("--next-action", default="", help="The single concrete next step, verb-first.")
+@click.option("--status", default="suggested",
+              help="suggested (default) / in_progress / done / declined — human synonyms accepted.")
+@click.option("--owner", default="", help="The human stakeholder who owns the outcome — never the agent.")
+@click.option("--assigned", default="", help="Who the next action waits on (the agent, or a person).")
+@click.option("--confidence", default="", help="high / low, for suggested items.")
+@click.option("--due", default=None, help="YYYY-MM-DD.")
+@click.option("--links", default="", help='"label|url, label2|url2" (bare urls OK).')
+@click.option("--notes", default="")
+def agent_add(slug, title, ext_id, next_action, status, owner, assigned, confidence, due, links, notes):
+    """Create ONE task on the board (upsert via tasks/sync; auto-assigns the next T<N>)."""
+    import re
+
+    conf = confidence.strip().lower()
+    due = (due or "").strip()
+    try:
+        client = _client(slug)
+        task = {
+            "ext_id": (ext_id or next_task_ext_id(client.list_tasks()))[:64],
+            "title": title.strip()[:300],
+            "next_action": next_action.strip()[:300],
+            "status": normalize_task_status(status),
+            "owner": owner.strip()[:120],
+            "assigned": assigned.strip()[:120],
+            "confidence": conf if conf in ("high", "low") else "",
+            "due": due if re.match(r"^\d{4}-\d{2}-\d{2}$", due) else None,
+            "links": parse_task_links(links),
+            "notes": notes.strip(),
+            "source": "task-tracker",
+        }
+        result = client.sync_tasks([task])
+        _emit({"added": task["ext_id"], "result": result})
     except (CanopyError, RuntimeError) as e:
         raise click.ClickException(str(e))

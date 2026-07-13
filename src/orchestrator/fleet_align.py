@@ -42,16 +42,40 @@ DEFAULT_BASES = (
     Path.home() / "emdash-projects",
 )
 
-# Shared-artifact taxonomy. `template_attr` names the factory template string on agent_factory
-# (None = no template baseline, compare peers only). `kind` picks the extractor.
-ARTIFACTS = (
-    ("turn", Path("skills") / "turn" / "SKILL.md", "_TURN_SKILL", "skill"),
-    ("self-review", Path("skills") / "self-review" / "SKILL.md", "_SELF_REVIEW_SKILL", "skill"),
-    ("gating", Path("config") / "gating.json", "_GATING_JSON", "gating"),
-)
+_SKILL_RELPATH = re.compile(r"skills/([^/]+)/SKILL\.md")
+
+
+def _artifacts() -> tuple:
+    """Shared-artifact taxonomy: `(name, relpath, kind)`.
+
+    Skill artifacts are DERIVED from the factory's stamp table (`agent_factory._TEMPLATES`) rather
+    than hardcoded — so a newly-stamped shared skill (e.g. `task-tracker`, added 2026-07-09) is
+    auto-covered and can never silently go un-checked. Gating is added explicitly (different
+    extractor). The template TEXT is looked up at call time (`_template_text`) so it always reflects
+    the current factory. `kind` picks the extractor at compare time.
+    """
+    arts = [(m.group(1), Path(relpath), "skill")
+            for relpath in getattr(agent_factory, "_TEMPLATES", {})
+            if (m := _SKILL_RELPATH.fullmatch(relpath))]
+    arts.append(("gating", Path("config") / "gating.json", "gating"))
+    return tuple(arts)
+
+
+def _template_text(relpath, kind):
+    """The current factory template text for an artifact (call-time, so it tracks the factory)."""
+    if kind == "gating":
+        return getattr(agent_factory, "_GATING_JSON", None)
+    return getattr(agent_factory, "_TEMPLATES", {}).get(str(relpath))
+
+
+ARTIFACTS = _artifacts()
 
 _NUM_STEP = re.compile(r"^\s*\d+\.\s+\*\*(.+?)\*\*", re.M)  # "1. **Re-read the request.** ..."
 _HEADING = re.compile(r"^\s*#{2,}\s+(.+?)\s*$", re.M)        # "## Step 2 — process inbound"
+# Step headings carry a NUMBER ("Step 4 — close the turn") that differs across agents whenever one
+# inserts an extra step — so "close the turn" at Step 4 vs Step 5 must NOT read as a diff. Strip the
+# "Step <N> —/:/." lead-in and compare the semantic remainder.
+_STEP_PREFIX = re.compile(r"^step\s+\d+\s*[—:.\-]*\s*", re.I)
 _PLACEHOLDER = re.compile(r"\{\{\s*AGENT[_A-Z]*\s*\}\}", re.I)
 _WS = re.compile(r"\s+")
 _DIVERGENT_OVERLAP = 0.40  # below this fraction of template markers shared → different lineage
@@ -113,6 +137,55 @@ def discover_agents(bases=DEFAULT_BASES, extra_repos=()) -> list[Agent]:
     return list(seen.values())
 
 
+def _git(path, *args) -> tuple[int, str]:
+    try:
+        r = subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True, timeout=10)
+        return r.returncode, r.stdout.strip()
+    except Exception:
+        return 1, ""
+
+
+def checkout_warnings(bases=DEFAULT_BASES, extra_repos=()) -> list[str]:
+    """Offline checkout-drift check (local refs only — never fetches): a repo whose origin
+    default branch carries the agent marker but whose WORKING TREE is on another branch or
+    behind it is stale — or entirely invisible — to discovery, with no error. This is the
+    failure mode that hid ACE (2026-07-13: primary checkout parked on a feature branch 621
+    commits behind main → "Fleet (3)")."""
+    warnings: list[str] = []
+    candidates: list[Path] = []
+    for base in bases:
+        base = Path(base)
+        if base.is_dir():
+            candidates.extend(sorted(p for p in base.iterdir() if p.is_dir()))
+    candidates.extend(Path(r) for r in extra_repos)
+    seen: set[str] = set()
+    for path in candidates:
+        if path.name in seen or not (path / ".git").exists():
+            continue
+        seen.add(path.name)
+        default = next((ref for ref in ("origin/main", "origin/master")
+                        if _git(path, "rev-parse", "--verify", "--quiet", ref)[0] == 0), None)
+        if default is None:
+            continue
+        if _git(path, "cat-file", "-e", f"{default}:{AGENT_MARKER.as_posix()}")[0] != 0:
+            continue  # not an agent on the origin default branch — irrelevant
+        _, branch = _git(path, "rev-parse", "--abbrev-ref", "HEAD")
+        rc, behind = _git(path, "rev-list", "--count", f"HEAD..{default}")
+        behind_n = int(behind) if rc == 0 and behind.isdigit() else 0
+        default_name = default.split("/", 1)[1]
+        if branch == default_name and not behind_n:
+            continue
+        state = f"on branch {branch!r}" if branch != default_name else f"on {default_name}"
+        if behind_n:
+            state += f", {behind_n} commit(s) behind {default}"
+        warnings.append(
+            f"{path.name}: agent exists on {default} but the checkout is {state} — fleet-align "
+            f"reads the working tree, so this agent is stale or invisible here. Fix: "
+            f"git -C {path} checkout {default_name} && git -C {path} pull --ff-only"
+        )
+    return warnings
+
+
 # ── marker extraction ───────────────────────────────────────────────────────
 
 def _identity_tokens(agent: Agent) -> list[str]:
@@ -145,7 +218,7 @@ def extract_skill_markers(text: str, tokens: list[str]) -> set[str]:
     for m in _NUM_STEP.findall(text):
         out.add(_norm(m, tokens))
     for h in _HEADING.findall(text):
-        n = _norm(h, tokens)
+        n = _STEP_PREFIX.sub("", _norm(h, tokens))  # number-agnostic: "step 4 — close" -> "close"
         if n and n != "<agent>":
             out.add("§" + n)
     return {m for m in out if m}
@@ -166,8 +239,8 @@ def extract_gating(text: str) -> dict:
 def load_template_baseline() -> dict:
     """The current factory templates, extracted straight from agent_factory (ground truth)."""
     base = {}
-    for name, _relpath, attr, kind in ARTIFACTS:
-        text = getattr(agent_factory, attr, None)
+    for name, relpath, kind in ARTIFACTS:
+        text = _template_text(relpath, kind)
         if text is None:
             continue
         if kind == "skill":
@@ -237,6 +310,26 @@ def _compare_skill(name, agents, template_markers, per_agent) -> list[Finding]:
     return findings
 
 
+_RAIL_TOKEN = re.compile(r"[a-z][a-z0-9_-]+")
+
+
+def _rail_tokens(pattern: str) -> frozenset:
+    """A deny pattern's command signature: the literal word tokens, regex syntax stripped."""
+    return frozenset(_RAIL_TOKEN.findall(pattern.lower()))
+
+
+def _rail_covered(tmpl_pattern: str, agent_patterns) -> bool:
+    """A template deny rail counts as PRESENT when some agent rail targets the same command —
+    exact match, or the template's token signature is a subset of an agent pattern's. A
+    deliberately SCOPED variant (e.g. ACE narrowing the raw-gog-send rail to its own identity
+    because its hook fires machine-wide) is coverage, not absence — flagging it every cycle is
+    the re-flag noise fleet-align's own discipline says to drop."""
+    want = _rail_tokens(tmpl_pattern)
+    if not want:
+        return tmpl_pattern in set(agent_patterns)
+    return any(want <= _rail_tokens(p) for p in agent_patterns)
+
+
 def _compare_gating(name, agents, template_g, per_agent) -> list[Finding]:
     findings: list[Finding] = []
     tmpl_deny = template_g.get("deny", set())
@@ -252,7 +345,8 @@ def _compare_gating(name, agents, template_g, per_agent) -> list[Finding]:
     # missing template deny rails
     missing_groups: dict[frozenset, list[str]] = {}
     for a in agents:
-        missing = tmpl_deny - per_agent[a.slug].get("deny", set())
+        agent_deny = per_agent[a.slug].get("deny", set())
+        missing = {t for t in tmpl_deny if not _rail_covered(t, agent_deny)}
         if missing:
             missing_groups.setdefault(frozenset(missing), []).append(a.slug)
     for missing, slugs in missing_groups.items():
@@ -270,8 +364,21 @@ def analyze(agents: list[Agent], baseline: Optional[dict] = None) -> list[Findin
     if baseline is None:
         baseline = load_template_baseline()
     findings: list[Finding] = []
-    for name, relpath, _attr, kind in ARTIFACTS:
+    for name, relpath, kind in ARTIFACTS:
         present = [a for a in agents if (a.path / relpath).is_file()]
+        # A factory-marked agent LACKING a template-stamped skill entirely (not just drifted) —
+        # e.g. eva predating task-tracker — is a distribute laggard the marker-diff can't see (it
+        # only compares agents that HAVE the file). Flag the whole-skill gap explicitly.
+        if kind == "skill" and _template_text(relpath, kind):
+            absent = sorted(a.slug for a in agents
+                            if a.factory_marked and not (a.path / relpath).is_file())
+            if absent:
+                findings.append(Finding(
+                    kind="distribute", artifact=name, reference="canopy-template", laggards=absent,
+                    summary=f"{name}: {len(absent)} agent(s) missing the whole skill (stamped by the factory)",
+                    detail=[f"add skills/{name}/SKILL.md (factory template)"],
+                    note="The agent predates this shared skill being added to the factory; stamp it in.",
+                ))
         if not present:
             continue
         if kind == "skill":
@@ -315,7 +422,7 @@ _EVIDENCE_PROBES = (
 # "this isn't theoretical, echo runs it constantly" strengthens a PROMOTE far more than the mere
 # absence of it elsewhere. Keyed by artifact; searched in the reference/divergent agent's sessions.
 _SOURCE_PROBES = {
-    "self-review": (re.compile(r"(?i)\bself[- ]?review\b|\bfaithfulness\b|re-?read the (?:original|request)|\brate it\b|extract each (?:discrete )?ask"), "source actively runs this self-review discipline"),
+    "agent-turn-review": (re.compile(r"(?i)\b(?:agent[- ]?turn[- ]?review|self[- ]?review)\b|\bfaithfulness\b|re-?read the (?:original|request)|\brate it\b|grounded commitment|extract each (?:discrete )?ask"), "source actively runs this turn-review discipline"),
     "turn": (re.compile(r"(?i)skill[- ]?(?:development )?self[- ]?check|(?:create or improve|repeat(?:ed)? .* by hand).{0,20}skill"), "source actively runs this turn discipline"),
 }
 
@@ -528,8 +635,8 @@ def change_brief(finding: Finding) -> Optional[dict]:
     art = next((a for a in ARTIFACTS if a[0] == finding.artifact), None)
     if not art:
         return None
-    _name, relpath, attr, kind = art
-    text = getattr(agent_factory, attr, None)
+    _name, relpath, kind = art
+    text = _template_text(relpath, kind)
     if text is None:
         return None
     add_reference, remove_hint = [], None

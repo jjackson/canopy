@@ -23,9 +23,11 @@ Three subcommands:
 - `preflight` — gog auth liveness for the agent's client, with the exact `gog login …`
   remediation (and the API-not-enabled self-heal echo's preflight learned the hard way).
 
-Identity is per-agent and never shared: one mailbox + one gog client per agent
-(`credentials-<client>.json` in the gogcli config dir) — reusing another agent's client
-is the session/thread identity bleed the fleet was built to avoid.
+Two identities, and only ONE of them is per-agent. The gog *client* (`credentials-<client>.json`)
+is the APP identity — client_id + client_secret, "which app asks Google for access" — and it is a
+SHARED fleet app (`canopy`), reused by every agent's mailbox. The per-agent, never-shared identity
+is the *mailbox* (`--account`): the session/thread identity bleed the fleet was built to avoid is
+acting as another agent's MAILBOX, which is governed by --account, not the client.
 """
 from __future__ import annotations
 
@@ -44,13 +46,80 @@ import click
 from orchestrator.agent_web import AgentWebError, resolve_identity
 from orchestrator.repo_paths import resolve_repo_path
 
-GOG_CONFIG_DIR = os.path.expanduser("~/Library/Application Support/gogcli")
+# The installed `canopy` CLI is a uv tool — it does NOT pick up merges to main until
+# someone reruns `uv tool install --reinstall`. That gap once shipped a stale-engine
+# email (2026-07-10: the no-forced-font fix was merged and in the plugin cache, but the
+# lagging installed engine still sent Arial). Before any send, refuse when the RUNNING
+# engine is OLDER than the marketplace clone — merged email fixes exist that this
+# process doesn't have. A dev checkout running AHEAD of the clone is fine.
+MARKETPLACE_CLONE = Path.home() / ".claude/plugins/marketplaces/canopy"
+
+
+def _version_tuple(v: str) -> tuple[int, ...]:
+    parts = []
+    for p in v.split("."):
+        m = re.match(r"\d+", p)
+        parts.append(int(m.group(0)) if m else 0)
+    return tuple(parts)
+
+
+def engine_staleness_error(clone_dir: Path | None = None) -> str | None:
+    """Refusal message when the running engine lags the marketplace clone, else None.
+
+    None also when the check can't resolve (no clone, no dist metadata) or when
+    CANOPY_EMAIL_SKIP_ENGINE_CHECK=1 — the guard is best-effort and must never
+    brick sending on machines without a plugin install.
+    """
+    if os.environ.get("CANOPY_EMAIL_SKIP_ENGINE_CHECK") == "1":
+        return None
+    clone = clone_dir or MARKETPLACE_CLONE
+    try:
+        clone_text = (clone / "pyproject.toml").read_text()
+    except OSError:
+        return None
+    m = re.search(r'^version\s*=\s*"([^"]+)"', clone_text, re.M)
+    if not m:
+        return None
+    clone_v = m.group(1)
+    try:
+        from importlib.metadata import version
+
+        running_v = version("canopy")
+    except Exception:
+        return None
+    if _version_tuple(running_v) >= _version_tuple(clone_v):
+        return None
+    return (
+        f"installed canopy engine v{running_v} lags the marketplace clone v{clone_v} — "
+        f"merged email fixes may not be in this process. "
+        f"Fix: (cd {clone} && git pull) && uv tool install --reinstall {clone} "
+        f"(bypass: CANOPY_EMAIL_SKIP_ENGINE_CHECK=1)"
+    )
+
+
+def _default_gog_config_dir() -> str:
+    """Mirror gog's own resolution so canopy finds the dir gog writes to:
+    $GOG_HOME override, else macOS ~/Library/Application Support/gogcli,
+    else XDG ~/.config/gogcli. Hardcoding the macOS path broke headless Linux."""
+    home = os.environ.get("GOG_HOME")
+    if home:
+        return os.path.expanduser(home)
+    if sys.platform == "darwin":
+        return os.path.expanduser("~/Library/Application Support/gogcli")
+    xdg = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(xdg, "gogcli")
+
+
+GOG_CONFIG_DIR = _default_gog_config_dir()
 # Every Google surface a turn commonly touches — one login covers them all, so an
 # agent doesn't re-consent per service. gmail is the only one THIS engine needs.
 LOGIN_SERVICES = "gmail,drive,docs,sheets,forms"
 
 LIST_RE = re.compile(r"^\s*([-*+]|\d+\.)\s+")
 URL_RE = re.compile(r"(https?://[^\s<>()]+)")
+# Markdown-style inline link: [display text](https://url) — lets agents write a
+# clean anchor label instead of pasting a raw URL into outbound mail.
+MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
 
 
 class AgentEmailError(Exception):
@@ -62,6 +131,7 @@ class EmailIdentity:
     slug: str        # agent slug, e.g. "hal"
     account: str     # mailbox, e.g. hal@dimagi-ai.com
     client: str      # gog client name (credentials-<client>.json), usually == slug
+    repo: Path | None = None  # agent repo root — lets preflight read config/secrets.yaml
 
 
 def resolve_email_identity(repo_dir: Path) -> EmailIdentity:
@@ -81,7 +151,8 @@ def resolve_email_identity(repo_dir: Path) -> EmailIdentity:
             f"{Path(repo_dir) / 'config' / 'agent.json'}"
         )
     client = (ident.get("gog_client") or "").strip() or ident["slug"]
-    return EmailIdentity(slug=ident["slug"], account=account, client=client)
+    return EmailIdentity(slug=ident["slug"], account=account, client=client,
+                         repo=Path(repo_dir))
 
 
 def find_agent_repo(slug: str) -> Path:
@@ -127,26 +198,86 @@ def normalize(text: str) -> str:
     return "\n".join(collapsed).strip() + "\n"
 
 
-def _linkify(escaped: str) -> str:
+def _autolink(escaped: str) -> str:
     return URL_RE.sub(lambda m: f'<a href="{m.group(1)}">{m.group(1)}</a>', escaped)
 
 
+def _linkify(escaped: str) -> str:
+    """Turn links clickable. Markdown `[text](url)` becomes an anchor with clean
+    display text; bare URLs elsewhere are still auto-linked (shown as the URL).
+    Runs on already-HTML-escaped text — the `[...](...)` literals survive escaping.
+    Bare URLs inside a markdown link's target are not re-linked (we only autolink
+    the segments between markdown matches)."""
+    out: list[str] = []
+    last = 0
+    for m in MD_LINK_RE.finditer(escaped):
+        out.append(_autolink(escaped[last:m.start()]))
+        text, url = m.group(1), m.group(2)
+        out.append(f'<a href="{url}">{text}</a>')
+        last = m.end()
+    out.append(_autolink(escaped[last:]))
+    return "".join(out)
+
+
+def _list_kind(line: str) -> str | None:
+    """'ol' for a numbered item (`1.`), 'ul' for a bullet (`- * +`), None if not a list line."""
+    m = LIST_RE.match(line)
+    if not m:
+        return None
+    return "ol" if m.group(1).rstrip().endswith(".") else "ul"
+
+
 def to_html(plain: str) -> str:
-    blocks = re.split(r"\n\s*\n", plain.strip())
-    parts = []
-    for b in blocks:
-        lines = [l for l in b.split("\n") if l.strip()]
-        if lines and all(LIST_RE.match(l) for l in lines):
-            lis = "".join(
-                f"<li>{_linkify(html.escape(LIST_RE.sub('', l).strip(), quote=False))}</li>"
-                for l in lines
-            )
-            parts.append(f"<ul>{lis}</ul>")
-        else:
-            text = " ".join(l.strip() for l in lines)
+    """Markdown-ish plain text -> minimal HTML. Numbered lines become <ol> (numbers preserved),
+    bullets become <ul>; a run of same-kind items coalesces into ONE list even across blank lines
+    (canopy #291 — numbered lists were losing their numbers and runs were fragmenting into many
+    single-item lists)."""
+    lines = plain.strip().split("\n")
+    parts: list[str] = []
+    para: list[str] = []
+
+    def flush_para():
+        if para:
+            text = " ".join(l.strip() for l in para)
             parts.append(f"<p>{_linkify(html.escape(text, quote=False))}</p>")
-    return ('<html><body style="font-family:Arial,Helvetica,sans-serif;'
-            'font-size:14px;line-height:1.5;color:#222">' + "".join(parts) + "</body></html>")
+            para.clear()
+
+    i, n = 0, len(lines)
+    while i < n:
+        kind = _list_kind(lines[i])
+        if kind:
+            flush_para()
+            items: list[str] = []
+            while i < n:
+                if _list_kind(lines[i]) == kind:
+                    items.append(LIST_RE.sub("", lines[i]).strip())
+                    i += 1
+                elif not lines[i].strip():
+                    # blank line: only stays in the list if a same-kind item follows
+                    j = i
+                    while j < n and not lines[j].strip():
+                        j += 1
+                    if j < n and _list_kind(lines[j]) == kind:
+                        i = j
+                    else:
+                        break
+                else:
+                    break
+            lis = "".join(
+                f"<li>{_linkify(html.escape(it, quote=False))}</li>" for it in items
+            )
+            parts.append(f"<{kind}>{lis}</{kind}>")
+        elif not lines[i].strip():
+            flush_para()
+            i += 1
+        else:
+            para.append(lines[i])
+            i += 1
+    flush_para()
+    # No font-family / size / color override: let the mail client render in its own
+    # default (e.g. Gmail's default sans) so the message reads as a native reply,
+    # not a styled-looking blast (Jonathan's pet peeve, 2026-07-08).
+    return "<html><body>" + "".join(parts) + "</body></html>"
 
 
 # --------------------------------------------------------------------------------------
@@ -317,6 +448,48 @@ def derive_reply_all(
     return sender_email, ", ".join(cc), msg.get("id") or (message_id or "")
 
 
+def dropped_participants(
+    identity: EmailIdentity,
+    *,
+    message_id: str | None = None,
+    thread_id: str | None = None,
+    to: str | None,
+    cc: str | None,
+    runner=subprocess.run,
+) -> list[str]:
+    """Thread participants a manual-recipient reply would DROP (best-effort).
+
+    A reply sent with explicit --to into an existing thread silently narrows the
+    audience — the exact failure that hit hal on 2026-07-10 (an answer on a
+    4-person thread went to one person; the item's owner never saw it). This
+    computes what reply-all WOULD target (latest non-self message's sender +
+    To/Cc, via derive_reply_all) minus the agent itself and the chosen To/Cc.
+
+    Best-effort by design: any read/parse failure returns [] rather than
+    blocking a send the agent may legitimately need to make — the caller turns
+    a NON-EMPTY result into a refusal, so only a confirmed drop blocks.
+    """
+    try:
+        tid = thread_id
+        if not tid and message_id:
+            r = runner(
+                ["gog", "gmail", "get", message_id, "--account", identity.account,
+                 "--client", identity.client, "--json"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if r.returncode != 0:
+                return []
+            tid = json.loads(r.stdout).get("message", {}).get("threadId")
+        if not tid:
+            return []
+        d_to, d_cc, _ = derive_reply_all(identity, thread_id=tid, runner=runner)
+    except Exception:
+        return []
+    split = lambda s: {a.strip().lower() for a in (s or "").split(",") if a.strip()}
+    participants = (split(d_to) | split(d_cc)) - {identity.account.lower()}
+    return sorted(participants - split(to) - split(cc))
+
+
 # --------------------------------------------------------------------------------------
 # mark-read
 # --------------------------------------------------------------------------------------
@@ -386,6 +559,60 @@ def _oauth_remedy(identity: EmailIdentity, stderr: str) -> list[str] | None:
     return lines
 
 
+def _provision_remedy(identity: EmailIdentity, creds: str) -> list[str] | None:
+    """Route the missing-client fix through the DECLARATIVE path when the agent's repo
+    declares this gog client in `config/secrets.yaml`.
+
+    The manual "copy the JSON into place" instruction is the fallback of last resort — an
+    agent that declares its client for provisioning (hal is the reference) should never be
+    told to hand-shuffle keys. This helper distinguishes the three real failure modes the
+    old message collapsed into one:
+      * declared, but the 1Password item doesn't resolve  -> vault it, THEN provision
+      * declared and resolvable, just not materialized here -> run `canopy provision`
+      * not declared at all                                -> None (caller's manual fallback)
+    Returns remediation lines, or None to fall back.
+    """
+    repo = getattr(identity, "repo", None)
+    if repo is None:
+        return None
+    try:
+        from orchestrator import provision as _provision
+    except ImportError:
+        return None
+    try:
+        secrets = _provision.load_manifest(Path(repo))
+    except Exception:
+        return None
+    want = os.path.basename(creds)  # credentials-<client>.json
+    match = next(
+        (s for s in secrets
+         if os.path.basename(_provision.resolve_target(s.target, Path(repo))) == want),
+        None,
+    )
+    if match is None:
+        return None
+    prov_cmd = f"canopy provision --repo {repo}"
+    try:
+        _provision._op_read(match.op_ref)
+    except Exception as e:
+        # The item isn't in 1Password (missing or misnamed) — the true blocker.
+        return [
+            f"FIX: the `{identity.client}` gog OAuth client isn't in 1Password yet: {match.op_ref}",
+            f"     This is the SHARED fleet app (client_id + client_secret), minted ONCE for all "
+            "agents — not a per-agent client.",
+            f"     Vault the client JSON at that ref, then materialize it: {prov_cmd}",
+            f"     ({str(e).splitlines()[0][:140] if str(e) else 'op read failed'})",
+        ]
+    # The item resolves — it just hasn't been written to this machine.
+    login_cmd = (f"gog login {identity.account} --client {identity.client} "
+                 f"--services {LOGIN_SERVICES}")
+    return [
+        f"FIX: the `{identity.client}` gog client is in 1Password but not on this machine.",
+        f"     Materialize it: {prov_cmd}",
+        f"     Then consent {identity.slug}'s mailbox into it once (interactive): {login_cmd}",
+    ]
+
+
 def preflight(
     identity: EmailIdentity,
     *,
@@ -398,10 +625,14 @@ def preflight(
                  f"--services {LOGIN_SERVICES}")
     creds = os.path.join(gog_home, f"credentials-{identity.client}.json")
     if not os.path.exists(creds):
+        remedy = _provision_remedy(identity, creds)
+        if remedy:
+            return False, remedy
         return False, [
             f"FIX: gog `{identity.client}` client credentials missing: {creds}",
-            f"     Copy {identity.slug}'s OWN OAuth client JSON there (1Password AI-Agents).",
-            f"     Do NOT reuse another agent's client — identity bleed is the fleet's one hard rule.",
+            f"     This is the SHARED fleet OAuth client (client_id + client_secret), not per-agent.",
+            f"     Better: declare it in config/secrets.yaml so `canopy provision` places it.",
+            f"     Or copy the shared client JSON there from 1Password (AI-Agents).",
             f"     Then: {login_cmd}",
         ]
     cfg_path = os.path.join(gog_home, "config.json")
@@ -452,13 +683,14 @@ def _identity_from_opts(repo: str | None, agent: str | None,
                                  account=account, client=client or agent or account.split("@")[0])
         try:
             repo_dir = Path(repo) if repo else (find_agent_repo(agent) if agent else Path.cwd())
+            explicit.repo = repo_dir
             resolved = resolve_email_identity(repo_dir)
         except AgentEmailError:
             resolved = None
         if resolved and resolved.account.lower() != explicit.account.lower():
             sys.stderr.write(
                 f"WARNING: sending as {explicit.account} from {resolved.slug!r}'s repo "
-                f"(its identity is {resolved.account}). One mailbox + one client per agent "
+                f"(its identity is {resolved.account}). One mailbox per agent, never shared, "
                 "is the fleet's one hard rule — make sure this cross-identity send is "
                 "deliberate.\n"
             )
@@ -506,14 +738,22 @@ def email_group():
               help="Derive To (original sender) + Cc (everyone else on To+Cc) from JSON "
                    "headers — raw reads hide Cc and drop cc'd people. Pass --thread-id "
                    "(preferred) or --reply-to-message-id; explicit --cc is merged in.")
+@click.option("--narrow", is_flag=True,
+              help="Deliberately reply to FEWER people than are on the thread. Without "
+                   "this flag, a reply (--reply-to-message-id) whose To/Cc drops known "
+                   "thread participants is refused — reply-all is the default on "
+                   "existing threads.")
 @click.option("--dry-run", is_flag=True, help="Render plain + HTML bodies without sending.")
 def email_send(repo, agent, account, client, to, cc, subject, body_file,
-               reply_to_message_id, thread_id, reply_all, dry_run):
+               reply_to_message_id, thread_id, reply_all, narrow, dry_run):
     """Send an HTML multipart email as the agent (the fleet's ONLY send path).
 
     Emits JSON with message_id + thread_id — record thread_id into the agent's state
     layer (comms-log / contact-memory) so inbound triage can route the reply.
     """
+    stale = engine_staleness_error()
+    if stale:
+        raise click.ClickException(f"REFUSING to send — {stale}")
     if reply_all and not (thread_id or reply_to_message_id):
         raise click.ClickException("--reply-all requires --thread-id (preferred) or --reply-to-message-id")
     if thread_id and not reply_all:
@@ -522,6 +762,17 @@ def email_send(repo, agent, account, client, to, cc, subject, body_file,
         raise click.ClickException("--to is required (or pass --reply-all)")
     try:
         ident = _identity_from_opts(repo, agent, account, client)
+        if reply_to_message_id and not reply_all and not narrow:
+            dropped = dropped_participants(
+                ident, message_id=reply_to_message_id, to=to, cc=cc,
+            )
+            if dropped:
+                raise click.ClickException(
+                    "REFUSING narrow reply — this thread has participants missing from "
+                    f"To/Cc: {', '.join(dropped)}. Reply-all is the default on existing "
+                    "threads (--reply-all --thread-id <id>); pass --narrow to "
+                    "deliberately drop them."
+                )
         if reply_all:
             derived_to, derived_cc, derived_msg_id = derive_reply_all(
                 ident, thread_id=thread_id,
@@ -573,5 +824,9 @@ def email_preflight(repo, agent, account, client):
     ok, lines = preflight(ident)
     for line in lines:
         click.echo(line)
+    stale = engine_staleness_error()
+    if stale:
+        ok = False
+        click.echo(f"FIX: {stale}")
     if not ok:
         sys.exit(1)

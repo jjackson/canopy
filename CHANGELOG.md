@@ -9,7 +9,7 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
-## [0.2.265] - 2026-07-13
+## [0.2.276] - 2026-07-13
 
 ### Fixed
 - **`walkthrough-share` + `ddd-upload` follow canopy-web's token-gated walkthrough model**

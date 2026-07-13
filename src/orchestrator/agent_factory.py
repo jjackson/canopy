@@ -147,6 +147,32 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CONFIG = os.path.join(os.path.dirname(HERE), "config", "gating.json")
 
 
+def _baseline_rails(cfg):
+    """Fleet-baseline deny rails for this agent's mounted channels, from the INSTALLED canopy
+    plugin (agent-core/gating-baseline.json) — so a rail fix ships once and reaches every agent
+    via /canopy:update. Returns [] for legacy configs (no `channels` key: local rails only), or
+    None when channels are mounted but the baseline is unresolvable (caller fails CLOSED).
+    CANOPY_PLUGIN_DIR overrides the plugin dir (tests / unusual installs)."""
+    channels = cfg.get("channels")
+    if not channels:
+        return []
+    slug = cfg.get("slug") or os.path.basename(os.path.dirname(HERE))
+    try:
+        plugin_dir = os.environ.get("CANOPY_PLUGIN_DIR")
+        if not plugin_dir:
+            reg = json.load(open(os.path.expanduser("~/.claude/plugins/installed_plugins.json")))
+            plugin_dir = reg["plugins"]["canopy@canopy"][0]["installPath"]
+        base = json.load(open(os.path.join(plugin_dir, "agent-core", "gating-baseline.json")))
+    except Exception:
+        return None
+    rails = []
+    for ch in channels:
+        for rule in base.get("channels", {}).get(ch, []):
+            rails.append({k: (v.replace("{slug}", slug) if isinstance(v, str) else v)
+                          for k, v in rule.items()})
+    return rails
+
+
 def _subject(tool_name, tool_input):
     """The string a rule's pattern is tested against, per tool."""
     if not isinstance(tool_input, dict):
@@ -224,7 +250,17 @@ def main():
     subject = _subject(tool_name, data.get("tool_input"))
     cwd = data.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR", "")
 
-    for rule in cfg.get("deny", []):
+    baseline = _baseline_rails(cfg)
+    if baseline is None:
+        # channels are mounted but the fleet baseline is unreadable — fail CLOSED, with the fix.
+        sys.stderr.write(
+            "BLOCKED (fail closed): {{AGENT_SLUG}}'s config/gating.json mounts channels but the "
+            "canopy fleet gating baseline (agent-core/gating-baseline.json) is unreadable. "
+            "Fix: run /canopy:update (or `uv tool install canopy` / check "
+            "~/.claude/plugins/installed_plugins.json), then retry.\n")
+        sys.exit(2)
+
+    for rule in baseline + cfg.get("deny", []):
         if _matches(rule, tool_name, subject):
             msg = rule.get("message") or "BLOCKED by {{AGENT_SLUG}} gating policy (deny rule)."
             sys.stderr.write(msg.rstrip() + "\n")
@@ -250,19 +286,10 @@ if __name__ == "__main__":
 '''
 
 _GATING_JSON = '''{
-  "_doc": "Rails, not gates (docs/agent-operating-model.md §1a revision, Jon 2026-07-01; canopy docs/architecture/shared-gog-gdrive.md §4): hooks carry DENY rails only — make the wrong path impossible and name the right one, so {{AGENT_NAME}} self-corrects and keeps going at zero autonomy cost. `approve` stays EMPTY by default: a PreToolUse 'ask' is a blocking modal that stalls autonomous work and nags interactive sessions; approval semantics live in the procedural layer (skills/turn Step 2's 'present for approval'). Enforced by hooks/gating_guard.py: deny = hard block (exit 2). Patterns are regex tested against the Bash command, or the file_path for Edit/Write.",
-  "deny": [
-    {
-      "tool": "Bash",
-      "pattern": "(?:^|[\\\\n;&|(])\\\\s*gog\\\\s+gmail\\\\s+(send|reply)\\\\b",
-      "message": "BLOCKED: raw `gog gmail send/reply` bypasses {{AGENT_NAME}}'s HTML wrapper and thread_id capture. Send via bin/{{AGENT_SLUG}}-email (the shared canopy email engine) instead — write the body to a file and pass --body-file."
-    },
-    {
-      "tool": "Bash",
-      "pattern": "canopy\\\\s+email\\\\s+send\\\\b(?=[^\\\\n]*--account)",
-      "message": "BLOCKED: `canopy email send --account` overrides {{AGENT_NAME}}'s repo identity — one mailbox + one client per agent (identity bleed is the fleet's one hard rule). Send via bin/{{AGENT_SLUG}}-email, which pins this repo's identity."
-    }
-  ],
+  "_doc": "Rails, not gates (docs/agent-operating-model.md §1a revision, Jon 2026-07-01; canopy docs/architecture/shared-gog-gdrive.md §4): hooks carry DENY rails only — make the wrong path impossible and name the right one, so {{AGENT_NAME}} self-corrects and keeps going at zero autonomy cost. `channels` mounts the FLEET-BASELINE deny rails shipped in the installed canopy plugin (agent-core/gating-baseline.json) — hooks/gating_guard.py merges them in front of this file's own `deny` list at call time, so a baseline rail fix reaches every agent via /canopy:update. ADD-ONLY: this file can add rails; it can never remove a baseline one. `approve` stays EMPTY by default: a PreToolUse 'ask' is a blocking modal that stalls autonomous work; approval semantics live in the procedural layer (skills/turn Step 2's 'present for approval'). Patterns are regex tested against the Bash command, or the file_path for Edit/Write.",
+  "slug": "{{AGENT_SLUG}}",
+  "channels": ["email"],
+  "deny": [],
   "approve": []
 }
 '''
@@ -385,133 +412,57 @@ _TURN_SKILL = '''---
 name: turn
 description: >
   {{AGENT_NAME}}'s full turn-of-work orchestrator. Use when a human says "do a turn", "check your
-  inbox", or otherwise triggers {{AGENT_NAME}} to work. Sequences the whole turn: preflight →
-  process inbound (one counterpart at a time) → skill self-check → close-out. This is THE entry
-  point for a turn.
+  inbox", or otherwise triggers {{AGENT_NAME}} to work. The canonical procedure is fleet-wide and
+  lives in the installed canopy plugin (agent-core/turn.md); this stub binds it to {{AGENT_NAME}}'s
+  identity. THE entry point for a turn.
 ---
 
-# Turn — {{AGENT_NAME}}'s full turn of work
+# Turn — {{AGENT_NAME}} (stub over the fleet-canonical core)
 
-**Re-read this file at the start of every turn and follow it in order.** Running a turn from
-memory is how steps get dropped under load. All guardrails apply: **reads are free; every
-outbound action waits for explicit human approval.** Approval is PROCEDURAL — the gating hook
-carries deny rails only (it blocks wrong paths, it does not ask for you), so drafting-then-asking
-in Step 2 is the gate. There is no modal to catch you if you skip it.
+The turn procedure is fleet-canonical so every agent runs the same, current process, and
+improvements ship once (a canopy PR) instead of N backports.
 
-**Narrate as you go.** Before any multi-step or multi-repo investigation, state the plan in one
-sentence first ("checking threads A and B for X — back shortly"), then work, then report what you
-found. Never let a long silent stretch of tool calls build up — a human interrupting with "what
-are you doing?" means the turn's communication already failed.
+1. **Resolve the installed canopy plugin and check freshness:**
+   ```bash
+   CANOPY=$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude/plugins/installed_plugins.json'))); print(d['plugins']['canopy@canopy'][0]['installPath'])")
+   bash "$CANOPY/scripts/canopy-update-check.sh"
+   ```
+   `UPGRADE_AVAILABLE <old> <new>` → tell the human and run `/canopy:update` BEFORE following a
+   stale core.
+2. **Read `$CANOPY/agent-core/turn.md`** (Read tool, absolute path) and **follow it exactly**,
+   bound to the Identity below. Where it says `<slug>`, use this Identity.
 
-## Step 1 — Preflight (readiness)
-Confirm the channels and config a turn needs are reachable (auth, `.env`, any board PAT). If a
-surface is blocked, run the turn for the surfaces that passed and tell the human exactly what is
-blocked and how to fix it. Do not abort the whole turn for one blocker.
+## Identity
+- Name: **{{AGENT_NAME}}** · slug: `{{AGENT_SLUG}}` · mailbox: `{{MAILBOX}}`
+- Email shim: `bin/{{AGENT_SLUG}}-email` · board: `/agents/{{AGENT_SLUG}}`
 
-## Step 2 — Process inbound, one counterpart at a time
-For EACH inbound item in order: read it, check the sender against `config/allowlist.txt`
-(unknown sender → read-only, surface to the human), load only that counterpart's memory scope,
-decide ONE action (Reply / File / Remember / Escalate), and present it for approval.
-**Never reason about two counterparts in one step** — the cardinal rule.
-
-Before every outbound reply, run the `self-review` skill: re-read the original request, extract
-EACH discrete ask, confirm the draft does exactly that (read any source they cited; don't
-reconstruct from memory), then lead with what you DID + a recommendation + options.
-
-**Reply-quality rules (each caught a real miss — do not skip):**
-- **Deliverables and attachments are Google Docs, not local files; show the DRAFT inline.** A
-  substantial artifact (a script, a report, a plan) goes in a shared gdoc and the reply links it;
-  it does NOT get pasted as a wall of text into the email body, and it is NOT stashed in a local
-  `.txt` you point the human at. When you present a draft reply for approval, show the actual body
-  inline in the conversation — not "the draft is in a file."
-- **Decide-then-show, in one coherent order.** Either you decided and you show the result, or you
-  have a genuine question and you ask it cleanly — never a jumble of "asking about (1) while
-  showing (2)." Number your asks/items and keep the order consistent between what you ask and what
-  you present. Don't manufacture a decision out of a thread you've already classified as not
-  actionable.
-- **Verify recipients before sending.** Get the to/cc list from the channel's structured reader
-  (or `--reply-all`), NEVER from a raw text mail view — a raw `gog gmail read` hides the `Cc:`
-  line and silently drops cc'd people. Confirm reply-all vs. direct deliberately.
-
-**Email goes out ONLY via `bin/{{AGENT_SLUG}}-email`** (the shared canopy engine — HTML wrapper,
-reply threading; a deny rail blocks raw `gog gmail send`). Every send returns JSON with
-`thread_id` — **record it in {{AGENT_NAME}}'s state layer** so inbound triage can route the
-reply to the right scope. Auth flaky? `canopy email preflight --repo .` prints the exact fix.
-
-## Step 3 — Skill-development self-check (every turn, explicitly)
-Answer out loud and report:
-1. **Did I create or improve a skill this turn?** Name it.
-2. **Did I hand-repeat a multi-step pattern that SHOULD be a skill?** If so, build it now (or say
-   why it is genuinely one-off). Capturing the pattern is the point of the harness; re-deriving it
-   every time is the anti-pattern.
-
-## Step 4 — Close the turn
-Give the human ONE combined summary: per counterpart — proposed action, what was approved & done,
-what is parked; plus anything still blocked from preflight. Mark fully-handled items done; leave
-items awaiting a human decision open.
-
-Then refresh {{AGENT_NAME}}'s canopy-web workspace so `/agents/{{AGENT_SLUG}}` reflects this turn
-(the installed canopy plugin provides the shared client — no per-agent client to maintain):
-```
-canopy agent skills        # mirror the skill catalog (registers the agent if new)
-```
-If this turn produced a shareable deliverable, also `canopy agent work <items.json>`. The board at
-`/agents/{{AGENT_SLUG}}` is the shared trigger + approval surface — where teammates queue work and
-approve outbound actions.
-
-Then **package this turn** as a unit of work so `/agents/{{AGENT_SLUG}}` records what you did and
-ties it to the request(s) you advanced:
-```
-canopy agent turn --slug {{AGENT_SLUG}} --title "<what this turn did>" \
-  --task <ext_id> [--task <ext_id> …]      # the board task(s) this turn advanced
-  # --work-product-url <url> per deliverable produced this turn
-```
-**Optional transcript link (ASK FIRST):** uploading the transcript publishes to canopy-web — an
-outbound action — so it rides the same approval gate as a send. Only if the human says yes, append
-`--upload` (reduces THIS session to conversation-only, then hangs a `/share/<token>` link off the
-turn). Put that link in your close-out summary. Without `--upload`, the turn is still packaged
-(request → what you did → deliverables), just with no transcript.
-
-**CLOSE CHECKLIST — confirm each in the summary (these get silently skipped under load):**
-1. `self-review` ran on every outbound reply (Step 2).
-2. Skill-development self-check answered (Step 3).
-3. Workspace refreshed (`canopy agent skills` above).
-4. Turn packaged (`canopy agent turn …`); transcript uploaded ONLY if the human approved.
-
-**Shipping a skill change from a worktree** — emdash runs each turn in a worktree while `main` is
-checked out elsewhere, so `git checkout main` and `gh pr merge --delete-branch` FAIL ("main already
-checked out"). Instead: `gh pr merge <n> --squash`, then verify with `gh pr view <n> --json state`.
-
-## Related skills
-- `self-review` — gate every outbound reply against the original request before sending.
-- canopy plugin (installed alongside this agent) — `create-agent`, `agent-publish`, `improve`, and
-  the fleet self-improvement loop. {{AGENT_NAME}} has canopy's skills available; use them.
+## {{AGENT_NAME}}-local notes (the ONLY hand-edited section — fleet-process changes go to canopy)
+- (none yet)
 '''
 
-_SELF_REVIEW_SKILL = '''---
-name: self-review
+_AGENT_TURN_REVIEW_SKILL = '''---
+name: agent-turn-review
 description: >
-  Audit a drafted deliverable/reply against the ORIGINAL request before sending. Use before every
-  outbound action. Extract each discrete ask, confirm the deliverable does exactly that, fix gaps.
+  {{AGENT_NAME}}'s pre-send review — invokes the fleet-wide `canopy:agent-turn-review` discipline,
+  then adds {{AGENT_NAME}}'s specifics. Run before EVERY outbound reply / deliverable / PR.
 ---
 
-# Self-review — does the deliverable do what was actually asked?
+# Agent turn review ({{AGENT_NAME}})
 
-Run this before EVERY outbound action (it is the thing that gets dropped under load).
+Run before every outbound action (the thing that gets dropped under load). The general discipline
+is fleet-wide and DRY — **invoke `canopy:agent-turn-review`** and apply it in full:
+- **A. Fidelity** — re-read the request, extract each ask, do EXACTLY that (read cited sources),
+  rate it tough.
+- **B. Grounded commitments** — every "I'll do X" needs a concrete, executable mechanism; a vague
+  "sync with / coordinate with / loop in <person>" is vapor — convert it to a runnable check or a
+  draft-then-ask message, or cut it.
+- **C. Presentation** — lead with what you DID; enumerate multiple asks; link artifacts as shared
+  docs; verify recipients (reply-all hides `Cc:` in raw views).
 
-1. **Re-read the original request.** Not your memory of it — the actual message.
-2. **Extract EACH discrete ask** as a checklist (number them).
-3. **For each ask, confirm the draft does exactly that.** Read any source/link they cited; do not
-   substitute your own summary for the thing they asked for (e.g. linking your scan when they
-   asked for the report).
-4. **Rate it** against the asks. If any ask is unmet or partially met, **fix it before sending.**
-5. **Lead with what you DID** + your recommendation + what else we could do — not junior questions.
-6. **Enumerate multiple asks**, one line each, showing how each was handled.
-7. **Deliverables are gdocs; the draft is inline.** Any substantial artifact goes in a shared
-   Google Doc the reply links — never pasted as a wall of text, never left in a local file. Present
-   the reply body itself inline for approval, not a pointer to where it lives.
-8. **Verify recipients.** Pull to/cc from the structured reader (or `--reply-all`), never a raw
-   text mail view (it hides `Cc:`). Confirm reply-all vs. direct on purpose.
+## {{AGENT_NAME}}-specifics
+- **Send path:** outbound comms go ONLY via {{AGENT_NAME}}'s sanctioned path (draft-then-ask). §B's
+  "concrete action" for coordination is a check you actually run or a message you actually send here.
+- **Gated in:** `turn` (before shipping/replying, and the close checklist).
 '''
 
 _SECRETS_YAML = '''# {{AGENT_NAME}}'s secrets + config, declarative. `canopy provision` materializes these from the
@@ -520,6 +471,15 @@ _SECRETS_YAML = '''# {{AGENT_NAME}}'s secrets + config, declarative. `canopy pro
 # there and get recreated every turn, so it lives ONCE in the global home and every worktree reads
 # it (via bin/_env.py). No values here — only 1Password refs (`op:`) and non-secret literals
 # (`value:`). Provision with `canopy provision` (or `--check` to dry-run) from this repo.
+#
+# The gog OAuth client is the SHARED fleet app (`canopy`), not per-agent: a gog "client" is the APP
+# identity (client_id + client_secret), reused by every agent's mailbox. The per-agent, never-shared
+# identity is the mailbox ({{MAILBOX}}). `canopy provision` places credentials-canopy.json; then a
+# one-time `gog login {{MAILBOX}} --client canopy ...` consents this mailbox into it.
+secrets:
+  - name: canopy gog OAuth client JSON
+    op: "op://AI-Agents/Canopy - gog OAuth client/notesPlain"
+    target: "~/Library/Application Support/gogcli/credentials-canopy.json"
 env:
   target: "~/.{{AGENT_SLUG}}/.env"
   mode: "0600"
@@ -647,9 +607,11 @@ follows it: preflight → process inbound (one counterpart at a time) → skill 
    checklist's job; hook modals stall autonomous work).
 4. Declare secrets in `config/secrets.yaml` (1Password refs) and run `canopy provision` — they land
    in the worktree-clean global home `~/.{{AGENT_SLUG}}/.env`, read by `bin/_env.py`.
-5. Mint the agent's own gog identity (mailbox + OAuth client named `{{AGENT_SLUG}}`), then
-   `gog login {{MAILBOX}} --client {{AGENT_SLUG}} --services gmail,drive,docs,sheets,forms`.
-   Verify with `canopy email preflight --repo .`; send via `bin/{{AGENT_SLUG}}-email`.
+5. The agent's own thing is its MAILBOX ({{MAILBOX}}); the gog OAuth client is the SHARED fleet
+   app (`canopy`), already declared in config/secrets.yaml — `canopy provision` places it. Then
+   consent this mailbox into it once: `gog login {{MAILBOX}} --client canopy --services
+   gmail,drive,docs,sheets,forms`. Verify with `canopy email preflight --repo .`; send via
+   `bin/{{AGENT_SLUG}}-email`.
 '''
 
 _GITIGNORE = '''.env
@@ -659,13 +621,42 @@ __pycache__/
 '''
 
 _AGENT_JSON = '''{
-  "_doc": "{{AGENT_NAME}}'s identity for its canopy-web workspace (/agents/{{AGENT_SLUG}}) and for the shared email engine (`canopy email` resolves mailbox + gog client from here). Read by `canopy agent-publish`. slug + description come from .claude-plugin/plugin.json; these override/extend. gog_client is {{AGENT_NAME}}'s OWN gog OAuth client name — never another agent's (identity bleed is the fleet's one hard rule).",
+  "_doc": "{{AGENT_NAME}}'s identity for its canopy-web workspace (/agents/{{AGENT_SLUG}}) and for the shared email engine (`canopy email` resolves mailbox + gog client from here). Read by `canopy agent-publish`. slug + description come from .claude-plugin/plugin.json; these override/extend. gog_client is the SHARED fleet OAuth client (`canopy`), reused by every agent's mailbox; the per-agent, never-shared identity is `email` (identity bleed = acting as another agent's mailbox, governed by --account, not the client).",
   "name": "{{AGENT_NAME}}",
   "email": "{{MAILBOX}}",
-  "gog_client": "{{AGENT_SLUG}}",
+  "gog_client": "canopy",
   "persona": "{{MANDATE}}",
   "avatar_url": ""
 }
+'''
+
+_TASK_TRACKER_SKILL = '''---
+name: task-tracker
+description: >
+  {{AGENT_NAME}}'s project/task state — one board task per iterative thread/project, backed by
+  canopy-web (kanban at /agents/{{AGENT_SLUG}}). The canonical procedure is fleet-wide and lives
+  in the installed canopy plugin (agent-core/task-tracker.md); this stub binds it to
+  {{AGENT_NAME}}. Use when taking on multi-turn work, when a new request arrives, and at every
+  turn's board-drain and close.
+---
+
+# Task Tracker — {{AGENT_NAME}} (stub over the fleet-canonical core)
+
+1. **Resolve the installed canopy plugin and check freshness:**
+   ```bash
+   CANOPY=$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude/plugins/installed_plugins.json'))); print(d['plugins']['canopy@canopy'][0]['installPath'])")
+   bash "$CANOPY/scripts/canopy-update-check.sh"
+   ```
+   `UPGRADE_AVAILABLE` → tell the human and run `/canopy:update` BEFORE following a stale core.
+2. **Read `$CANOPY/agent-core/task-tracker.md`** and **follow it exactly**, bound to the
+   Identity below. Where it says `<slug>`/`<mailbox>`, use this Identity.
+
+## Identity
+- Name: **{{AGENT_NAME}}** · slug: `{{AGENT_SLUG}}` · mailbox: `{{MAILBOX}}`
+- Board: `/agents/{{AGENT_SLUG}}` · Drive folder id env: `{{AGENT_SLUG}}_DRIVE_FOLDER_ID`
+
+## {{AGENT_NAME}}-local notes (the ONLY hand-edited section — fleet-process changes go to canopy)
+- (none yet)
 '''
 
 _TEMPLATES: dict[str, str] = {
@@ -683,5 +674,6 @@ _TEMPLATES: dict[str, str] = {
     ".claude/settings.json": _SETTINGS_JSON,
     "hooks/gating_guard.py": _GATING_GUARD,
     "skills/turn/SKILL.md": _TURN_SKILL,
-    "skills/self-review/SKILL.md": _SELF_REVIEW_SKILL,
+    "skills/agent-turn-review/SKILL.md": _AGENT_TURN_REVIEW_SKILL,
+    "skills/task-tracker/SKILL.md": _TASK_TRACKER_SKILL,
 }

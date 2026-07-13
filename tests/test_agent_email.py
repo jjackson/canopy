@@ -82,11 +82,61 @@ def test_to_html_paragraphs_and_bullets():
     assert "<ul><li>one</li><li>two</li></ul>" in out
 
 
+def test_to_html_numbered_list_becomes_ol_keeping_numbers():
+    # canopy #291: `1. `/`2. ` must render as <ol> (auto-numbered), not a number-stripped <ul>.
+    out = to_html("1. alpha\n2. beta\n")
+    assert "<ol><li>alpha</li><li>beta</li></ol>" in out
+    assert "<ul>" not in out
+
+
+def test_to_html_coalesces_list_run_across_blank_lines():
+    # canopy #291: blank-separated bullets must be ONE <ul>, not several single-item lists.
+    out = to_html("- one\n\n- two\n\n- three\n")
+    assert "<ul><li>one</li><li>two</li><li>three</li></ul>" in out
+    assert out.count("<ul>") == 1
+
+
+def test_to_html_ace836_repro_ol_then_ul():
+    # The exact repro from ace#836 / canopy #291: an ordered list then a bullet list.
+    out = to_html("1. alpha\n2. beta\n\n- one\n- two\n")
+    assert "<ol><li>alpha</li><li>beta</li></ol>" in out
+    assert "<ul><li>one</li><li>two</li></ul>" in out
+    assert out.count("<ol>") == 1 and out.count("<ul>") == 1
+
+
 def test_to_html_linkifies_and_escapes():
     out = to_html("see https://example.com/x?a=1 & <tags>\n")
     assert '<a href="https://example.com/x?a=1">' in out
     assert "&lt;tags&gt;" in out
     assert "&amp;" in out
+
+
+def test_to_html_uses_client_default_font():
+    # No font-family/size/color override — render in the client's default font.
+    out = to_html("hello\n")
+    assert "font-family" not in out
+    assert "<html><body>" in out
+
+
+def test_to_html_markdown_link_gets_clean_anchor_text():
+    out = to_html("shipped [PR #867](https://github.com/dimagi-internal/connect-labs/pull/867)\n")
+    # anchor text is the label, not the raw URL
+    assert '<a href="https://github.com/dimagi-internal/connect-labs/pull/867">PR #867</a>' in out
+    # the raw URL must NOT appear as visible text outside the href
+    assert ">https://github.com/dimagi-internal/connect-labs/pull/867<" not in out
+
+
+def test_to_html_markdown_and_bare_url_coexist():
+    out = to_html("see [the deck](https://example.com/w/abc) or https://example.com/raw\n")
+    assert '<a href="https://example.com/w/abc">the deck</a>' in out
+    # the bare URL is still auto-linked (shown as itself)
+    assert '<a href="https://example.com/raw">https://example.com/raw</a>' in out
+
+
+def test_to_html_markdown_link_inside_bullet():
+    out = to_html("- [issue #865](https://example.com/i/865)\n")
+    assert "<ul>" in out
+    assert '<a href="https://example.com/i/865">issue #865</a>' in out
 
 
 # --------------------------------------------------------------------------------------
@@ -305,6 +355,48 @@ def test_preflight_missing_creds_gives_exact_login_remediation(tmp_path):
     assert "gog login hal@dimagi-ai.com --client hal --services" in joined
 
 
+def _provision_repo(tmp_path, op_ref="op://AI-Agents/Hal - gog OAuth client/notesPlain"):
+    """An agent repo whose config/secrets.yaml declares the gog client for provisioning."""
+    repo = _agent_repo(tmp_path)
+    (repo / "config" / "secrets.yaml").write_text(
+        "secrets:\n"
+        "  - name: hal gog OAuth client JSON\n"
+        f'    op: "{op_ref}"\n'
+        '    target: "~/Library/Application Support/gogcli/credentials-hal.json"\n'
+    )
+    return repo
+
+
+def test_preflight_missing_creds_routes_through_provision_when_declared(tmp_path, monkeypatch):
+    # Declared + 1Password item resolves -> tell the user to `canopy provision`, not hand-copy.
+    from orchestrator import provision
+    monkeypatch.setattr(provision, "_op_read", lambda ref: "{\"client_id\": \"x\"}")
+    ident = EmailIdentity(slug="hal", account="hal@dimagi-ai.com", client="hal",
+                          repo=_provision_repo(tmp_path))
+    ok, lines = preflight(ident, gog_dir=_gog_home(tmp_path, creds=False))
+    assert not ok
+    joined = "\n".join(lines)
+    assert "canopy provision" in joined
+    assert "gog login hal@dimagi-ai.com --client hal" in joined
+    assert "Copy hal's OWN OAuth client JSON there" not in joined  # not the manual fallback
+
+
+def test_preflight_missing_1password_item_is_the_named_blocker(tmp_path, monkeypatch):
+    # Declared but the 1Password item doesn't resolve -> that IS the blocker, named exactly.
+    from orchestrator import provision
+    def boom(ref):
+        raise provision.ProvisionError(f"`op read {ref}` failed: isn't an item")
+    monkeypatch.setattr(provision, "_op_read", boom)
+    ident = EmailIdentity(slug="hal", account="hal@dimagi-ai.com", client="hal",
+                          repo=_provision_repo(tmp_path))
+    ok, lines = preflight(ident, gog_dir=_gog_home(tmp_path, creds=False))
+    assert not ok
+    joined = "\n".join(lines)
+    assert "op://AI-Agents/Hal - gog OAuth client/notesPlain" in joined
+    assert "canopy provision" in joined
+    assert "isn't in 1Password yet" in joined
+
+
 def test_preflight_unmapped_account(tmp_path):
     ok, lines = preflight(IDENT, gog_dir=_gog_home(tmp_path, mapped=False))
     assert not ok
@@ -343,3 +435,114 @@ def test_preflight_api_not_enabled_self_heal(tmp_path):
     joined = "\n".join(lines)
     assert "NOT a token problem" in joined
     assert "https://console.developers.google.com" in joined
+
+
+# --- engine staleness guard (the 2026-07-10 Arial-email regression) ---------
+
+from orchestrator.agent_email import _version_tuple, engine_staleness_error
+
+
+def _write_clone(tmp_path, version):
+    clone = tmp_path / "marketplace-canopy"
+    clone.mkdir()
+    (clone / "pyproject.toml").write_text(
+        f'[project]\nname = "canopy"\nversion = "{version}"\n'
+    )
+    return clone
+
+
+def _running_version():
+    from importlib.metadata import version
+
+    return version("canopy")
+
+
+def test_version_tuple_handles_plain_and_suffixed_parts():
+    assert _version_tuple("0.2.270") == (0, 2, 270)
+    assert _version_tuple("1.0.0rc1") == (1, 0, 0)
+    assert _version_tuple("0.2.270") < _version_tuple("0.2.271")
+
+
+def test_staleness_fires_when_clone_is_ahead(tmp_path, monkeypatch):
+    monkeypatch.delenv("CANOPY_EMAIL_SKIP_ENGINE_CHECK", raising=False)
+    clone = _write_clone(tmp_path, "999.0.0")
+    err = engine_staleness_error(clone_dir=clone)
+    assert err is not None
+    assert "999.0.0" in err
+    assert _running_version() in err
+    assert "uv tool install --reinstall" in err
+
+
+def test_staleness_quiet_when_running_matches_clone(tmp_path, monkeypatch):
+    monkeypatch.delenv("CANOPY_EMAIL_SKIP_ENGINE_CHECK", raising=False)
+    clone = _write_clone(tmp_path, _running_version())
+    assert engine_staleness_error(clone_dir=clone) is None
+
+
+def test_staleness_quiet_when_running_is_ahead_of_clone(tmp_path, monkeypatch):
+    monkeypatch.delenv("CANOPY_EMAIL_SKIP_ENGINE_CHECK", raising=False)
+    clone = _write_clone(tmp_path, "0.0.1")
+    assert engine_staleness_error(clone_dir=clone) is None
+
+
+def test_staleness_quiet_when_clone_missing(tmp_path, monkeypatch):
+    monkeypatch.delenv("CANOPY_EMAIL_SKIP_ENGINE_CHECK", raising=False)
+    assert engine_staleness_error(clone_dir=tmp_path / "nope") is None
+
+
+def test_staleness_env_bypass(tmp_path, monkeypatch):
+    clone = _write_clone(tmp_path, "999.0.0")
+    monkeypatch.setenv("CANOPY_EMAIL_SKIP_ENGINE_CHECK", "1")
+    assert engine_staleness_error(clone_dir=clone) is None
+
+
+# --------------------------------------------------------------------------------------
+# narrow-reply guard (dropped_participants — hal 2026-07-10: a reply on a 4-person
+# thread went to one person; the item's owner never saw the answer)
+# --------------------------------------------------------------------------------------
+
+from orchestrator.agent_email import dropped_participants
+
+
+def _guard_runner(thread_json, get_ok=True):
+    """Answers `gog gmail get <msg> --json` with a threadId, then
+    `gog gmail read <thread> --json` with the thread fixture."""
+    def runner(cmd, capture_output, text, timeout):
+        if cmd[:3] == ["gog", "gmail", "get"]:
+            if not get_ok:
+                return SimpleNamespace(returncode=1, stdout="", stderr="404")
+            return SimpleNamespace(returncode=0, stdout=json.dumps(
+                {"message": {"threadId": "T1"}}), stderr="")
+        assert cmd[:3] == ["gog", "gmail", "read"]
+        return SimpleNamespace(returncode=0, stdout=thread_json, stderr="")
+    return runner
+
+
+def test_narrow_reply_lists_dropped_thread_participants():
+    # thread audience: c@partner.org (sender) + ops@partner.org + ace (self excluded)
+    dropped = dropped_participants(
+        IDENT, message_id="m1", to="c@partner.org", cc=None,
+        runner=_guard_runner(_thread_json()))
+    assert dropped == ["ace@dimagi-ai.com", "ops@partner.org"]
+
+
+def test_narrow_reply_quiet_when_everyone_is_covered():
+    dropped = dropped_participants(
+        IDENT, message_id="m1",
+        to="c@partner.org", cc="ops@partner.org, ace@dimagi-ai.com",
+        runner=_guard_runner(_thread_json()))
+    assert dropped == []
+
+
+def test_narrow_reply_guard_is_best_effort_on_read_failure():
+    dropped = dropped_participants(
+        IDENT, message_id="m1", to="c@partner.org", cc=None,
+        runner=_guard_runner(_thread_json(), get_ok=False))
+    assert dropped == []
+
+
+def test_narrow_reply_accepts_thread_id_directly():
+    dropped = dropped_participants(
+        IDENT, thread_id="T1", to="c@partner.org", cc="ops@partner.org",
+        runner=_guard_runner(_thread_json()))
+    assert dropped == ["ace@dimagi-ai.com"]

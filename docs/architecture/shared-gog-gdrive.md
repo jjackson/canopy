@@ -18,7 +18,7 @@ Every proven piece already exists — in three different repos:
 | Raw-send deny rail | echo `block_raw_gog_send.py` → hal's generalized `hooks/gating_guard.py` → ACE's copy (+ `tool_pattern` for MCP atom names) | Three near-identical copies |
 | Inbound routing contract (send records `thread_id` → inbound triage routes the reply to the right state scope) | ACE (comms-log per run) · echo (contact-memory per sender) | Same shape, agent-specific routing map |
 | Counterpart tiers (act / correspond / none) | ACE `config/allowlist.txt` + derived correspond tier | ACE innovation — see §3 |
-| Per-agent gog identity (own mailbox `<slug>@dimagi-ai.com`, own gog client `<slug>`, never shared) | Enforced by convention in echo AND ace, both directions | The one rule everyone already agrees on |
+| Per-agent gog MAILBOX (`<slug>@dimagi-ai.com`, never shared) over a SHARED fleet OAuth client (`canopy`) | Mailbox enforced by convention in echo AND ace; client shared fleet-wide | The mailbox is the identity that must not bleed — the client is just the app |
 
 The problems with the status quo: echo consumes ACE's Drive MCP **under ACE's service-account
 identity** (it cannot see the Connect Marketing drive — wrong identity, no per-agent scoping); hal
@@ -49,8 +49,26 @@ identity, rules, secrets, and domain skills are the agent's"*):
 - `preflight` — gog auth liveness for the agent's client, with the exact `gog login …` remediation.
 
 **Per-agent carve-outs:**
-- **Identity:** one mailbox + one gog client per agent, minted at agent-creation time. Never reuse
-  another agent's client — session/thread identity bleed is the failure the fleet was built to avoid.
+- **Identity:** one mailbox per agent (`<slug>@dimagi-ai.com`), minted at agent-creation time and
+  never shared, over ONE shared fleet OAuth client (`canopy`). A gog "client" is the app identity
+  (client_id + client_secret) — reusing it across agents is fine and reduces setup; the failure the
+  fleet was built to avoid is acting as another agent's MAILBOX, governed by `--account`, not the
+  client.
+- **The shared OAuth app is intentionally "External" + "In Production" — do NOT switch it to
+  Internal.** The `canopy` OAuth client (Google Cloud project `canopy-494811`) stays **External**
+  because canopy-web also uses it to let **`dimagi-associate.com`** accounts — which are *outside*
+  the Dimagi Workspace — OAuth in; "Internal" user type would lock those logins out. Its publishing
+  status is **In Production**, so refresh tokens are long-lived. (The 7-day refresh-token expiry that
+  bites automated OAuth apps only affects the **"Testing"** publishing status — NOT this app, which
+  is in Production. Don't "fix" a non-problem by flipping user type.) So when fleet email breaks, it's
+  a **provisioning** issue — a missing/misnamed 1Password item so `credentials-canopy.json` never
+  lands — which `canopy email preflight` now diagnoses precisely; it is not the OAuth app config.
+- **Migration status (2026-07-08):** `hal` and every agent minted by the factory use the shared
+  `canopy` client (item `Canopy - gog OAuth client` in 1Password AI-Agents). `echo` is
+  **grandfathered** on its own hand-placed `credentials-echo.json`, which is NOT yet declared in
+  its `config/secrets.yaml` — so echo would strand on a fresh machine exactly like hal did. Migrate
+  echo (declare the shared client in its `secrets.yaml`) when convenient; until then it's a known
+  latent gap, not a surprise.
 - **Tiers (generalizing ACE's model):** `act` = static allowlist (`config/allowlist.txt`) — senders
   who may steer the agent's work; `correspond` = **derived from the agent's own state** (ACE: LLO
   contacts in the routed run's `run_state.yaml`; echo: contacts with an existing contact-memory

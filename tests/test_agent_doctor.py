@@ -101,6 +101,15 @@ def test_identity_missing_mailbox_fails(tmp_path):
     assert ident is None
 
 
+def test_identity_placeholder_mailbox_fails(tmp_path):
+    # A resolvable-but-placeholder mailbox (`<slug>@example.com`, the factory default) used to
+    # pass "OK" — the trap that let eva sit on eva@example.com. It must now FAIL.
+    result, ident = check_identity(_agent_repo(tmp_path, slug="eva", email="eva@example.com"))
+    assert not result.ok
+    assert ident is not None                      # it resolved; it's just not a real address
+    assert "PLACEHOLDER" in result.detail
+
+
 def test_gating_missing_file_fails(tmp_path):
     result = check_gating(_agent_repo(tmp_path, gating=False))
     assert not result.ok
@@ -192,6 +201,30 @@ def test_cli_agent_doctor_json_and_exit_code(tmp_path, monkeypatch):
                      "Email auth (gog)", "canopy-web board"]
 
 
+def test_cli_agent_doctor_all_sweeps_fleet_and_gates_on_any_failure(tmp_path, monkeypatch):
+    # `--all` discovers every agent, runs the per-agent doctor on each, and exits non-zero if ANY
+    # agent has a failing check — the fleet readiness gate.
+    from orchestrator.doctor import CheckResult
+    from orchestrator.fleet_align import Agent
+
+    good, bad = tmp_path / "good", tmp_path / "bad"
+    monkeypatch.setattr(
+        "orchestrator.fleet_align.discover_agents",
+        lambda *a, **k: [Agent("good", good, True), Agent("bad", bad, True)])
+
+    def fake_doctor(path, **kw):
+        if path == good:
+            return [CheckResult("Identity", True, "ok")], True
+        return [CheckResult("Identity", False, "mailbox is the factory PLACEHOLDER")], False
+    monkeypatch.setattr("orchestrator.agent_doctor.run_agent_doctor", fake_doctor)
+
+    result = CliRunner().invoke(main, ["agent", "doctor", "--all", "--json-output"])
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["ok"] is False
+    assert {a["slug"]: a["ok"] for a in payload["agents"]} == {"good": True, "bad": False}
+
+
 # --------------------------------------------------------------------------------------
 # review tweaks (2026-07-03): hook wiring, zero-rails, self-managed provisioning,
 # full remediation
@@ -260,5 +293,5 @@ def test_email_auth_keeps_full_multiline_remediation():
     with tempfile.TemporaryDirectory() as d:
         result = check_email_auth(ident, gog_dir=d, runner=runner)
     assert not result.ok
-    # the FULL fix block survives, not just line 1
-    assert "gog login" in result.detail and "Do NOT reuse" in result.detail
+    # the FULL fix block survives, not just line 1 (an early line AND the last line both present)
+    assert "gog login" in result.detail and "SHARED fleet OAuth client" in result.detail

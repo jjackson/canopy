@@ -2,6 +2,7 @@
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -59,7 +60,8 @@ def test_create_agent_writes_full_layout(tmp_path):
         "hooks/gating_guard.py",
         "bin/echo-email",
         "skills/turn/SKILL.md",
-        "skills/self-review/SKILL.md",
+        "skills/agent-turn-review/SKILL.md",
+        "skills/task-tracker/SKILL.md",
     ):
         assert required in names, f"missing {required}"
 
@@ -105,21 +107,34 @@ def test_create_agent_refuses_nonempty_dir(tmp_path):
 
 
 def test_gating_defaults_to_deny_rails_only(tmp_path):
-    """Issue #263 / shared-gog-gdrive.md §4: rails, not approval gates.
+    """Issue #263 / shared-gog-gdrive.md §4: rails, not approval gates — now mounts-based.
 
-    The templated gating ships deny rails + an EMPTY approve list — a PreToolUse
-    'ask' is a blocking modal that stalls autonomous work; approval is the turn
-    checklist's job.
+    The templated gating carries channel MOUNTS (baseline deny rails ship centrally in the
+    canopy plugin's agent-core/gating-baseline.json and are merged by the hook at call time)
+    plus an EMPTY local deny list and an EMPTY approve list.
     """
     create_agent(_spec(), tmp_path / "echo")
     cfg = json.loads((tmp_path / "echo" / "config" / "gating.json").read_text())
     assert cfg["approve"] == []
-    assert cfg["deny"], "expected the raw-gog-send deny rail out of the box"
-    rail = cfg["deny"][0]
-    assert rail["tool"] == "Bash"
-    assert "gog" in rail["pattern"]
-    assert "bin/echo-email" in rail["message"], "the rail must name the right path"
+    assert cfg["deny"] == []           # agent-specific ADDITIONS only; baseline is central
+    assert cfg["channels"] == ["email"]
+    assert cfg["slug"] == "echo"
     assert "rails" in cfg["_doc"].lower()
+    assert "add-only" in cfg["_doc"].lower()
+
+
+def test_gating_baseline_ships_in_plugin():
+    """The fleet-baseline rails live once, in the versioned plugin — a rail fix propagates
+    via /canopy:update, never via per-agent backports."""
+    base = json.loads((Path(__file__).resolve().parents[1]
+                       / "plugins" / "canopy" / "agent-core" / "gating-baseline.json").read_text())
+    email = base["channels"]["email"]
+    pats = [r["pattern"] for r in email]
+    assert any("gog" in p and "gmail" in p for p in pats), "raw gog send rail missing"
+    assert any("--account" in p for p in pats), "identity-bleed rail missing"
+    for r in email:
+        assert "{slug}" in r["message"], "baseline messages are slug-templated at call time"
+        assert "{{" not in json.dumps(r), "stamp-time tokens do not belong in the runtime baseline"
 
 
 def test_agent_json_carries_email_identity(tmp_path):
@@ -127,7 +142,9 @@ def test_agent_json_carries_email_identity(tmp_path):
     create_agent(_spec(), tmp_path / "echo")
     agent = json.loads((tmp_path / "echo" / "config" / "agent.json").read_text())
     assert agent["email"] == "echo@dimagi-ai.com"
-    assert agent["gog_client"] == "echo"
+    # gog_client is the SHARED fleet OAuth client, not the per-agent slug — the mailbox is the
+    # per-agent identity; the client is reused fleet-wide.
+    assert agent["gog_client"] == "canopy"
 
 
 def test_email_shim_is_executable_and_targets_canopy_engine(tmp_path):
@@ -157,10 +174,14 @@ def test_gating_hook_blocks_deny_asks_approve_allows_reads(tmp_path):
     cfg["approve"] = [{"tool": "Edit", "message": "Echo edits only with approval."}]
     gating.write_text(json.dumps(cfg))
 
+    import os as _os
+    env = {**_os.environ,
+           "CANOPY_PLUGIN_DIR": str(Path(__file__).resolve().parents[1] / "plugins" / "canopy")}
+
     def run(payload):
         return subprocess.run(
             [sys.executable, str(hook)],
-            input=json.dumps(payload), capture_output=True, text=True,
+            input=json.dumps(payload), capture_output=True, text=True, env=env,
         )
 
     # templated deny rail -> exit 2, message names the sanctioned path
@@ -195,11 +216,15 @@ def test_gating_hook_rails_identity_override_but_allows_shim_and_other_email_cmd
     root = tmp_path / "echo"
     hook = root / "hooks" / "gating_guard.py"
 
+    import os as _os
+    env = {**_os.environ,
+           "CANOPY_PLUGIN_DIR": str(Path(__file__).resolve().parents[1] / "plugins" / "canopy")}
+
     def run(command):
         return subprocess.run(
             [sys.executable, str(hook)],
             input=json.dumps({"tool_name": "Bash", "tool_input": {"command": command}}),
-            capture_output=True, text=True,
+            capture_output=True, text=True, env=env,
         )
 
     r = run("canopy email send --account other@dimagi-ai.com --to x@y.z "
@@ -211,3 +236,69 @@ def test_gating_hook_rails_identity_override_but_allows_shim_and_other_email_cmd
     assert run("canopy email send --repo . --to x@y.z --subject s --body-file b.txt").returncode == 0
     assert run("canopy email preflight --account other@dimagi-ai.com").returncode == 0
     assert run("canopy email mark-read --account other@dimagi-ai.com t1").returncode == 0
+
+
+def test_agent_core_docs_exist_and_are_agent_agnostic():
+    """The stubs stamped by the factory point at agent-core docs shipped in the plugin;
+    those docs must exist, be substantial, and carry no stamp-time {{TOKEN}}s
+    (they are read at RUNTIME by any agent — identity lives in the stub)."""
+    root = Path(__file__).resolve().parents[1] / "plugins" / "canopy" / "agent-core"
+    for name in ("turn", "task-tracker"):
+        doc = root / f"{name}.md"
+        assert doc.is_file(), f"missing agent-core doc: {doc}"
+        text = doc.read_text()
+        assert len(text) > 1000, f"{doc} suspiciously small — did the template body move here?"
+        assert "{{" not in text, f"stamp-time token leaked into runtime doc {doc}"
+
+
+def test_stub_skills_reference_agent_core(tmp_path):
+    """turn + task-tracker are stamped as thin stubs that resolve the installed canopy
+    plugin and read the canonical agent-core doc — never a full process copy."""
+    create_agent(_spec(), tmp_path / "echo")
+    for name in ("turn", "task-tracker"):
+        text = (tmp_path / "echo" / "skills" / name / "SKILL.md").read_text()
+        assert "installed_plugins.json" in text, f"{name} stub must resolve the installed canopy path"
+        assert f"agent-core/{name}.md" in text, f"{name} stub must point at its core doc"
+        assert "canopy-update-check.sh" in text, f"{name} stub must staleness-check the core"
+        assert "{{" not in text
+        assert len(text) < 3000, f"{name} looks like a full copy, not a stub"
+
+
+def test_gating_hook_fails_closed_when_baseline_unreadable(tmp_path):
+    """channels mounted + baseline unresolvable → deny (exit 2) with the /canopy:update fix.
+    A stale/absent canopy install must never silently run an agent without its fleet rails."""
+    import os as _os
+    create_agent(_spec(), tmp_path / "echo")
+    hook = tmp_path / "echo" / "hooks" / "gating_guard.py"
+    env = {**_os.environ, "CANOPY_PLUGIN_DIR": str(tmp_path / "nonexistent")}
+    r = subprocess.run(
+        [sys.executable, str(hook)],
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "git status"}}),
+        capture_output=True, text=True, env=env,
+    )
+    assert r.returncode == 2
+    assert "canopy:update" in r.stderr
+
+
+def test_gating_hook_legacy_config_stays_local_only(tmp_path):
+    """A config WITHOUT `channels` (legacy full-copy style, e.g. ACE's plugin-level setup)
+    keeps local-rails-only behavior — no baseline lookup, no fail-closed brick."""
+    import os as _os
+    create_agent(_spec(), tmp_path / "echo")
+    root = tmp_path / "echo"
+    gating = root / "config" / "gating.json"
+    gating.write_text(json.dumps({
+        "deny": [{"tool": "Bash", "pattern": "forbidden_local_thing", "message": "BLOCKED: local rail."}],
+        "approve": [],
+    }))
+    env = {**_os.environ, "CANOPY_PLUGIN_DIR": str(tmp_path / "nonexistent")}
+
+    def run(command):
+        return subprocess.run(
+            [sys.executable, str(root / "hooks" / "gating_guard.py")],
+            input=json.dumps({"tool_name": "Bash", "tool_input": {"command": command}}),
+            capture_output=True, text=True, env=env,
+        )
+
+    assert run("forbidden_local_thing now").returncode == 2
+    assert run("git status").returncode == 0        # no channels → no baseline → no brick
