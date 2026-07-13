@@ -9,6 +9,16 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.280] - 2026-07-13
+
+### Added
+
+- `drain-turn` skill — the body of an automated canopy-web harness turn:
+  resolve the active turn, mark it running, drain the agent's pending board
+  commands under normal guardrails, and finish the turn (never left open).
+  Invoked by the emdash automation the canopy runner triggers
+  (canopy-web#196).
+
 ## [0.2.276] - 2026-07-13
 
 ### Fixed
