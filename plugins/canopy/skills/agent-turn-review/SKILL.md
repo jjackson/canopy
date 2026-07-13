@@ -50,15 +50,19 @@ adds agent-specifics (send path, paired reviewers); the general discipline lives
 10. **Verify recipients** from the structured reader / `--reply-all`, never a raw text mail view
     (it hides `Cc:`). Confirm reply-all vs. direct on purpose.
 
-## D. Echo check — fresh read-through, EVERY revision
-11. **Re-run this review on every revision of a draft, not only the first.** A "delta check" of
-    just your latest edits is how edit-introduced defects ship — the requester's corrections change
-    the draft's context, so the whole thing gets re-reviewed. (Origin: echo, caught twice in one
-    turn — Jonathan, 2026-07-13; promoted fleet-wide from echo's stub.)
-12. **Then read the FULL draft top to bottom with fresh eyes for prose echoes:** the same phrase or
+## D. Revision check — full re-review + repetition pass, EVERY revision
+11. **Re-run this whole review on every revision of a draft, not only the first.** A "delta check"
+    of just your latest edits is how edit-introduced defects ship — the requester's corrections
+    change the draft's context, so the whole thing gets re-reviewed.
+12. **Then read the FULL draft top to bottom with fresh eyes for repetition:** the same phrase or
     fragment twice ("proposal… My proposal"), the same content announced twice (intro names the
     extras AND a later section re-introduces them), the same term leaned on 3+ times. Fix by
     varying or cutting — one announcement, one detail pass, per fact.
+13. **Evidence before assertion — quote, don't claim.** This pass is trivially faked as a checklist:
+    reporting "collapsed X, de-duped Y" without doing the read is how the misses survive. Quote each
+    repetition you find verbatim; "none found" is valid only after you have read the final paragraph
+    back to yourself. (Origin: an agent reported its repetition fixes done, then the requester
+    immediately caught four it had missed — Jonathan, 2026-07-13.)
 
 ## Adopting it in an agent (the thin extension)
 Keep a repo-local `skills/agent-turn-review/SKILL.md` that (a) says "invoke `canopy:agent-turn-review`
