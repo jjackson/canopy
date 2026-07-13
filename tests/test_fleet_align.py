@@ -329,3 +329,29 @@ def test_agent_missing_a_whole_stamped_skill_is_flagged(tmp_path, monkeypatch):
     findings = fa.analyze(agents, baseline=BASELINE)
     miss = [f for f in findings if f.artifact == "task-tracker" and "missing the whole skill" in f.summary]
     assert len(miss) == 1 and miss[0].laggards == ["eva"] and miss[0].kind == "distribute"
+
+
+def test_scoped_variant_of_template_rail_counts_as_present(tmp_path):
+    """An agent may deliberately NARROW a template deny rail (e.g. ACE's plugin-level hook
+    scopes the raw-gog-send rail to its own identity so it doesn't fire machine-wide for
+    other identities). A scoped variant targeting the same command is coverage, not
+    absence — it must not re-flag as a missing rail every cycle."""
+    baseline = dict(BASELINE)
+    baseline["gating"] = {
+        "deny": {r"(?:^|[\n;&|(])\s*gog\s+gmail\s+(send|reply)\b"},
+        "approve_count": 0,
+    }
+    _write_agent(
+        tmp_path, "ace", self_review=TEMPLATE_SELF_REVIEW,
+        gating={"deny": [{"pattern": r"(?:^|[\n;&|(])\s*gog\s+gmail\s+(send|reply)\b(?=[^\n]*(--client\s+ace|ace@dimagi-ai\.com))"}], "approve": []},
+    )
+    _write_agent(
+        tmp_path, "eva", self_review=TEMPLATE_SELF_REVIEW,
+        gating={"deny": [{"pattern": "unrelated_rail_entirely"}], "approve": []},
+    )
+    agents = fa.discover_agents(bases=[tmp_path])
+    findings = fa.analyze(agents, baseline=baseline)
+
+    missing = [f for f in findings if f.artifact == "gating" and "missing" in f.summary]
+    assert len(missing) == 1, [f.summary for f in findings]
+    assert missing[0].laggards == ["eva"]  # ace's scoped variant covers the rail
