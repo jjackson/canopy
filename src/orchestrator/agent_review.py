@@ -354,7 +354,7 @@ def run_review(
     hours: int = 168,
     use_llm: bool = True,
     model: str = "sonnet",
-    max_budget_usd: float = 0.50,
+    max_budget_usd: float = 2.0,
     projects_dir: Path = CLAUDE_PROJECTS,
 ) -> dict:
     """Review an agent's recent turns. Returns {agent, repo, turns, signals, findings, error?}."""
@@ -391,5 +391,8 @@ def run_review(
     if proc.returncode == 0:
         result["findings"] = parse_findings(proc.stdout)
     else:
-        result["error"] = f"claude -p failed: {proc.stderr.strip()[:200]}"
+        # claude -p prints some errors (e.g. "Exceeded USD budget") to STDOUT with an
+        # empty stderr — capture whichever stream has the message so failures stay diagnosable.
+        detail = proc.stderr.strip() or proc.stdout.strip()
+        result["error"] = f"claude -p failed: {detail[:200]}"
     return result
