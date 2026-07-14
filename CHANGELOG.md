@@ -9,6 +9,15 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.282] - 2026-07-14
+
+### Added
+
+- `patch-emdash` skill — make emdash automation runs appear as live tasks in
+  their project sidebar (canopy-runner turns show under the agent's project,
+  not only under Automations). Safe same-length `app.asar` byte edit, no
+  re-signing; idempotent + fail-closed; re-apply after emdash updates.
+
 ## [0.2.280] - 2026-07-13
 
 ### Added
