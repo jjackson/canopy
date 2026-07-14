@@ -58,7 +58,7 @@ The scaffold is a skeleton. Walk the human through filling it in, in this order:
    guardrail** — do not rely on prose in `CLAUDE.md`. Test a rule by piping a PreToolUse
    payload to `hooks/gating_guard.py` (see the generated hook's docstring).
 4. **Channel + setup** — email is already wired: mint the agent's own mailbox + gog OAuth
-   client (named `<slug>`), `gog login <mailbox> --client <slug> --services gmail,drive,docs,sheets,forms`,
+   client (named `<slug>`), `gog login <mailbox> --client <slug> --services gmail,drive,docs,sheets,forms,appscript`,
    verify with `canopy email preflight --repo .`, send via `bin/<slug>-email`. Then declare
    secrets in `config/secrets.yaml` and run `canopy provision`. Finish with
    `canopy agent doctor --repo .` — one command verifying identity, rails, manifest, gog

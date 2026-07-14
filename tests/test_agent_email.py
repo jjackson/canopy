@@ -575,3 +575,34 @@ def test_narrow_reply_accepts_thread_id_directly():
         IDENT, thread_id="T1", to="c@partner.org", cc="ops@partner.org",
         runner=_guard_runner(_thread_json()))
     assert dropped == ["ace@dimagi-ai.com"]
+
+
+def test_login_services_includes_appscript():
+    """Apps Script must be in the standard login set — some agents drive Drive via it."""
+    from orchestrator.agent_email import LOGIN_SERVICES
+    assert "appscript" in {s.strip() for s in LOGIN_SERVICES.split(",")}
+
+
+def test_granted_services_parses_matching_account():
+    import json
+    from types import SimpleNamespace
+    from orchestrator.agent_email import EmailIdentity, granted_services
+    payload = json.dumps({"accounts": [
+        {"email": "hal@dimagi-ai.com", "client": "hal", "services": ["gmail", "appscript"]},
+        {"email": "echo@dimagi-ai.com", "client": "echo", "services": ["gmail"]}]})
+    ident = EmailIdentity(slug="hal", account="hal@dimagi-ai.com", client="hal")
+    got = granted_services(ident, runner=lambda *a, **k: SimpleNamespace(
+        returncode=0, stdout=payload, stderr=""))
+    assert got == {"gmail", "appscript"}
+
+
+def test_granted_services_none_when_account_absent_or_gog_fails():
+    from types import SimpleNamespace
+    from orchestrator.agent_email import EmailIdentity, granted_services
+    ident = EmailIdentity(slug="nope", account="nope@dimagi-ai.com", client="nope")
+    # gog returns other accounts but not this one -> None
+    assert granted_services(ident, runner=lambda *a, **k: SimpleNamespace(
+        returncode=0, stdout='{"accounts": []}', stderr="")) is None
+    # gog fails -> None
+    assert granted_services(ident, runner=lambda *a, **k: SimpleNamespace(
+        returncode=1, stdout="", stderr="boom")) is None

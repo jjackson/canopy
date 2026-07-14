@@ -167,7 +167,7 @@ def test_run_agent_doctor_all_green(tmp_path):
         repo, gog_dir=_gog_home(tmp_path), runner=_ok_runner,
         client_factory=_client_factory())
     assert ok
-    assert [r.ok for r in results] == [True] * 6
+    assert [r.ok for r in results] == [True] * 7
 
 
 def test_run_agent_doctor_identity_failure_degrades_dependents(tmp_path):
@@ -198,7 +198,7 @@ def test_cli_agent_doctor_json_and_exit_code(tmp_path, monkeypatch):
     assert payload["ok"] is False
     names = [c["name"] for c in payload["checks"]]
     assert names == ["Identity", "Gating rails", "Hook wiring", "Secrets manifest",
-                     "Email auth (gog)", "canopy-web board"]
+                     "Email auth (gog)", "Auth services", "canopy-web board"]
 
 
 def test_cli_agent_doctor_all_sweeps_fleet_and_gates_on_any_failure(tmp_path, monkeypatch):
@@ -295,3 +295,53 @@ def test_email_auth_keeps_full_multiline_remediation():
     assert not result.ok
     # the FULL fix block survives, not just line 1 (an early line AND the last line both present)
     assert "gog login" in result.detail and "SHARED fleet OAuth client" in result.detail
+
+
+# --------------------------------------------------------------------------------------
+# check_auth_services — Apps Script (and full service surface) coverage
+# --------------------------------------------------------------------------------------
+
+def _auth_list_runner(services):
+    """Fake `gog auth list --json` returning hal's account with the given services."""
+    payload = json.dumps({"accounts": [
+        {"email": "hal@dimagi-ai.com", "client": "hal", "services": list(services)}]})
+
+    def run(cmd, capture_output, text, timeout):
+        return SimpleNamespace(returncode=0, stdout=payload, stderr="")
+    return run
+
+
+def _hal_identity():
+    from orchestrator.agent_email import EmailIdentity
+    return EmailIdentity(slug="hal", account="hal@dimagi-ai.com", client="hal")
+
+
+def test_auth_services_passes_when_all_granted():
+    from orchestrator.agent_doctor import check_auth_services
+    from orchestrator.agent_email import LOGIN_SERVICES
+    services = [s.strip() for s in LOGIN_SERVICES.split(",")]
+    r = check_auth_services(_hal_identity(), runner=_auth_list_runner(services))
+    assert r.ok and "granted" in r.detail
+
+
+def test_auth_services_fails_when_appscript_missing():
+    from orchestrator.agent_doctor import check_auth_services
+    r = check_auth_services(
+        _hal_identity(),
+        runner=_auth_list_runner(["gmail", "drive", "docs", "sheets", "forms"]))
+    assert not r.ok and "appscript" in r.detail and "gog login" in r.detail
+
+
+def test_auth_services_skips_when_not_introspectable():
+    from orchestrator.agent_doctor import check_auth_services
+
+    def gog_missing(cmd, capture_output, text, timeout):
+        return SimpleNamespace(returncode=1, stdout="", stderr="err")
+    r = check_auth_services(_hal_identity(), runner=gog_missing)
+    assert r.ok and "skipped" in r.detail  # email-auth owns the hard failure, not this
+
+
+def test_auth_services_skipped_without_identity():
+    from orchestrator.agent_doctor import check_auth_services
+    r = check_auth_services(None)
+    assert not r.ok and "identity" in r.detail

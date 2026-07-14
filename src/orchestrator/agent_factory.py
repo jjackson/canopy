@@ -610,7 +610,7 @@ follows it: preflight → process inbound (one counterpart at a time) → skill 
 5. The agent's own thing is its MAILBOX ({{MAILBOX}}); the gog OAuth client is the SHARED fleet
    app (`canopy`), already declared in config/secrets.yaml — `canopy provision` places it. Then
    consent this mailbox into it once: `gog login {{MAILBOX}} --client canopy --services
-   gmail,drive,docs,sheets,forms`. Verify with `canopy email preflight --repo .`; send via
+   gmail,drive,docs,sheets,forms,appscript`. Verify with `canopy email preflight --repo .`; send via
    `bin/{{AGENT_SLUG}}-email`.
 '''
 
