@@ -23,10 +23,20 @@ surface is blocked, run the turn for the surfaces that passed and tell the human
 blocked and how to fix it. Do not abort the whole turn for one blocker.
 
 ## Step 2 — Process inbound, one counterpart at a time
+**Scope.** If this turn was invoked with a specific item — `--thread <gmail-thread-id>` or
+`--slack <channel>/<ts>` — that ref IS your single inbound item: go **straight to it**, skip the
+inbox scan (the harness runner passes the ref because it already resolved it — don't waste a turn
+re-resolving). Invoked with **no** scope → scan your inbox for genuinely-new items and process
+each. Either way, the per-item rules below apply.
+
 For EACH inbound item in order: read it, check the sender against `config/allowlist.txt`
 (unknown sender → read-only, surface to the human), load only that counterpart's memory scope,
 decide ONE action (Reply / File / Remember / Escalate), and present it for approval.
 **Never reason about two counterparts in one step** — the cardinal rule.
+
+**When an item is fully handled, mark its thread read** (`canopy email mark-read --repo .
+<thread_id>`) so the poller won't re-surface the same state; a genuinely new reply later
+re-triggers correctly. If the item needs no action, mark it read anyway (it's handled).
 
 Before every outbound reply, run the `agent-turn-review` skill (it invokes the fleet-wide
 `canopy:agent-turn-review`): re-read the original request, extract EACH discrete ask, confirm the

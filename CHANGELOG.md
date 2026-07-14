@@ -9,6 +9,19 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.286] - 2026-07-14
+
+### Changed
+
+- Inbox continuity is now DRY + fleet-canonical. Fleet **inbox filters** live in
+  `src/orchestrator/inbox_filters.py` (single source of truth) and apply to one or
+  all mailboxes via `canopy email apply-filters [--all] [--sweep]` (--sweep also
+  retroactively clears the existing junk backlog). `agent-core/turn.md` Step 2 now
+  honors an optional `--thread`/`--slack` scope (the harness runner hands the exact
+  item so the agent doesn't re-resolve) and marks a handled thread read. Retired the
+  `drain-turn` skill — the agent's own `/<slug>:turn` subsumes it; the runner calls
+  that with the scope ref.
+
 ## [0.2.283] - 2026-07-14
 
 ### Changed

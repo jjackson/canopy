@@ -860,6 +860,51 @@ def email_mark_read(repo, agent, account, client, thread_ids):
         sys.exit(1)
 
 
+@email_group.command("apply-filters")
+@click.option("--all", "all_agents", is_flag=True, help="Apply to EVERY discovered agent mailbox.")
+@click.option("--repo", type=click.Path(exists=True, file_okay=False), help="Agent repo (resolve its mailbox).")
+@click.option("--agent", help="Agent slug (locate its repo).")
+@click.option("--account", help="Explicit mailbox.")
+@click.option("--client", help="Explicit gog client.")
+@click.option("--sweep", is_flag=True,
+              help="Also retroactively archive+mark-read matching mail ALREADY in the inbox "
+                   "(clears the junk backlog so it doesn't spawn turns).")
+@click.option("--dry-run", is_flag=True)
+def email_apply_filters(all_agents, repo, agent, account, client, sweep, dry_run):
+    """Push the fleet inbox filters (orchestrator/inbox_filters.py — the single source of
+    truth) to one mailbox or, with --all, every agent's. Idempotent."""
+    from orchestrator import inbox_filters
+    targets = []  # (label, account, client)
+    if all_agents:
+        import json as _json
+        from orchestrator.fleet_align import discover_agents
+        for a in discover_agents():
+            aj = a.path / "config" / "agent.json"
+            if not aj.is_file():
+                continue
+            d = _json.loads(aj.read_text())
+            acct = d.get("email") or d.get("mailbox")
+            if acct:
+                targets.append((a.slug, acct, d.get("gog_client") or "canopy"))
+    else:
+        try:
+            ident = _identity_from_opts(repo, agent, account, client)
+        except AgentEmailError as e:
+            raise click.ClickException(str(e))
+        targets.append((ident.slug, ident.account, ident.client))
+    if not targets:
+        raise click.ClickException("no target mailboxes (use --all, or --agent/--repo/--account+--client)")
+    for label, acct, cli in targets:
+        try:
+            res = inbox_filters.apply_filters(acct, cli, dry_run=dry_run)
+            line = f"{label} ({acct}): applied={res['applied']} skipped={res['skipped']}"
+            if sweep:
+                line += f" | swept-existing={inbox_filters.sweep_existing(acct, cli, dry_run=dry_run)}"
+        except inbox_filters.FilterError as e:
+            line = f"{label} ({acct}): ERROR {e}"
+        click.echo(line)
+
+
 @email_group.command("preflight")
 @_with_identity_options
 def email_preflight(repo, agent, account, client):
