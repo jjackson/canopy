@@ -26,7 +26,7 @@ enforce it.
 
 **FRAMEWORK** (agent-runtime substrate — must not import product):
 `agent_cli` · `agent_client` · `agent_doctor` · `agent_email` · `agent_factory` · `agent_web` · `canopy_web` ·
-`capture` · `transcripts` · `scanner` · `circuit_breaker` · `rate_limiter` ·
+`inbox_filters` · `capture` · `transcripts` · `scanner` · `circuit_breaker` · `rate_limiter` ·
 `scheduler` · `paths` · `repo_map` · `repo_paths` · `registry` · `registry_sync` ·
 `skill_budget` · `skill_catalog` · `skill_runner` · `provision` · `run_log` ·
 `version_bump` · `doctor` · `agent_review` · `structure_drift` · `eval_cli` ·
