@@ -29,8 +29,10 @@ from pathlib import Path
 from orchestrator.doctor import CheckResult
 from orchestrator.agent_email import (
     GOG_CONFIG_DIR,
+    LOGIN_SERVICES,
     AgentEmailError,
     EmailIdentity,
+    granted_services,
     preflight,
     resolve_email_identity,
 )
@@ -187,6 +189,39 @@ def check_email_auth(
     return CheckResult(name, ok, detail.removeprefix("OK: ").removeprefix("FIX: "))
 
 
+def check_auth_services(
+    identity: EmailIdentity | None,
+    *,
+    runner=subprocess.run,
+) -> CheckResult:
+    """Every service in LOGIN_SERVICES is actually granted for the agent's gog auth.
+
+    Email auth (check_email_auth) proves the token is alive for Gmail; this proves the
+    login covered the WHOLE standard surface — notably `appscript`, which some agents
+    use to drive Google Drive and which is granted only if requested at login. A token
+    that works for Gmail but never consented to Apps Script would silently 403 the first
+    time the agent runs a script, so we catch it here with the exact re-login fix.
+
+    `granted_services` returning None means gog couldn't be introspected (not installed,
+    account not found) — that's a SKIP (check_email_auth already owns the hard auth
+    failure), not a second red herring."""
+    name = "Auth services"
+    if identity is None:
+        return CheckResult(name, False, "skipped — identity unresolved")
+    required = {s.strip() for s in LOGIN_SERVICES.split(",") if s.strip()}
+    granted = granted_services(identity, runner=runner)
+    if granted is None:
+        return CheckResult(name, True, "skipped — gog auth not introspectable (see Email auth)")
+    missing = sorted(required - granted)
+    if missing:
+        return CheckResult(
+            name, False,
+            f"missing scope(s) {missing} for {identity.account} — re-run: "
+            f"gog login {identity.account} --client {identity.client} --services {LOGIN_SERVICES}",
+        )
+    return CheckResult(name, True, f"all {len(required)} services granted ({LOGIN_SERVICES})")
+
+
 def check_registration(
     identity: EmailIdentity | None,
     *,
@@ -232,6 +267,7 @@ def run_agent_doctor(
         check_hook_wiring(repo),
         check_secrets_manifest(repo),
         check_email_auth(identity, gog_dir=gog_dir, runner=runner),
+        check_auth_services(identity, runner=runner),
         check_registration(identity, client_factory=client_factory),
     ]
     overall_ok = all(r.ok for r in results)

@@ -9,6 +9,17 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.283] - 2026-07-14
+
+### Changed
+
+- Agents now request **Apps Script** at login: `LOGIN_SERVICES` adds `appscript`
+  (some agents drive Google Drive via Apps Script; the scope must be granted at
+  login). The per-agent doctor gains an **Auth services** check that reads
+  `gog auth list --json` and fails when a required service (notably `appscript`)
+  isn't granted, with the exact re-login command. Existing agents keep working
+  for email; the doctor now flags any that need to re-login to pick up the scope.
+
 ## [0.2.282] - 2026-07-14
 
 ### Added

@@ -112,8 +112,10 @@ def _default_gog_config_dir() -> str:
 
 GOG_CONFIG_DIR = _default_gog_config_dir()
 # Every Google surface a turn commonly touches — one login covers them all, so an
-# agent doesn't re-consent per service. gmail is the only one THIS engine needs.
-LOGIN_SERVICES = "gmail,drive,docs,sheets,forms"
+# agent doesn't re-consent per service. gmail is the only one THIS engine needs;
+# `appscript` is included because some agents drive Google Drive via Apps Script and
+# the scope must be granted at login (the doctor's check_auth_services verifies it).
+LOGIN_SERVICES = "gmail,drive,docs,sheets,forms,appscript"
 
 LIST_RE = re.compile(r"^\s*([-*+]|\d+\.)\s+")
 URL_RE = re.compile(r"(https?://[^\s<>()]+)")
@@ -627,6 +629,35 @@ def _provision_remedy(identity: EmailIdentity, creds: str) -> list[str] | None:
         f"     Materialize it: {prov_cmd}",
         f"     Then consent {identity.slug}'s mailbox into it once (interactive): {login_cmd}",
     ]
+
+
+def granted_services(
+    identity: EmailIdentity,
+    *,
+    runner=subprocess.run,
+) -> set[str] | None:
+    """Google services actually GRANTED for this identity's (account, client).
+
+    Reads `gog auth list --json` — gog's own record of what each stored account was
+    authorized for — and returns the service-name set (e.g. {"gmail","drive","appscript"}).
+    Returns None if gog is unavailable or the account isn't found, so the caller can
+    decide whether "can't tell" is a hard failure (the doctor treats it as skip, not fail)."""
+    try:
+        r = runner(["gog", "auth", "list", "--json"],
+                   capture_output=True, text=True, timeout=30)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    try:
+        accounts = json.loads(r.stdout or "{}").get("accounts", [])
+    except (ValueError, TypeError):
+        return None
+    for a in accounts:
+        if (str(a.get("email", "")).lower() == identity.account.lower()
+                and a.get("client") == identity.client):
+            return set(a.get("services", []))
+    return None
 
 
 def preflight(
