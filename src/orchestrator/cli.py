@@ -1541,8 +1541,10 @@ def create_agent_cmd(slug, name, mandate, mailbox, stakeholders, target, force, 
 @click.option("--hours", default=168, type=int, help="Look back this many hours (default: 7 days)")
 @click.option("--no-llm", is_flag=True, help="Deterministic friction signals only; skip claude -p")
 @click.option("--model", default="sonnet", help="Model for the synthesis pass")
+@click.option("--max-budget-usd", default=2.0, type=float,
+              help="USD cap for the claude -p synthesis pass (default: 2.0)")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def agent_review_cmd(agent, hours, no_llm, model, as_json):
+def agent_review_cmd(agent, hours, no_llm, model, max_budget_usd, as_json):
     """Review an agent's recent TURNS for operating-model friction and recommend fixes.
 
     AGENT is a slug (e.g. `echo`) or a path to the agent repo. Build 2 of the agent operating
@@ -1552,7 +1554,8 @@ def agent_review_cmd(agent, hours, no_llm, model, as_json):
     import json as json_mod
     from orchestrator.agent_review import run_review, FRICTION_TYPES
 
-    result = run_review(agent, hours=hours, use_llm=not no_llm, model=model)
+    result = run_review(agent, hours=hours, use_llm=not no_llm, model=model,
+                        max_budget_usd=max_budget_usd)
 
     if as_json:
         click.echo(json_mod.dumps(result, indent=2, default=str))

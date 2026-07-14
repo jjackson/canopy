@@ -239,3 +239,32 @@ def test_human_corrections_catches_safety_override_and_confusion():
     allkinds = {k for c in cor for k in c["kinds"]}
     assert "safety_override" in allkinds and "confusion" in allkinds and "emphasis" in allkinds
     assert "go ahead" not in quotes and "take a turn" not in quotes   # neutral msgs ignored
+
+def test_run_review_surfaces_stdout_error_and_sane_budget(tmp_path, monkeypatch):
+    # Echo's 2026-07 review: claude -p exited 1 with "Error: Exceeded USD budget (0.5)"
+    # on STDOUT (stderr empty), so the report said 'claude -p failed: ' — undiagnosable.
+    # Pin both fixes: (a) stdout errors surface, (b) the default budget clears $0.50,
+    # which a real 7-turn corpus empirically exceeds.
+    import subprocess as sp
+    from orchestrator import agent_review as ar
+
+    repo = tmp_path / "repositories" / "echo"
+    (repo / "skills").mkdir(parents=True)
+    projects = tmp_path / "projects"
+    d = projects / "-Users-x-emdash-repositories-echo"
+    d.mkdir(parents=True)
+    _write_transcript(d / "a.jsonl", str(repo), [("Read", {"file_path": "/x"}, "ok")])
+
+    seen_cmds = []
+
+    def fake_run(cmd, **kwargs):
+        seen_cmds.append(cmd)
+        return sp.CompletedProcess(
+            cmd, returncode=1, stdout="Error: Exceeded USD budget (0.5)", stderr="")
+
+    monkeypatch.setattr(ar.subprocess, "run", fake_run)
+    result = ar.run_review(str(repo), projects_dir=projects)
+
+    assert "Exceeded USD budget" in result["error"]          # (a) stdout not swallowed
+    budget = float(seen_cmds[0][seen_cmds[0].index("--max-budget-usd") + 1])
+    assert budget > 0.5                                       # (b) default clears the observed cost
