@@ -76,8 +76,11 @@ leave items awaiting a human decision open.
 Then refresh your canopy-web workspace so `/agents/<slug>` reflects this turn
 (the installed canopy plugin provides the shared client — no per-agent client to maintain):
 ```
-canopy agent skills        # mirror the skill catalog (registers the agent if new)
+canopy agent skills --slug <slug> --from-repo skills   # mirror skills/*/SKILL.md into the catalog (registers the agent if new)
 ```
+Both flags are required — `--from-repo` takes the directory that HOLDS the skill dirs, so it is
+`skills` (globs `skills/*/SKILL.md`), NOT `.` (which globs `./*/SKILL.md` and mirrors 0). Run it
+from the repo/worktree root.
 If this turn produced a shareable deliverable, also `canopy agent work <items.json>`. The board at
 `/agents/<slug>` is the shared trigger + approval surface — where teammates queue work and
 approve outbound actions.
@@ -98,7 +101,7 @@ turn). Put that link in your close-out summary. Without `--upload`, the turn is 
 **CLOSE CHECKLIST — confirm each in the summary (these get silently skipped under load):**
 1. `agent-turn-review` ran on every outbound reply (Step 2).
 2. Skill-development self-check answered (Step 3).
-3. Workspace refreshed (`canopy agent skills` above).
+3. Workspace refreshed (`canopy agent skills --slug <slug> --from-repo skills` above).
 4. Turn packaged (`canopy agent turn …`); transcript uploaded ONLY if the human approved.
 
 **Shipping a skill change from a worktree** — emdash runs each turn in a worktree while `main` is
