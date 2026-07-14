@@ -361,3 +361,56 @@ def agent_add(slug, title, ext_id, next_action, status, owner, assigned, confide
         _emit({"added": task["ext_id"], "result": result})
     except (CanopyError, RuntimeError) as e:
         raise click.ClickException(str(e))
+
+
+@agent.command("health")
+@click.option("--slug", default="", help="One agent; omit to sweep the whole registered fleet.")
+@click.option("--stale-needs-you-days", default=7.0, show_default=True, type=float,
+              help="Flag needs-you items older than this")
+@click.option("--stale-turn-days", default=7.0, show_default=True, type=float,
+              help="Flag agents whose last turn is older than this")
+@click.option("--stale-inbox-days", default=3.0, show_default=True, type=float,
+              help="Flag unread inbox threads older than this")
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def agent_health(slug, stale_needs_you_days, stale_turn_days, stale_inbox_days, as_json):
+    """Work-state readiness for an agent's NEXT turn (or the whole fleet).
+
+    The complement of `canopy agent doctor`: doctor asks "can this machine run
+    the agent" (setup); health asks "is the agent's workload in a healthy state"
+    — stale needs-you items on the board, stuck/failed harness turns, turn
+    recency, and unread inbox junk that would pollute inbox-triage. Read-only;
+    emits facts + deterministic junk SIGNALS (verdicts are the caller's job).
+    Exits non-zero if any probed agent is not ready.
+    """
+    from orchestrator.agent_health import run_agent_health
+
+    try:
+        out = run_agent_health(slug or None,
+                               stale_needs_you_days=stale_needs_you_days,
+                               stale_turn_days=stale_turn_days,
+                               stale_inbox_days=stale_inbox_days)
+    except (CanopyError, RuntimeError) as e:
+        raise click.ClickException(str(e))
+
+    if as_json:
+        click.echo(json.dumps(out, indent=2))
+    else:
+        for a in out["agents"]:
+            mark = "OK  " if a["ready"] else "FLAG"
+            flags = ", ".join(a["flags"]) or "-"
+            n_unread = len(a["inbox"]["unread"])
+            n_junky = sum(1 for u in a["inbox"]["unread"] if u["junk_signals"])
+            age = a["board"]["turn_age_days"]
+            last_turn = "never" if age is None else f"{age}d ago"
+            click.echo(f"[{mark}] {a['agent']:<8} flags: {flags}")
+            click.echo(f"        last turn: {last_turn}  •  "
+                       f"needs-you: {len(a['board']['needs_you'])} "
+                       f"({sum(1 for i in a['board']['needs_you'] if i['stale'])} stale)  •  "
+                       f"unread: {n_unread} ({n_junky} junk-signaled)"
+                       + (f"  •  inbox error: {a['inbox']['error']}" if a["inbox"]["error"] else ""))
+        click.echo()
+        n_bad = sum(1 for a in out["agents"] if not a["ready"])
+        click.echo(f"All {len(out['agents'])} agent(s) ready for their next turn."
+                   if out["ok"] else f"{n_bad}/{len(out['agents'])} agent(s) flagged — details above.")
+    if not out["ok"]:
+        raise SystemExit(1)
