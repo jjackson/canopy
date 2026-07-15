@@ -8,10 +8,12 @@ from orchestrator.agent_coverage import (
     burst_of,
     classify,
     compute_bursts,
+    coverage_report,
     declared_skills,
     evidence_from_entries,
     parent_of,
     persona_info,
+    run_agent_coverage,
     scan_evidence,
     skill_git_facts,
 )
@@ -453,3 +455,84 @@ def test_classify_decay_bursts_larger_than_opportunity_bursts_covers_whole_list(
     # recent window, so firing in burst 1 counts as live.
     assert classify(parent=None, used_bursts=[1], opportunity_bursts=[1, 2],
                     corpus_adequate=True, decay_bursts=5) == "live"
+
+
+# --- Task 5: report assembly + fleet sweep -----------------------------------
+
+
+def _fixture_repo_with_git(tmp_path):
+    # Nested under repositories/<slug>, mirroring the real layout resolve_agent_repo
+    # returns -- evidence_from_entries requires this exact convention (see its
+    # docstring) so a Read of skills/<name>/SKILL.md can ever match as evidence.
+    # A bare tmp_path would never satisfy that guard and every skill would read
+    # as never_live regardless of activity.
+    repo = _mkrepo(tmp_path / "repositories" / "eva",
+                   ["turn", "lead-outreach", "cea-botec"], persona="# Eva\n")
+    run = lambda a: subprocess.run(["git", "-C", str(repo), *a],
+                                   capture_output=True, text=True)
+    run(["init", "-q"]); run(["config", "user.email", "t@t.t"]); run(["config", "user.name", "t"])
+    run(["add", "-A"]); run(["commit", "-q", "-m", "init", "--date", "2026-07-01T09:00:00Z"])
+    return repo
+
+
+def test_coverage_report_buckets_a_decayed_skill(tmp_path, monkeypatch):
+    repo = _fixture_repo_with_git(tmp_path)
+    # Activity: burst 1 (07-01,02) and burst 3 (07-13,14). lead-outreach fired only in burst 1.
+    entries = [
+        {"type": "assistant", "timestamp": "2026-07-01T09:00:00Z", "sessionId": "a",
+         "message": {"content": [{"type": "tool_use", "name": "Skill",
+                                  "input": {"skill": "eva:lead-outreach"}}]}},
+        {"type": "assistant", "timestamp": "2026-07-02T09:00:00Z", "sessionId": "a",
+         "message": {"content": [{"type": "text", "text": "working"}]}},
+        {"type": "assistant", "timestamp": "2026-07-13T09:00:00Z", "sessionId": "b",
+         "message": {"content": [{"type": "tool_use", "name": "Read",
+                                  "input": {"file_path": f"{repo}/skills/turn/SKILL.md"}}]}},
+        {"type": "assistant", "timestamp": "2026-07-14T09:00:00Z", "sessionId": "b",
+         "message": {"content": [{"type": "text", "text": "still working"}]}},
+    ]
+    monkeypatch.setattr("orchestrator.agent_coverage.resolve_agent_repo", lambda s: repo)
+    monkeypatch.setattr("orchestrator.agent_coverage.find_turn_transcripts",
+                        lambda r, hours, **kw: [Path("/tmp/a.jsonl"), Path("/tmp/b.jsonl"),
+                                                Path("/tmp/c.jsonl")])
+    rep = coverage_report("eva", call=lambda *a, **k: {}, now=NOW,
+                          reader=lambda p: entries if str(p).endswith("a.jsonl") else [])
+
+    by = {s["name"]: s for s in rep["skills"]}
+    assert [b["id"] for b in rep["bursts"]] == [1, 2]          # 07-01..02 and 07-13..14
+    assert by["lead-outreach"]["bucket"] == "decayed"           # fired burst 1, silent burst 2
+    assert by["turn"]["bucket"] == "live"                       # fired in the latest burst
+    assert by["cea-botec"]["bucket"] == "never_live"            # never fired, 2 bursts of chance
+    assert by["lead-outreach"]["evidence"][0]["kind"] == "skill_tool_call"
+    assert rep["persona"]["present"] is True
+
+
+def test_coverage_report_thin_corpus_is_insufficient_evidence(tmp_path, monkeypatch):
+    repo = _fixture_repo_with_git(tmp_path)
+    monkeypatch.setattr("orchestrator.agent_coverage.resolve_agent_repo", lambda s: repo)
+    monkeypatch.setattr("orchestrator.agent_coverage.find_turn_transcripts",
+                        lambda r, hours, **kw: [Path("/tmp/a.jsonl")])  # 1 < min_transcripts
+    entries = [{"type": "assistant", "timestamp": "2026-07-01T09:00:00Z", "sessionId": "a",
+                "message": {"content": [{"type": "text", "text": "hi"}]}},
+               {"type": "assistant", "timestamp": "2026-07-13T09:00:00Z", "sessionId": "b",
+                "message": {"content": [{"type": "text", "text": "hi"}]}}]
+    rep = coverage_report("eva", call=lambda *a, **k: {}, now=NOW, reader=lambda p: entries)
+    assert rep["corpus"]["adequate"] is False
+    assert {s["bucket"] for s in rep["skills"]} == {"insufficient_evidence"}
+
+
+def test_coverage_report_unresolvable_repo_degrades_loud(monkeypatch):
+    monkeypatch.setattr("orchestrator.agent_coverage.resolve_agent_repo", lambda s: None)
+    rep = coverage_report("ghost", call=lambda *a, **k: {}, now=NOW)
+    assert rep["agent"] == "ghost" and rep["error"]
+
+
+def test_run_agent_coverage_sweeps_paginated_fleet(monkeypatch):
+    """Sweeps via the SHARED agent_client.list_agent_slugs (not a private copy)."""
+    monkeypatch.setattr("orchestrator.agent_coverage.resolve_agent_repo", lambda s: None)
+
+    def call(method, path):
+        return {"items": [{"slug": "eva"}, {"slug": "hal"}], "total": 2}
+
+    out = run_agent_coverage(None, call=call, now=NOW)
+    assert [a["agent"] for a in out["agents"]] == ["eva", "hal"]
+    assert out["ok"] is False  # unresolvable repos -> not ok

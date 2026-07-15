@@ -25,10 +25,13 @@ from __future__ import annotations
 
 import re
 import subprocess
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
+from orchestrator import canopy_web
+from orchestrator.agent_client import list_agent_slugs
+from orchestrator.agent_review import find_turn_transcripts, resolve_agent_repo
 from orchestrator.transcripts import read_transcript
 
 
@@ -291,3 +294,109 @@ def classify(*, parent: Optional[str], used_bursts: list[int],
     if not corpus_adequate:
         return "insufficient_evidence"
     return "never_live"
+
+
+def _activity_stamps(paths: list[Path], reader: Callable) -> list[tuple[datetime, str]]:
+    """(timestamp, session_id) for every entry in the corpus -- the burst input."""
+    stamps = []
+    for p in paths:
+        for entry in reader(p):
+            ts = _parse_ts(entry.get("timestamp"))
+            if ts is not None:
+                stamps.append((ts, entry.get("sessionId") or str(p)))
+    return stamps
+
+
+def _agent_activity(slug: str, call: Callable) -> dict:
+    """Auxiliary canopy-web telemetry (turn/task/work-product counts).
+
+    Best-effort by design: bursts/evidence/buckets are computed purely from git +
+    transcripts, so an unreachable canopy-web must not abort the whole coverage
+    report over this supplementary block. But swallowing the failure to a bare
+    `{}` would be indistinguishable from "this agent genuinely has zero turns" --
+    across a fleet sweep, a canopy-web outage would then silently read as every
+    agent having no activity. Keep the failure as a FACT instead.
+    """
+    try:
+        detail = call("GET", f"/api/agents/{slug}/") or {}
+    except Exception as e:
+        return {"error": str(e)}
+    return {k: detail.get(k) for k in
+            ("turn_count", "task_count", "work_product_count", "latest_turn_at")}
+
+
+def coverage_report(slug: str, *, call: Callable = canopy_web.call,
+                    now: Optional[datetime] = None,
+                    projects_dir: Optional[Path] = None,
+                    window_days: int = DEFAULT_WINDOW_DAYS,
+                    burst_gap_days: int = DEFAULT_BURST_GAP_DAYS,
+                    min_bursts: int = DEFAULT_MIN_BURSTS,
+                    decay_bursts: int = DEFAULT_DECAY_BURSTS,
+                    min_transcripts: int = DEFAULT_MIN_TRANSCRIPTS,
+                    reader: Callable = read_transcript) -> dict:
+    """One agent's bring-up coverage: declared surface vs. what actually fired."""
+    now = now or datetime.now(timezone.utc)
+    repo = resolve_agent_repo(slug)
+    if repo is None or not Path(repo).exists():
+        return {"agent": slug, "error": f"cannot resolve an agent repo for '{slug}'"}
+    repo = Path(repo)
+
+    kw = {"projects_dir": projects_dir} if projects_dir else {}
+    paths = find_turn_transcripts(repo, hours=window_days * 24, **kw)
+    stamps = _activity_stamps(paths, reader)
+    bursts = compute_bursts(stamps, gap_days=burst_gap_days)
+    adequate = len(paths) >= min_transcripts
+
+    names = declared_skills(repo)
+    all_names = set(names)
+    evidence = scan_evidence(paths, slug, names, reader=reader)
+
+    rows = []
+    for name in names:
+        parent = parent_of(name, all_names)
+        git = skill_git_facts(repo, name, now)
+        born = burst_of(_parse_ts(git["added_at"]), bursts)
+        if born is None:
+            # Predates the window (or landed in a dark stretch): it existed for all
+            # bursts we can see. Fair -- do not credit it with less opportunity.
+            opportunity = [b["id"] for b in bursts]
+        else:
+            opportunity = [b["id"] for b in bursts if b["id"] >= born]
+        evs = evidence.get(name, [])
+        used = sorted({b for b in (burst_of(e["ts"], bursts) for e in evs) if b})
+        bucket = classify(parent=parent, used_bursts=used,
+                          opportunity_bursts=opportunity, corpus_adequate=adequate,
+                          min_bursts=min_bursts, decay_bursts=decay_bursts)
+        row = {"name": name, "bucket": bucket, "born_burst": born,
+               "opportunity_bursts": opportunity, "used_bursts": used,
+               "live": bucket == "live",
+               "evidence_count": len(evs),
+               "evidence": [{"transcript": e.get("transcript"),
+                             "ts": e["ts"].isoformat() if e["ts"] else None,
+                             "kind": e["kind"], "line": e["line"]}
+                            for e in evs[:MAX_EVIDENCE_PER_SKILL]],
+               **git}
+        if parent:
+            row["parent"] = parent
+        rows.append(row)
+
+    return {
+        "agent": slug,
+        "window_days": window_days,
+        "corpus": {"transcripts": len(paths), "entries": len(stamps),
+                   "adequate": adequate},
+        "persona": persona_info(repo),
+        "activity": _agent_activity(slug, call),
+        "bursts": bursts,
+        "skills": rows,
+    }
+
+
+def run_agent_coverage(slug: Optional[str] = None, *, call: Callable = canopy_web.call,
+                       now: Optional[datetime] = None, **kw) -> dict:
+    """Probe one agent (slug) or sweep the whole registered fleet (slug=None)."""
+    now = now or datetime.now(timezone.utc)
+    slugs = [slug] if slug else list_agent_slugs(call)
+    agents = [coverage_report(s, call=call, now=now, **kw) for s in slugs]
+    ok = all(not a.get("error") and a.get("corpus", {}).get("adequate") for a in agents)
+    return {"ok": ok, "agents": agents}
