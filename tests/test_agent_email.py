@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from orchestrator import review_receipt as _rr
 from orchestrator.agent_email import (
     AgentEmailError,
     EmailIdentity,
@@ -210,7 +211,22 @@ def test_send_dry_run_shows_cc():
     assert result["cc"] == "boss@x.com"
 
 
-def test_send_invokes_gog_and_parses_result():
+@pytest.fixture
+def reviewed(tmp_path, monkeypatch):
+    """Arrange a passing pre-send review for whatever body a test sends.
+
+    send() now requires a review receipt for the exact body (review_receipt.py). These
+    tests are about gog invocation / failure / timeout, so they record the receipt as
+    part of arranging a valid send — the rail itself is covered in test_review_receipt.py.
+    """
+    monkeypatch.setenv("CANOPY_REVIEW_RECEIPTS_DIR", str(tmp_path / "receipts"))
+
+    def _review(body_text):
+        _rr.record(IDENT.slug, body_text, caught=[], verdict="clean")
+    return _review
+
+
+def test_send_invokes_gog_and_parses_result(reviewed):
     seen = {}
 
     def fake_runner(cmd, capture_output, text, timeout):
@@ -219,6 +235,7 @@ def test_send_invokes_gog_and_parses_result():
         seen["plain"] = Path(cmd[cmd.index("--body-file") + 1]).read_text()
         return SimpleNamespace(returncode=0, stdout='{"id": "m9", "threadId": "t9"}', stderr="")
 
+    reviewed("para one\nwrapped\n")
     result = send(IDENT, to="a@x.com", subject="s", body_text="para one\nwrapped\n",
                   runner=fake_runner)
     assert result == {"message_id": "m9", "thread_id": "t9",
@@ -228,18 +245,20 @@ def test_send_invokes_gog_and_parses_result():
     assert not os.path.exists(seen["cmd"][seen["cmd"].index("--body-file") + 1])
 
 
-def test_send_failure_raises_with_stderr():
+def test_send_failure_raises_with_stderr(reviewed):
     def fake_runner(cmd, capture_output, text, timeout):
         return SimpleNamespace(returncode=1, stdout="", stderr="invalid_grant: bad token")
 
+    reviewed("x\n")
     with pytest.raises(AgentEmailError, match="invalid_grant"):
         send(IDENT, to="a@x.com", subject="s", body_text="x\n", runner=fake_runner)
 
 
-def test_send_timeout_raises_instead_of_hanging_the_turn():
+def test_send_timeout_raises_instead_of_hanging_the_turn(reviewed):
     def hung_runner(cmd, capture_output, text, timeout):
         raise subprocess.TimeoutExpired(cmd, timeout)
 
+    reviewed("x\n")
     with pytest.raises(AgentEmailError, match="timed out"):
         send(IDENT, to="a@x.com", subject="s", body_text="x\n", runner=hung_runner)
 
