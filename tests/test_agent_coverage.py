@@ -416,3 +416,40 @@ def test_classify_live_survives_thin_corpus():
     # A positive sighting is valid on ANY corpus size -- only negatives degrade.
     assert classify(parent=None, used_bursts=[3], opportunity_bursts=[1, 2, 3],
                     corpus_adequate=False) == "live"
+
+
+# --- FINDING 1: positive evidence must short-circuit ALL negative gates -----
+
+def test_classify_live_when_built_and_used_in_same_burst():
+    # A skill built and used within the same burst of activity: used_bursts=[3]
+    # is proof it fired, even though opportunity_bursts=[3] is below min_bursts.
+    # This must NOT be suppressed as no_opportunity.
+    assert classify(parent=None, used_bursts=[3], opportunity_bursts=[3],
+                    corpus_adequate=True, min_bursts=2) == "live"
+
+
+def test_classify_live_when_fired_despite_thin_opportunity_and_thin_corpus():
+    # Positive evidence short-circuits BOTH negative gates at once: thin
+    # opportunity-burst count AND thin corpus must not suppress a real firing.
+    assert classify(parent=None, used_bursts=[1], opportunity_bursts=[1],
+                    corpus_adequate=False) == "live"
+
+
+# --- FINDING 2: decay_bursts edge cases --------------------------------------
+
+def test_classify_decay_bursts_zero_means_nothing_is_recent():
+    # decay_bursts=0 -> an empty recent-window, so a skill that fired earlier
+    # is decayed, never live. Guards against "simplifying" the
+    # `if decay_bursts else set()` guard to a bare slice (`[-0:]` returns the
+    # WHOLE list, which would wrongly make this `live`).
+    result = classify(parent=None, used_bursts=[1], opportunity_bursts=[1, 2, 3],
+                      corpus_adequate=True, decay_bursts=0)
+    assert result == "decayed"
+    assert result != "live"
+
+
+def test_classify_decay_bursts_larger_than_opportunity_bursts_covers_whole_list():
+    # decay_bursts=5 > len(opportunity_bursts)=2 -> the whole list is the
+    # recent window, so firing in burst 1 counts as live.
+    assert classify(parent=None, used_bursts=[1], opportunity_bursts=[1, 2],
+                    corpus_adequate=True, decay_bursts=5) == "live"

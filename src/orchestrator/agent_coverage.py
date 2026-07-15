@@ -267,19 +267,27 @@ def classify(*, parent: Optional[str], used_bursts: list[int],
              decay_bursts: int = DEFAULT_DECAY_BURSTS) -> str:
     """One bucket for one skill. First match wins, in this order.
 
-    Opportunity is BURSTS, never days. `live` is checked before the corpus gate
-    because a positive sighting is valid on any corpus size -- only NEGATIVE claims
-    ("never fired") degrade to `insufficient_evidence`.
+    Positive evidence short-circuits EVERY negative gate: absence of evidence is
+    not evidence of absence, but presence of evidence IS evidence of presence.
+    `used_bursts` being non-empty is PROOF the skill fired, so `live`/`decayed`
+    are decided before `no_opportunity` (the opportunity-burst-count gate) and
+    before `insufficient_evidence` (the corpus-size gate) -- both of those exist
+    only to gate NEGATIVE claims ("never fired"), never to suppress a positive
+    one. A skill built and used inside the same burst
+    (`opportunity_bursts=[3]`, `used_bursts=[3]`, below `min_bursts`) is `live`,
+    not `no_opportunity`.
+
+    Opportunity is BURSTS, never days.
     """
     if parent:
         return "sub_skill"
-    if len(opportunity_bursts) < min_bursts:
-        return "no_opportunity"
     if used_bursts:
         recent = set(opportunity_bursts[-decay_bursts:]) if decay_bursts else set()
         if recent & set(used_bursts):
             return "live"
         return "decayed"
+    if len(opportunity_bursts) < min_bursts:
+        return "no_opportunity"
     if not corpus_adequate:
         return "insufficient_evidence"
     return "never_live"
