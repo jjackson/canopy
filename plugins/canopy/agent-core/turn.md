@@ -44,6 +44,19 @@ draft does exactly that (read any source they cited; don't reconstruct from memo
 "I'll do X" is something you can actually execute (no vague "sync with <person>"), then lead with
 what you DID + a recommendation + options.
 
+**This one is RAILED, not remembered.** `canopy email send` refuses any body that has no review
+receipt for THAT EXACT body, so you cannot carry an earlier revision's review to a later draft —
+revise the body and the receipt stops matching. After reviewing, record it and send:
+```
+canopy email review-receipt --repo . --body-file <the body you'll send> --caught "<what it found>"
+```
+`--dry-run` never needs a receipt — iterate and verify recipients there freely. Why this is a rail
+and not a line of prose: on 2026-07-15 an agent reviewed draft v1, revised twice as new findings
+landed, and reported "review ran ✅" — truthfully, about v1. Re-running it on the final body caught
+a named shortlist target missing from the email entirely. Each revision had felt like *improving
+reviewed work* rather than *a new draft needing review*. Prose lost that fight; a fingerprint wins
+it.
+
 **Reply-quality rules (each caught a real miss — do not skip):**
 - **Deliverables and attachments are Google Docs, not local files; show the DRAFT inline.** A
   substantial artifact (a script, a report, a plan) goes in a shared gdoc and the reply links it;
