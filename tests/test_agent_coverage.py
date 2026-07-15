@@ -296,3 +296,60 @@ def test_skill_git_facts_ungit_repo_is_none_not_crash(tmp_path):
     facts = skill_git_facts(repo, "turn", NOW)
     assert facts == {"added_at": None, "age_days": None,
                      "last_touched_days": None, "commits": 0}
+
+
+def test_skill_git_facts_follows_rename_to_original_creation_date(tmp_path):
+    """FINDING 1: a `git mv` must not reset added_at to the rename date, and the
+    pre-rename history must still be counted in `commits`."""
+    repo = _mkrepo(tmp_path, ["oldname"])
+    run = lambda *a, **k: subprocess.run(*a, **k, cwd=repo, capture_output=True, text=True)
+    run(["git", "init", "-q"])
+    run(["git", "config", "user.email", "t@t.t"])
+    run(["git", "config", "user.name", "t"])
+    run(["git", "add", "-A"])
+    run(["git", "commit", "-q", "-m", "add oldname",
+         "--date", "2026-01-01T09:00:00Z"])
+
+    run(["git", "mv", "skills/oldname", "skills/newname"])
+    run(["git", "commit", "-q", "-m", "rename oldname to newname",
+         "--date", "2026-07-10T09:00:00Z"])
+
+    (repo / "skills" / "newname" / "SKILL.md").write_text("---\nname: newname\n---\n# edited\n")
+    run(["git", "add", "-A"])
+    run(["git", "commit", "-q", "-m", "edit after rename",
+         "--date", "2026-07-12T09:00:00Z"])
+
+    facts = skill_git_facts(repo, "newname", NOW)
+    assert facts["added_at"].startswith("2026-01-01")
+    assert facts["commits"] == 3
+    # post-rename-only history would be 2 commits (rename + edit) -- the real
+    # count must include the pre-rename "add" commit too.
+    assert facts["commits"] > 2
+
+
+def test_skill_git_facts_deleted_then_readded_keeps_original_creation_date(tmp_path):
+    """FINDING 2: a deleted-then-re-added skill must report its ORIGINAL creation
+    date (overstating age is the safe direction -- it surfaces the skill for a
+    human to judge rather than silently under-crediting its opportunity)."""
+    repo = _mkrepo(tmp_path, ["x"])
+    run = lambda *a, **k: subprocess.run(*a, **k, cwd=repo, capture_output=True, text=True)
+    run(["git", "init", "-q"])
+    run(["git", "config", "user.email", "t@t.t"])
+    run(["git", "config", "user.name", "t"])
+    run(["git", "add", "-A"])
+    run(["git", "commit", "-q", "-m", "add x",
+         "--date", "2026-01-01T09:00:00Z"])
+
+    run(["git", "rm", "-q", "skills/x/SKILL.md"])
+    run(["git", "commit", "-q", "-m", "remove x",
+         "--date", "2026-03-01T09:00:00Z"])
+
+    (repo / "skills" / "x").mkdir(parents=True, exist_ok=True)
+    (repo / "skills" / "x" / "SKILL.md").write_text("---\nname: x\n---\n# x again\n")
+    run(["git", "add", "-A"])
+    run(["git", "commit", "-q", "-m", "re-add x",
+         "--date", "2026-05-01T09:00:00Z"])
+
+    facts = skill_git_facts(repo, "x", NOW)
+    assert facts["added_at"].startswith("2026-01-01")
+    assert facts["commits"] >= 1

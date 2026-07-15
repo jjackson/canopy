@@ -206,19 +206,33 @@ def skill_git_facts(repo: Path, name: str, now: datetime, *,
 
     `commits`/`last_touched_days` are CONTEXT (a skill edited yesterday that never
     fired is a sharper story), never a bucket: buckets are firing behavior.
+
+    ONE `--follow` call, not three `--diff-filter=A` calls: `--diff-filter=A`
+    classifies a `git mv` destination as a fresh "add" at the new path, losing
+    the skill's real history (and undercounting `commits`) across a rename.
+    `--follow` walks the file across renames instead -- it takes exactly one
+    pathspec, which is all we ever pass here, so that limitation doesn't bite.
+    `git log` prints newest-first, so the FIRST line is the most recent touch
+    and the LAST line is the oldest commit that ever touched this path.
     """
     path = f"skills/{name}/SKILL.md"
-    added = _git(repo, ["log", "--diff-filter=A", "--format=%aI", "--", path], runner)
-    last = _git(repo, ["log", "-1", "--format=%aI", "--", path], runner)
-    log = _git(repo, ["log", "--format=%H", "--", path], runner)
-    if not added:
+    log = _git(repo, ["log", "--follow", "--format=%aI", "--", path], runner)
+    if not log:
         return {"added_at": None, "age_days": None,
                 "last_touched_days": None, "commits": 0}
-    added_at = added.splitlines()[-1]  # last line = earliest = the adding commit
+    lines = log.splitlines()
+    last = lines[0]
+    # Deliberately the OLDEST line, even across a delete-then-re-add: for a
+    # skill that was removed and later re-added, this reports the ORIGINAL
+    # creation date, overstating age rather than understating it. Overstating
+    # credits the skill with MORE opportunity, which surfaces it for a human
+    # to judge -- the safe failure direction. Do not "fix" this back to the
+    # most recent add; that is the silent-suppression bug this exists to avoid.
+    added_at = lines[-1]
 
     def age(v):
         dt = _parse_ts(v)
         return None if dt is None else round((now - dt).total_seconds() / 86400.0, 1)
 
     return {"added_at": added_at, "age_days": age(added_at),
-            "last_touched_days": age(last), "commits": len(log.splitlines())}
+            "last_touched_days": age(last), "commits": len(lines)}
