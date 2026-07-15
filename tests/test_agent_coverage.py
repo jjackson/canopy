@@ -1,8 +1,10 @@
 """Tests for `canopy agent coverage` — bring-up lens (declared surface vs. actual firing)."""
+import json
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+from orchestrator.session_sources import SessionSource
 from orchestrator.agent_coverage import (
     _parse_ts,
     burst_of,
@@ -536,3 +538,150 @@ def test_run_agent_coverage_sweeps_paginated_fleet(monkeypatch):
     out = run_agent_coverage(None, call=call, now=NOW)
     assert [a["agent"] for a in out["agents"]] == ["eva", "hal"]
     assert out["ok"] is False  # unresolvable repos -> not ok
+
+
+# --- Task: cross-user corpus scan via the session_sources seam --------------
+#
+# `agent_review.find_turn_transcripts` defaults to scanning only
+# `Path.home() / ".claude" / "projects"` -- the CURRENT user's home. JJ
+# alternates macOS accounts (acedimagi + jjackson); a skill that only ever
+# fired on the OTHER account must not read as never_live. `coverage_report`
+# now merges every READABLE source `session_sources()` returns (see
+# session_sources.py's module docstring for the hal/architect regression this
+# guards) instead of scanning one hardcoded default dir.
+
+def _write_cc_transcript(path, entries):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
+
+
+def _fixture_hal_repo(tmp_path):
+    repo = _mkrepo(tmp_path / "repositories" / "hal", ["architect", "turn"], persona="# Hal\n")
+    run = lambda a: subprocess.run(["git", "-C", str(repo), *a],
+                                   capture_output=True, text=True)
+    run(["init", "-q"]); run(["config", "user.email", "t@t.t"]); run(["config", "user.name", "t"])
+    run(["add", "-A"]); run(["commit", "-q", "-m", "init", "--date", "2026-07-01T09:00:00Z"])
+    return repo
+
+
+def test_coverage_report_finds_skill_that_fired_only_on_second_source_hal_architect_regression(
+    tmp_path, monkeypatch
+):
+    """THE hal/architect regression: `architect` fired ONLY on the second source's
+    transcripts. Scanning just the first source (the pre-fix behavior) reports it
+    never_live -- wrong, and it inverts the whole report's trustworthiness. Scanning
+    every readable source must report it live."""
+    repo = _fixture_hal_repo(tmp_path)
+
+    jj_root = tmp_path / "jjackson_home" / ".claude" / "projects"
+    ace_root = tmp_path / "acedimagi_home" / ".claude" / "projects"
+
+    # source 1 (jjackson): real activity, but architect never fires here.
+    jj_cwd = str(repo)
+    _write_cc_transcript(jj_root / "-Users-jjackson-emdash-repositories-hal" / "a.jsonl", [
+        {"type": "assistant", "cwd": jj_cwd, "timestamp": "2026-07-01T09:00:00Z", "sessionId": "s1",
+         "message": {"content": [{"type": "tool_use", "name": "Skill", "input": {"skill": "turn"}}]}},
+        {"type": "assistant", "cwd": jj_cwd, "timestamp": "2026-07-02T09:00:00Z", "sessionId": "s1",
+         "message": {"content": [{"type": "text", "text": "ok"}]}},
+    ])
+
+    # source 2 (acedimagi): a worktree checkout of hal, architect fires 3x.
+    ace_cwd = f"{tmp_path}/acedimagi_home/emdash/worktrees/hal/emdash/architect-abc"
+    _write_cc_transcript(
+        ace_root / "-Users-acedimagi-emdash-worktrees-hal-emdash-architect-abc" / "b.jsonl", [
+            {"type": "assistant", "cwd": ace_cwd, "timestamp": "2026-07-13T09:00:00Z", "sessionId": "s2",
+             "message": {"content": [{"type": "tool_use", "name": "Skill",
+                                      "input": {"skill": "architect", "args": "ddd"}}]}},
+            {"type": "assistant", "cwd": ace_cwd, "timestamp": "2026-07-14T09:00:00Z", "sessionId": "s2",
+             "message": {"content": [{"type": "tool_use", "name": "Skill",
+                                      "input": {"skill": "architect", "args": "ddd"}}]}},
+            {"type": "assistant", "cwd": ace_cwd, "timestamp": "2026-07-15T09:00:00Z", "sessionId": "s2",
+             "message": {"content": [{"type": "tool_use", "name": "Skill",
+                                      "input": {"skill": "architect", "args": "ddd"}}]}},
+        ])
+
+    monkeypatch.setattr("orchestrator.agent_coverage.resolve_agent_repo", lambda s: repo)
+    monkeypatch.setattr(
+        "orchestrator.agent_coverage.session_sources",
+        lambda *a, **k: [
+            SessionSource(name="local:jjackson", kind="local", location=str(jj_root), readable=True),
+            SessionSource(name="local:acedimagi", kind="local", location=str(ace_root), readable=True),
+        ],
+    )
+
+    rep = coverage_report("hal", call=lambda *a, **k: {}, now=NOW)
+
+    by = {s["name"]: s for s in rep["skills"]}
+    assert by["architect"]["bucket"] == "live"
+    assert by["architect"]["bucket"] != "never_live"
+    assert by["architect"]["evidence_count"] >= 1
+    assert rep["confidence"] == "whole-corpus"
+    assert sorted(rep["corpus"]["sources"]) == ["local:acedimagi", "local:jjackson"]
+
+
+def test_coverage_report_unreadable_source_is_half_blind(tmp_path, monkeypatch):
+    repo = _fixture_hal_repo(tmp_path)
+    jj_root = tmp_path / "jjackson_home" / ".claude" / "projects"
+    jj_root.mkdir(parents=True)
+
+    monkeypatch.setattr("orchestrator.agent_coverage.resolve_agent_repo", lambda s: repo)
+    monkeypatch.setattr(
+        "orchestrator.agent_coverage.session_sources",
+        lambda *a, **k: [
+            SessionSource(name="local:jjackson", kind="local", location=str(jj_root), readable=True),
+            SessionSource(name="local:acedimagi", kind="local",
+                          location="/Users/acedimagi/.claude/projects", readable=False,
+                          reason="not readable"),
+        ],
+    )
+
+    rep = coverage_report("hal", call=lambda *a, **k: {}, now=NOW)
+    assert rep["confidence"] == "half-blind"
+    assert rep["corpus"]["sources"] == ["local:jjackson"]  # only the readable source was scanned
+
+    out = run_agent_coverage("hal", call=lambda *a, **k: {}, now=NOW)
+    assert out["ok"] is False
+    assert out["agents"][0]["confidence"] == "half-blind"
+
+
+def test_coverage_report_all_sources_readable_is_whole_corpus(tmp_path, monkeypatch):
+    repo = _fixture_hal_repo(tmp_path)
+    jj_root = tmp_path / "jjackson_home" / ".claude" / "projects"
+    ace_root = tmp_path / "acedimagi_home" / ".claude" / "projects"
+    jj_root.mkdir(parents=True)
+    ace_root.mkdir(parents=True)
+
+    monkeypatch.setattr("orchestrator.agent_coverage.resolve_agent_repo", lambda s: repo)
+    monkeypatch.setattr(
+        "orchestrator.agent_coverage.session_sources",
+        lambda *a, **k: [
+            SessionSource(name="local:jjackson", kind="local", location=str(jj_root), readable=True),
+            SessionSource(name="local:acedimagi", kind="local", location=str(ace_root), readable=True),
+        ],
+    )
+
+    rep = coverage_report("hal", call=lambda *a, **k: {}, now=NOW)
+    assert rep["confidence"] == "whole-corpus"
+    assert sorted(rep["corpus"]["sources"]) == ["local:acedimagi", "local:jjackson"]
+    # whole-corpus alone doesn't force `ok` -- the thin-corpus gate (no
+    # transcripts exist in these empty fixture dirs) still applies independently.
+    out = run_agent_coverage("hal", call=lambda *a, **k: {}, now=NOW)
+    assert out["agents"][0]["confidence"] == "whole-corpus"
+
+
+def test_coverage_report_explicit_projects_dir_bypasses_session_sources(tmp_path, monkeypatch):
+    """The `projects_dir` override (existing callers/tests) must scan ONLY that
+    dir -- it must not also consult session_sources()."""
+    repo = _fixture_hal_repo(tmp_path)
+    explicit_dir = tmp_path / "explicit_projects"
+    explicit_dir.mkdir()
+
+    def _boom(*a, **k):
+        raise AssertionError("session_sources() must not be called when projects_dir is given")
+
+    monkeypatch.setattr("orchestrator.agent_coverage.resolve_agent_repo", lambda s: repo)
+    monkeypatch.setattr("orchestrator.agent_coverage.session_sources", _boom)
+
+    rep = coverage_report("hal", call=lambda *a, **k: {}, now=NOW, projects_dir=explicit_dir)
+    assert rep["confidence"] == "whole-corpus"
+    assert rep["corpus"]["sources"] == [str(explicit_dir)]

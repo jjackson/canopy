@@ -32,6 +32,11 @@ from typing import Callable, Optional
 from orchestrator import canopy_web
 from orchestrator.agent_client import list_agent_slugs
 from orchestrator.agent_review import find_turn_transcripts, resolve_agent_repo
+from orchestrator.session_sources import (
+    corpus_confidence,
+    local_transcript_dirs,
+    session_sources,
+)
 from orchestrator.transcripts import read_transcript
 
 
@@ -341,8 +346,23 @@ def coverage_report(slug: str, *, call: Callable = canopy_web.call,
         return {"agent": slug, "error": f"cannot resolve an agent repo for '{slug}'"}
     repo = Path(repo)
 
-    kw = {"projects_dir": projects_dir} if projects_dir else {}
-    paths = find_turn_transcripts(repo, hours=window_days * 24, **kw)
+    if projects_dir:
+        # An explicit caller-supplied dir (tests, mainly) scans ONLY that dir --
+        # the function stays injectable without going through the source seam.
+        paths = find_turn_transcripts(repo, hours=window_days * 24, projects_dir=projects_dir)
+        confidence = "whole-corpus"
+        source_names = [str(projects_dir)]
+    else:
+        # No override: scan EVERY readable local source and merge. This is the
+        # cross-user fix -- `agent_review._belongs_to_agent` already handles
+        # cross-user paths correctly (a worktree under another user's home still
+        # matches the repo/worktree rule); only the enumeration was missing.
+        sources = session_sources()
+        paths = []
+        for d in local_transcript_dirs(sources):
+            paths += find_turn_transcripts(repo, hours=window_days * 24, projects_dir=d)
+        confidence = corpus_confidence(sources)
+        source_names = [s.name for s in sources if s.readable]
     stamps = _activity_stamps(paths, reader)
     bursts = compute_bursts(stamps, gap_days=burst_gap_days)
     adequate = len(paths) >= min_transcripts
@@ -384,7 +404,8 @@ def coverage_report(slug: str, *, call: Callable = canopy_web.call,
         "agent": slug,
         "window_days": window_days,
         "corpus": {"transcripts": len(paths), "entries": len(stamps),
-                   "adequate": adequate},
+                   "adequate": adequate, "sources": source_names},
+        "confidence": confidence,
         "persona": persona_info(repo),
         "activity": _agent_activity(slug, call),
         "bursts": bursts,
@@ -398,5 +419,6 @@ def run_agent_coverage(slug: Optional[str] = None, *, call: Callable = canopy_we
     now = now or datetime.now(timezone.utc)
     slugs = [slug] if slug else list_agent_slugs(call)
     agents = [coverage_report(s, call=call, now=now, **kw) for s in slugs]
-    ok = all(not a.get("error") and a.get("corpus", {}).get("adequate") for a in agents)
+    ok = all(not a.get("error") and a.get("corpus", {}).get("adequate")
+             and a.get("confidence") != "half-blind" for a in agents)
     return {"ok": ok, "agents": agents}
