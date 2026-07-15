@@ -30,3 +30,54 @@ def test_apply_raises_on_error():
     import pytest
     with pytest.raises(inbox_filters.FilterError):
         inbox_filters.apply_filters("hal@x", "canopy", runner=_runner('{"filters": null}', create_rc=1))
+
+
+class _SweepRunner:
+    """Fake gog: search pages through `pages` per query, records modify calls.
+    Ada's 2026-07-14 fleet sweep 'archived' 184 messages that never moved: the real
+    sweep passed --remove-label (gog wants --remove=), discarded the modify result,
+    and reported search MATCHES as swept. These tests pin the fixed contract."""
+
+    def __init__(self, pages, modify_rc=0):
+        self.pages = dict(pages)   # query-substring -> list of page thread-id lists
+        self.modify_rc = modify_rc
+        self.modified = []         # (thread_id, remove_arg)
+
+    def __call__(self, cmd, **kw):
+        if "search" in cmd:
+            for key, page_list in self.pages.items():
+                if any(key in c for c in cmd):
+                    ids = page_list.pop(0) if page_list else []
+                    payload = {"threads": [{"id": i} for i in ids]}
+                    return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+            return SimpleNamespace(returncode=0, stdout='{"threads": []}', stderr="")
+        if "modify" in cmd:
+            remove = next((c for c in cmd if c.startswith("--remove")), "")
+            tid = cmd[cmd.index("modify") + 1]
+            self.modified.append((tid, remove))
+            return SimpleNamespace(returncode=self.modify_rc, stdout="{}", stderr="boom" if self.modify_rc else "")
+        return SimpleNamespace(returncode=0, stdout="{}", stderr="")
+
+
+def test_sweep_uses_correct_flag_and_counts_only_successes():
+    r = _SweepRunner({inbox_filters.FILTERS[0]["query"][:20]: [["t1", "t2"]]})
+    res = inbox_filters.sweep_existing("hal@x", "canopy", runner=r)
+    assert res[inbox_filters.FILTERS[0]["name"]] == 2
+    # one modify per thread, with gog's actual flag syntax: --remove=INBOX,UNREAD
+    assert ("t1", "--remove=INBOX,UNREAD") in r.modified
+    assert ("t2", "--remove=INBOX,UNREAD") in r.modified
+
+
+def test_sweep_failed_modifies_raise_instead_of_lying():
+    import pytest
+    r = _SweepRunner({inbox_filters.FILTERS[0]["query"][:20]: [["t1", "t2"]]}, modify_rc=1)
+    with pytest.raises(inbox_filters.FilterError, match="modify failed"):
+        inbox_filters.sweep_existing("hal@x", "canopy", runner=r)
+
+
+def test_sweep_pages_past_50_result_cap():
+    page1 = [f"t{i}" for i in range(50)]
+    page2 = ["t50", "t51"]
+    r = _SweepRunner({inbox_filters.FILTERS[0]["query"][:20]: [page1, page2]})
+    res = inbox_filters.sweep_existing("hal@x", "canopy", runner=r)
+    assert res[inbox_filters.FILTERS[0]["name"]] == 52    # drained, not capped at 50
