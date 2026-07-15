@@ -1,12 +1,17 @@
 """Tests for `canopy agent coverage` — bring-up lens (declared surface vs. actual firing)."""
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
 from orchestrator.agent_coverage import (
     _parse_ts,
     compute_bursts,
+    declared_skills,
     evidence_from_entries,
+    parent_of,
+    persona_info,
     scan_evidence,
+    skill_git_facts,
 )
 
 NOW = datetime(2026, 7, 15, 12, 0, 0, tzinfo=timezone.utc)
@@ -224,3 +229,70 @@ def test_slash_invocation_accepts_own_namespace():
     ev = evidence_from_entries(entries, "eva", ["turn"])
     assert len(ev["turn"]) == 1
     assert ev["turn"][0]["kind"] == "slash_invocation"
+
+
+# --- Task 3: declared surface -----------------------------------------------
+
+
+def _mkrepo(tmp_path, skills, persona=None):
+    for s in skills:
+        d = tmp_path / "skills" / s
+        d.mkdir(parents=True)
+        (d / "SKILL.md").write_text(f"---\nname: {s}\n---\n# {s}\n")
+    if persona is not None:
+        (tmp_path / "persona.md").write_text(persona)
+    return tmp_path
+
+
+def test_declared_skills_lists_only_dirs_with_skill_md(tmp_path):
+    repo = _mkrepo(tmp_path, ["turn", "task-tracker"])
+    (repo / "skills" / "not-a-skill").mkdir()
+    assert declared_skills(repo) == ["task-tracker", "turn"]
+
+
+def test_declared_skills_empty_when_no_skills_dir(tmp_path):
+    assert declared_skills(tmp_path) == []
+
+
+def test_parent_of_groups_eval_and_qa_under_existing_parent():
+    names = {"idea-to-pdd", "idea-to-pdd-eval", "idea-to-pdd-qa", "reviewer"}
+    assert parent_of("idea-to-pdd-eval", names) == "idea-to-pdd"
+    assert parent_of("idea-to-pdd-qa", names) == "idea-to-pdd"
+    assert parent_of("idea-to-pdd", names) is None
+    assert parent_of("reviewer", names) is None
+
+
+def test_parent_of_does_not_group_when_parent_absent():
+    # `deck-judge` has no `deck` parent -- it is a real skill, not a sub-skill.
+    assert parent_of("standalone-eval", {"standalone-eval"}) is None
+
+
+def test_persona_info_present_and_missing(tmp_path):
+    repo = _mkrepo(tmp_path, ["turn"], persona="# Eva\nsells things\n")
+    info = persona_info(repo)
+    assert info["present"] is True and info["bytes"] > 0
+    # echo has 23 skills and NO persona.md -- that is a fact, not an error
+    bare = _mkrepo(tmp_path / "bare", ["turn"])
+    assert persona_info(bare) == {"present": False, "path": None, "bytes": 0}
+
+
+def test_skill_git_facts_reads_add_and_touch(tmp_path):
+    repo = _mkrepo(tmp_path, ["turn"])
+    run = lambda *a, **k: subprocess.run(*a, **k, cwd=repo, capture_output=True, text=True)
+    run(["git", "init", "-q"])
+    run(["git", "config", "user.email", "t@t.t"])
+    run(["git", "config", "user.name", "t"])
+    run(["git", "add", "-A"])
+    run(["git", "commit", "-q", "-m", "add turn",
+         "--date", "2026-07-01T09:00:00Z"], )
+    facts = skill_git_facts(repo, "turn", NOW)
+    assert facts["commits"] == 1
+    assert facts["age_days"] is not None and facts["age_days"] > 13
+    assert facts["added_at"].startswith("2026-07-01")
+
+
+def test_skill_git_facts_ungit_repo_is_none_not_crash(tmp_path):
+    repo = _mkrepo(tmp_path, ["turn"])
+    facts = skill_git_facts(repo, "turn", NOW)
+    assert facts == {"added_at": None, "age_days": None,
+                     "last_touched_days": None, "commits": 0}

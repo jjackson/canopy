@@ -24,6 +24,7 @@ for canopy-web, ``now``, ``projects_dir``), composed by ``run_agent_coverage``.
 from __future__ import annotations
 
 import re
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Optional
@@ -155,3 +156,69 @@ def scan_evidence(paths: list[Path], slug: str, skill_names: list[str], *,
             for e in evs:
                 out.setdefault(name, []).append({**e, "transcript": str(p)})
     return out
+
+
+SUB_SKILL_SUFFIXES = ("-eval", "-qa")
+
+
+def declared_skills(repo: Path) -> list[str]:
+    """Skill names declared in the repo (a dir under skills/ holding a SKILL.md)."""
+    root = repo / "skills"
+    if not root.is_dir():
+        return []
+    return sorted(d.name for d in root.iterdir() if (d / "SKILL.md").is_file())
+
+
+def parent_of(name: str, all_names: set[str]) -> Optional[str]:
+    """The parent skill for an `-eval`/`-qa` sub-skill, else None.
+
+    Sub-skills are invoked BY their parent, not independently -- judging them
+    separately turns ace's 128 skills into a 79-item noise list.
+    """
+    for suffix in SUB_SKILL_SUFFIXES:
+        if name.endswith(suffix):
+            parent = name[: -len(suffix)]
+            if parent in all_names:
+                return parent
+    return None
+
+
+def persona_info(repo: Path) -> dict:
+    """persona.md presence/size. Absent is a FACT (echo has none), not an error."""
+    p = repo / "persona.md"
+    if not p.is_file():
+        return {"present": False, "path": None, "bytes": 0}
+    return {"present": True, "path": "persona.md", "bytes": p.stat().st_size}
+
+
+def _git(repo: Path, args: list[str], runner) -> str:
+    try:
+        r = runner(["git", "-C", str(repo), *args],
+                   capture_output=True, text=True, timeout=30)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def skill_git_facts(repo: Path, name: str, now: datetime, *,
+                    runner=subprocess.run) -> dict:
+    """When a skill landed, when it was last touched, how often -- from git.
+
+    `commits`/`last_touched_days` are CONTEXT (a skill edited yesterday that never
+    fired is a sharper story), never a bucket: buckets are firing behavior.
+    """
+    path = f"skills/{name}/SKILL.md"
+    added = _git(repo, ["log", "--diff-filter=A", "--format=%aI", "--", path], runner)
+    last = _git(repo, ["log", "-1", "--format=%aI", "--", path], runner)
+    log = _git(repo, ["log", "--format=%H", "--", path], runner)
+    if not added:
+        return {"added_at": None, "age_days": None,
+                "last_touched_days": None, "commits": 0}
+    added_at = added.splitlines()[-1]  # last line = earliest = the adding commit
+
+    def age(v):
+        dt = _parse_ts(v)
+        return None if dt is None else round((now - dt).total_seconds() / 86400.0, 1)
+
+    return {"added_at": added_at, "age_days": age(added_at),
+            "last_touched_days": age(last), "commits": len(log.splitlines())}
