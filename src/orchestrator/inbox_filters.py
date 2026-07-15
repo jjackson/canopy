@@ -25,6 +25,26 @@ FILTERS: list[dict] = [
     },
     {"name": "promotions", "query": "category:promotions", "archive": True, "mark_read": True},
     {"name": "social", "query": "category:social", "archive": True, "mark_read": True},
+    # Ada's first fleet audit (2026-07-14) found ~90 junk threads across agent inboxes,
+    # dominated by these three senders (hal alone: 45 GitHub notifications, 10 Google
+    # Cloud upsells, 4 Expensify). Agents work GitHub via the gh CLI, never via email.
+    # Google Docs/Drive share notifications are deliberately NOT filtered — they carry
+    # real work routing (how an agent learns a doc was shared with it).
+    {
+        "name": "github-notifications",
+        "query": "from:notifications@github.com",
+        "archive": True, "mark_read": True,
+    },
+    {
+        "name": "google-cloud-marketing",
+        "query": "from:googlecloud@google.com",
+        "archive": True, "mark_read": True,
+    },
+    {
+        "name": "expensify",
+        "query": "from:(concierge@expensify.com OR notifications@expensify.com)",
+        "archive": True, "mark_read": True,
+    },
 ]
 
 
