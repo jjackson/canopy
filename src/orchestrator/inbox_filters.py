@@ -96,25 +96,48 @@ def apply_filters(mailbox: str, client: str, *, runner=subprocess.run, dry_run: 
 
 def sweep_existing(mailbox: str, client: str, *, runner=subprocess.run, dry_run: bool = False) -> dict:
     """Retroactively archive + mark-read mail ALREADY in the inbox that a filter would
-    catch — so an existing junk backlog doesn't spawn turns when polling starts."""
+    catch — so an existing junk backlog doesn't spawn turns when polling starts.
+
+    Counts reflect threads whose modify actually SUCCEEDED, and each rule pages
+    past gog's per-search result cap until its matches are drained. (Ada's
+    2026-07-14 fleet sweep reported 184 'swept' messages that never moved: the
+    modify used a nonexistent --remove-label flag, its result was discarded, and
+    search matches were reported as swept. Never count what you didn't verify.)
+    """
     swept = {}
     for flt in FILTERS:
         q = f'in:inbox ({flt["query"]})'
-        r = runner(["gog", "gmail", "search", "--account", mailbox, "--client", client,
-                    q, "--max", "50", "--json"], capture_output=True, text=True, timeout=45)
-        if r.returncode != 0:
-            raise FilterError(f"sweep search '{flt['name']}' on {mailbox}: {r.stderr.strip()}")
-        try:
-            threads = json.loads(r.stdout or "{}").get("threads") or []
-        except ValueError:
-            threads = []
-        ids = [t["id"] for t in threads if t.get("id")]
-        swept[flt["name"]] = len(ids)
-        if ids and not dry_run:
-            # archive (remove from inbox) + mark read, by thread
-            for action in ("archive", "mark-read"):
-                a = runner(["gog", "gmail", "thread", "modify", "--account", mailbox, "--client", client,
-                            *(["--remove-label", "INBOX"] if action == "archive" else ["--remove-label", "UNREAD"]),
-                            *ids], capture_output=True, text=True, timeout=45)
-                # best-effort; don't abort the whole sweep on one action
+        done = 0
+        for _page in range(20):  # safety bound: 20 pages × 50 = 1000 threads/rule/run
+            r = runner(["gog", "gmail", "search", "--account", mailbox, "--client", client,
+                        q, "--max", "50", "--json"], capture_output=True, text=True, timeout=45)
+            if r.returncode != 0:
+                raise FilterError(f"sweep search '{flt['name']}' on {mailbox}: {r.stderr.strip()}")
+            try:
+                threads = json.loads(r.stdout or "{}").get("threads") or []
+            except ValueError:
+                threads = []
+            ids = [t["id"] for t in threads if t.get("id")]
+            if not ids:
+                break
+            if dry_run:
+                done += len(ids)
+                break  # can't drain pages without modifying — report first page only
+            failures = []
+            for tid in ids:
+                # one call archives AND marks read the whole thread
+                a = runner(["gog", "gmail", "thread", "modify", tid, "--remove=INBOX,UNREAD",
+                            "--account", mailbox, "--client", client, "--no-input"],
+                           capture_output=True, text=True, timeout=45)
+                if a.returncode == 0:
+                    done += 1
+                else:
+                    failures.append(tid)
+            if failures:
+                # matched threads we couldn't modify would repeat forever — stop this rule
+                # loudly rather than spin; partial success is still reported in the count.
+                raise FilterError(
+                    f"sweep '{flt['name']}' on {mailbox}: modify failed for "
+                    f"{len(failures)}/{len(ids)} threads (e.g. {failures[0]})")
+        swept[flt["name"]] = done
     return swept
