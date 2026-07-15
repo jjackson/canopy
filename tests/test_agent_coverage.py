@@ -5,6 +5,8 @@ from pathlib import Path
 
 from orchestrator.agent_coverage import (
     _parse_ts,
+    burst_of,
+    classify,
     compute_bursts,
     declared_skills,
     evidence_from_entries,
@@ -353,3 +355,64 @@ def test_skill_git_facts_deleted_then_readded_keeps_original_creation_date(tmp_p
     facts = skill_git_facts(repo, "x", NOW)
     assert facts["added_at"].startswith("2026-01-01")
     assert facts["commits"] >= 1
+
+
+# --- Task 4: Bucket classification ------------------------------------------
+
+BURSTS = [
+    {"id": 1, "start": "2026-07-01", "end": "2026-07-02", "active_days": 2, "sessions": 2},
+    {"id": 2, "start": "2026-07-09", "end": "2026-07-10", "active_days": 2, "sessions": 2},
+    {"id": 3, "start": "2026-07-13", "end": "2026-07-15", "active_days": 3, "sessions": 3},
+]
+
+
+def test_burst_of_maps_timestamp_into_its_burst():
+    assert burst_of(datetime(2026, 7, 9, 11, tzinfo=timezone.utc), BURSTS) == 2
+    assert burst_of(datetime(2026, 7, 14, 11, tzinfo=timezone.utc), BURSTS) == 3
+    assert burst_of(datetime(2026, 7, 5, 11, tzinfo=timezone.utc), BURSTS) is None
+    assert burst_of(None, BURSTS) is None
+
+
+def test_classify_sub_skill_wins_first():
+    assert classify(parent="idea-to-pdd", used_bursts=[], opportunity_bursts=[1, 2, 3],
+                    corpus_adequate=True) == "sub_skill"
+
+
+def test_classify_no_opportunity_below_min_bursts():
+    # A trough is not a finding: too few bursts of opportunity -> suppressed.
+    assert classify(parent=None, used_bursts=[], opportunity_bursts=[3],
+                    corpus_adequate=True, min_bursts=2) == "no_opportunity"
+
+
+def test_classify_never_live_for_five_day_old_skill_that_sat_out_two_bursts():
+    """The regression that motivated the burst model.
+
+    eva's agent-turn-review is 5 days old -- a wall-clock age gate would suppress
+    it as 'too new'. But it sat out bursts 2 and 3 (~650 sessions) without firing.
+    Burst-counting judges it; that is the whole point.
+    """
+    assert classify(parent=None, used_bursts=[], opportunity_bursts=[2, 3],
+                    corpus_adequate=True, min_bursts=2) == "never_live"
+
+
+def test_classify_live_when_fired_in_latest_opportunity_burst():
+    assert classify(parent=None, used_bursts=[1, 3], opportunity_bursts=[1, 2, 3],
+                    corpus_adequate=True) == "live"
+
+
+def test_classify_decayed_when_fired_earlier_then_stopped():
+    # The headline bucket: burst of usage, then it stops sticking.
+    assert classify(parent=None, used_bursts=[1], opportunity_bursts=[1, 2, 3],
+                    corpus_adequate=True, decay_bursts=1) == "decayed"
+
+
+def test_classify_insufficient_evidence_on_thin_corpus():
+    # Absence of evidence is not evidence of absence.
+    assert classify(parent=None, used_bursts=[], opportunity_bursts=[1, 2, 3],
+                    corpus_adequate=False) == "insufficient_evidence"
+
+
+def test_classify_live_survives_thin_corpus():
+    # A positive sighting is valid on ANY corpus size -- only negatives degrade.
+    assert classify(parent=None, used_bursts=[3], opportunity_bursts=[1, 2, 3],
+                    corpus_adequate=False) == "live"

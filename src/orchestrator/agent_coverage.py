@@ -25,14 +25,26 @@ from __future__ import annotations
 
 import re
 import subprocess
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Callable, Optional
 
 from orchestrator.transcripts import read_transcript
 
 
-def compute_bursts(stamps: list[tuple[datetime, str]], gap_days: int = 2) -> list[dict]:
+DEFAULT_WINDOW_DAYS = 30
+DEFAULT_BURST_GAP_DAYS = 2
+DEFAULT_MIN_BURSTS = 2
+DEFAULT_DECAY_BURSTS = 1
+DEFAULT_MIN_TRANSCRIPTS = 3
+
+# Evidence per skill is capped in the report: the bucket is the finding, and a
+# skill that fired 200 times does not need 200 citations. `evidence_count` carries
+# the true total so the cap is visible, never a silent truncation.
+MAX_EVIDENCE_PER_SKILL = 3
+
+
+def compute_bursts(stamps: list[tuple[datetime, str]], gap_days: int = DEFAULT_BURST_GAP_DAYS) -> list[dict]:
     """Group activity timestamps into bursts of contiguous active days.
 
     A burst is a run of active days separated by a gap of >= ``gap_days``. This is
@@ -236,3 +248,38 @@ def skill_git_facts(repo: Path, name: str, now: datetime, *,
 
     return {"added_at": added_at, "age_days": age(added_at),
             "last_touched_days": age(last), "commits": len(lines)}
+
+
+def burst_of(ts: Optional[datetime], bursts: list[dict]) -> Optional[int]:
+    """The id of the burst containing ``ts`` (None if it falls in a dark stretch)."""
+    if ts is None:
+        return None
+    d = ts.date()
+    for b in bursts:
+        if date.fromisoformat(b["start"]) <= d <= date.fromisoformat(b["end"]):
+            return b["id"]
+    return None
+
+
+def classify(*, parent: Optional[str], used_bursts: list[int],
+             opportunity_bursts: list[int], corpus_adequate: bool,
+             min_bursts: int = DEFAULT_MIN_BURSTS,
+             decay_bursts: int = DEFAULT_DECAY_BURSTS) -> str:
+    """One bucket for one skill. First match wins, in this order.
+
+    Opportunity is BURSTS, never days. `live` is checked before the corpus gate
+    because a positive sighting is valid on any corpus size -- only NEGATIVE claims
+    ("never fired") degrade to `insufficient_evidence`.
+    """
+    if parent:
+        return "sub_skill"
+    if len(opportunity_bursts) < min_bursts:
+        return "no_opportunity"
+    if used_bursts:
+        recent = set(opportunity_bursts[-decay_bursts:]) if decay_bursts else set()
+        if recent & set(used_bursts):
+            return "live"
+        return "decayed"
+    if not corpus_adequate:
+        return "insufficient_evidence"
+    return "never_live"
