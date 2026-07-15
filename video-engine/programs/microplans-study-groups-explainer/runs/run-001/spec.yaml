@@ -1,0 +1,147 @@
+provenance:
+  generator: video-from-walkthrough
+  template: connect-ddd-walkthrough
+  generated_from: microplans-study-groups DDD run None
+  generated_at: '1970-01-01T00:00:00Z'
+slug: microplans-study-groups-explainer
+workspace: dimagi-team
+name: microplans-study-groups
+country_focus: Global
+status: DDD walkthrough
+tagline: Design a controlled two-arm study, right from the map
+program_url: https://labs.connect.dimagi.com
+manifest:
+  master: file:assets/programs/microplans-study-groups-explainer/walkthrough.mp4
+beats:
+- id: title
+  kind: intro_title
+  seconds: 4
+- id: s1
+  kind: body_walkthrough
+  seconds: 5.5
+- id: s2
+  kind: body_walkthrough
+  seconds: 11.1
+- id: s3
+  kind: body_walkthrough
+  seconds: 11.8
+- id: s4
+  kind: body_walkthrough
+  seconds: 41.7
+- id: s5
+  kind: body_walkthrough
+  seconds: 6.9
+- id: s6
+  kind: body_walkthrough
+  seconds: 33.3
+- id: s7
+  kind: body_walkthrough
+  seconds: 7.3
+- id: outro
+  kind: outro_card
+  seconds: 5
+walkthrough:
+  s1:
+    asset: '@master'
+    start_seconds: 0.0
+    duration_seconds: 5.48
+    lower_third: ''
+  s2:
+    asset: '@master'
+    start_seconds: 15.773
+    duration_seconds: 11.147
+    lower_third: ''
+  s3:
+    asset: '@master'
+    start_seconds: 29.821
+    duration_seconds: 11.829
+    lower_third: ''
+  s4:
+    asset: '@master'
+    start_seconds: 41.65
+    duration_seconds: 41.67
+    lower_third: ''
+  s5:
+    asset: '@master'
+    start_seconds: 86.319
+    duration_seconds: 6.906
+    lower_third: ''
+  s6:
+    asset: '@master'
+    start_seconds: 93.225
+    duration_seconds: 33.266
+    lower_third: ''
+  s7:
+    asset: '@master'
+    start_seconds: 136.464
+    duration_seconds: 7.296
+    lower_third: ''
+narration:
+  generator: manual
+  prompt_version: v1
+  start_seconds: 0
+  by_beat:
+    title: Design a controlled two-arm study, right from the map
+    s1: Maya wants to start a brand-new two-arm study, so she creates a new study
+      on her existing Kaura programme.
+    s2: Maya clicks “+ Add a plan in the editor”, and in the plan UI she turns on
+      the service-delivery data for the opportunity she's building the study around
+      — a child health campaign.
+    s3: The visits blanket the whole of Attakar ward, showing where Connect has records
+      of service delivery.  She decides she'll use the administrative boundaries —
+      wards — as the survey units.
+    s4: Maya clicks on Attakar to select it and tags it as the intervention arm. Maya
+      switches the plan to sampling mode and clicks "Compare surrounding boundaries".
+      The tool finds every ward that shares a border with Attakar, measures each one's
+      local building-density distribution, and ranks them by how closely that distribution
+      overlaps Attakar's - filling each candidate's boundary on the map in its own
+      colour so she can see which ward is which.
+    s5: The tightest match, Zankan, was the programme's ward last cycle — not a clean,
+      un-treated control — so Maya skips it for Gura, the next-closest neighbour the
+      programme never touched. One click of "Add boundary" on Gura's row adds it as
+      the control arm; both wards now sit in one plan, each carrying its arm.
+    s6: She sets the sampling methodology — size-balanced PSU bands and a building-footprint-size
+      filter — and clicks Generate plan. In one action the editor draws the sample
+      for both arms and creates the plan.
+    s7: From the program workspace Maya can then send the plan to an existing locally
+      led organization to verify if they are already under contact, or create a new
+      solicitation from the plan for local organizations in the Connect network to
+      apply to.
+    outro: ''
+  script: 'Design a controlled two-arm study, right from the map
+
+    Maya wants to start a brand-new two-arm study, so she creates a new study on her
+    existing Kaura programme.
+
+    Maya clicks “+ Add a plan in the editor”, and in the plan UI she turns on the
+    service-delivery data for the opportunity she''s building the study around — a
+    child health campaign.
+
+    The visits blanket the whole of Attakar ward, showing where Connect has records
+    of service delivery.  She decides she''ll use the administrative boundaries —
+    wards — as the survey units.
+
+    Maya clicks on Attakar to select it and tags it as the intervention arm. Maya
+    switches the plan to sampling mode and clicks "Compare surrounding boundaries".
+    The tool finds every ward that shares a border with Attakar, measures each one''s
+    local building-density distribution, and ranks them by how closely that distribution
+    overlaps Attakar''s - filling each candidate''s boundary on the map in its own
+    colour so she can see which ward is which.
+
+    The tightest match, Zankan, was the programme''s ward last cycle — not a clean,
+    un-treated control — so Maya skips it for Gura, the next-closest neighbour the
+    programme never touched. One click of "Add boundary" on Gura''s row adds it as
+    the control arm; both wards now sit in one plan, each carrying its arm.
+
+    She sets the sampling methodology — size-balanced PSU bands and a building-footprint-size
+    filter — and clicks Generate plan. In one action the editor draws the sample for
+    both arms and creates the plan.
+
+    From the program workspace Maya can then send the plan to an existing locally
+    led organization to verify if they are already under contact, or create a new
+    solicitation from the plan for local organizations in the Connect network to apply
+    to.'
+voice:
+  provider: elevenlabs
+  voice_id: XB0fDUnXU5powFXDhCwa
+  model: eleven_turbo_v2

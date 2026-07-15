@@ -99,7 +99,7 @@ def test_bare_mention_in_tool_result_is_not_evidence():
 def test_evidence_does_not_confuse_similar_skill_names():
     entries = [_assistant([
         {"type": "tool_use", "name": "Read",
-         "input": {"file_path": "/x/eva/skills/turn-review/SKILL.md"}}])]
+         "input": {"file_path": "/Users/j/emdash/repositories/eva/skills/turn-review/SKILL.md"}}])]
     ev = evidence_from_entries(entries, "eva", ["turn", "turn-review"])
     assert "turn" not in ev
     assert len(ev["turn-review"]) == 1
@@ -184,3 +184,43 @@ def test_entry_with_unparseable_timestamp_yields_no_evidence():
     )]
     ev = evidence_from_entries(entries, "eva", ["turn"])
     assert ev == {}
+
+
+# --- FINDING A: coincidental path-segment slug must not match ------------------
+
+def test_skill_md_read_does_not_match_fixture_with_coincidental_slug():
+    """eva's transcript reading a fixture that happens to have /eva/ in its path
+    must NOT count as eva's turn firing (NEW false-positive case from canopy fixtures)."""
+    entries = [_assistant([
+        {"type": "tool_use", "name": "Read",
+         "input": {"file_path":
+                   "/Users/j/emdash/repositories/canopy/tests/fixtures/eva/skills/turn/SKILL.md"}}])]
+    ev = evidence_from_entries(entries, "eva", ["turn"])
+    assert ev == {}
+
+
+def test_skill_md_read_matches_worktree_shallow_layout():
+    """Worktree layouts vary in depth; /worktrees/eva/feat-x/skills/... must match."""
+    entries = [_assistant([
+        {"type": "tool_use", "name": "Read",
+         "input": {"file_path":
+                   "/Users/j/emdash/worktrees/eva/feat-x/skills/turn/SKILL.md"}}])]
+    ev = evidence_from_entries(entries, "eva", ["turn"])
+    assert len(ev["turn"]) == 1
+
+
+# --- FINDING B: slash_invocation must reject foreign namespaces ----------------
+
+def test_slash_invocation_rejects_foreign_namespace():
+    """Scanning eva for skill turn, the text "go run /ace:turn now" yields no evidence."""
+    entries = [_user_text("go run /ace:turn now")]
+    ev = evidence_from_entries(entries, "eva", ["turn"])
+    assert ev == {}
+
+
+def test_slash_invocation_accepts_own_namespace():
+    """Scanning eva for skill turn, the text "go run /eva:turn now" yields evidence."""
+    entries = [_user_text("go run /eva:turn now")]
+    ev = evidence_from_entries(entries, "eva", ["turn"])
+    assert len(ev["turn"]) == 1
+    assert ev["turn"][0]["kind"] == "slash_invocation"

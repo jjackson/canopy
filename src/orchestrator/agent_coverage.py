@@ -89,13 +89,16 @@ def evidence_from_entries(entries: list[dict], slug: str,
     is deliberately NOT scanned: `ls skills/` listings and git diffs live there, and
     counting them would mark never-run skills as live. A mention is not an invocation.
     """
-    # Require the read path to belong to THIS agent: slug must appear as a path
-    # segment before the skills/ segment (repo layout: /<slug>/skills/..., worktree
-    # layout: /<slug>/emdash/<branch>/skills/...). Without this, cross-agent reads
-    # of a sibling's identically-named skill file (common in agent-review /
-    # fleet-align work) falsely count as THIS agent's skill firing.
-    md_res = {n: re.compile(rf"/{re.escape(slug)}/(?:.*/)?skills/{re.escape(n)}/SKILL\.md$")
-              for n in skill_names}
+    # Require the read path to belong to THIS agent: slug must appear DIRECTLY under
+    # repositories/ or worktrees/ before the skills/ segment (repo layout:
+    # /repositories/<slug>/skills/..., worktree layout:
+    # /worktrees/<slug>/<branch>/skills/... or /worktrees/<slug>/emdash/<branch>/skills/...).
+    # Without this, coincidental `/eva/` in fixture paths (e.g. test fixtures) or
+    # cross-agent reads of a sibling's identically-named skill file falsely count as THIS
+    # agent's skill firing.
+    md_res = {n: re.compile(
+        rf"/(?:repositories|worktrees)/{re.escape(slug)}/(?:.*/)?skills/{re.escape(n)}/SKILL\.md$"
+    ) for n in skill_names}
     slash_res = {n: re.compile(rf"/{re.escape(slug)}:{re.escape(n)}(?![\w-])")
                  for n in skill_names}
     out: dict[str, list[dict]] = {}
