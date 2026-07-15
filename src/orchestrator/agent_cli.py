@@ -414,3 +414,64 @@ def agent_health(slug, stale_needs_you_days, stale_turn_days, stale_inbox_days, 
                    if out["ok"] else f"{n_bad}/{len(out['agents'])} agent(s) flagged — details above.")
     if not out["ok"]:
         raise SystemExit(1)
+
+
+@agent.command("coverage")
+@click.option("--slug", default="", help="One agent; omit to sweep the whole registered fleet.")
+@click.option("--window-days", default=30, show_default=True, type=int,
+              help="Transcript corpus window")
+@click.option("--burst-gap-days", default=2, show_default=True, type=int,
+              help="A gap of >= this many days splits one burst from the next")
+@click.option("--min-bursts", default=2, show_default=True, type=int,
+              help="Judge a skill only after it has lived through this many bursts")
+@click.option("--decay-bursts", default=1, show_default=True, type=int,
+              help="Silent for this many latest bursts (after firing) = decayed")
+@click.option("--min-transcripts", default=3, show_default=True, type=int,
+              help="Below this, negative claims degrade to insufficient_evidence")
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def agent_coverage(slug, window_days, burst_gap_days, min_bursts, decay_bursts,
+                   min_transcripts, as_json):
+    """Bring-up coverage: how much of an agent's promised surface is LIVE yet.
+
+    The longitudinal complement of `canopy agent health` (which asks whether the
+    agent is ready for its NEXT turn). This asks what was declared and never fired,
+    and what fired once and stopped. Opportunity is counted in BURSTS of activity,
+    not wall-clock days -- the fleet works in short bursts, so a day-based gate
+    hides the interesting skills. Read-only; emits facts + deterministic buckets
+    (WHY a skill never fired is the caller's judgment, never this command's).
+    """
+    from orchestrator.agent_coverage import run_agent_coverage
+
+    try:
+        out = run_agent_coverage(slug or None, window_days=window_days,
+                                 burst_gap_days=burst_gap_days, min_bursts=min_bursts,
+                                 decay_bursts=decay_bursts,
+                                 min_transcripts=min_transcripts)
+    except (CanopyError, RuntimeError) as e:
+        raise click.ClickException(str(e))
+
+    if as_json:
+        click.echo(json.dumps(out, indent=2))
+        return
+
+    for a in out["agents"]:
+        if a.get("error"):
+            click.echo(f"[ERR ] {a['agent']:<8} {a['error']}")
+            continue
+        buckets = {}
+        for s in a["skills"]:
+            buckets.setdefault(s["bucket"], []).append(s["name"])
+        n_bursts = len(a["bursts"])
+        corpus = a["corpus"]
+        click.echo(f"\n=== {a['agent']} === {n_bursts} bursts / "
+                   f"{corpus['transcripts']} transcripts in {a['window_days']}d"
+                   + ("" if corpus["adequate"] else "  [thin corpus: negatives suppressed]"))
+        if not a["persona"]["present"]:
+            click.echo(f"  no persona.md ({len(a['skills'])} skills declared)")
+        # Lead with decayed -- the sharpest bring-up signal.
+        for bucket in ("decayed", "never_live", "live", "no_opportunity",
+                       "insufficient_evidence", "sub_skill"):
+            names = buckets.get(bucket)
+            if names:
+                click.echo(f"  {bucket:<22} {len(names):>3}  {', '.join(names[:6])}"
+                           + (" …" if len(names) > 6 else ""))

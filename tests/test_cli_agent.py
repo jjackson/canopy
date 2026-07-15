@@ -106,3 +106,39 @@ def test_task_status_normalization_and_links_parsing():
         {"label": "A", "url": "u1"}, {"label": "B", "url": "u2"}]
     assert next_task_ext_id([]) == "T1"
     assert next_task_ext_id([{"ext_id": "T7"}, {"ext_id": "row2"}]) == "T8"
+
+
+def test_agent_coverage_cli_json_output(monkeypatch):
+    fake = {"ok": True, "agents": [{
+        "agent": "eva", "window_days": 30,
+        "corpus": {"transcripts": 7, "entries": 100, "adequate": True},
+        "persona": {"present": True, "path": "persona.md", "bytes": 2707},
+        "activity": {}, "bursts": [{"id": 1, "start": "2026-07-01", "end": "2026-07-02",
+                                    "active_days": 2, "sessions": 2}],
+        "skills": [{"name": "cea-botec", "bucket": "never_live", "opportunity_bursts": [1, 2],
+                    "used_bursts": [], "live": False, "evidence": []}]}]}
+    monkeypatch.setattr("orchestrator.agent_coverage.run_agent_coverage",
+                        lambda *a, **k: fake)
+    res = CliRunner().invoke(main, ["agent", "coverage", "--slug", "eva", "--json-output"])
+    assert res.exit_code == 0, res.output
+    assert json.loads(res.output)["agents"][0]["skills"][0]["bucket"] == "never_live"
+
+
+def test_agent_coverage_cli_human_output_leads_with_decayed(monkeypatch):
+    fake = {"ok": True, "agents": [{
+        "agent": "eva", "window_days": 30,
+        "corpus": {"transcripts": 7, "entries": 100, "adequate": True},
+        "persona": {"present": False, "path": None, "bytes": 0},
+        "activity": {}, "bursts": [{"id": 1, "start": "2026-07-01", "end": "2026-07-02",
+                                    "active_days": 2, "sessions": 2}],
+        "skills": [
+            {"name": "lead-outreach", "bucket": "decayed", "opportunity_bursts": [1, 2],
+             "used_bursts": [1], "live": False, "evidence": []},
+            {"name": "turn", "bucket": "live", "opportunity_bursts": [1, 2],
+             "used_bursts": [2], "live": True, "evidence": []}]}]}
+    monkeypatch.setattr("orchestrator.agent_coverage.run_agent_coverage",
+                        lambda *a, **k: fake)
+    res = CliRunner().invoke(main, ["agent", "coverage", "--slug", "eva"])
+    assert res.exit_code == 0, res.output
+    assert "decayed" in res.output and "lead-outreach" in res.output
+    assert "no persona.md" in res.output
