@@ -64,6 +64,15 @@ reply threading; a deny rail blocks raw `gog gmail send`). Every send returns JS
 `thread_id` — **record it in your state layer** so inbound triage can route the
 reply to the right scope. Auth flaky? `canopy email preflight --repo .` prints the exact fix.
 
+**Not actionable → archive it (don't leave it unread).** If a thread has nothing to Reply /
+File / Remember / Escalate, it *is* handled: mark it read and archive it on your OWN mailbox so
+it leaves the inbox instead of lingering. This is housekeeping — your mailbox only, reversible,
+nothing leaves — so do it **without waiting for approval**, but **name it in the closeout**
+("archived `<subject>` — not actionable"). Sanctioned path only: mark-read/archive naming your
+own `--account` (the rail permits your own box); NEVER a sibling mailbox, NEVER raw send. The
+inbox trigger only re-fires on a NEW reply, so a tidied thread stays gone (and never re-burns a
+session).
+
 ## Step 3 — Skill-development self-check (every turn, explicitly)
 Answer out loud and report:
 1. **Did I create or improve a skill this turn?** Name it.
@@ -82,6 +91,14 @@ file. **Lead with what you DID** (link PRs / artifacts / threads); then per coun
 proposed action, what was approved & done, what is parked; then your recommendation and what
 else is worth doing; plus anything still blocked from preflight. Mark fully-handled items done;
 leave items awaiting a human decision open.
+
+**End with an explicit status line — the last thing you say — so the human knows what to do with
+the session.** Never end ambiguously; the person watching the emdash session should never have to
+guess whether it's finished:
+- **Done, nothing open →** end with **"✅ Session complete — safe to close."** (a trivial /
+  non-actionable turn: "Nothing actionable — archived the thread. ✅ Session complete — safe to close.")
+- **Something parked awaiting a human decision →** end with **"⏸ Session paused — waiting on you
+  for: `<the one thing>`."** and leave it open.
 
 Then refresh your canopy-web workspace so `/agents/<slug>` reflects this turn
 (the installed canopy plugin provides the shared client — no per-agent client to maintain):
