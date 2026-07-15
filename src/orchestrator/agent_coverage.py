@@ -23,7 +23,12 @@ for canopy-web, ``now``, ``projects_dir``), composed by ``run_agent_coverage``.
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Callable, Optional
+
+from orchestrator.transcripts import read_transcript
 
 
 def compute_bursts(stamps: list[tuple[datetime, str]], gap_days: int = 2) -> list[dict]:
@@ -60,4 +65,72 @@ def compute_bursts(stamps: list[tuple[datetime, str]], gap_days: int = 2) -> lis
             "active_days": len(group),
             "sessions": len(sessions),
         })
+    return out
+
+
+def _parse_ts(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def evidence_from_entries(entries: list[dict], slug: str,
+                          skill_names: list[str]) -> dict[str, list[dict]]:
+    """Invocation-shaped evidence per skill, from ONE transcript's entries.
+
+    Only ``tool_use`` inputs and ``text`` blocks are scanned. ``tool_result`` content
+    is deliberately NOT scanned: `ls skills/` listings and git diffs live there, and
+    counting them would mark never-run skills as live. A mention is not an invocation.
+    """
+    md_res = {n: re.compile(rf"/skills/{re.escape(n)}/SKILL\.md$") for n in skill_names}
+    slash_res = {n: re.compile(rf"/{re.escape(slug)}:{re.escape(n)}(?![\w-])")
+                 for n in skill_names}
+    out: dict[str, list[dict]] = {}
+
+    def add(name, ts, kind, line):
+        out.setdefault(name, []).append({"ts": ts, "kind": kind, "line": line})
+
+    for entry in entries:
+        content = (entry.get("message") or {}).get("content")
+        if not isinstance(content, list):
+            continue
+        ts = _parse_ts(entry.get("timestamp"))
+        for c in content:
+            if not isinstance(c, dict):
+                continue
+            ctype = c.get("type")
+            if ctype == "tool_use":
+                inp = c.get("input") or {}
+                name = c.get("name")
+                if name == "Skill":
+                    ref = str(inp.get("skill") or "")
+                    bare = ref.split(":")[-1]
+                    if bare in md_res:
+                        add(bare, ts, "skill_tool_call", ref)
+                elif name == "Read":
+                    fp = str(inp.get("file_path") or "")
+                    for n, rx in md_res.items():
+                        if rx.search(fp):
+                            add(n, ts, "skill_md_read", fp)
+            elif ctype == "text":
+                text = str(c.get("text") or "")
+                for n, rx in slash_res.items():
+                    if rx.search(text):
+                        add(n, ts, "slash_invocation", f"/{slug}:{n}")
+            # ctype == "tool_result" -> intentionally skipped (see docstring)
+    return out
+
+
+def scan_evidence(paths: list[Path], slug: str, skill_names: list[str], *,
+                  reader: Callable = read_transcript) -> dict[str, list[dict]]:
+    """Invocation evidence per skill across a transcript corpus."""
+    out: dict[str, list[dict]] = {}
+    for p in paths:
+        found = evidence_from_entries(reader(p), slug, skill_names)
+        for name, evs in found.items():
+            for e in evs:
+                out.setdefault(name, []).append({**e, "transcript": str(p)})
     return out
