@@ -2,7 +2,12 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-from orchestrator.agent_coverage import compute_bursts, evidence_from_entries, scan_evidence
+from orchestrator.agent_coverage import (
+    _parse_ts,
+    compute_bursts,
+    evidence_from_entries,
+    scan_evidence,
+)
 
 NOW = datetime(2026, 7, 15, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -105,3 +110,77 @@ def test_scan_evidence_tags_transcript_path():
         {"type": "tool_use", "name": "Skill", "input": {"skill": "eva:turn"}}])]
     ev = scan_evidence([Path("/tmp/a.jsonl")], "eva", ["turn"], reader=lambda p: entries)
     assert ev["turn"][0]["transcript"] == "/tmp/a.jsonl"
+
+
+# --- FINDING 1: cross-agent false "live" ------------------------------------
+
+def test_skill_md_read_matches_owning_agent_repo_layout():
+    entries = [_assistant([
+        {"type": "tool_use", "name": "Read",
+         "input": {"file_path": "/Users/j/emdash/repositories/eva/skills/turn/SKILL.md"}}])]
+    ev = evidence_from_entries(entries, "eva", ["turn"])
+    assert len(ev["turn"]) == 1
+
+
+def test_skill_md_read_matches_owning_agent_worktree_layout():
+    entries = [_assistant([
+        {"type": "tool_use", "name": "Read",
+         "input": {"file_path":
+                   "/Users/j/emdash/worktrees/eva/emdash/feat-x/skills/turn/SKILL.md"}}])]
+    ev = evidence_from_entries(entries, "eva", ["turn"])
+    assert len(ev["turn"]) == 1
+
+
+def test_skill_md_read_does_not_match_foreign_agent_path():
+    """eva's transcript reading ace's turn skill must NOT count as eva's turn firing."""
+    entries = [_assistant([
+        {"type": "tool_use", "name": "Read",
+         "input": {"file_path": "/Users/j/emdash/repositories/ace/skills/turn/SKILL.md"}}])]
+    ev = evidence_from_entries(entries, "eva", ["turn"])
+    assert ev == {}
+
+
+def test_skill_tool_call_accepts_bare_skill_name():
+    entries = [_assistant([
+        {"type": "tool_use", "name": "Skill", "input": {"skill": "turn"}}])]
+    ev = evidence_from_entries(entries, "eva", ["turn"])
+    assert len(ev["turn"]) == 1
+
+
+def test_skill_tool_call_accepts_own_namespace():
+    entries = [_assistant([
+        {"type": "tool_use", "name": "Skill", "input": {"skill": "eva:turn"}}])]
+    ev = evidence_from_entries(entries, "eva", ["turn"])
+    assert len(ev["turn"]) == 1
+
+
+def test_skill_tool_call_rejects_foreign_namespace():
+    """A Skill call with input.skill='ace:turn' must not count as eva's turn firing."""
+    entries = [_assistant([
+        {"type": "tool_use", "name": "Skill", "input": {"skill": "ace:turn"}}])]
+    ev = evidence_from_entries(entries, "eva", ["turn"])
+    assert ev == {}
+
+
+# --- FINDING 2: _parse_ts must return aware datetimes -----------------------
+
+def test_parse_ts_naive_string_returns_aware_datetime():
+    dt = _parse_ts("2026-07-09T09:00:00")
+    assert dt is not None
+    assert dt.tzinfo is not None
+
+
+def test_parse_ts_z_suffixed_string_stays_utc_and_unchanged():
+    dt = _parse_ts("2026-07-09T09:00:00Z")
+    assert dt == datetime(2026, 7, 9, 9, 0, 0, tzinfo=timezone.utc)
+
+
+# --- FINDING 3: unparseable timestamp must not produce ts=None evidence -----
+
+def test_entry_with_unparseable_timestamp_yields_no_evidence():
+    entries = [_assistant(
+        [{"type": "tool_use", "name": "Skill", "input": {"skill": "turn"}}],
+        ts="not-a-timestamp",
+    )]
+    ev = evidence_from_entries(entries, "eva", ["turn"])
+    assert ev == {}

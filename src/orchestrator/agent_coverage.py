@@ -72,9 +72,13 @@ def _parse_ts(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
         return None
+    # Mirror agent_health._parse_when: attach the local zone to naive timestamps so
+    # every evidence ts is aware -- mixing naive/aware here would shift the `.date()`
+    # burst boundaries downstream.
+    return dt.astimezone() if dt.tzinfo is None else dt
 
 
 def evidence_from_entries(entries: list[dict], slug: str,
@@ -85,7 +89,13 @@ def evidence_from_entries(entries: list[dict], slug: str,
     is deliberately NOT scanned: `ls skills/` listings and git diffs live there, and
     counting them would mark never-run skills as live. A mention is not an invocation.
     """
-    md_res = {n: re.compile(rf"/skills/{re.escape(n)}/SKILL\.md$") for n in skill_names}
+    # Require the read path to belong to THIS agent: slug must appear as a path
+    # segment before the skills/ segment (repo layout: /<slug>/skills/..., worktree
+    # layout: /<slug>/emdash/<branch>/skills/...). Without this, cross-agent reads
+    # of a sibling's identically-named skill file (common in agent-review /
+    # fleet-align work) falsely count as THIS agent's skill firing.
+    md_res = {n: re.compile(rf"/{re.escape(slug)}/(?:.*/)?skills/{re.escape(n)}/SKILL\.md$")
+              for n in skill_names}
     slash_res = {n: re.compile(rf"/{re.escape(slug)}:{re.escape(n)}(?![\w-])")
                  for n in skill_names}
     out: dict[str, list[dict]] = {}
@@ -98,6 +108,10 @@ def evidence_from_entries(entries: list[dict], slug: str,
         if not isinstance(content, list):
             continue
         ts = _parse_ts(entry.get("timestamp"))
+        if ts is None:
+            # Can't place this invocation on the burst timeline -- unusable as
+            # evidence rather than a landmine `ts: None` for downstream `.date()`.
+            continue
         for c in content:
             if not isinstance(c, dict):
                 continue
@@ -107,8 +121,12 @@ def evidence_from_entries(entries: list[dict], slug: str,
                 name = c.get("name")
                 if name == "Skill":
                     ref = str(inp.get("skill") or "")
-                    bare = ref.split(":")[-1]
-                    if bare in md_res:
+                    ns, sep, bare = ref.partition(":")
+                    if not sep:
+                        ns, bare = None, ref
+                    # Bare skill name, or namespaced to THIS agent -- reject a
+                    # foreign namespace (e.g. "ace:turn" while scanning eva).
+                    if bare in md_res and (ns is None or ns == slug):
                         add(bare, ts, "skill_tool_call", ref)
                 elif name == "Read":
                     fp = str(inp.get("file_path") or "")
