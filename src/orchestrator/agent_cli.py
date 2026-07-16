@@ -248,6 +248,18 @@ def agent_tasks(slug):
         raise click.ClickException(str(e))
 
 
+@agent.command("syncs")
+@click.option("--slug", required=True)
+@click.option("--limit", type=int, default=None, help="Cap the number returned (newest first).")
+def agent_syncs(slug, limit):
+    """List past manager syncs (JSON, newest first) — the manager-sync window is
+    the latest sync's period_end → today, so the window state lives here."""
+    try:
+        _emit(_client(slug).list_syncs(limit=limit))
+    except (CanopyError, RuntimeError) as e:
+        raise click.ClickException(str(e))
+
+
 @agent.command("apply")
 @click.option("--slug", required=True)
 @click.option("--id", "cmd_id", type=int, required=True)
@@ -271,8 +283,13 @@ def agent_apply(slug, cmd_id, note):
 @click.option("--next-action", default=None)
 @click.option("--owner", default=None)
 @click.option("--notes", default=None)
+@click.option("--score", default=None, help="Self-grade captured at completion — e.g. A-, B+, 4/5.")
+@click.option("--review", default=None, help="One-line self-review captured when the task was done.")
 def agent_set(slug, task_id, **fields):
-    """Patch a task (store rationale/source/plan/status/…)."""
+    """Patch a task (store rationale/source/plan/status/score/review/…).
+
+    Score a task WHEN you mark it done (--status done --score --review) so a manager
+    sync reads the completion grade instead of re-grading later."""
     try:
         _emit(_client(slug).patch_task(task_id, **fields))
     except (CanopyError, RuntimeError) as e:

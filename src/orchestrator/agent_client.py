@@ -87,6 +87,15 @@ class AgentClient:
         raw = self._call("GET", f"/api/agents/{self.slug}/tasks/")
         return raw if isinstance(raw, list) else (raw or {}).get("results", [])
 
+    def list_syncs(self, limit: int | None = None) -> "list[dict]":
+        """Past manager syncs, newest period_end first. The manager-sync window is
+        the latest sync's period_end → today, so state lives here, not a repo file."""
+        path = f"/api/agents/{self.slug}/syncs/"
+        if limit:
+            path += f"?limit={int(limit)}"
+        raw = self._call("GET", path)
+        return raw if isinstance(raw, list) else (raw or {}).get("results", [])
+
     def pending_commands(self) -> "list[BoardCommand]":
         raw = self._call("GET", f"/api/agents/{self.slug}/commands?status=pending")
         return [BoardCommand(**c) for c in (raw or [])]
