@@ -22,13 +22,14 @@ PKG = ROOT / "src" / "orchestrator"
 
 # ── Tiers (canonical copy lives in src/orchestrator/TIERS.md; keep in sync) ─────
 FRAMEWORK = {
-    "agent_cli", "agent_client", "agent_doctor", "agent_email", "review_receipt", "agent_factory", "agent_health", "agent_web", "canopy_web",
+    "agent_cli", "agent_client", "agent_coverage", "agent_doctor", "agent_email", "review_receipt", "agent_factory", "agent_health", "agent_web", "canopy_web",
     "inbox_filters",
     "capture", "transcripts", "scanner", "circuit_breaker", "rate_limiter",
     "scheduler", "paths", "repo_map", "repo_paths", "registry", "registry_sync",
     "skill_budget", "skill_catalog", "skill_runner", "provision", "run_log",
     "version_bump", "doctor", "agent_review", "structure_drift",
     "eval_cli", "eval_rubric", "turn_synthesis", "session_upload", "fleet_align",
+    "session_sources",
 }
 # Orchestration hubs / composition roots — wire product features into the CLI, the
 # improvement pipeline, and the web server. Allowed to import product (like

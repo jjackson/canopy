@@ -24,6 +24,7 @@ import os
 from dataclasses import dataclass, field
 
 from orchestrator import turn_synthesis
+from orchestrator.session_sources import discover_local_sources
 
 
 @dataclass
@@ -40,19 +41,17 @@ class SessionRef:
 
 
 def user_session_roots(users_root: str = "/Users") -> list[dict]:
-    """Every macOS user's ~/.claude/projects, with a readability flag (for confidence)."""
-    out = []
-    for home in sorted(glob.glob(os.path.join(users_root, "*"))):
-        p = os.path.join(home, ".claude", "projects")
-        if not os.path.isdir(p):
-            continue
-        try:
-            os.listdir(p)
-            readable = True
-        except OSError:
-            readable = False
-        out.append({"user": os.path.basename(home), "path": p, "readable": readable})
-    return out
+    """Every macOS user's ~/.claude/projects, with a readability flag (for confidence).
+
+    Thin wrapper over `session_sources.discover_local_sources` -- the local
+    /Users/*/.claude/projects glob + readable check now lives there (see its
+    module docstring for why: this harvest corpus assembly and
+    agent_coverage's cross-user transcript scan must never re-fork that glob
+    into two copies). Preserves this function's original dict shape and its
+    existing callers/tests unchanged.
+    """
+    return [{"user": s.name.split(":", 1)[1], "path": s.location, "readable": s.readable}
+           for s in discover_local_sources(users_root=users_root)]
 
 
 def _first_prompt(path: str) -> str:

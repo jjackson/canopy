@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from typing import Callable, Optional
 
 from orchestrator import canopy_web
+from orchestrator.agent_client import list_agent_slugs
 
 DEFAULT_STALE_NEEDS_YOU_DAYS = 7.0
 DEFAULT_STALE_TURN_DAYS = 7.0
@@ -219,18 +220,6 @@ def health_report(slug: str, *, call: Callable = canopy_web.call,
             "board": board, "inbox": inbox}
 
 
-def _list_agent_slugs(call: Callable) -> list[str]:
-    """All agent slugs from the paginated /api/agents/ envelope."""
-    slugs, offset = [], 0
-    while True:
-        page = call("GET", f"/api/agents/?offset={offset}" if offset else "/api/agents/")
-        items = page.get("items") or []
-        slugs.extend(a["slug"] for a in items)
-        offset += len(items)
-        if not items or offset >= (page.get("total") or 0):
-            return slugs
-
-
 def run_agent_health(slug: Optional[str] = None, *, call: Callable = canopy_web.call,
                      runner=subprocess.run, now: Optional[datetime] = None,
                      stale_needs_you_days: float = DEFAULT_STALE_NEEDS_YOU_DAYS,
@@ -238,7 +227,7 @@ def run_agent_health(slug: Optional[str] = None, *, call: Callable = canopy_web.
                      stale_inbox_days: float = DEFAULT_STALE_INBOX_DAYS) -> dict:
     """Probe one agent (slug) or sweep the whole registered fleet (slug=None)."""
     now = now or datetime.now(timezone.utc)
-    slugs = [slug] if slug else _list_agent_slugs(call)
+    slugs = [slug] if slug else list_agent_slugs(call)
     agents = [health_report(s, call=call, runner=runner, now=now,
                             stale_needs_you_days=stale_needs_you_days,
                             stale_turn_days=stale_turn_days,

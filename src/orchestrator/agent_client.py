@@ -6,13 +6,14 @@ import glob
 import os
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 from pydantic import BaseModel, ConfigDict
 
 from orchestrator import canopy_web
 from orchestrator.canopy_web import CanopyError, Transport  # re-export
 
-__all__ = ["AgentIdentity", "BoardCommand", "AgentClient", "catalog_from_repo", "CanopyError"]
+__all__ = ["AgentIdentity", "BoardCommand", "AgentClient", "catalog_from_repo", "CanopyError",
+          "list_agent_slugs"]
 
 
 class AgentIdentity(BaseModel):
@@ -121,6 +122,18 @@ def _frontmatter(path: str) -> "tuple[str, str] | None":
     name_v = name.group(1).strip() if name else ""
     desc_v = " ".join(l.strip() for l in (desc.group(1).splitlines() if desc else [])).strip()
     return name_v, desc_v
+
+
+def list_agent_slugs(call: Callable) -> list[str]:
+    """All agent slugs from the paginated /api/agents/ envelope."""
+    slugs, offset = [], 0
+    while True:
+        page = call("GET", f"/api/agents/?offset={offset}" if offset else "/api/agents/")
+        items = page.get("items") or []
+        slugs.extend(a["slug"] for a in items)
+        offset += len(items)
+        if not items or offset >= (page.get("total") or 0):
+            return slugs
 
 
 def catalog_from_repo(skills_root, url_template: str) -> "list[dict]":
