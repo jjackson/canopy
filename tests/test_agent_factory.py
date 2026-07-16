@@ -243,7 +243,7 @@ def test_agent_core_docs_exist_and_are_agent_agnostic():
     those docs must exist, be substantial, and carry no stamp-time {{TOKEN}}s
     (they are read at RUNTIME by any agent — identity lives in the stub)."""
     root = Path(__file__).resolve().parents[1] / "plugins" / "canopy" / "agent-core"
-    for name in ("turn", "task-tracker"):
+    for name in ("turn", "task-tracker", "manager-sync"):
         doc = root / f"{name}.md"
         assert doc.is_file(), f"missing agent-core doc: {doc}"
         text = doc.read_text()
@@ -255,7 +255,7 @@ def test_stub_skills_reference_agent_core(tmp_path):
     """turn + task-tracker are stamped as thin stubs that resolve the installed canopy
     plugin and read the canonical agent-core doc — never a full process copy."""
     create_agent(_spec(), tmp_path / "echo")
-    for name in ("turn", "task-tracker"):
+    for name in ("turn", "task-tracker", "manager-sync"):
         text = (tmp_path / "echo" / "skills" / name / "SKILL.md").read_text()
         assert "installed_plugins.json" in text, f"{name} stub must resolve the installed canopy path"
         assert f"agent-core/{name}.md" in text, f"{name} stub must point at its core doc"

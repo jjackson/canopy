@@ -97,6 +97,22 @@ def test_list_tasks_unwraps_paginated():
     assert c.list_tasks() == [{"ext_id": "T1"}]
 
 
+def test_list_syncs_reads_past_syncs_with_limit():
+    raw = _json.dumps([{"id": 2, "period_end": "2026-07-16", "title": "Sync #2"}])
+    c, calls = _recorder_client([(200, raw)])
+    syncs = c.list_syncs(limit=1)
+    assert calls[0][:2] == ("GET", "https://x.test/api/agents/echo/syncs/?limit=1")
+    assert syncs[0]["period_end"] == "2026-07-16"
+
+
+def test_patch_task_forwards_score_and_review():
+    """Completion scoring: `set --status done --score --review` reaches the task PATCH."""
+    c, calls = _recorder_client([(200, "{}")])
+    c.patch_task(13, status="done", score="A-", review="transcript-grounded")
+    assert calls[0] == ("PATCH", "https://x.test/api/agents/echo/tasks/13/",
+                        {"status": "done", "score": "A-", "review": "transcript-grounded"})
+
+
 from pathlib import Path
 from orchestrator.agent_client import catalog_from_repo
 
