@@ -51,6 +51,13 @@ adds agent-specifics (send path, paired reviewers); the general discipline lives
     (it hides `Cc:`). Confirm reply-all vs. direct on purpose.
 
 ## D. Revision check — full re-review + repetition pass, EVERY revision
+
+> **§D is enforced for email, because it is the step that fails.** `canopy email send` blocks any
+> body without a review receipt fingerprinted to THAT body, so a review of v1 cannot satisfy a send
+> of v3 — revise, and the receipt stops matching. Record yours after reviewing:
+> `canopy email review-receipt --repo . --body-file <the body you'll send> --caught "<findings>"`.
+> Dry-runs are exempt. The `caught` list is the fleet's evidence about which reviews earn their
+> keep — an honest "none" is fine, but only per §13 (after you have actually read it back).
 11. **Re-run this whole review on every revision of a draft, not only the first.** A "delta check"
     of just your latest edits is how edit-introduced defects ship — the requester's corrections
     change the draft's context, so the whole thing gets re-reviewed.

@@ -496,7 +496,10 @@ def test_coverage_report_buckets_a_decayed_skill(tmp_path, monkeypatch):
     monkeypatch.setattr("orchestrator.agent_coverage.find_turn_transcripts",
                         lambda r, hours, **kw: [Path("/tmp/a.jsonl"), Path("/tmp/b.jsonl"),
                                                 Path("/tmp/c.jsonl")])
-    rep = coverage_report("eva", call=lambda *a, **k: {}, now=NOW,
+    # Pass projects_dir explicitly so the report uses the single-dir injection path
+    # (find_turn_transcripts is monkeypatched above) rather than auto-discovering the
+    # real machine's session sources — which made this test env-dependent and empty in CI.
+    rep = coverage_report("eva", call=lambda *a, **k: {}, now=NOW, projects_dir=tmp_path,
                           reader=lambda p: entries if str(p).endswith("a.jsonl") else [])
 
     by = {s["name"]: s for s in rep["skills"]}
@@ -517,7 +520,8 @@ def test_coverage_report_thin_corpus_is_insufficient_evidence(tmp_path, monkeypa
                 "message": {"content": [{"type": "text", "text": "hi"}]}},
                {"type": "assistant", "timestamp": "2026-07-13T09:00:00Z", "sessionId": "b",
                 "message": {"content": [{"type": "text", "text": "hi"}]}}]
-    rep = coverage_report("eva", call=lambda *a, **k: {}, now=NOW, reader=lambda p: entries)
+    rep = coverage_report("eva", call=lambda *a, **k: {}, now=NOW, projects_dir=tmp_path,
+                          reader=lambda p: entries)
     assert rep["corpus"]["adequate"] is False
     assert {s["bucket"] for s in rep["skills"]} == {"insufficient_evidence"}
 

@@ -363,6 +363,11 @@ def send(
                 "account": identity.account, "client": identity.client,
                 "to": to, "cc": cc or "", "subject": subject,
                 "plain": plain, "html": html_body}
+    # Pre-send review rail (review_receipt.py explains why it lives here and not in each
+    # agent's PreToolUse hook). Keyed to THIS body: a review of an earlier revision does
+    # not carry over. dry_run above is exempt on purpose — it is how agents iterate.
+    from orchestrator import review_receipt
+    review_receipt.require(identity.slug, body_text)
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as tf:
         tf.write(plain)
         plain_path = tf.name
@@ -837,6 +842,40 @@ def email_send(repo, agent, account, client, to, cc, subject, body_file,
     except AgentEmailError as e:
         raise click.ClickException(str(e))
     click.echo(json.dumps(result, indent=2))
+
+
+@email_group.command("review-receipt")
+@_with_identity_options
+@click.option("--body-file", type=click.File("r"), required=True,
+              help="The EXACT body file you are about to send.")
+@click.option("--caught", multiple=True,
+              help="What the review actually found and you fixed. Repeatable. Omit only "
+                   "if the review genuinely found nothing AFTER you read the draft back.")
+@click.option("--verdict", default="clean",
+              type=click.Choice(["clean", "fixed"]),
+              help="clean = nothing found; fixed = found something and corrected it.")
+def email_review_receipt(repo, agent, account, client, body_file, caught, verdict):
+    """Record that agent-turn-review ran against THIS body, unblocking the send.
+
+    The receipt is keyed to a fingerprint of the body as it will be rendered, so revising
+    the draft invalidates it — a review of an earlier revision never carries over. That is
+    the point: it makes "reviewed v1, sent v3" impossible rather than merely discouraged.
+    """
+    from orchestrator import review_receipt
+    try:
+        ident = _identity_from_opts(repo, agent, account, client)
+    except AgentEmailError as e:
+        raise click.ClickException(str(e))
+    body = body_file.read()
+    path = review_receipt.record(ident.slug, body, caught=list(caught), verdict=verdict)
+    click.echo(json.dumps({
+        "recorded": True,
+        "slug": ident.slug,
+        "fingerprint": review_receipt.fingerprint(body),
+        "verdict": verdict,
+        "caught": list(caught),
+        "receipt": str(path),
+    }, indent=2))
 
 
 @email_group.command("mark-read")
