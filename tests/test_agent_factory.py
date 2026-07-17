@@ -302,3 +302,20 @@ def test_gating_hook_legacy_config_stays_local_only(tmp_path):
 
     assert run("forbidden_local_thing now").returncode == 2
     assert run("git status").returncode == 0        # no channels → no baseline → no brick
+
+
+def test_internal_skills_are_not_user_launchable(tmp_path):
+    """Internal skills ship user-invocable:false (Claude-only); the turn skill stays launchable.
+
+    A skill is already a slash command in Claude Code — launchability is native frontmatter,
+    not a commands/ wrapper. Internal sub-procedures opt out of the /menu here.
+    """
+    create_agent(_spec(), tmp_path / "echo")
+    root = tmp_path / "echo"
+    for internal in ("task-tracker", "agent-turn-review"):
+        fm = (root / "skills" / internal / "SKILL.md").read_text().split("---", 2)[1]
+        assert "user-invocable: false" in fm, f"{internal} must be Claude-only"
+    turn_fm = (root / "skills" / "turn" / "SKILL.md").read_text().split("---", 2)[1]
+    assert "user-invocable: false" not in turn_fm, "turn must stay human-launchable"
+    # the walk-back removed command wrappers entirely
+    assert not (root / "commands").exists(), "factory no longer stamps commands/ wrappers"

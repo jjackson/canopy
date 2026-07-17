@@ -442,6 +442,7 @@ improvements ship once (a canopy PR) instead of N backports.
 
 _AGENT_TURN_REVIEW_SKILL = '''---
 name: agent-turn-review
+user-invocable: false   # internal: Claude invokes it; it is not a human-launchable /command
 description: >
   {{AGENT_NAME}}'s pre-send review — invokes the fleet-wide `canopy:agent-turn-review` discipline,
   then adds {{AGENT_NAME}}'s specifics. Run before EVERY outbound reply / deliverable / PR.
@@ -632,6 +633,7 @@ _AGENT_JSON = '''{
 
 _TASK_TRACKER_SKILL = '''---
 name: task-tracker
+user-invocable: false   # internal: Claude invokes it; it is not a human-launchable /command
 description: >
   {{AGENT_NAME}}'s project/task state — one board task per iterative thread/project, backed by
   canopy-web (kanban at /agents/{{AGENT_SLUG}}). The canonical procedure is fleet-wide and lives

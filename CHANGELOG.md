@@ -9,6 +9,19 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.298] - 2026-07-17
+
+### Changed
+
+- Reverted the factory `stamp-commands` generator (0.2.293): a Claude Code skill is
+  **already** a launchable slash command (`/<slug>:<skill>`) — custom commands were merged
+  into skills upstream, so wrapping every entry-point skill in a `commands/*.md` file was
+  redundant. Launchability is now controlled by native frontmatter instead of wrappers or a
+  custom `commands/.exclude`: the scaffold ships `task-tracker` and `agent-turn-review` with
+  `user-invocable: false` (Claude-invokes-only, kept out of the `/` menu), and `create-agent`
+  documents the model — default = human + Claude; `user-invocable: false` for internal
+  sub-steps/utilities; `disable-model-invocation: true` for human-only side-effecting actions.
+
 ## [0.2.286] - 2026-07-14
 
 ### Changed

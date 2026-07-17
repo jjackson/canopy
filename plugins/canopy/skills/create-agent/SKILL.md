@@ -49,7 +49,18 @@ The scaffold is a skeleton. Walk the human through filling it in, in this order:
 1. **`persona.md`** — voice, mandate detail, and what (if anything) is worth persisting as memory
    (per-counterpart facts only — behaviors become skills, not memories).
 2. **First domain skill** — add `skills/<name>/SKILL.md` for the agent's actual job. Capability
-   logic goes in a CLI/MCP tool; the skill orchestrates (keeps it portable).
+   logic goes in a CLI/MCP tool; the skill orchestrates (keeps it portable). A skill is **already
+   launchable** — Claude Code exposes it as the slash command `/<slug>:<name>` with no wrapper
+   (custom commands were merged into skills; see https://code.claude.com/docs/en/skills). So do
+   NOT hand-write a `commands/<name>.md` to make a skill launchable. Control invocation with
+   frontmatter instead:
+   - default (nothing set) → both a human (`/<slug>:<name>`) and Claude can invoke it. This is
+     right for most entry-point skills.
+   - `user-invocable: false` → Claude-only. Set this on **internal** skills — pipeline sub-steps
+     and shared utilities that only make sense when another skill drives them (the scaffold ships
+     `task-tracker` and `agent-turn-review` this way). Keeps them out of the `/` menu.
+   - `disable-model-invocation: true` → human-only. Set this on side-effecting actions whose
+     timing you must control (a `/deploy`-style command).
 3. **Gating rules — rails, not gates** (operating model §1a revision): for EVERY outbound
    action the agent will take (send on a channel, public write), add a `deny` rail to
    `config/gating.json` that blocks the wrong path and NAMES the sanctioned one. Keep
