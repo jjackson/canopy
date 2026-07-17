@@ -689,38 +689,9 @@ description: >
 - Publish the sync doc with your gdoc tool; draft the report to your advisor with your email tool
   (gated send). Link skills as GitHub source. (none beyond the core yet)
 '''
-_TURN_COMMAND = '''---
-description: Do a full {{AGENT_NAME}} turn — the fleet-canonical turn procedure (wraps skills/turn). Optional scope args.
-argument-hint: [--thread <id> | --slack <ref>]
----
-
-Do a turn of work as {{AGENT_NAME}}.
-
-Read `skills/turn/SKILL.md` (your stub over the fleet-canonical `agent-core/turn.md` in the
-installed canopy plugin) and follow it **in order**, top to bottom — do not run a turn from memory.
-
-Scope for this turn (from arguments): **$ARGUMENTS**
-- `--thread <id>` → a specific email thread triggered you; make it the focus of Step 2 (read that
-  thread, decide one action, present it for approval). Still complete the full closeout.
-- `--slack <ref>` → a specific Slack message is the trigger; focus there.
-- (no args) → a full default turn: drain your board, then triage your inbox, per the procedure.
-
-Guardrail (unchanged): reads are free; **every outbound action waits for explicit human approval.**
-'''
-
-# Seed for `canopy agent stamp-commands`: list domain skills (one per line) that should
-# NOT get a launchable command — pipeline sub-steps and shared utilities that only make
-# sense when another skill drives them. Framework skills and `-eval`/`-qa` graders are
-# excluded automatically; this file is only for domain exceptions. Empty at birth.
-_COMMANDS_EXCLUDE = '''# Skills to keep as skill-only (no /{{AGENT_SLUG}}:<skill> command), one per line.
-# `# comments` allowed. Framework skills (turn, task-tracker, agent-turn-review, self-review)
-# and `-eval`/`-qa` graders are skipped automatically — list only domain sub-steps/utilities.
-'''
 
 _TEMPLATES: dict[str, str] = {
     ".claude-plugin/plugin.json": _PLUGIN_JSON,
-    "commands/turn.md": _TURN_COMMAND,
-    "commands/.exclude": _COMMANDS_EXCLUDE,
     "CLAUDE.md": _CLAUDE_MD,
     "persona.md": _PERSONA_MD,
     "README.md": _README,
