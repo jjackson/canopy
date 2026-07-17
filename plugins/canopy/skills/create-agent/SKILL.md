@@ -41,22 +41,26 @@ This writes ~15 files: `persona.md`, `CLAUDE.md`, the `turn` + `self-review` ski
 deny-rails-only with an empty `approve` list), `.claude/settings.json` (wires the hook),
 `bin/<slug>-email` (thin shim over the shared `canopy email` engine; raw `gog gmail send` is
 deny-railed out of the box), `config/agent.json` (identity: mailbox + `gog_client`),
-`config/secrets.yaml`, `config/allowlist.txt`, and the plugin manifest. It also stamps the
-first-class **`commands/turn.md`** wrapper (so `/<slug>:turn` is launchable at birth — commands,
-not skills, are the surface a human or the harness launches) plus a `commands/.exclude` seed.
-Report the path and file count back.
+`config/secrets.yaml`, `config/allowlist.txt`, and the plugin manifest. Report the path and
+file count back.
 
 ## Step 3 — Make it real (the part the factory can't do)
 The scaffold is a skeleton. Walk the human through filling it in, in this order:
 1. **`persona.md`** — voice, mandate detail, and what (if anything) is worth persisting as memory
    (per-counterpart facts only — behaviors become skills, not memories).
 2. **First domain skill** — add `skills/<name>/SKILL.md` for the agent's actual job. Capability
-   logic goes in a CLI/MCP tool; the skill orchestrates (keeps it portable). Then make its
-   entry points **launchable**: run `canopy agent stamp-commands --repo .` (use `--dry-run`
-   first) to stamp a `/<slug>:<skill>` command wrapper over every domain skill that lacks one.
-   It skips framework skills and `-eval`/`-qa` graders automatically; list pipeline sub-steps and
-   shared utilities (skills only ever driven by another skill) in `commands/.exclude` so they stay
-   skill-only. It never clobbers an existing command — hand-edits and prior curation are safe.
+   logic goes in a CLI/MCP tool; the skill orchestrates (keeps it portable). A skill is **already
+   launchable** — Claude Code exposes it as the slash command `/<slug>:<name>` with no wrapper
+   (custom commands were merged into skills; see https://code.claude.com/docs/en/skills). So do
+   NOT hand-write a `commands/<name>.md` to make a skill launchable. Control invocation with
+   frontmatter instead:
+   - default (nothing set) → both a human (`/<slug>:<name>`) and Claude can invoke it. This is
+     right for most entry-point skills.
+   - `user-invocable: false` → Claude-only. Set this on **internal** skills — pipeline sub-steps
+     and shared utilities that only make sense when another skill drives them (the scaffold ships
+     `task-tracker` and `agent-turn-review` this way). Keeps them out of the `/` menu.
+   - `disable-model-invocation: true` → human-only. Set this on side-effecting actions whose
+     timing you must control (a `/deploy`-style command).
 3. **Gating rules — rails, not gates** (operating model §1a revision): for EVERY outbound
    action the agent will take (send on a channel, public write), add a `deny` rail to
    `config/gating.json` that blocks the wrong path and NAMES the sanctioned one. Keep
