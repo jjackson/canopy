@@ -161,6 +161,32 @@ def agent_commands(slug):
         click.echo(f"  #{c.id} {c.kind} -> {c.task_title or '(no task)'}  [{c.created_by}]  {c.payload or ''}")
 
 
+@agent.command("stamp-commands")
+@click.option("--repo", type=click.Path(exists=True, file_okay=False), default=".",
+              help="Agent repo root (default: cwd).")
+@click.option("--dry-run", is_flag=True, help="Show what would be stamped; write nothing.")
+def agent_stamp_commands(repo, dry_run):
+    """Stamp first-class /<slug>:<skill> commands over entry-point skills.
+
+    Commands, not skills, are the launchable surface. This generates a thin
+    command wrapper for every domain skill that lacks one, skipping framework
+    internals, `-eval`/`-qa` graders, and anything in `commands/.exclude`.
+    Idempotent and additive — it never clobbers or deletes.
+    """
+    from orchestrator.agent_commands_gen import stamp_commands, plan_commands
+
+    plan = (plan_commands if dry_run else stamp_commands)(Path(repo))
+    verb = "would stamp" if dry_run else "stamped"
+    if plan["create"]:
+        for item in plan["create"]:
+            click.echo(f"  + /{Path(repo).name}:{item['skill']}  ({verb})")
+    else:
+        click.echo("  no new commands to stamp")
+    for item in plan["skip"]:
+        click.echo(f"  - {item['skill']}  (skip: {item['reason']})")
+    click.echo(f"{verb}: {len(plan['create'])}  skipped: {len(plan['skip'])}")
+
+
 @agent.command("doctor")
 @click.option("--repo", type=click.Path(exists=True, file_okay=False),
               help="Agent repo root (default: cwd). Identity from its config/agent.json.")

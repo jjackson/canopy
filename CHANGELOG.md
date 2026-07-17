@@ -9,6 +9,21 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.293] - 2026-07-16
+
+### Added
+
+- Agents are born **launchable**. Commands — not skills — are the surface a human or the
+  harness triggers (a skill is model-invoked; a command is caller-invoked and namespaced
+  `/<slug>:<skill>`). The factory now stamps `commands/turn.md` (+ a `commands/.exclude`
+  seed) so `/<slug>:turn` exists at birth, and a new generator
+  `orchestrator.agent_commands_gen` + `canopy agent stamp-commands [--repo] [--dry-run]`
+  stamps a thin command wrapper over every domain entry-point skill. Promotion policy has
+  no per-skill flag (a command is launchable by definition): promote every skill except
+  framework internals (`turn`/`setup`/`task-tracker`/`agent-turn-review`/`self-review`),
+  `-eval`/`-qa` graders, and anything in the agent's `commands/.exclude`. Idempotent and
+  additive — it never clobbers an existing command or hand-edit.
+
 ## [0.2.286] - 2026-07-14
 
 ### Changed
