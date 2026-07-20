@@ -9,6 +9,17 @@ def test_filters_conservative_and_complete():
         assert f["query"] and f["archive"] and f["mark_read"] and f["name"]
 
 
+def test_auto_reply_ooo_rule_present_and_matches_observed_subjects():
+    """Out-of-office / auto-reply guard (added 2026-07-20 after Beth's 'Offline through
+    July 26th…' auto-reply spawned a wasted eva turn). Locks the rule in and pins the
+    high-precision subject markers it must cover."""
+    ooo = next((f for f in inbox_filters.FILTERS if f["name"] == "auto-reply-ooo"), None)
+    assert ooo is not None, "auto-reply-ooo filter rule missing"
+    q = ooo["query"].lower()
+    for marker in ("out of office", "automatic reply", "auto-reply", "offline through"):
+        assert marker in q, f"OOO filter should cover {marker!r}"
+
+
 def _runner(list_json, create_rc=0):
     def run(cmd, capture_output, text, timeout):
         if "list" in cmd:
