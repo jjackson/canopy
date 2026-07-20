@@ -25,6 +25,20 @@ FILTERS: list[dict] = [
     },
     {"name": "promotions", "query": "category:promotions", "archive": True, "mark_read": True},
     {"name": "social", "query": "category:social", "archive": True, "mark_read": True},
+    # Out-of-office / auto-reply bounces. These wake an agent for zero-content mail:
+    # Ada's 2026-07-20 conduct cycle caught Beth's "Offline through July 26th…" auto-reply
+    # spawning a full eva turn (which correctly did nothing — pure wasted tokens). Gmail
+    # can't match the RFC Auto-Submitted/Precedence headers, so match the high-precision
+    # auto-reply subject markers instead. Marking read on arrival means the runner's
+    # `is:unread` poll never sees it — the turn is never spawned. A later REAL reply in the
+    # same thread arrives unread and triggers normally, so nothing is permanently silenced.
+    {
+        "name": "auto-reply-ooo",
+        "query": ('subject:("out of office" OR "automatic reply" OR "auto-reply" OR autoreply '
+                  'OR "away from my email" OR "away from the office" OR "offline through" '
+                  'OR "offline until")'),
+        "archive": True, "mark_read": True,
+    },
     # Ada's first fleet audit (2026-07-14) found ~90 junk threads across agent inboxes,
     # dominated by these three senders (hal alone: 45 GitHub notifications, 10 Google
     # Cloud upsells, 4 Expensify). Agents work GitHub via the gh CLI, never via email.
