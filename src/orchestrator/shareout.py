@@ -312,7 +312,7 @@ def gather(
 # ---------------------------------------------------------------------------
 
 
-def build_post_payload(authoring: dict, source: str) -> dict:
+def build_post_payload(authoring: dict, source: str, produced_by_agent: str = "") -> dict:
     """Expand the agent's authoring doc into a ShareoutBatchIn body.
 
     Authoring shape (what the skill agent writes):
@@ -326,13 +326,20 @@ def build_post_payload(authoring: dict, source: str) -> dict:
     The rollup becomes a shareout with project_slug=null. `source` is stamped
     on every item so a re-run cleanly replaces the prior post (server-side
     idempotency is keyed on project+period+source).
+
+    `produced_by_agent` (a slug like "eva") records that an agent assembled this
+    on the author's behalf — the report stays attributed to `author`; this is
+    just the producer byline. It is stamped on every item ONLY when non-empty:
+    a human run omits the key entirely, so the post stays compatible with a
+    canopy-web that predates the field (its ShareoutIn is a StrictModel and
+    would reject an unknown `produced_by_agent: ""`).
     """
     ps = authoring["period_start"]
     pe = authoring["period_end"]
     author = authoring.get("author", "")
 
     def _item(slug, b):
-        return {
+        item = {
             "project_slug": slug,
             "period_start": ps,
             "period_end": pe,
@@ -344,6 +351,9 @@ def build_post_payload(authoring: dict, source: str) -> dict:
             "author": author,
             "source": source,
         }
+        if produced_by_agent:
+            item["produced_by_agent"] = produced_by_agent
+        return item
 
     items = []
     rollup = authoring.get("rollup")
@@ -385,6 +395,34 @@ def fill_all_prs_from_corpus(authoring: dict, corpus: dict) -> dict:
         if prs:
             proj["all_prs"] = _slim_prs(prs)
     return authoring
+
+
+def detect_agent_slug(cwd: Path | None = None, env: dict | None = None) -> str:
+    """Best-effort: which agent is producing this shareout, as a slug ("").
+
+    Precedence (first hit wins):
+      1. `$CANOPY_AGENT_SLUG` — an explicit environment override.
+      2. A `config/agent.json` in `cwd` (the fleet agent marker echo/eva/hal
+         carry) — its `slug`, else its `name` lowercased.
+      3. "" — a human ran it, or the marker isn't reachable from here.
+
+    NOTE: the shareout CLI is usually invoked from the canopy repo dir, so (2)
+    rarely fires in practice — the reliable path is the agent passing
+    `--produced-by-agent <slug>` explicitly (see the skill). This detection is
+    the convenience fallback, not the primary mechanism.
+    """
+    env = os.environ if env is None else env
+    slug = (env.get("CANOPY_AGENT_SLUG") or "").strip()
+    if slug:
+        return slug
+
+    cwd = cwd or Path.cwd()
+    marker = cwd / "config" / "agent.json"
+    try:
+        data = json.loads(marker.read_text())
+    except (OSError, json.JSONDecodeError):
+        return ""
+    return str(data.get("slug") or data.get("name") or "").strip().lower()
 
 
 def resolve_pat() -> str | None:

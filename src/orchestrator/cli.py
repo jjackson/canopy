@@ -560,7 +560,12 @@ def shareout_gather(from_date, to_date, days, project, author, api_url, json_out
                    "appending a fresh timestamped set.")
 @click.option("--api-url", default=None,
               help="canopy-web base URL (default: $CANOPY_WEB_API_URL or prod)")
-def shareout_post(authoring_json, corpus_json, source_override, api_url):
+@click.option("--produced-by-agent", "produced_by_agent", default=None,
+              help="Agent slug (e.g. 'eva') when an agent runs this on the user's behalf. "
+                   "The report stays attributed to the author; this records the producer for "
+                   "a subtle byline. Auto-detected from $CANOPY_AGENT_SLUG / config/agent.json "
+                   "when omitted.")
+def shareout_post(authoring_json, corpus_json, source_override, api_url, produced_by_agent):
     """Post an authored briefings doc to the canopy-web /shareouts feed."""
     import datetime as dt
     import json as json_mod
@@ -575,18 +580,22 @@ def shareout_post(authoring_json, corpus_json, source_override, api_url):
             "no canopy-web PAT — run /canopy:canopy-web-pat-mint or set CANOPY_WEB_PAT"
         )
 
+    # Explicit flag wins; otherwise best-effort detect the producing agent.
+    agent = produced_by_agent if produced_by_agent is not None else shareout_mod.detect_agent_slug()
+
     authoring = json_mod.loads(Path(authoring_json).read_text())
     if corpus_json:
         corpus = json_mod.loads(Path(corpus_json).read_text())
         shareout_mod.fill_all_prs_from_corpus(authoring, corpus)
     source = source_override or f"canopy:shareout@{dt.datetime.now(dt.timezone.utc).isoformat()}"
-    payload = shareout_mod.build_post_payload(authoring, source=source)
+    payload = shareout_mod.build_post_payload(authoring, source=source, produced_by_agent=agent)
 
     status, body = shareout_mod.post(payload, api, token)
     if status not in (200, 201):
         raise click.ClickException(f"post failed ({status}): {body}")
     click.echo(f"Posted {body.get('created', 0)} briefing(s) "
-               f"(replaced {body.get('replaced', 0)}, skipped {body.get('skipped', 0)}).")
+               f"(replaced {body.get('replaced', 0)}, skipped {body.get('skipped', 0)})"
+               + (f" — produced by {agent}." if agent else "."))
     click.echo(f"View: {shareout_mod.feed_url(api)}")
 
 
