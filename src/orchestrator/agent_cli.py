@@ -384,19 +384,18 @@ def agent_add(slug, title, ext_id, next_action, status, owner, assigned, confide
 @click.option("--slug", default="", help="One agent; omit to sweep the whole registered fleet.")
 @click.option("--stale-needs-you-days", default=7.0, show_default=True, type=float,
               help="Flag needs-you items older than this")
-@click.option("--stale-turn-days", default=7.0, show_default=True, type=float,
-              help="Flag agents whose last turn is older than this")
 @click.option("--stale-inbox-days", default=3.0, show_default=True, type=float,
               help="Flag unread inbox threads older than this")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def agent_health(slug, stale_needs_you_days, stale_turn_days, stale_inbox_days, as_json):
+def agent_health(slug, stale_needs_you_days, stale_inbox_days, as_json):
     """Work-state readiness for an agent's NEXT turn (or the whole fleet).
 
     The complement of `canopy agent doctor`: doctor asks "can this machine run
     the agent" (setup); health asks "is the agent's workload in a healthy state"
-    — stale needs-you items on the board, stuck/failed harness turns, turn
-    recency, and unread inbox junk that would pollute inbox-triage. Read-only;
-    emits facts + deterministic junk SIGNALS (verdicts are the caller's job).
+    — stale needs-you items on the board, stuck/failed harness turns, and unread
+    inbox junk that would pollute inbox-triage. Turn recency is reported as info
+    only (turn packaging is manual — never a readiness flag). Read-only; emits
+    facts + deterministic junk SIGNALS (verdicts are the caller's job).
     Exits non-zero if any probed agent is not ready.
     """
     from orchestrator.agent_health import run_agent_health
@@ -404,7 +403,6 @@ def agent_health(slug, stale_needs_you_days, stale_turn_days, stale_inbox_days, 
     try:
         out = run_agent_health(slug or None,
                                stale_needs_you_days=stale_needs_you_days,
-                               stale_turn_days=stale_turn_days,
                                stale_inbox_days=stale_inbox_days)
     except (CanopyError, RuntimeError) as e:
         raise click.ClickException(str(e))

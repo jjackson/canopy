@@ -117,9 +117,9 @@ def test_probe_board_flags_stale_items_and_turns():
                  "lease_expires_at": None},  # failed long ago — ignored
             ],
         ),
-        now=NOW, stale_needs_you_days=7, stale_turn_days=7,
+        now=NOW, stale_needs_you_days=7,
     )
-    assert board["turn_age_days"] > 13
+    assert board["turn_age_days"] > 13  # surfaced as info; never a flag
     ages = {i["title"]: i["stale"] for i in board["needs_you"]}
     assert ages == {"old": True, "new": False}
     anomalies = {t["id"]: t for t in board["harness_turns"]}
@@ -168,7 +168,8 @@ def test_health_report_collects_flags():
               "subject": "hi", "labels": ["UNREAD"]}]),
     )
     assert rep["ready"] is False
-    assert set(rep["flags"]) == {"stale_turn", "stale_needs_you", "failed_turn", "stale_inbox"}
+    # A long-ago last turn is NOT a flag — turn packaging is manual, recency is info only.
+    assert set(rep["flags"]) == {"stale_needs_you", "failed_turn", "stale_inbox"}
 
 
 def test_health_report_missing_mailbox_is_inbox_unreachable():
@@ -179,12 +180,15 @@ def test_health_report_missing_mailbox_is_inbox_unreachable():
     assert rep["inbox"]["error"]
 
 
-def test_health_report_never_turned_agent_flags_stale_turn():
+def test_health_report_never_turned_agent_is_not_flagged():
+    # Turn packaging is manual, so an agent that never packaged a turn is NOT unhealthy:
+    # no stale_turn flag exists, and an otherwise-clean agent still reads ready.
     rep = health_report("echo", call=_full_call(latest_turn=None), now=NOW,
                         runner=_accounts_runner(
                             [{"email": "echo@dimagi-ai.com", "client": "echo"}], []))
-    assert "stale_turn" in rep["flags"]
-    assert rep["board"]["turn_age_days"] is None
+    assert "stale_turn" not in rep["flags"]
+    assert rep["flags"] == [] and rep["ready"] is True
+    assert rep["board"]["turn_age_days"] is None  # still surfaced as info
 
 
 # ---------- fleet sweep ----------
