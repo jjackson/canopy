@@ -104,6 +104,25 @@ uv run canopy shareout post /tmp/shareout-authoring.json --corpus /tmp/shareout-
 "All N PRs" expander on the feed) by matching repo basename → project_slug — so you
 only author the highlight `links`, not every PR. Print the returned `View: …/shareouts` URL.
 
+**Running on behalf of the user (agent-aware).** If you are an **agent** (Eva, Ada, Hal,
+…) running this report-out *for* your human, the report is still **about the human's
+work** — it stays attributed to `author` (their name) and is posted with their PAT. That
+is correct; do not attribute it to yourself. Just record that *you* assembled it by
+passing your own slug:
+
+```bash
+uv run canopy shareout post /tmp/shareout-authoring.json --corpus /tmp/shareout-corpus.json \
+  --produced-by-agent <your-slug>   # e.g. eva — read it from your repo's config/agent.json
+```
+
+The feed then shows a subtle "· produced by <you>" byline while the briefing remains the
+human's. Pass the flag explicitly: this command runs from the canopy repo dir, so the
+CLI can't reliably auto-detect your identity from the working directory (it only falls
+back to `$CANOPY_AGENT_SLUG` or a `config/agent.json` in `cwd`). The reusable rule, for
+any future "agent uploads on behalf of the user" action: **the author is the subject, the
+producer is the agent, the auth is the subject's PAT.** A human running this themselves
+omits the flag entirely.
+
 **Idempotency / re-running:** by default each run stamps a fresh timestamped `source`,
 so posting again **appends** a new set (different days never collide — they're different
 periods). To **replace** a prior run for the *same* period (e.g. fixing a same-day typo),

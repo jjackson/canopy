@@ -209,6 +209,36 @@ class TestBuildPostPayload:
         assert len(payload["shareouts"]) == 1
         assert payload["shareouts"][0]["project_slug"] == "canopy"
 
+    def test_produced_by_agent_stamped_on_every_item(self):
+        payload = shareout.build_post_payload(
+            self._authoring(), source="src", produced_by_agent="eva"
+        )
+        assert all(item["produced_by_agent"] == "eva" for item in payload["shareouts"])
+
+    def test_produced_by_agent_omitted_when_empty(self):
+        # Human run: the key must be ABSENT (not ""), so a StrictModel canopy-web
+        # that predates the field still accepts the post.
+        payload = shareout.build_post_payload(self._authoring(), source="src")
+        assert all("produced_by_agent" not in item for item in payload["shareouts"])
+
+
+class TestDetectAgentSlug:
+    def test_env_override_wins(self, tmp_path):
+        assert shareout.detect_agent_slug(tmp_path, {"CANOPY_AGENT_SLUG": "hal"}) == "hal"
+
+    def test_reads_config_agent_json_slug(self, tmp_path):
+        (tmp_path / "config").mkdir()
+        (tmp_path / "config" / "agent.json").write_text('{"slug": "eva", "name": "Eva"}')
+        assert shareout.detect_agent_slug(tmp_path, {}) == "eva"
+
+    def test_falls_back_to_name_lowercased(self, tmp_path):
+        (tmp_path / "config").mkdir()
+        (tmp_path / "config" / "agent.json").write_text('{"name": "Ada"}')
+        assert shareout.detect_agent_slug(tmp_path, {}) == "ada"
+
+    def test_empty_when_no_marker(self, tmp_path):
+        assert shareout.detect_agent_slug(tmp_path, {}) == ""
+
 
 class TestResolveDefaultRange:
     def test_no_prior_shareout_falls_back_to_last_24h(self):
