@@ -129,11 +129,20 @@ def test_build_share_command_user_requires_email():
         build_share_command(_ident(), "DOCID", share="user", email=None)
 
 
+def test_parse_upload_result_unwraps_gog_file_envelope():
+    # gog v0.12 wraps the created file under a "file" key (confirmed live) — the shape a
+    # naive mock misses. This is the exact payload that broke the first live smoke.
+    stdout = json.dumps({"file": {"id": "D1", "webViewLink": "u", "mimeType": "…document"}})
+    out = parse_upload_result(stdout)
+    assert out["id"] == "D1"
+    assert out["url"] == "u"
+
+
 def test_parse_upload_result_liberal_keys():
-    assert parse_upload_result(json.dumps({"id": "D1", "webViewLink": "u"})) == \
-        {"id": "D1", "url": "u", "raw": {"id": "D1", "webViewLink": "u"}}
+    # unwrapped top-level id/link still works (defensive against a gog shape change)
+    assert parse_upload_result(json.dumps({"id": "D1", "webViewLink": "u"}))["id"] == "D1"
     # falls back to a constructed url when no link key is present
-    assert parse_upload_result(json.dumps({"id": "D2"}))["url"].endswith("/D2/edit")
+    assert parse_upload_result(json.dumps({"file": {"id": "D2"}}))["url"].endswith("/D2/edit")
     # non-JSON is surfaced as raw, not crashed on
     assert parse_upload_result("boom")["id"] == ""
 
@@ -157,13 +166,21 @@ class _FakeGog:
         if verb == "upload":
             if not self.upload_ok:
                 return SimpleNamespace(returncode=1, stdout="", stderr="nope")
+            # gog's REAL shape: the file is wrapped under a "file" envelope (confirmed live).
             return SimpleNamespace(
-                returncode=0, stdout=json.dumps({"id": "DOC1", "webViewLink": "URL1"}), stderr="")
+                returncode=0,
+                stdout=json.dumps({"file": {"id": "DOC1", "webViewLink": "URL1"}}), stderr="")
         if verb == "share":
-            return SimpleNamespace(returncode=0 if self.share_ok else 1, stdout="{}", stderr="x")
+            # gog's real share payload: {"link", "permission": {...}, "permissionId"}.
+            return SimpleNamespace(
+                returncode=0 if self.share_ok else 1,
+                stdout=json.dumps({"permission": {"type": "domain", "domain": "dimagi.com"}}),
+                stderr="x")
         if verb == "permissions":
+            # gog's real permissions payload: list under a "permissions" key.
             perm = {"type": self.perm_type, "domain": "dimagi.com"}
-            return SimpleNamespace(returncode=0, stdout=json.dumps([perm]), stderr="")
+            return SimpleNamespace(
+                returncode=0, stdout=json.dumps({"permissions": [perm]}), stderr="")
         return SimpleNamespace(returncode=0, stdout="{}", stderr="")
 
 

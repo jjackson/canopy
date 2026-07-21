@@ -280,13 +280,18 @@ def build_share_command(identity: GdocIdentity, file_id: str, *, share: str,
 
 
 def parse_upload_result(stdout: str) -> dict:
-    """Normalize gog's --json upload output to {id, url, raw}. Liberal on key names so a
-    gog version bump doesn't silently drop the id/link callers record into their state."""
+    """Normalize gog's --json upload output to {id, url, raw}.
+
+    gog wraps the created file under a `file` envelope: {"file": {"id", "webViewLink", …}}
+    (confirmed live, gog v0.12) — unwrap it. Liberal on the inner key names too, so a gog
+    version bump doesn't silently drop the id/link callers record into their state."""
     try:
         raw = json.loads(stdout)
     except (ValueError, TypeError):
         return {"id": "", "url": "", "raw": (stdout or "").strip()}
     obj = raw if isinstance(raw, dict) else {}
+    if isinstance(obj.get("file"), dict):  # unwrap gog's {"file": {...}} envelope
+        obj = obj["file"]
     file_id = obj.get("id") or obj.get("fileId") or obj.get("file_id") or ""
     url = (obj.get("webViewLink") or obj.get("webviewlink") or obj.get("link")
            or obj.get("url") or "")
