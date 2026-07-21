@@ -124,6 +124,21 @@ SA-mode reads/writes on drives the ACE SA can reach — but no NEW agent should 
 `mcp__plugin_ace_…` tool names; wire a `.mcp.json` entry pointing at the server file instead, so the
 rename to `gws-mcp` is a config change.
 
+**Interim doc adapter — `canopy gdoc` (shipped 2026-07-21, `orchestrator/agent_gdoc.py`).** The one
+Workspace operation the fleet does constantly — publish a markdown deliverable as a *rendered* Google
+Doc authored **as the agent** — did not need to wait for the full extraction, and its absence had the
+fleet re-copying the wrapper anyway (echo `bin/echo_gdoc.py`, eva's `gog drive upload --convert` prose,
+hal's `--convert-to doc` stub — three implementations of one procedure, drifting on format + share
+posture). So it gets the same treatment email did: a thin `canopy gdoc publish` adapter, sibling of
+`canopy email`, that resolves identity from `config/agent.json` and does convert→share→verify in one
+place. It authenticates through **gog's token bucket** (`--account`/`--client`), *not* the macOS
+Keychain echo's REST route used (which blocks in non-interactive turn shells) and *not* ace-gdrive's
+service account (which can't author as the agent — the whole point). Per-agent carve-outs are two
+optional agent.json keys: `gdrive_root_folder` (Projects-root, so `--parent` defaults) and
+`gdrive_share_default`. This does **not** preempt §5: the full `gws-mcp` extraction still owns the rich
+`docs_*`/`sheets_*`/`slides_*` batch surface and can absorb this verb later; `gdoc` covers only the
+single high-frequency op. Each agent's `gdoc-writer` skill collapses to identity + a call to it.
+
 **Travels with the extraction:** `google-shim.ts`, `transient-retry.ts`, `atom-payload-resolver.ts`,
 the shared-drive write probe, and ACE's drift gates (registration-coverage, schema-dump staleness)
 as the new repo's CI.
