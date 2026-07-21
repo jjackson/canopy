@@ -147,17 +147,22 @@ def probe_board(slug: str, *, call: Callable = canopy_web.call, now: datetime,
     agent-core/turn.md), so "hasn't packaged a turn lately" is NOT a readiness signal —
     `latest_turn_at`/`turn_count`/`turn_age_days` are surfaced for display, never flagged."""
     detail = call("GET", f"/api/agents/{slug}/")
-    needs_you = call("GET", f"/api/agents/{slug}/needs-you")
+    # The inbox is a pure Item query now (canopy-web #304 deleted the needs_you
+    # aggregation): read the agent's OPEN items directly. The endpoint returns a
+    # bare list, each item carrying `kind` (review|question) + `created_at`.
+    open_items = call("GET", f"/api/agents/{slug}/items/?state=open")
+    if isinstance(open_items, dict):  # tolerate a paginated envelope if the API grows one
+        open_items = open_items.get("items") or []
     turns = call("GET", f"/api/harness/turns/?agent={slug}")
     if isinstance(turns, dict):  # tolerate a paginated envelope if the API grows one
         turns = turns.get("items") or []
 
     turn_age = _age_days(detail.get("latest_turn_at"), now)
     items = []
-    for i in needs_you.get("items") or []:
+    for i in open_items or []:
         age = _age_days(i.get("created_at"), now)
         items.append({
-            "type": i.get("type"), "title": i.get("title"), "age_days": age,
+            "type": i.get("kind"), "title": i.get("title"), "age_days": age,
             "stale": age is not None and age > stale_needs_you_days,
         })
 
