@@ -29,7 +29,6 @@ from orchestrator import canopy_web
 from orchestrator.agent_client import list_agent_slugs
 
 DEFAULT_STALE_NEEDS_YOU_DAYS = 7.0
-DEFAULT_STALE_TURN_DAYS = 7.0
 DEFAULT_STALE_INBOX_DAYS = 3.0
 FAILED_TURN_WINDOW_HOURS = 48.0
 
@@ -142,9 +141,11 @@ def probe_inbox(mailbox: str, client: str, *, runner=subprocess.run,
 # ---------- board ----------
 
 def probe_board(slug: str, *, call: Callable = canopy_web.call, now: datetime,
-                stale_needs_you_days: float = DEFAULT_STALE_NEEDS_YOU_DAYS,
-                stale_turn_days: float = DEFAULT_STALE_TURN_DAYS) -> dict:
-    """Board/turn facts from canopy-web: turn recency, needs-you ages, turn anomalies."""
+                stale_needs_you_days: float = DEFAULT_STALE_NEEDS_YOU_DAYS) -> dict:
+    """Board/turn facts from canopy-web: needs-you ages, harness-turn anomalies, and
+    turn recency as INFORMATION only. Turn packaging is manual (single supervisor; see
+    agent-core/turn.md), so "hasn't packaged a turn lately" is NOT a readiness signal —
+    `latest_turn_at`/`turn_count`/`turn_age_days` are surfaced for display, never flagged."""
     detail = call("GET", f"/api/agents/{slug}/")
     needs_you = call("GET", f"/api/agents/{slug}/needs-you")
     turns = call("GET", f"/api/harness/turns/?agent={slug}")
@@ -178,7 +179,6 @@ def probe_board(slug: str, *, call: Callable = canopy_web.call, now: datetime,
         "turn_count": detail.get("turn_count"),
         "needs_you": items,
         "harness_turns": anomalies,
-        "_stale_turn": turn_age is None or turn_age > stale_turn_days,
     }
 
 
@@ -187,13 +187,11 @@ def probe_board(slug: str, *, call: Callable = canopy_web.call, now: datetime,
 def health_report(slug: str, *, call: Callable = canopy_web.call,
                   runner=subprocess.run, now: Optional[datetime] = None,
                   stale_needs_you_days: float = DEFAULT_STALE_NEEDS_YOU_DAYS,
-                  stale_turn_days: float = DEFAULT_STALE_TURN_DAYS,
                   stale_inbox_days: float = DEFAULT_STALE_INBOX_DAYS) -> dict:
     """One agent's readiness: board + inbox facts, derived flags, ready bool."""
     now = now or datetime.now(timezone.utc)
     board = probe_board(slug, call=call, now=now,
-                        stale_needs_you_days=stale_needs_you_days,
-                        stale_turn_days=stale_turn_days)
+                        stale_needs_you_days=stale_needs_you_days)
 
     resolved = resolve_mailbox(slug, list_gog_accounts(runner=runner))
     if resolved is None:
@@ -202,8 +200,6 @@ def health_report(slug: str, *, call: Callable = canopy_web.call,
         inbox = probe_inbox(*resolved, runner=runner, now=now, stale_days=stale_inbox_days)
 
     flags = []
-    if board.pop("_stale_turn"):
-        flags.append("stale_turn")
     if any(i["stale"] for i in board["needs_you"]):
         flags.append("stale_needs_you")
     if any(t["status"] in ("claimed", "running") and t["past_lease"]
@@ -223,14 +219,12 @@ def health_report(slug: str, *, call: Callable = canopy_web.call,
 def run_agent_health(slug: Optional[str] = None, *, call: Callable = canopy_web.call,
                      runner=subprocess.run, now: Optional[datetime] = None,
                      stale_needs_you_days: float = DEFAULT_STALE_NEEDS_YOU_DAYS,
-                     stale_turn_days: float = DEFAULT_STALE_TURN_DAYS,
                      stale_inbox_days: float = DEFAULT_STALE_INBOX_DAYS) -> dict:
     """Probe one agent (slug) or sweep the whole registered fleet (slug=None)."""
     now = now or datetime.now(timezone.utc)
     slugs = [slug] if slug else list_agent_slugs(call)
     agents = [health_report(s, call=call, runner=runner, now=now,
                             stale_needs_you_days=stale_needs_you_days,
-                            stale_turn_days=stale_turn_days,
                             stale_inbox_days=stale_inbox_days)
               for s in slugs]
     return {"ok": all(a["ready"] for a in agents), "agents": agents}
