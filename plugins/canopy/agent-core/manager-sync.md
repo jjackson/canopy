@@ -85,7 +85,7 @@ status update."
    --from-repo <skills-dir> --url-template <github-blob-url>` (your stub wraps this).
 4. Draft the report to your advisor (gated send — a human approves it) leading with the headline and
    linking the doc + your **syncs feed** (`…/w/<workspace>/agents/<slug>/syncs`). Link the SECTION,
-   not the bare `/agents/<slug>` — that redirects to the workspace default (`needs-you`), not your
+   not the bare `/agents/<slug>` — that redirects to the workspace default (`inbox`), not your
    syncs. Same for a board reference: link `…/agents/<slug>/tasks`.
 
 ## Related

@@ -86,11 +86,11 @@ def test_probe_inbox_degrades_loud_on_gog_failure():
 
 # ---------- board probe ----------
 
-def _board_call(agent_detail, needs_you, harness_turns):
+def _board_call(agent_detail, open_items, harness_turns):
     def call(method, path, body=None, **kw):
         assert method == "GET"
-        if path.endswith("/needs-you"):
-            return needs_you
+        if "/items/" in path:  # /api/agents/<slug>/items/?state=open — a bare list
+            return open_items
         if "/harness/turns/" in path:
             return harness_turns
         return agent_detail
@@ -102,10 +102,10 @@ def test_probe_board_flags_stale_items_and_turns():
         "echo",
         call=_board_call(
             {"slug": "echo", "turn_count": 4, "latest_turn_at": "2026-07-01T00:00:00Z"},
-            {"waiting_count": 2, "items": [
-                {"type": "review", "title": "old", "created_at": "2026-06-20T00:00:00Z"},
-                {"type": "notify", "title": "new", "created_at": "2026-07-13T00:00:00Z"},
-            ]},
+            [  # open items — a bare list, each carrying `kind` + `created_at`
+                {"kind": "review", "title": "old", "created_at": "2026-06-20T00:00:00Z"},
+                {"kind": "question", "title": "new", "created_at": "2026-07-13T00:00:00Z"},
+            ],
             [  # list envelope (the live API returns a bare list)
                 {"id": "a", "status": "done", "finished_at": "2026-07-13T00:00:00Z",
                  "lease_expires_at": "2026-07-13T00:15:00Z"},
@@ -132,7 +132,7 @@ def test_probe_board_flags_stale_items_and_turns():
 def _full_call(latest_turn="2026-07-14T09:00:00Z", items=(), turns=()):
     return _board_call(
         {"slug": "echo", "turn_count": 4, "latest_turn_at": latest_turn},
-        {"waiting_count": len(items), "items": list(items)},
+        list(items),
         list(turns),
     )
 
@@ -157,7 +157,7 @@ def test_health_report_collects_flags():
         "echo",
         call=_full_call(
             latest_turn="2026-06-01T00:00:00Z",
-            items=[{"type": "review", "title": "old", "created_at": "2026-06-01T00:00:00Z"}],
+            items=[{"kind": "review", "title": "old", "created_at": "2026-06-01T00:00:00Z"}],
             turns=[{"id": "x", "status": "failed", "finished_at": "2026-07-14T00:00:00Z",
                     "lease_expires_at": None}],
         ),
@@ -200,8 +200,8 @@ def test_run_agent_health_sweeps_paginated_fleet():
                     "offset": 0, "limit": 2}
         if "offset=2" in path:
             return {"items": [{"slug": "hal"}], "total": 3, "offset": 2, "limit": 2}
-        if path.endswith("/needs-you"):
-            return {"waiting_count": 0, "items": []}
+        if "/items/" in path:
+            return []
         if "/harness/turns/" in path:
             return []
         return {"slug": "x", "turn_count": 1, "latest_turn_at": "2026-07-14T09:00:00Z"}
