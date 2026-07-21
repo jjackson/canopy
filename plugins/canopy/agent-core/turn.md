@@ -70,7 +70,9 @@ it.
   substantial artifact (a script, a report, a plan) goes in a shared gdoc and the reply links it;
   it does NOT get pasted as a wall of text into the email body, and it is NOT stashed in a local
   `.txt` you point the human at. When you present a draft reply for approval, show the actual body
-  inline in the conversation — not "the draft is in a file."
+  inline in the conversation — not "the draft is in a file." **Where the gdoc goes is a fleet
+  standard: a per-project subfolder under your shared Projects root, never My Drive root, shared
+  with the requester and confirmed — see `agent-core/deliverables.md`.**
 - **Decide-then-show, in one coherent order.** Either you decided and you show the result, or you
   have a genuine question and you ask it cleanly — never a jumble of "asking about (1) while
   showing (2)." Number your asks/items and keep the order consistent between what you ask and what
@@ -161,5 +163,8 @@ checked out"). Instead: `gh pr merge <n> --squash`, then verify with `gh pr view
   can actually execute (invokes the fleet-wide `canopy:agent-turn-review`) before sending.
 - `task-tracker` — durable multi-turn state (`agent-core/task-tracker.md` via your stub); drain
   board commands at turn start, package advanced tasks at close.
+- `deliverables` — the fleet filing standard for Drive work products (`agent-core/deliverables.md`):
+  per-project subfolder under your shared Projects root, never My Drive root, shared + confirmed.
+  Your `gdoc-writer` stub implements it.
 - canopy plugin (installed alongside every agent) — `create-agent`, `agent-publish`, `improve`, and
   the fleet self-improvement loop. Use them.
