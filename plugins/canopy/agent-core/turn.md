@@ -123,37 +123,31 @@ guess whether it's finished:
 - **Something parked awaiting a human decision →** end with **"⏸ Session paused — waiting on you
   for: `<the one thing>`."** and leave it open.
 
-Then refresh your canopy-web workspace so `/agents/<slug>` reflects this turn
-(the installed canopy plugin provides the shared client — no per-agent client to maintain):
-```
-canopy agent skills --slug <slug> --from-repo skills   # mirror skills/*/SKILL.md into the catalog (registers the agent if new)
-```
-Both flags are required — `--from-repo` takes the directory that HOLDS the skill dirs, so it is
-`skills` (globs `skills/*/SKILL.md`), NOT `.` (which globs `./*/SKILL.md` and mirrors 0). Run it
-from the repo/worktree root.
-If this turn produced a shareable deliverable, also `canopy agent work <items.json>`. The board at
-`/agents/<slug>` is the shared trigger + approval surface — where teammates queue work and
-approve outbound actions.
-
-**Packaging / sharing a turn is MANUAL — do NOT do it as part of a normal close.** A packaged
-turn is a supervisor convenience (a record on `/agents/<slug>` + an optional transcript share), not
-a required step: the fleet has a single supervisor today, and turn recency is no longer a readiness
-signal (`canopy agent health` reports it as info only, never a flag). Package a turn ONLY when the
-human explicitly asks to record or share THIS turn:
-```
-canopy agent turn --slug <slug> --title "<what this turn did>" \
-  --task <ext_id> [--task <ext_id> …]      # the board task(s) this turn advanced
-  # --work-product-url <url> per deliverable produced this turn
-  # --upload   ONLY if the human asked to share the transcript — publishes a /share/<token>
-  #            link (an outbound action; rides the same approval gate as a send)
-```
+**Publishing to canopy-web is MANUAL — none of it is an automatic close step.** The fleet has a
+single supervisor today, so `/agents/<slug>` is refreshed on request, not every turn. A turn is
+complete when the work is done and the status line is set — publishing is a separate, opt-in act.
+Do any of these ONLY when the human explicitly asks to publish/share:
+- **Mirror the skill catalog** (also registers the agent if new):
+  `canopy agent skills --slug <slug> --from-repo skills`. `--from-repo` takes the dir that HOLDS
+  the skill dirs — `skills` (globs `skills/*/SKILL.md`), NOT `.` — run from the repo/worktree root.
+- **Push a deliverable:** `canopy agent work <items.json>`.
+- **Package / share this turn:**
+  ```
+  canopy agent turn --slug <slug> --title "<what this turn did>" \
+    --task <ext_id> [--task <ext_id> …]      # the board task(s) this turn advanced
+    # --work-product-url <url> per deliverable produced this turn
+    # --upload   ONLY if the human asked to share the transcript — publishes a /share/<token>
+    #            link (an outbound action; rides the same approval gate as a send)
+  ```
+Turn recency is no longer a readiness signal (`canopy agent health` reports it as info only, never
+a flag). The board at `/agents/<slug>` stays the shared trigger + approval surface — where a human
+queues work and approves outbound actions — independent of whether you publish above.
 
 **CLOSE CHECKLIST — confirm each in the summary (these get silently skipped under load):**
 1. `agent-turn-review` ran on every outbound reply (Step 2).
 2. Skill-development self-check answered (Step 3).
-3. Workspace refreshed (`canopy agent skills --slug <slug> --from-repo skills` above).
-4. Turn packaged/shared ONLY if the human asked (`canopy agent turn …`); otherwise skip — it is
-   not an automatic close step.
+3. Published to canopy-web (skills / work / turn) ONLY if the human asked — otherwise skip; none of
+   it is an automatic close step.
 
 **Shipping a skill change from a worktree** — emdash runs each turn in a worktree while `main` is
 checked out elsewhere, so `git checkout main` and `gh pr merge --delete-branch` FAIL ("main already
