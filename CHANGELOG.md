@@ -9,6 +9,18 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.308] - 2026-07-21
+
+### Removed
+
+- `patch-emdash` skill — retired. It flipped emdash's `type='automation-run'`
+  tasks to `type='task'` so DB-injected automation runs appeared in the sidebar,
+  but the canopy runner moved to the CDP executor (it drives emdash's real UI and
+  creates real `type='task'` sessions directly — no automation runs, no injection).
+  The asar patch buys nothing on that path. Retired alongside the runner's legacy
+  `inject` executor + schema-vet in canopy-web; the surviving emdash read-surface
+  is now checked by `canopy_runner verify-emdash`.
+
 ## [0.2.298] - 2026-07-17
 
 ### Changed
