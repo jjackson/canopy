@@ -6,8 +6,10 @@ from types import SimpleNamespace
 import pytest
 
 from orchestrator.agent_gdoc import (
+    REPLACE_SENTINEL,
     AgentGdocError,
     GdocIdentity,
+    build_replace_commands,
     build_share_command,
     build_upload_command,
     md_to_html,
@@ -100,7 +102,7 @@ def _ident(**kw):
 
 def test_build_upload_command_create():
     cmd = build_upload_command(_ident(), html_path="/tmp/x.html", name="My Doc",
-                               parent="FOLDER123", replace=None)
+                               parent="FOLDER123")
     assert cmd[:3] == ["gog", "drive", "upload"]
     assert "--convert-to" in cmd and cmd[cmd.index("--convert-to") + 1] == "doc"
     assert cmd[cmd.index("--parent") + 1] == "FOLDER123"
@@ -108,13 +110,28 @@ def test_build_upload_command_create():
     assert cmd[cmd.index("--account") + 1] == "hal@dimagi-ai.com"
 
 
-def test_build_upload_command_replace_has_no_convert():
-    cmd = build_upload_command(_ident(), html_path="/tmp/x.html", name=None,
-                               parent="IGNORED", replace="DOCID")
-    assert "--convert-to" not in cmd  # gog rejects --replace + --convert
-    assert "--parent" not in cmd      # create-only
-    assert cmd[cmd.index("--replace") + 1] == "DOCID"
-    assert cmd[cmd.index("--mime-type") + 1] == "text/html"
+def test_build_replace_commands_edits_in_place_via_docs_api():
+    # issue #353: a native-Doc replace must NOT be a drive media overwrite. It's a
+    # docs write (blank to a sentinel) + docs find-replace (markdown re-insert).
+    cmds = build_replace_commands(_ident(), doc_id="DOCID", md_path="/tmp/x.md")
+    assert [c[:3] for c in cmds] == [["gog", "docs", "write"],
+                                     ["gog", "docs", "find-replace"]]
+    # never a drive media overwrite on a native Doc
+    assert not any(c[:3] == ["gog", "drive", "upload"] for c in cmds)
+    assert not any("--mime-type" in c for c in cmds)
+    write, find_replace = cmds
+    assert write[3] == "DOCID" and write[write.index("--text") + 1] == REPLACE_SENTINEL
+    assert find_replace[3] == "DOCID" and find_replace[4] == REPLACE_SENTINEL
+    assert find_replace[find_replace.index("--content-file") + 1] == "/tmp/x.md"
+    assert find_replace[find_replace.index("--format") + 1] == "markdown"
+
+
+def test_build_replace_commands_renames_only_when_name_given():
+    assert len(build_replace_commands(_ident(), doc_id="D", md_path="/tmp/x.md")) == 2
+    with_name = build_replace_commands(_ident(), doc_id="D", md_path="/tmp/x.md", name="New")
+    assert len(with_name) == 3
+    rename = with_name[2]
+    assert rename[:3] == ["gog", "drive", "rename"] and rename[3] == "D" and rename[4] == "New"
 
 
 def test_build_share_command_domain():
@@ -181,6 +198,7 @@ class _FakeGog:
             perm = {"type": self.perm_type, "domain": "dimagi.com"}
             return SimpleNamespace(
                 returncode=0, stdout=json.dumps({"permissions": [perm]}), stderr="")
+        # in-place replace verbs (docs write / docs find-replace / drive rename) just succeed
         return SimpleNamespace(returncode=0, stdout="{}", stderr="")
 
 
@@ -207,15 +225,30 @@ def test_publish_reports_unverified_when_permission_missing(tmp_path):
     assert res["verified"] is False
 
 
-def test_publish_replace_preserves_share(tmp_path):
+def test_publish_replace_edits_in_place_and_preserves_share(tmp_path):
+    # issue #353: replace keeps the same id/url, never re-shares, and edits in place via
+    # the Docs API (docs write + docs find-replace) — no drive upload/media overwrite.
     md = tmp_path / "d.md"
     md.write_text("body")
     gog = _FakeGog()
     res = publish(_ident(), name=None, parent=None, md_path=str(md), share="domain",
                   replace="DOCX", runner=gog)
+    assert res["id"] == "DOCX"
+    assert res["url"].endswith("/DOCX/edit")
+    assert res["replaced"] is True
     assert res["shared"] == "preserved"
     verbs = [c[2] for c in gog.calls]
-    assert verbs == ["upload"]  # no re-share on replace
+    assert verbs == ["write", "find-replace"]  # in-place edit, no upload, no re-share
+
+
+def test_publish_replace_with_name_renames(tmp_path):
+    md = tmp_path / "d.md"
+    md.write_text("body")
+    gog = _FakeGog()
+    publish(_ident(), name="Renamed", parent=None, md_path=str(md), share="domain",
+            replace="DOCX", runner=gog)
+    verbs = [c[2] for c in gog.calls]
+    assert verbs == ["write", "find-replace", "rename"]
 
 
 def test_publish_create_requires_name_and_parent(tmp_path):
