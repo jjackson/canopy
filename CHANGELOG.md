@@ -9,6 +9,19 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.309] - 2026-07-21
+
+### Fixed
+
+- `agent-core/turn.md` — the turn now knows not to reply to its own message. A
+  thread whose newest message is the agent's own outbound reply is already
+  handled (the ball is in the counterpart's court); the first triage check on any
+  unread thread is *who sent the last message*, and if it was the agent, mark it
+  read and move on. A thread can re-enter `unread` for reasons unrelated to a new
+  inbound (label churn, poller re-touch, a send that didn't clear the flag), so an
+  unread badge is a hint to look, not proof someone replied. Prevents the "respond
+  to yourself" failure hit on 2026-07-21 (Hal's Feature Requests thread).
+
 ## [0.2.308] - 2026-07-21
 
 ### Removed
