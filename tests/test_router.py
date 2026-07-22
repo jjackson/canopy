@@ -2,9 +2,6 @@ from orchestrator.router import classify_proposal, route_proposal
 
 
 class TestClassifyProposal:
-    def test_registry_update_is_inline(self):
-        assert classify_proposal({"type": "registry_update"}) == "inline"
-
     def test_new_tool_is_single(self):
         assert classify_proposal({"type": "new_tool"}) == "single"
 
@@ -19,9 +16,6 @@ class TestClassifyProposal:
 
     def test_low_complexity_stays_single(self):
         assert classify_proposal({"type": "new_tool", "complexity": "low"}) == "single"
-
-    def test_low_complexity_registry_stays_inline(self):
-        assert classify_proposal({"type": "registry_update", "complexity": "low"}) == "inline"
 
     def test_unknown_type_defaults_to_single(self):
         assert classify_proposal({"type": "something_new"}) == "single"
@@ -39,7 +33,3 @@ class TestRouteProposal:
     def test_team_has_higher_budget(self):
         result = route_proposal({"type": "new_server"})
         assert result["budget"] > route_proposal({"type": "new_tool"})["budget"]
-
-    def test_inline_has_zero_budget(self):
-        result = route_proposal({"type": "registry_update"})
-        assert result["budget"] == 0

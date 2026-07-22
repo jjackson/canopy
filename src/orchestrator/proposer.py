@@ -9,7 +9,6 @@ from orchestrator.prompts import load_prompt
 
 def build_proposal_prompt(
     observations: list[dict],
-    registry_summary: str,
     skill_catalog: str = "",
 ) -> str:
     """Build the full prompt for proposal generation.
@@ -21,7 +20,6 @@ def build_proposal_prompt(
     observations_yaml = yaml.dump(observations, default_flow_style=False)
     return load_prompt(
         "propose",
-        registry_summary=registry_summary,
         observations_yaml=observations_yaml,
         skill_catalog=skill_catalog or "(catalog unavailable)",
     )
@@ -48,7 +46,6 @@ def parse_proposal_output(output: str) -> list[dict]:
 
 def generate_proposals(
     observations: list[dict],
-    registry_summary: str,
     model: str = "sonnet",
     max_budget_usd: float = 0.50,
     skill_catalog: str = "",
@@ -60,7 +57,7 @@ def generate_proposals(
     diagnostic to stderr so the caller can tell *why* nothing came back —
     silent empty results were impossible to debug in production.
     """
-    prompt = build_proposal_prompt(observations, registry_summary, skill_catalog)
+    prompt = build_proposal_prompt(observations, skill_catalog)
 
     try:
         result = subprocess.run(

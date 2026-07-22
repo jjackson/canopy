@@ -9,10 +9,6 @@ been generated from real usage analysis, and you need to execute it.
 
 {observation_yaml}
 
-## Current Registry Context
-
-{registry_summary}
-
 ## Instructions
 
 Implement the proposed change in this repository. Specifically:
@@ -32,7 +28,3 @@ tools are defined and registered.
 If the implementation is not feasible (missing dependencies, would break existing
 functionality, or the proposal is unclear), explain why and exit without making
 changes.
-
-After implementing, update the orchestrator's registry.yaml at
-`{registry_path}` to add any new servers, tools, or answers fields so
-future sessions know about the new capabilities.

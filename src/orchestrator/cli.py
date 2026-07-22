@@ -3,10 +3,6 @@
 from pathlib import Path
 import click
 from orchestrator.paths import CANOPY_DIR, ensure_canopy_dir
-from orchestrator.registry import (
-    load_registry, get_all_servers, get_all_tools, get_workflows,
-    format_for_skill, RegistryError,
-)
 from orchestrator.capture import read_session_log, group_by_session, classify_sessions
 from orchestrator.pipeline import run_cycle, CycleConfig
 from orchestrator.server import run_server
@@ -14,17 +10,6 @@ from orchestrator.agent_cli import agent as agent_group
 from orchestrator.agent_email import email_group
 from orchestrator.agent_gdoc import gdoc_group
 from orchestrator.eval_cli import eval_group
-
-
-def find_registry() -> Path:
-    candidates = [
-        Path.cwd() / "registry.yaml",
-        Path(__file__).parent.parent.parent / "registry.yaml",
-    ]
-    for p in candidates:
-        if p.exists():
-            return p
-    raise click.ClickException("registry.yaml not found")
 
 
 def _skill_hint(name: str) -> str | None:
@@ -72,94 +57,6 @@ main.add_command(agent_group)
 main.add_command(email_group)
 main.add_command(gdoc_group)
 main.add_command(eval_group)
-
-
-@main.group()
-def registry():
-    """Registry commands."""
-
-
-@registry.command("show")
-@click.option("--format", "fmt", type=click.Choice(["summary", "skill", "json"]), default="summary")
-def registry_show(fmt):
-    """Display the loaded registry."""
-    try:
-        reg = load_registry(find_registry())
-    except RegistryError as e:
-        raise click.ClickException(str(e))
-
-    if fmt == "skill":
-        click.echo(format_for_skill(reg))
-    elif fmt == "json":
-        import json
-        click.echo(json.dumps(reg, indent=2, default=str))
-    else:
-        servers = get_all_servers(reg)
-        tools = get_all_tools(reg)
-        workflows = get_workflows(reg)
-        click.echo(f"Registry v{reg['version']} — {len(servers)} servers, {len(tools)} tools, {len(workflows)} workflows")
-        click.echo()
-        for s in servers:
-            tool_count = len([t for t in tools if t["server"] == s["name"]])
-            click.echo(f"  [{s['domain']}] {s['name']} — {s['description']} ({tool_count} tools, {s.get('data_access', '?')})")
-
-
-@registry.command("sync")
-def registry_sync():
-    """Sync registry tools with actual MCP server code."""
-    from orchestrator.registry_sync import sync_registry
-
-    try:
-        reg_path = find_registry()
-    except click.ClickException:
-        raise
-
-    click.echo(f"Scanning repos for MCP tools...")
-    summary = sync_registry(reg_path)
-
-    for server, info in sorted(summary.items()):
-        if isinstance(info, dict) and "error" in info:
-            click.echo(f"  {server}: {info['error']}")
-        elif isinstance(info, dict):
-            added = info.get("added", [])
-            removed = info.get("removed", [])
-            total = info.get("total", 0)
-            if added or removed:
-                click.echo(f"  {server}: {total} tools ({len(added)} added, {len(removed)} removed)")
-                for a in added:
-                    click.echo(f"    + {a}")
-                for r in removed:
-                    click.echo(f"    - {r}")
-            else:
-                click.echo(f"  {server}: {total} tools (up to date)")
-
-    click.echo()
-    click.echo("Registry synced.")
-
-
-@registry.command("validate")
-def registry_validate():
-    """Validate registry.yaml structure."""
-    try:
-        reg = load_registry(find_registry())
-    except RegistryError as e:
-        raise click.ClickException(str(e))
-
-    errors = []
-    for server in get_all_servers(reg):
-        if not server.get("tools"):
-            errors.append(f"Server {server['name']} has no tools")
-        if not server.get("answers"):
-            errors.append(f"Server {server['name']} has no answers")
-        if not server.get("ownership"):
-            errors.append(f"Server {server['name']} has no ownership field")
-
-    if errors:
-        for e in errors:
-            click.echo(f"  ERROR: {e}", err=True)
-        raise click.ClickException(f"{len(errors)} validation errors")
-    else:
-        click.echo("Registry is valid.")
 
 
 @main.group()
@@ -259,11 +156,6 @@ def improve(observe_only, dry_run, model):
     """Run an improvement cycle — analyze sessions, propose and implement improvements."""
     state_dir = ensure_canopy_dir()
 
-    try:
-        registry_path = find_registry()
-    except click.ClickException:
-        raise
-
     config = CycleConfig(
         observe_only=observe_only,
         dry_run=dry_run,
@@ -278,7 +170,6 @@ def improve(observe_only, dry_run, model):
 
     result = run_cycle(
         state_dir=state_dir,
-        registry_path=registry_path,
         config=config,
     )
 
@@ -311,16 +202,6 @@ def analyze_cmd(transcript, propose, model, budget):
     click.echo(f"STATUS: STARTED analyze {transcript}")
     sys.stdout.flush()
 
-    try:
-        registry_path = find_registry()
-    except click.ClickException:
-        click.echo(f"STATUS: FAILED registry-not-found", err=False)
-        sys.stdout.flush()
-        raise
-
-    reg = load_registry(registry_path)
-    registry_summary = format_for_skill(reg)
-
     state_dir = ensure_canopy_dir()
 
     click.echo(f"Analyzing: {transcript}")
@@ -328,7 +209,7 @@ def analyze_cmd(transcript, propose, model, budget):
 
     try:
         observations = analyze_transcript(
-            Path(transcript), registry_summary, model=model, max_budget_usd=budget,
+            Path(transcript), model=model, max_budget_usd=budget,
         )
     except Exception as e:
         click.echo(f"STATUS: FAILED analyze-raised {type(e).__name__}: {e}")
@@ -375,7 +256,7 @@ def analyze_cmd(transcript, propose, model, budget):
 
     try:
         proposals_raw = generate_proposals(
-            saved, registry_summary, model=model, max_budget_usd=budget,
+            saved, model=model, max_budget_usd=budget,
             skill_catalog=catalog_text,
         )
     except Exception as e:
@@ -400,8 +281,8 @@ def analyze_cmd(transcript, propose, model, budget):
         sys.stdout.flush()
         return
 
-    # Validate and fix proposals against the registry + skill catalog
-    proposals_raw, dropped = _validate_proposals(proposals_raw, reg, catalog)
+    # Validate proposals against the skill catalog (drop duplicates)
+    proposals_raw, dropped = _validate_proposals(proposals_raw, catalog)
 
     if dropped:
         click.echo(f"Dropped {len(dropped)} duplicate/redundant proposal(s):")
@@ -452,15 +333,9 @@ def serve(port):
     state_dir = ensure_canopy_dir()
     projects_dir = Path.home() / ".claude" / "projects"
 
-    try:
-        registry_path = find_registry()
-    except click.ClickException:
-        raise
-
     run_server(
         projects_dir=projects_dir,
         state_dir=state_dir,
-        registry_path=registry_path,
         port=port,
     )
 
@@ -474,15 +349,8 @@ def brief(model, budget):
 
     state_dir = ensure_canopy_dir()
 
-    # brief can run without registry (falls back to simple digest), unlike improve which requires it
-    try:
-        registry_path = find_registry()
-    except click.ClickException:
-        registry_path = None
-
     click.echo(generate_brief(
         state_dir=state_dir,
-        registry_path=registry_path,
         model=model,
         max_budget_usd=budget,
     ))
@@ -1413,54 +1281,25 @@ def proposals_show(proposal_id):
 
 def _validate_proposals(
     proposals: list[dict],
-    registry: dict,
     skill_catalog: list[dict] | None = None,
 ) -> tuple[list[dict], list[dict]]:
-    """Validate and fix proposals against the registry and skill catalog.
+    """Validate proposals against the skill catalog.
 
     Returns `(kept, dropped)`. Each dropped proposal has `_dropped` set to a
     human-readable reason; callers can surface this so users see what was
     filtered out and why.
 
-    - Fix target_repo mismatches (e.g., tool for connect-search proposed for connect-labs)
-    - Drop proposals for tools that already exist
     - Drop `new_skill` proposals that overlap with an existing skill
     """
-    from orchestrator.registry import get_all_servers, get_all_tools
     from orchestrator.skill_catalog import find_overlap
 
-    servers = get_all_servers(registry)
-    all_tools = get_all_tools(registry)
-    existing_tool_names = {t["name"] for t in all_tools}
     catalog = skill_catalog or []
 
     kept: list[dict] = []
     dropped: list[dict] = []
     for p in proposals:
         action = p.get("action", "")
-        action_lc = action.lower()
         ptype = p.get("type", "")
-        target_repo = p.get("target_repo", "")
-
-        # Fix target_repo: if the action mentions a specific server, use that server's repo
-        for server in servers:
-            server_name = server["name"]
-            if server_name in action_lc or server_name.replace("-", "_") in action_lc:
-                correct_repo = server.get("repo", "")
-                if correct_repo and correct_repo != target_repo:
-                    p["target_repo"] = correct_repo
-                    p["_fixed"] = f"target_repo corrected from {target_repo} to {correct_repo}"
-                break
-
-        # Drop proposals for tools that already exist
-        if ptype == "new_tool":
-            for tool_name in existing_tool_names:
-                if tool_name in action_lc and f"add a `{tool_name}`" in action_lc:
-                    p["_dropped"] = f"tool {tool_name} already exists"
-                    break
-            if "_dropped" in p:
-                dropped.append(p)
-                continue
 
         # Drop new_skill proposals that overlap with an existing skill
         if ptype == "new_skill" and catalog:

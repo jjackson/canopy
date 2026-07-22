@@ -14,15 +14,11 @@ FIXTURE = Path(__file__).parent / "fixtures" / "sample_transcript.jsonl"
 
 class TestBuildReviewPrompt:
     def test_returns_string(self):
-        prompt = build_review_prompt(FIXTURE, registry_summary="test")
+        prompt = build_review_prompt(FIXTURE)
         assert isinstance(prompt, str)
 
-    def test_includes_registry(self):
-        prompt = build_review_prompt(FIXTURE, registry_summary="## Server: connect-search")
-        assert "connect-search" in prompt
-
     def test_includes_strategic_questions(self):
-        prompt = build_review_prompt(FIXTURE, registry_summary="test")
+        prompt = build_review_prompt(FIXTURE)
         assert "highest-leverage" in prompt.lower()
 
 
@@ -30,19 +26,19 @@ class TestRunReview:
     @patch("orchestrator.reviewer.subprocess.run")
     def test_returns_string_on_success(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0, stdout="## Analysis\nGreat session.")
-        result = run_review(FIXTURE, "test registry")
+        result = run_review(FIXTURE)
         assert "Great session" in result
 
     @patch("orchestrator.reviewer.subprocess.run")
     def test_returns_none_on_failure(self, mock_run):
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="error")
-        result = run_review(FIXTURE, "test registry")
+        result = run_review(FIXTURE)
         assert result is None
 
     @patch("orchestrator.reviewer.subprocess.run")
     def test_returns_none_on_timeout(self, mock_run):
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="claude", timeout=120)
-        result = run_review(FIXTURE, "test registry")
+        result = run_review(FIXTURE)
         assert result is None
 
 

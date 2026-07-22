@@ -53,7 +53,6 @@ class TestRunCycleNoData:
 
         result = run_cycle(
             state_dir=state_dir,
-            registry_path=Path(__file__).parent / "fixtures" / "sample_registry.yaml",
             config=CycleConfig(),
         )
         assert result["transcripts_analyzed"] == 0
@@ -80,7 +79,6 @@ class TestRunCycleObserveOnly:
 
         result = run_cycle(
             state_dir=state_dir,
-            registry_path=Path(__file__).parent / "fixtures" / "sample_registry.yaml",
             config=CycleConfig(observe_only=True),
         )
         assert result["transcripts_analyzed"] == 1
@@ -117,7 +115,6 @@ class TestRunCycleDryRun:
 
         result = run_cycle(
             state_dir=state_dir,
-            registry_path=Path(__file__).parent / "fixtures" / "sample_registry.yaml",
             config=CycleConfig(dry_run=True),
         )
         assert result["proposals_generated"] == 1
@@ -139,7 +136,6 @@ class TestRunCycleCircuitBreaker:
 
         result = run_cycle(
             state_dir=state_dir,
-            registry_path=Path(__file__).parent / "fixtures" / "sample_registry.yaml",
             config=CycleConfig(observe_only=True, max_failures=3),
         )
         assert result.get("circuit_breaker_tripped") is True

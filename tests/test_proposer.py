@@ -9,18 +9,13 @@ from orchestrator.proposer import (
 class TestBuildProposalPrompt:
     def test_returns_string(self):
         obs = [{"type": "gap", "description": "test", "id": "abc"}]
-        prompt = build_proposal_prompt(obs, registry_summary="test registry")
+        prompt = build_proposal_prompt(obs)
         assert isinstance(prompt, str)
 
     def test_includes_observations(self):
         obs = [{"type": "gap", "description": "No training tool", "id": "abc"}]
-        prompt = build_proposal_prompt(obs, registry_summary="test")
+        prompt = build_proposal_prompt(obs)
         assert "training tool" in prompt.lower()
-
-    def test_includes_registry(self):
-        obs = [{"type": "gap", "description": "test", "id": "abc"}]
-        prompt = build_proposal_prompt(obs, registry_summary="## Server: connect-search")
-        assert "connect-search" in prompt
 
 
 class TestParseProposalOutput:

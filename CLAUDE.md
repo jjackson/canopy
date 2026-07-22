@@ -75,9 +75,6 @@ Then follow the plugin-update steps below (`/canopy:update` etc.) if
   Python pipeline stops after proposals)
 
 ## Commands
-- `canopy registry show [--format summary|skill|json]` — display loaded registry
-- `canopy registry sync` — scan repos for actual MCP tools and update registry
-- `canopy registry validate` — validate registry.yaml structure
 - `canopy sessions status` — show session log entry count and classification summary
 - `canopy sessions list [--hours N] [--json-output]` — list recent sessions
 - `canopy create-agent <slug> --mandate "..." [--name --mailbox --stakeholders --into --force]` — scaffold a new Claude Code agent (its own git repo) from the operating model: persona, `turn` orchestrator, reads-free/writes-gated gating hook, canopy-web-ready layout. See `docs/agent-operating-model.md`.
@@ -121,7 +118,7 @@ Then follow the plugin-update steps below (`/canopy:update` etc.) if
 
 The `orchestrator` package splits into **framework** (generic, agent-agnostic
 agent-runtime substrate — `canopy_web`, `agent_client`, `agent_factory`, `capture`,
-`transcripts`, `scanner`, `registry`, `scheduler`, `provision`, `agent_email`, `fleet_align`, … 32 modules) and
+`transcripts`, `scanner`, `scheduler`, `provision`, `agent_email`, `fleet_align`, …) and
 **product** (canopy's own self-improvement / DDD / portfolio features — `analyzer`,
 `proposer`, `observations`, `harvest`, `shareout`, `test_audit`, …). **Framework
 code must never import product code; product imports framework freely.** The only
@@ -141,7 +138,7 @@ decision guide. Reach for the row that matches your **grain**:
 
 | Grain | Use | What it is |
 |-------|-----|------------|
-| One specific transcript | `canopy analyze <transcript.jsonl> [--propose]` | Analyze a single session file. Runs **from the source tree** (`cd ~/emdash-projects/canopy && uv run …`); a bare installed `analyze` from a non-canopy cwd errors `registry-not-found` — it's a canopy-internal pipeline step, not a general-purpose transcript tool. |
+| One specific transcript | `canopy analyze <transcript.jsonl> [--propose]` | Analyze a single session file. Runs from any cwd — no registry/checkout required (the capability-registry dependency was removed). |
 | Broad batch across sessions | `canopy improve` (or `--dry-run` / `--observe-only`) | The full analyze → propose → implement cycle over discovered transcripts. |
 | Menu-driven pick + act | `/canopy:select-session` / `/canopy:session-review` | Interactive: choose a project/session, analyze, propose, implement behind gates. |
 | One AGENT's own turns | `canopy agent-review <slug>` / `/canopy:agent-review` | Reviews an agent's recent TURN transcripts for operating-model friction. Assembles its prompt INLINE (see note below). |
@@ -193,10 +190,7 @@ merged. A future framework judge-prompt follows the framework rule: inline it.
 - `src/orchestrator/skill_budget.py` — computes per-skill + aggregate description-size budget (backs `canopy skills budget` / `dropped`)
 - `src/orchestrator/shareout.py` — gathers sessions + PRs over a date range into teammate-facing work briefings (backs `canopy shareout`)
 
-### Registry & discovery
-- `registry.yaml` — capability registry mapping servers to tools (auto-synced)
-- `src/orchestrator/registry.py` — registry loader and validator
-- `src/orchestrator/registry_sync.py` — scans @mcp.tool decorators from repos to keep registry accurate
+### Discovery
 - `src/orchestrator/scanner.py` — transcript discovery and metadata extraction
 - `src/orchestrator/transcripts.py` — Claude Code transcript parsing
 - `src/orchestrator/repo_map.py` — project-to-GitHub-repo mapping (JSON, stdlib only)
@@ -246,7 +240,7 @@ merged. A future framework judge-prompt follows the framework rule: inline it.
 - `src/orchestrator/agent_review.py` — agent self-improvement lens (Build 2): finds an agent's recent turn transcripts (by cwd, across repo + worktrees), extracts deterministic friction signals (failures/retries/gating-blocks/auth/checklist-gaps), and runs an optional `claude -p` synthesis into ranked findings + fixes. Backs `canopy agent-review` + the `agent-review` skill. Reuses transcripts.py / repo_paths.py / the analyzer pattern — a lens on the existing loop, not a fork. See `docs/agent-operating-model.md` §4 Build 2.
 
 ### Plugin (Claude Code skills, commands, agents)
-- `plugins/canopy/skills/` — skill definitions (agent-review, alignment, auth-preflight, brief, canopy-doctor, context-ingestion, create-agent, ddd-ace-render, ddd-concept-eval, ddd-evidence-audit, ddd-findings-review, ddd-narrative-actionability-eval, ddd-narrative-coherence, ddd-narrative-review, ddd-run, ddd-spec, ddd-spec-qa, ddd-timing-eval, ddd-upload, ddd-video-improve, ddd-video-judge, ddd-why-brief, ddd-why-eval, ddd-why-qa, doc-regeneration, find-session, fleet-align, improve, improve-lens, information-architecture, issue-triage, openclaw-harvest, orchestrator, patch-gstack-browse, patterns, portfolio-guide, portfolio-review, product-management, project-status, select-session, share-session, shareout, test-audit, update, verify-findings, visual-judge, walkthrough, walkthrough-defect-creator, walkthrough-eval, walkthrough-share, website-builder)
+- `plugins/canopy/skills/` — skill definitions (agent-review, alignment, auth-preflight, brief, canopy-doctor, context-ingestion, create-agent, ddd-ace-render, ddd-concept-eval, ddd-evidence-audit, ddd-findings-review, ddd-narrative-actionability-eval, ddd-narrative-coherence, ddd-narrative-review, ddd-run, ddd-spec, ddd-spec-qa, ddd-timing-eval, ddd-upload, ddd-video-improve, ddd-video-judge, ddd-why-brief, ddd-why-eval, ddd-why-qa, doc-regeneration, find-session, fleet-align, improve, improve-lens, information-architecture, issue-triage, openclaw-harvest, patch-gstack-browse, patterns, portfolio-guide, portfolio-review, product-management, project-status, select-session, share-session, shareout, test-audit, update, verify-findings, visual-judge, walkthrough, walkthrough-defect-creator, walkthrough-eval, walkthrough-share, website-builder)
 - `plugins/canopy/commands/` — slash commands (alignment, auth-preflight, brief, canopy-web-pat-mint, ddd, ddd-ace-render, ddd-concept-eval, ddd-evidence-audit, ddd-findings-review, ddd-narrative-actionability-eval, ddd-narrative-review, ddd-run, ddd-spec, ddd-spec-qa, ddd-upload, ddd-why-brief, ddd-why-eval, ddd-why-qa, doc-regen, find-session, improve, issue-triage, patch-gstack-browse, patterns, pm-autonomous, pm-autonomous-loop, pm-scout, pm-status, portfolio-guide, portfolio-review, project-status, select-session, session-review, setup, test-audit, update, verify-findings, walkthrough, walkthrough-defect-creator, walkthrough-eval, website-builder)
 - `plugins/canopy/agents/` — autonomous agents (ddd, pm-supervisor, session-review, walkthrough, website-builder)
 - `plugins/canopy/mcp/` — TypeScript MCP servers shipped with the plugin (ESM, run via `npx tsx`, no build step). `gws-server.ts` = **canopy-gws**, the domain-neutral Google Workspace server ported from ACE's `ace-gdrive` (32 atoms: `drive_*` / `docs_*` / `sheets_*` / `slides_*` + `get_google_form_definition` + `read_personal_drive_doc`; the ACE-aware atoms stayed in ACE). Per-agent identity resolves from SESSION env — `GWS_IDENTITY_MODE=sa` + `GWS_SA_KEY_PATH` (required; `gog` mode is a tracked follow-up), optional `GWS_ROOT_FOLDER_ID` default root + `GWS_ALLOWED_DRIVE_IDS` write allowlist enforced by the Shared-Drive write probe. **Fails loud at startup when identity env is absent — no default identity fallback.** Node toolchain lives in `plugins/canopy/package.json` (installed by `/canopy:setup` step 7 and the `/canopy:update` rsync step; `node_modules` is uncommitted). Offline vitest suites in `plugins/canopy/test/gws/` (registration-coverage drift gate, identity contract, mocked-client handler tests) run in CI via `.github/workflows/gws-tests.yml`.

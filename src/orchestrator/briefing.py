@@ -19,7 +19,6 @@ from orchestrator.tracker import load_outcomes, compute_success_rates
 
 def generate_brief(
     state_dir: Path,
-    registry_path: Path | None = None,
     model: str = "sonnet",
     max_budget_usd: float = 1.00,
 ) -> str:

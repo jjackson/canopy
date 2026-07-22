@@ -2,14 +2,6 @@
 from orchestrator.cli import _validate_proposals
 
 
-REGISTRY = {
-    "version": "1.0",
-    "servers": [],
-    "tools": [],
-    "workflows": [],
-}
-
-
 def _proposal(**kwargs) -> dict:
     base = {
         "type": "new_skill",
@@ -41,7 +33,7 @@ class TestNewSkillOverlapDrop:
     def test_drops_overlapping_qualified_skill(self):
         catalog = [_catalog_entry("canopy:doctor")]
         proposals = [_proposal(action="Add canopy:doctor diagnostic for plugin health")]
-        kept, dropped = _validate_proposals(proposals, REGISTRY, catalog)
+        kept, dropped = _validate_proposals(proposals, catalog)
         assert kept == []
         assert len(dropped) == 1
         assert "_dropped" in dropped[0]
@@ -49,20 +41,20 @@ class TestNewSkillOverlapDrop:
     def test_keeps_novel_skill(self):
         catalog = [_catalog_entry("canopy:doctor")]
         proposals = [_proposal(action="Build canopy:project-status skill that surveys worktrees")]
-        kept, dropped = _validate_proposals(proposals, REGISTRY, catalog)
+        kept, dropped = _validate_proposals(proposals, catalog)
         assert len(kept) == 1
         assert dropped == []
 
     def test_drops_hyphenated_user_skill_match(self):
         catalog = [_catalog_entry("context-restore", scope="user")]
         proposals = [_proposal(action="Add a context-restore helper for resume after vacation")]
-        kept, dropped = _validate_proposals(proposals, REGISTRY, catalog)
+        kept, dropped = _validate_proposals(proposals, catalog)
         assert kept == []
         assert len(dropped) == 1
 
     def test_does_not_drop_when_catalog_empty(self):
         proposals = [_proposal(action="Add canopy:doctor diagnostic")]
-        kept, dropped = _validate_proposals(proposals, REGISTRY, skill_catalog=[])
+        kept, dropped = _validate_proposals(proposals, skill_catalog=[])
         assert len(kept) == 1
         assert dropped == []
 
@@ -72,7 +64,7 @@ class TestNewSkillOverlapDrop:
             type="tool_improvement",
             action="Improve canopy:doctor checks",
         )]
-        kept, dropped = _validate_proposals(proposals, REGISTRY, catalog)
+        kept, dropped = _validate_proposals(proposals, catalog)
         assert len(kept) == 1
         assert dropped == []
 
@@ -83,7 +75,7 @@ class TestNewSkillOverlapDrop:
             _proposal(action="Build canopy:project-status skill"),     # keep
             _proposal(action="Add canopy:auth-preflight"),             # keep (not in catalog)
         ]
-        kept, dropped = _validate_proposals(proposals, REGISTRY, catalog)
+        kept, dropped = _validate_proposals(proposals, catalog)
         assert len(kept) == 2
         assert len(dropped) == 1
         actions = [p["action"] for p in kept]
