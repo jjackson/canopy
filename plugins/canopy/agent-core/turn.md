@@ -157,10 +157,13 @@ Do any of these ONLY when the human explicitly asks to publish/share:
 - **Package / share this turn:**
   ```
   canopy agent turn --slug <slug> --title "<what this turn did>" \
+    --session-id <claude-session-id> \       # REQUIRED — one of --session-id or --upload
     --task <ext_id> [--task <ext_id> …]      # the board task(s) this turn advanced
     # --work-product-url <url> per deliverable produced this turn
-    # --upload   ONLY if the human asked to share the transcript — publishes a /share/<token>
-    #            link (an outbound action; rides the same approval gate as a send)
+    # --upload   share the transcript instead of just naming the session: publishes a
+    #            /share/<token> link (an outbound action; rides the same approval gate as a
+    #            send). Use ONLY if the human asked to share — but pass it OR --session-id,
+    #            never neither (the CLI errors "pass --session-id … or --upload").
   ```
 Turn recency is no longer a readiness signal (`canopy agent health` reports it as info only, never
 a flag). The board at `/agents/<slug>` stays the shared trigger + approval surface — where a human
