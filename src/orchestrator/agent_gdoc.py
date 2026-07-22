@@ -19,9 +19,19 @@ Why gog, not the Drive REST API (echo's route): the shared engine auths the SAME
 the macOS Keychain. echo_gdoc.py minted a bearer token via `security find-generic-password`,
 which blocks forever on a GUI prompt in the non-interactive shells turns run in
 (dimagi-internal/ace#827). gog v0.12+ covers every operation we need — `drive upload
---convert-to doc`, `drive upload --replace` (in-place update preserving the link, which is
-why echo reached for REST — now obsolete), `drive share`, and `drive permissions` (the
-share-verify step both echo and hal hand-rolled).
+--convert-to doc` (create), the `docs write` + `docs find-replace --format markdown` pair
+(in-place body replace of a NATIVE Doc, preserving its id/link/permissions), `drive share`,
+and `drive permissions` (the share-verify step both echo and hal hand-rolled).
+
+Why the replace path edits through the Docs API, not a Drive media overwrite (issue #353):
+a `files.update` with media — what `drive upload --replace` does — is **forbidden by the
+Drive API on Workspace-native files** (`mimeType=application/vnd.google-apps.document`),
+which is exactly the type `--replace` targets. So it always errored, and agents fell back
+to publish-fresh + trash-old, churning the doc URL on every revision. The fix routes a
+native-Doc replace through the Docs API instead: blank the body to a sentinel (`docs
+write`, plain text), then swap that sentinel for the markdown-rendered content (`docs
+find-replace --format markdown`, which does the md→Doc conversion — headings, lists,
+tables, images). Same id, same link, same permissions.
 
 Why NOT the ace-gdrive MCP: it authenticates as a shared GWS **service account**, so it
 cannot author a Doc *as* the agent — the entire point of a fleet deliverable. gog-OAuth
@@ -237,27 +247,50 @@ def md_to_html(md: str) -> str:
 # gog command construction (pure — unit-testable without a subprocess)
 # --------------------------------------------------------------------------------------
 
-def build_upload_command(identity: GdocIdentity, *, html_path: str, name: str | None,
-                         parent: str | None, replace: str | None) -> list[str]:
-    """`gog drive upload` for either a fresh create (convert HTML→Doc into --parent) or an
-    in-place --replace of an existing Doc's content (preserves its link + permissions).
+# Sentinel that briefly holds the whole doc body between the plain-text blank (docs write)
+# and the markdown re-insert (docs find-replace). Distinctive enough never to collide with
+# real content; it exists in the doc only for the microsecond between the two gog calls.
+REPLACE_SENTINEL = "__CANOPY_GDOC_BODY_SENTINEL__"
 
-    --replace cannot combine with --convert, so on replace we hand gog the HTML with an
-    explicit text/html mime — the target is already a Doc, so Drive converts into it (the
-    same thing echo's REST media-update did)."""
+
+def build_upload_command(identity: GdocIdentity, *, html_path: str, name: str | None,
+                         parent: str | None) -> list[str]:
+    """`gog drive upload` for a fresh create — convert HTML→Doc into --parent.
+
+    Create-only. An in-place --replace of an existing native Doc does NOT go through
+    `drive upload` (a Drive media overwrite is forbidden on Workspace-native Docs, issue
+    #353) — see build_replace_commands for the Docs-API path."""
     cmd = ["gog", "drive", "upload", html_path,
-           "--account", identity.account, "--client", identity.client, "--json"]
-    if replace:
-        cmd += ["--replace", replace, "--mime-type", "text/html"]
-        if name:
-            cmd += ["--name", name]
-    else:
-        cmd += ["--convert-to", "doc"]
-        if name:
-            cmd += ["--name", name]
-        if parent:
-            cmd += ["--parent", parent]
+           "--account", identity.account, "--client", identity.client, "--json",
+           "--convert-to", "doc"]
+    if name:
+        cmd += ["--name", name]
+    if parent:
+        cmd += ["--parent", parent]
     return cmd
+
+
+def build_replace_commands(identity: GdocIdentity, *, doc_id: str, md_path: str,
+                           name: str | None = None) -> list[list[str]]:
+    """The ordered gog calls that replace a NATIVE Doc's body in place, keeping its
+    id/link/permissions (issue #353).
+
+    A Drive media overwrite (`files.update` with media) is forbidden on Workspace-native
+    Docs, so we edit through the Docs API instead:
+      1. `docs write` — blank the whole body down to a single sentinel (plain text).
+      2. `docs find-replace --format markdown` — swap the sentinel for the markdown-rendered
+         content (gog does the md→Doc conversion: headings, lists, tables, inline images).
+      3. `drive rename` — only if a new --name was given (docs write/find-replace can't rename).
+    Returns a list of argv lists to run in sequence; a non-zero exit on any aborts publish."""
+    ident = ["--account", identity.account, "--client", identity.client, "--json"]
+    cmds = [
+        ["gog", "docs", "write", doc_id, *ident, "--text", REPLACE_SENTINEL],
+        ["gog", "docs", "find-replace", doc_id, REPLACE_SENTINEL,
+         "--content-file", md_path, "--format", "markdown", *ident],
+    ]
+    if name:
+        cmds.append(["gog", "drive", "rename", doc_id, name, *ident])
+    return cmds
 
 
 def build_share_command(identity: GdocIdentity, file_id: str, *, share: str,
@@ -356,25 +389,46 @@ def publish(identity: GdocIdentity, *, name: str | None, parent: str | None, md_
     """Publish a markdown file as a rendered Google Doc authored as the agent.
 
     Create: convert HTML→Doc into `parent`, share, and verify the share landed.
-    Replace: update an existing Doc's content in place (link + permissions preserved).
-    dry_run renders the HTML and reports the commands without touching Drive."""
-    body_html = md_to_html(Path(md_path).read_text())
+    Replace: update an existing native Doc's body in place via the Docs API — same
+    id/link/permissions (issue #353). dry_run reports the commands without touching Drive."""
     if not replace and not (name and parent):
         raise AgentGdocError("--name and --parent are required for a new doc "
                              "(set --parent or agent.json `gdrive_root_folder`); "
                              "use --replace <fileId> to update an existing doc")
 
+    # ---- Replace: in-place Docs-API edit (native-Doc safe, keeps id/link/permissions) ----
+    if replace:
+        replace_cmds = build_replace_commands(identity, doc_id=replace, md_path=md_path,
+                                              name=name)
+        url = f"https://docs.google.com/document/d/{replace}/edit"
+        if dry_run:
+            return {"dry_run": True, "account": identity.account, "client": identity.client,
+                    "replace": replace, "name": name, "url": url, "share": "preserved",
+                    "replace_cmds": replace_cmds}
+        for c in replace_cmds:
+            r = _run_gog(c, runner)
+            if r.returncode != 0:
+                raise AgentGdocError(
+                    f"gog {c[1]} {c[2]} failed (exit {r.returncode}) as {identity.account}: "
+                    f"{(r.stderr or r.stdout or '').strip()[:400]}"
+                )
+        # Replace preserves the doc's existing sharing — never re-share (posture would drift).
+        return {"id": replace, "url": url, "raw": "", "replaced": True,
+                "shared": "preserved", "verified": True}
+
+    # ---- Create: convert HTML→Doc into `parent`, share, verify ----
+    body_html = md_to_html(Path(md_path).read_text())
     with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as tf:
         tf.write(body_html)
         html_path = tf.name
     try:
         upload_cmd = build_upload_command(identity, html_path=html_path, name=name,
-                                          parent=parent, replace=replace)
+                                          parent=parent)
         share_cmd = (build_share_command(identity, "<file_id>", share=share, email=share_email)
-                     if share != "none" and not replace else None)
+                     if share != "none" else None)
         if dry_run:
             return {"dry_run": True, "account": identity.account, "client": identity.client,
-                    "name": name, "parent": parent, "replace": replace or "",
+                    "name": name, "parent": parent, "replace": "",
                     "share": share, "share_email": share_email or "",
                     "upload_cmd": upload_cmd, "share_cmd": share_cmd, "html": body_html}
 
@@ -389,10 +443,9 @@ def publish(identity: GdocIdentity, *, name: str | None, parent: str | None, md_
         if not file_id:
             raise AgentGdocError(f"gog drive upload returned no file id: {result['raw']!r}")
 
-        # Replace preserves the existing sharing — don't re-share or the posture drifts.
-        result["shared"] = share if (share != "none" and not replace) else ("preserved" if replace else "none")
+        result["shared"] = share if share != "none" else "none"
         result["verified"] = True
-        if share != "none" and not replace:
+        if share != "none":
             s = _run_gog(build_share_command(identity, file_id, share=share, email=share_email), runner)
             if s.returncode != 0:
                 raise AgentGdocError(
