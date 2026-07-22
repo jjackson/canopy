@@ -692,8 +692,121 @@ description: >
   (gated send). Link skills as GitHub source. (none beyond the core yet)
 '''
 
+_BUMP_SCRIPT = r'''#!/usr/bin/env python3
+"""Bump this agent plugin's PATCH version in lock-step across every file that
+carries it. Run from the repo root (or anywhere — paths resolve off this file).
+
+The three fields that MUST agree, and drifted in the past when hand-bumped:
+  * .claude-plugin/plugin.json          -> version
+  * .claude-plugin/marketplace.json     -> metadata.version
+  * .claude-plugin/marketplace.json     -> plugins[*].version
+
+Used by the auto-version-bump GitHub Action (bump-on-every-merge, GitHub #357)
+and runnable by hand. Prints "OLD -> NEW". stdlib only.
+"""
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+PLUGIN = ROOT / ".claude-plugin" / "plugin.json"
+MARKET = ROOT / ".claude-plugin" / "marketplace.json"
+
+
+def bump_patch(version: str) -> str:
+    parts = version.strip().split(".")
+    if len(parts) != 3 or not all(p.isdigit() for p in parts):
+        raise SystemExit(f"unparseable version: {version!r}")
+    parts[2] = str(int(parts[2]) + 1)
+    return ".".join(parts)
+
+
+def _load(path: Path) -> dict:
+    with open(path) as fh:
+        return json.load(fh)
+
+
+def _save(path: Path, data: dict) -> None:
+    with open(path, "w") as fh:
+        json.dump(data, fh, indent=2)
+        fh.write("\n")
+
+
+def main() -> None:
+    plugin = _load(PLUGIN)
+    old = plugin.get("version")
+    if not old:
+        raise SystemExit("plugin.json has no version")
+    new = bump_patch(old)
+    plugin["version"] = new
+    _save(PLUGIN, plugin)
+
+    if MARKET.exists():
+        market = _load(MARKET)
+        market.setdefault("metadata", {})["version"] = new
+        for entry in market.get("plugins", []):
+            entry["version"] = new
+        _save(MARKET, market)
+
+    print(f"{old} -> {new}")
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+_AUTO_BUMP_WORKFLOW = r'''name: Auto version bump
+
+# Bump the PATCH version on EVERY merge to main, so canopy's fleet
+# session-start auto-updater always sees a fresh version and `claude plugin
+# list` stays honest. Bumping often is intentional — "landed on main" must mean
+# "the running agent (and its crons) will pick it up next session" (GitHub #357).
+#
+# The updater self-heals on the git SHA regardless, so this is the label-honesty
+# half, not the load-bearing half — but it closes the "skill changed, version
+# forgotten" gap that made version-keyed updates a silent no-op.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-version-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    # Skip the workflow's own bump commit. Belt-and-suspenders: pushes made with
+    # the default GITHUB_TOKEN don't retrigger workflows anyway.
+    if: ${{ !contains(github.event.head_commit.message, '[skip bump]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Bump patch version
+        run: python3 scripts/bump-plugin-version.py
+      - name: Commit and push
+        run: |
+          if git diff --quiet; then
+            echo "No version change to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .claude-plugin/plugin.json .claude-plugin/marketplace.json
+          git commit -m "chore: auto-bump plugin version [skip bump]"
+          git push origin HEAD:main
+'''
+
 _TEMPLATES: dict[str, str] = {
     ".claude-plugin/plugin.json": _PLUGIN_JSON,
+    "scripts/bump-plugin-version.py": _BUMP_SCRIPT,
+    ".github/workflows/auto-version-bump.yml": _AUTO_BUMP_WORKFLOW,
     "CLAUDE.md": _CLAUDE_MD,
     "persona.md": _PERSONA_MD,
     "README.md": _README,

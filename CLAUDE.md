@@ -487,6 +487,42 @@ New sessions auto-detect the version bump on startup — no manual steps needed.
 - Releases are **version-on-`main`** — there are no git tags. "Released" means merged to
   `main` with the version bumped; `/canopy:update` is what distributes it.
 
+## Fleet Auto-Update (session-start self-heal) — issue #357
+
+Fleet agents (eva, hal, ada, echo, ace) run from a **versioned plugin cache**, not
+their repo, so a merge to an agent's `main` was invisible to the running harness
+(interactive sessions AND cron turns) until someone hand-ran an update skill —
+installs froze for days. Two pieces, both shipped by canopy, close this:
+
+**A. Session-start auto-updater (canopy plugin hook — the whole fleet).** canopy is
+installed user-scope alongside every agent, so its `plugins/canopy/hooks/hooks.json`
+registers an **`async` SessionStart** hook →
+`plugins/canopy/hooks/fleet_session_start_update.py`. On every session it discovers the
+fleet (canopy + any plugin shipping `config/agent.json`), and for each one **git-pulls
+the marketplace clone, rsyncs the plugin source into a version-keyed cache dir, `npm
+install`s if needed, and patches `installed_plugins.json`** — the same thing
+`/canopy:update` does by hand, automated. It is **SHA-driven** (compares installed
+`gitCommitSha` vs `origin/main`), so it self-heals even when a version bump was
+forgotten — the failure mode that makes a version-keyed `claude plugin update` a silent
+no-op. Because it does the sync + registry-patch itself, the version bump is NOT
+load-bearing; it's for label honesty only.
+  - High blast radius → built to be inert: `async` (never blocks startup), a
+    non-blocking lock (concurrent sessions don't stack), timeout-bounded subprocesses,
+    all errors swallowed, one line per run to `~/.claude/canopy/fleet-update.log`,
+    emits nothing on stdout.
+  - **Opt out per machine:** `CANOPY_FLEET_AUTOUPDATE=0` or `touch
+    ~/.claude/canopy/fleet-autoupdate-disabled`. Tuning: `CANOPY_FLEET_UPDATE_PLUGINS`
+    (explicit allowlist), `CANOPY_FLEET_UPDATE_EXCLUDE`, `CANOPY_FLEET_UPDATE_MIN_INTERVAL`.
+
+**B. Bump-on-every-merge (per-agent repo; canopy owns the template).** A
+`.github/workflows/auto-version-bump.yml` bumps the PATCH version in `plugin.json` +
+`marketplace.json` (kept in lock-step by `scripts/bump-plugin-version.py`) on **every**
+merge to `main` — bumping often is intentional. This keeps the version label +
+`claude plugin list` honest and closes the "skill changed, version forgotten" gap. The
+agent factory (`canopy create-agent`) stamps both files into new agents; existing agents
+get them distributed as PRs. GITHUB_TOKEN pushes don't retrigger workflows, and the
+bump commit carries `[skip bump]` — so no loop.
+
 ## Per-Project Canopy State
 
 Per-project canopy state lives at `<repo>/.canopy/`, committed to the project's git repo:
