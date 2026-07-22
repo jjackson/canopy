@@ -57,7 +57,11 @@ adds agent-specifics (send path, paired reviewers); the general discipline lives
 7. **Lead with what you DID** + your recommendation + what else we could do — not junior questions.
 8. **Enumerate multiple asks**, one line each, showing how each was handled (✓ done / link / status).
 9. **Substantial artifacts go in a shared doc the reply links** — never a wall of pasted text,
-   never a loose local file; present the reply body itself inline for approval.
+   never a loose local file; present the reply body itself inline for approval. **The final body
+   must sit in the SAME message as the "good to send?" ask, every time you ask — including re-asks
+   after a revision or a tangent.** Before you post an approval/pause line, confirm the current full
+   email body is right there in the message; if it's only linked or was shown earlier, paste it
+   again. The human should never have to say "show me the email" to approve.
 10. **Verify recipients** from the structured reader / `--reply-all`, never a raw text mail view
     (it hides `Cc:`). Confirm reply-all vs. direct on purpose.
 
