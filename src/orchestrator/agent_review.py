@@ -355,16 +355,189 @@ def parse_findings(output: str) -> list[dict]:
     return result if isinstance(result, list) else []
 
 
+# --- Source-verification gate (enforced) -------------------------------------
+# The recurring failure mode this closes: agent-review reads STALE transcripts, so
+# a finding can describe friction that a LATER commit already fixed — the review
+# window overlaps the very cycle that shipped the fix. Surfacing (or dispatching)
+# such a finding wastes a turn and erodes trust (it happened two days running:
+# eva's chrome-sales-SA fix was already in `gsp-daily-briefing` as `as:eva@…`, yet
+# got re-surfaced). So every finding is re-checked against the agent repo's CURRENT
+# origin/main BEFORE run_review returns it, and the already-shipped ones are dropped.
+# This runs by DEFAULT — the operator can't forget it (enforcement, not a checklist
+# step the model has to remember under load).
+#
+# Reuses the FRAMEWORK-tier repo-evidence helpers so the "is it in main?" evidence
+# gathering stays one implementation (shared with the proposals verify path) WITHOUT
+# a framework→product import (agent_review is framework; verify_findings is product).
+from orchestrator.repo_evidence import (  # noqa: E402
+    SYMBOL_RX as _SYMBOL_RX,
+    changelog_head as _changelog_head,
+    git_log_recent as _git_log_recent,
+    grep_repo as _grep_repo,
+)
+
+
+def _finding_symbols(findings: list[dict]) -> list[str]:
+    """Concrete tokens to grep the current tree for: backtick-quoted identifiers in
+    a finding's text PLUS bare file paths named in `target` (which are usually not
+    backticked). These are what the verdict LLM checks presence of."""
+    out: set[str] = set()
+    for f in findings:
+        if not isinstance(f, dict):
+            continue
+        for field in ("title", "recommendation", "evidence", "target"):
+            for m in _SYMBOL_RX.finditer(str(f.get(field) or "")):
+                sym = m.group(1).strip()
+                if 2 <= len(sym) <= 80:
+                    out.add(sym)
+        for tok in re.split(r"[,\s]+", str(f.get("target") or "")):
+            tok = tok.strip().strip("`()")
+            if tok and "/" in tok and len(tok) <= 80:
+                out.add(tok)
+    return sorted(out)[:30]
+
+
+def build_verify_corpus(repo: Path, findings: list[dict], since: str = "21 days ago") -> dict:
+    """Current-source evidence for the verdict pass: recent origin/main commits, the
+    CHANGELOG head, and a grep of the tree for each finding's symbols/targets."""
+    return {
+        "commits": _git_log_recent(repo, since=since) or "(no commits in window)",
+        "changelog": _changelog_head(repo) or "(no CHANGELOG.md)",
+        "grep_results": _grep_repo(repo, _finding_symbols(findings)) or "(no symbols extracted)",
+    }
+
+
+def build_verify_prompt(repo: Path, findings: list[dict], corpus: dict) -> str:
+    """Ask the model, per finding, whether the CURRENT source already does what the
+    recommendation asks. Conservative by construction: `shipped` only on concrete
+    evidence; otherwise `unverifiable` (which is KEPT)."""
+    minimal = [
+        {
+            "index": i,
+            "title": f.get("title"),
+            "target": f.get("target"),
+            "recommendation": (str(f.get("recommendation") or ""))[:400],
+            "evidence": (str(f.get("evidence") or ""))[:300],
+        }
+        for i, f in enumerate(findings) if isinstance(f, dict)
+    ]
+    return (
+        "You are canopy's SOURCE-VERIFICATION GATE for agent self-improvement findings.\n"
+        f"Each finding below was synthesized from STALE turn transcripts of the agent at {repo}; "
+        "its review window overlaps the cycle that may already have shipped the fix. For EACH "
+        "finding, decide whether the friction it describes is ALREADY FIXED in the agent repo's "
+        "CURRENT origin/main. Read the recommendation, then weigh the evidence below.\n\n"
+        f"RECENT COMMITS (origin/main):\n{corpus['commits']}\n\n"
+        f"CHANGELOG head:\n{corpus['changelog']}\n\n"
+        f"GREP of the current tree for the findings' symbols/targets:\n{corpus['grep_results']}\n\n"
+        f"FINDINGS:\n{json.dumps(minimal, indent=2)}\n\n"
+        "Output a YAML list, one item per finding:\n"
+        "  - index: <the finding's index>\n"
+        "  - verdict: one of [shipped, live, unverifiable]\n"
+        "      shipped = current source ALREADY does what the recommendation asks (it will be DROPPED)\n"
+        "      live = the friction still exists in current source (KEPT)\n"
+        "      unverifiable = target isn't in this repo, or evidence is insufficient (KEPT)\n"
+        "  - evidence: ONE sentence citing the commit / file / grep line that decides it\n"
+        "Be CONSERVATIVE: say `shipped` ONLY when the evidence concretely shows the fix is present. "
+        "The fix can take any form — a config rail, a skill line, a shared-engine flag — so absence "
+        "of one specific mechanism is NOT proof it's unfixed; judge whether the RECOMMENDATION's "
+        "intent is already satisfied. When unsure, say `unverifiable`. Output ONLY the YAML list.\n"
+    )
+
+
+def _call_verify_llm(prompt: str, model: str, max_budget_usd: float,
+                     timeout: int = 300) -> tuple[list[dict] | None, str | None]:
+    """Run the verdict pass. Returns (verdicts, error). `error` is None on success and
+    a human-readable reason on any failure — a silent None-on-fail gate is worse than
+    no gate (it presents UNVERIFIED findings as if they'd been checked), so every
+    failure path names itself and the caller surfaces it LOUDLY."""
+    try:
+        proc = subprocess.run(
+            ["claude", "-p", prompt, "--model", model,
+             "--max-budget-usd", str(max_budget_usd), "--no-session-persistence"],
+            capture_output=True, text=True, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return None, f"verify pass timed out after {timeout}s"
+    except (subprocess.SubprocessError, OSError) as exc:
+        return None, f"verify pass subprocess error: {exc}"
+    if proc.returncode != 0:
+        # claude -p prints some errors (e.g. budget) to STDOUT with empty stderr.
+        detail = (proc.stderr.strip() or proc.stdout.strip())[:200]
+        return None, f"verify pass claude -p exited {proc.returncode}: {detail}"
+    verdicts = parse_findings(proc.stdout)  # same tolerant YAML-list parser
+    if not verdicts:
+        return None, f"verify pass output did not parse to a YAML list (head: {proc.stdout[:120]!r})"
+    return verdicts, None
+
+
+def verify_findings_against_source(
+    repo: Path,
+    findings: list[dict],
+    *,
+    model: str = "sonnet",
+    max_budget_usd: float = 2.0,
+    since: str = "21 days ago",
+    verdict_fn=None,
+) -> tuple[list, list, str | None]:
+    """Drop findings whose fix is ALREADY in the agent repo's current origin/main.
+
+    Returns (kept, dropped, error). Every finding — kept or dropped — is annotated with
+    a `verification` block ({verdict, evidence}) so the judgment is auditable. FAIL-OPEN
+    BUT LOUD: on any verification failure (LLM error, empty/parse-miss output) ALL
+    findings are KEPT unchanged AND `error` is set to the reason — the caller must
+    surface it so nobody mistakes "gate couldn't run" for "gate passed everything".
+    """
+    real = [f for f in findings if isinstance(f, dict)]
+    if not real:
+        return list(findings), [], None
+    # Fetch so the corpus reflects the true current main, not a stale local ref.
+    try:
+        subprocess.run(["git", "-C", str(repo), "fetch", "origin", "main"],
+                       capture_output=True, timeout=15)
+    except (subprocess.SubprocessError, OSError):
+        pass
+    corpus = build_verify_corpus(repo, real, since=since)
+    prompt = build_verify_prompt(repo, real, corpus)
+    if verdict_fn is not None:
+        verdicts = verdict_fn(prompt)
+        error = None if verdicts else "verdict_fn returned no verdicts"
+    else:
+        verdicts, error = _call_verify_llm(prompt, model, max_budget_usd)
+    if not verdicts:
+        return list(findings), [], error  # fail-open, but WITH a reason
+
+    by_index: dict[int, dict] = {}
+    for v in verdicts:
+        if isinstance(v, dict) and v.get("index") is not None:
+            try:
+                by_index[int(v["index"])] = v
+            except (TypeError, ValueError):
+                continue
+
+    kept: list = [f for f in findings if not isinstance(f, dict)]  # preserve any junk entries
+    dropped: list = []
+    for i, f in enumerate(real):
+        v = by_index.get(i) or {}
+        verdict = v.get("verdict", "unverifiable")
+        annotated = {**f, "verification": {"verdict": verdict, "evidence": v.get("evidence")}}
+        (dropped if verdict == "shipped" else kept).append(annotated)
+    return kept, dropped, None
+
+
 def run_review(
     slug_or_path: str,
     *,
     hours: int = 168,
     use_llm: bool = True,
+    verify: bool = True,
     model: str = "sonnet",
     max_budget_usd: float = 2.0,
     projects_dir: Path = CLAUDE_PROJECTS,
 ) -> dict:
-    """Review an agent's recent turns. Returns {agent, repo, turns, signals, findings, error?}."""
+    """Review an agent's recent turns. Returns {agent, repo, turns, signals, findings,
+    dropped_findings, error?}. `verify` (default on) runs the source-verification gate
+    over the synthesized findings and drops the ones already shipped to origin/main."""
     repo = resolve_agent_repo(slug_or_path)
     if not repo or not repo.exists():
         return {"error": f"could not resolve agent repo for {slug_or_path!r}"}
@@ -381,6 +554,7 @@ def run_review(
         "turns": len(corpus),
         "signals": corpus,
         "findings": [],
+        "dropped_findings": [],
     }
     if not corpus or not use_llm:
         return result
@@ -396,7 +570,19 @@ def run_review(
         result["error"] = "claude -p timed out"
         return result
     if proc.returncode == 0:
-        result["findings"] = parse_findings(proc.stdout)
+        findings = parse_findings(proc.stdout)
+        # ENFORCED source gate: drop findings a later commit already shipped, BEFORE
+        # they're returned. Fails open (keeps everything) if it can't verify.
+        if verify and findings:
+            kept, dropped, verify_error = verify_findings_against_source(
+                repo, findings, model=model, max_budget_usd=max(max_budget_usd, 1.5),
+            )
+            result["findings"] = kept
+            result["dropped_findings"] = dropped
+            if verify_error:
+                result["verification_error"] = verify_error
+        else:
+            result["findings"] = findings
     else:
         # claude -p prints some errors (e.g. "Exceeded USD budget") to STDOUT with an
         # empty stderr — capture whichever stream has the message so failures stay diagnosable.
