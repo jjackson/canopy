@@ -132,6 +132,31 @@ do NOT split `orchestrator/` into `framework/`/`product/` subpackages. Enforced 
 `tests/test_plugin_boundary.py` (fails on a framework→product import, or a new
 untiered module). Full tier list + rationale: **`src/orchestrator/TIERS.md`**.
 
+## Session-analysis surfaces — which one for which grain
+
+`analyze` / `improve` / `agent-review` / `session-review` / `select-session` are
+overlapping peers. There is no single "front door" command (a unified entry with
+sub-modes is a deferred design call — see #352); until then, this table is the
+decision guide. Reach for the row that matches your **grain**:
+
+| Grain | Use | What it is |
+|-------|-----|------------|
+| One specific transcript | `canopy analyze <transcript.jsonl> [--propose]` | Analyze a single session file. Runs **from the source tree** (`cd ~/emdash-projects/canopy && uv run …`); a bare installed `analyze` from a non-canopy cwd errors `registry-not-found` — it's a canopy-internal pipeline step, not a general-purpose transcript tool. |
+| Broad batch across sessions | `canopy improve` (or `--dry-run` / `--observe-only`) | The full analyze → propose → implement cycle over discovered transcripts. |
+| Menu-driven pick + act | `/canopy:select-session` / `/canopy:session-review` | Interactive: choose a project/session, analyze, propose, implement behind gates. |
+| One AGENT's own turns | `canopy agent-review <slug>` / `/canopy:agent-review` | Reviews an agent's recent TURN transcripts for operating-model friction. Assembles its prompt INLINE (see note below). |
+
+**Prompt-loading convention (post-#352):** the product analysis prompts
+(`analyze` / `propose` / `review` / `briefing` / `verify-findings`) are external
+`prompts/*.md` templates loaded install-safely via `importlib.resources`
+(`orchestrator/prompts/__init__.py::load_prompt`) — robust even when the wheel is
+relocated/zipped, belt-and-suspenders with #351's `package-data`. The **one**
+analysis path that keeps an inline prompt is `agent_review.build_review_prompt`,
+**by design, not accident**: `agent_review` is FRAMEWORK tier and `prompts/` is
+PRODUCT tier (`TIERS.md`), so loading from the product package there would break
+the framework→product boundary (`tests/test_plugin_boundary.py`). #352 originally
+read that split as accidental; it is enforced.
+
 ## Key Modules
 
 ### Core pipeline

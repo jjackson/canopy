@@ -301,7 +301,13 @@ def friction_signals(
 
 
 def build_review_prompt(repo: Path, corpus: list[dict]) -> str:
-    """Assemble the friction corpus + agent identity into an evaluator–optimizer prompt."""
+    """Assemble the friction corpus + agent identity into an evaluator–optimizer prompt.
+
+    This prompt is assembled INLINE, deliberately: `agent_review` is a FRAMEWORK-tier
+    module and the external `prompts/` package is PRODUCT tier (see `TIERS.md`), so
+    reaching for `load_prompt` here would violate the framework→product boundary
+    (`tests/test_plugin_boundary.py`). agent_review is the one analysis path that
+    keeps an inline prompt by design, not by accident — see #352."""
     persona = ""
     pp = repo / "persona.md"
     if pp.exists():
