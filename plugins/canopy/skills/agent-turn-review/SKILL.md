@@ -4,7 +4,8 @@ description: >
   The fleet-wide pre-send review every agent runs before ANY outbound deliverable / reply / PR.
   Audits the draft against the ORIGINAL request (fidelity) AND against your own capabilities
   (grounded commitments): extract each discrete ask, confirm the draft does exactly that, and
-  confirm every "I'll do X" is something you can actually execute. Fix gaps before sending.
+  confirm every "I'll do X" is something you can actually execute — and every "I did X" actually
+  happened (verify done-claims, don't assert them). Fix gaps before sending.
   Agents keep a thin `agent-turn-review` skill that invokes this and adds their own send-path +
   paired-reviewer specifics — the general discipline lives here so the fleet stays DRY.
 ---
@@ -25,11 +26,21 @@ adds agent-specifics (send path, paired reviewers); the general discipline lives
 4. **Rate it, tough** — faithfulness-to-each-ask / source-verification / completeness / clarity,
    1–5 each, default 3. Anything under 5 on faithfulness → fix before sending.
 
-## B. Grounded commitments — can you actually do what you're claiming?
+## B. Grounded commitments — can you actually do, AND have you actually done, what you're claiming?
 5. **Scan the deliverable for every forward-looking claim** — "I'll X", "next I'll Y", "before Z
    I'll…". For EACH, name the concrete, executable mechanism (a command, a tool, a specific step)
    and confirm you can actually perform it — this turn or as a real, nameable next action. No
    mechanism and no rough WHEN → it's not a commitment, it's vapor; cut it.
+5a. **Past-tense DONE-claims get the same test as forward-looking ones — verify, don't assert.**
+   "I did X", "I've already X'd", "X is done / handled / fixed", "I updated the skill", "I've noted
+   that" — each asserts COMPLETED work, and each must be checked against evidence (the file diff, the
+   command output, the merged PR, the live link) BEFORE it ships, exactly as you'd ground an "I'll
+   X". A done-claim is *more* dangerous than a promise: it reads as finished, so no one follows up
+   and the gap ships silently. If you cannot point to the evidence right now, either DO it before
+   sending or cut the claim. Origin: 2026-07-21, an agent wrote "I've noted that in the skill" in a
+   turn-back when it had made no such edit — true only as an intention, and it would have shipped
+   unnoticed had the human not asked. (This is §13's "evidence before assertion" applied to the
+   deliverable's own claims, not just the review's.)
 6. **Vague coordination verbs about a PERSON are the red flag** — "sync with / coordinate with /
    loop in / check with / align with / run it by <someone>". They almost always hide a human
    dependency you have NO channel to execute, dressed up as a plan. Either **(a) convert it to
