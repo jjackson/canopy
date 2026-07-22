@@ -366,13 +366,14 @@ def parse_findings(output: str) -> list[dict]:
 # This runs by DEFAULT — the operator can't forget it (enforcement, not a checklist
 # step the model has to remember under load).
 #
-# Reuses verify_findings' corpus helpers so the "is it in main?" evidence-gathering
-# stays one implementation (DRY with the proposals verify path).
-from orchestrator.verify_findings import (  # noqa: E402
-    _changelog_head,
-    _git_log_recent,
-    _grep_repo,
-    _SYMBOL_RX,
+# Reuses the FRAMEWORK-tier repo-evidence helpers so the "is it in main?" evidence
+# gathering stays one implementation (shared with the proposals verify path) WITHOUT
+# a framework→product import (agent_review is framework; verify_findings is product).
+from orchestrator.repo_evidence import (  # noqa: E402
+    SYMBOL_RX as _SYMBOL_RX,
+    changelog_head as _changelog_head,
+    git_log_recent as _git_log_recent,
+    grep_repo as _grep_repo,
 )
 
 

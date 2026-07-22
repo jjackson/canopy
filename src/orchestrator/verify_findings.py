@@ -24,8 +24,6 @@ Workflow:
 """
 from __future__ import annotations
 
-import json
-import re
 import subprocess
 import sys
 from collections import defaultdict
@@ -36,6 +34,12 @@ import yaml
 
 from orchestrator.paths import CANOPY_DIR
 from orchestrator.prompts import load_prompt
+from orchestrator.repo_evidence import (
+    SYMBOL_RX as _SYMBOL_RX,
+    changelog_head as _changelog_head,
+    git_log_recent as _git_log_recent,
+    grep_repo as _grep_repo,
+)
 from orchestrator.repo_paths import resolve_repo_path
 
 PROPOSALS_DIR = CANOPY_DIR / "proposals"
@@ -75,34 +79,6 @@ def load_proposals(
     return proposals
 
 
-def _git_log_recent(repo: Path, since: str = "14 days ago") -> str:
-    try:
-        return subprocess.check_output(
-            ["git", "-C", str(repo), "log", "origin/main",
-             f"--since={since}", "--pretty=format:%h %ad %s",
-             "--date=short"],
-            stderr=subprocess.DEVNULL,
-            text=True,
-            timeout=15,
-        ).strip()
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        return ""
-
-
-def _changelog_head(repo: Path, lines: int = 200) -> str:
-    cl = repo / "CHANGELOG.md"
-    if not cl.exists():
-        return ""
-    try:
-        with open(cl, encoding="utf-8") as f:
-            return "".join(f.readline() for _ in range(lines)).rstrip()
-    except OSError:
-        return ""
-
-
-_SYMBOL_RX = re.compile(r"`([^`]{2,80})`")
-
-
 def _extract_symbols(proposals: list[dict]) -> list[str]:
     """Pull backtick-quoted identifiers from each proposal's action text.
 
@@ -120,30 +96,6 @@ def _extract_symbols(proposals: list[dict]) -> list[str]:
                 if sym and len(sym) <= 80 and "/" not in sym[:1]:
                     out.add(sym)
     return sorted(out)[:30]
-
-
-def _grep_repo(repo: Path, symbols: list[str]) -> str:
-    if not symbols:
-        return ""
-    parts: list[str] = []
-    for sym in symbols:
-        try:
-            out = subprocess.check_output(
-                ["git", "-C", str(repo), "grep", "-n", "--",
-                 sym, "--", ":!.git", ":!node_modules"],
-                stderr=subprocess.DEVNULL,
-                text=True,
-                timeout=10,
-            )
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            out = ""
-        out = out.strip()
-        if out:
-            head = "\n".join(out.splitlines()[:5])
-            parts.append(f"=== `{sym}` ===\n{head}")
-        else:
-            parts.append(f"=== `{sym}` ===\n(no hits)")
-    return "\n\n".join(parts)
 
 
 def build_corpus(repo: Path, proposals: list[dict]) -> dict:
