@@ -130,6 +130,14 @@ Answer out loud and report:
    so the improvement is durable. **Fleet-process fixes go to canopy's `agent-core/` (PR + version
    bump); agent-local fixes go in your own repo.** Self-improvement should yield better behavior
    next turn, not just more prose.
+4. **Did a human give behavioral feedback this turn — "always X", "next time Y", "you should have
+   Z"?** If it changes how a task a skill governs should be done, it goes in **that skill's
+   procedure** (the enforcing home that runs every time), THIS turn — **a memory note is NOT a
+   substitute.** Memory is passive recall that relies on you choosing to comply and fails under
+   load; a skill edit is enforcement. Name the skill you edited. Only park it in memory if genuinely
+   no skill owns the behavior — and then say why. (Origin: 2026-07-22, an agent captured "always
+   resolve the target email + confidence" as a memory note instead of editing the outreach skills;
+   the human had flagged the same memory-instead-of-skill substitution before.)
 
 ## Step 4 — Close the turn
 Give the human ONE concise combined summary, distilled in chat — never an internal markdown
