@@ -93,8 +93,15 @@ it.
   substantial artifact (a script, a report, a plan) goes in a shared gdoc and the reply links it;
   it does NOT get pasted as a wall of text into the email body, and it is NOT stashed in a local
   `.txt` you point the human at. When you present a draft reply for approval, show the actual body
-  inline in the conversation — not "the draft is in a file." **Where the gdoc goes is a fleet
-  standard: a per-project subfolder under your shared Projects root, never My Drive root, shared
+  inline in the conversation — not "the draft is in a file." **The body and the ask are
+  inseparable: EVERY time you ask "good to send?" — the first time AND every re-ask after a
+  tangent, a revision, or an intervening exchange — the CURRENT final body must be in that SAME
+  message, right above the ask.** A pause/approval line with the email only linked, or shown several
+  messages back, is a failure — the human should never have to scroll or ask "show me the email" to
+  approve. If you edited the draft, re-paste the whole new body; never ask against a body the human
+  can't see now. (2026-07-22: an agent ended three approval asks in a row with no body in the
+  message, and the human had to say "you keep not showing me the email.") **Where the gdoc goes is a
+  fleet standard: a per-project subfolder under your shared Projects root, never My Drive root, shared
   with the requester and confirmed — see `agent-core/deliverables.md`.**
 - **Decide-then-show, in one coherent order.** Either you decided and you show the result, or you
   have a genuine question and you ask it cleanly — never a jumble of "asking about (1) while
