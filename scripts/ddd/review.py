@@ -174,13 +174,21 @@ def await_resolution(
     review_id: str,
     *,
     poll_interval: float = 5.0,
-    timeout: float = 86400.0,
+    timeout: float = 1800.0,
     base_url: str | None = None,
     token: str | None = None,
+    on_wait=None,
     _sleep: object = time.sleep,
     _now: object = time.monotonic,
 ) -> dict:
     """Poll ``get_review`` until ``status == "resolved"``, then return ``response_json``.
+
+    Bounded + observable, by design: a review poll must never run silently
+    forever. The default ``timeout`` is 30 minutes (not a day-long block), and
+    ``on_wait(elapsed_seconds)`` fires before each sleep so a caller can emit a
+    heartbeat instead of appearing hung. For the release gate specifically,
+    ``upload._default_gate`` additionally refuses to block *at all* in a
+    non-interactive run (nobody can click the UI, so it holds instead).
 
     Parameters
     ----------
@@ -189,23 +197,31 @@ def await_resolution(
     poll_interval:
         Seconds to sleep between polls.
     timeout:
-        Maximum wall-clock seconds to wait before raising ``TimeoutError``.
+        Maximum wall-clock seconds to wait before raising ``TimeoutError``
+        (default 1800s / 30 min — was a silent 24h, the source of a real hang).
     base_url, token:
         Forwarded to ``get_review`` for resolution.
+    on_wait:
+        Optional ``callable(elapsed_seconds)`` invoked once per poll before
+        sleeping — use it to print a heartbeat. ``None`` (default) is silent.
     _sleep, _now:
         Injected for testing (default: ``time.sleep`` / ``time.monotonic``).
         Pass a fake ``_now`` that advances a counter and a no-op ``_sleep``
         to drive the loop without real sleeping.
     """
-    deadline = _now() + timeout  # type: ignore[operator]
+    start = _now()  # type: ignore[operator]
+    deadline = start + timeout  # type: ignore[operator]
     while True:
         data = get_review(review_id, base_url=base_url, token=token)
         if data.get("status") == "resolved":
             return data["response_json"]
-        if _now() >= deadline:  # type: ignore[operator]
+        now = _now()  # type: ignore[operator]
+        if now >= deadline:  # type: ignore[operator]
             raise TimeoutError(
                 f"review {review_id!r} not resolved within {timeout}s"
             )
+        if on_wait is not None:
+            on_wait(now - start)  # type: ignore[operator]
         _sleep(poll_interval)  # type: ignore[operator]
 
 

@@ -182,24 +182,34 @@ DDD_REPO="$HOME/emdash-projects/canopy"; [ -d "$DDD_REPO/scripts/ddd" ] || DDD_R
 if [ ! -d "$DDD_REPO/scripts/ddd" ]; then echo "ERROR: scripts/ddd not found — run /canopy:update to sync the canopy checkout"; exit 1; fi
 # pass the video_path as an absolute path (resolved before the cd):
 VIDEO_ABS="$(realpath <video_path>)"
-# Converged run → public release (posts the external_release gate, BLOCKS on a
-# human resolving it in the canopy-web UI):
+# Converged run → public release. external_release is a HUMAN CHECKPOINT (external
+# publishing is outward-facing, so it is one of DDD's two deliberate approval gates).
+# The human's in-CHAT "publish it" does NOT resolve this gate — the gate's approval
+# channel is a separate canopy-web UI click (or --release-approved). Run this bare
+# form non-interactively (an agent / CI) and it will NOT publish: it posts the review,
+# prints the URL, and HOLDS (returns without publishing). It no longer hangs — but it
+# also doesn't publish, so the bare form is rarely what you want:
 (cd "$DDD_REPO" && uv run python -m scripts.ddd.upload <run_id> --video "$VIDEO_ABS")
-# Converged run + the human ALREADY approved release in-session → resolve the gate
-# with that approval instead of blocking on a UI click. NOT a bypass: the review is
-# still created and submitted (status resolved, attributed to the token's user, with
-# a delegated-approval note), so the publish stays auditable. Pass ONLY when a human
-# has explicitly authorized the release:
+# Converged run + the human approved release in-session ("publish it" / "externally
+# publish") → THIS is the form to use. It resolves the gate WITH that approval instead
+# of waiting on a UI click. NOT a bypass: the review is still created and submitted
+# (status resolved, attributed to the token's user, with a delegated-approval note),
+# so the publish stays auditable:
 (cd "$DDD_REPO" && uv run python -m scripts.ddd.upload <run_id> --video "$VIDEO_ABS" --release-approved)
 # STUCK run → review package (skips the gate, leaves the run iterable):
 (cd "$DDD_REPO" && uv run python -m scripts.ddd.upload <run_id> --video "$VIDEO_ABS" --stuck)
 ```
 
-**When to pass `--release-approved`:** the orchestrator/operator was told to publish by
-a human in the session (e.g. "publish it"), but the gate would otherwise block forever
-waiting for a separate canopy-web UI click. This honors the already-given approval
-through an authorized, attributed channel. If NO human has approved, omit it and let
-the gate block (the default).
+**RULE — a human's in-session approval IS the gate approval, so pass `--release-approved`.**
+When a human told you to publish in the session (e.g. "publish it", "externally publish"),
+that *is* the external_release sign-off — pass `--release-approved` so it resolves through an
+authorized, attributed channel. Do NOT run the bare release form expecting it to publish: the
+external_release gate is a **separate approval channel** (a canopy-web UI click) that the
+human's in-chat approval does not satisfy — the two are disconnected, which is why a bare
+publish "unexpectedly asks for approval." Run bare + non-interactively, it now prints the
+review URL and **holds** (nothing published) rather than hanging — a clear signal to re-run
+with `--release-approved` (or resolve the review in the UI). Only omit `--release-approved`
+when no human has approved and you deliberately want to post the gate for later UI resolution.
 
 The script orchestrates all steps internally:
 

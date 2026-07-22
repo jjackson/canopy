@@ -857,11 +857,23 @@ def publish_artifact(
 
 
 def _default_gate(review_request: ReviewRequest, base_url: str | None, token: str | None) -> str:
-    """Post the review and block until resolved; return the chosen option.
+    """Get the human's external_release decision — WITHOUT ever silently hanging.
 
-    The resolved ``response_json`` must be a dict mapping decision id → chosen
-    option string, e.g. ``{"publish": "publish"}``.  We look up the ``"publish"``
-    decision and return its value.
+    A blocking 24h poll here is what froze an autonomous publish once: "publish
+    it" ran this gate, which posted the review and then polled canopy-web in
+    silence for a UI click that, in a non-interactive run, can never come. The
+    fix makes that hang structurally impossible:
+
+    - The review URL is printed loudly the moment it's posted.
+    - A NON-INTERACTIVE caller (agent / CI / piped run — ``stdin`` is not a TTY)
+      does NOT block. The run is HELD (returns ``"hold"``; nothing published),
+      and the caller is told to resolve the review and re-run, or re-run with
+      ``--release-approved`` (``_delegated_gate``) to publish now.
+    - An INTERACTIVE caller waits, but only a bounded 30 min and with a
+      heartbeat — never a silent day.
+
+    The resolved ``response_json`` maps decision id → chosen option, e.g.
+    ``{"publish": "publish"}``; we return the ``"publish"`` decision's value.
     """
     from scripts.ddd import review as rv
 
@@ -872,7 +884,45 @@ def _default_gate(review_request: ReviewRequest, base_url: str | None, token: st
         token=token,
     )
     review_id = result["id"]
-    response_json = rv.await_resolution(review_id, base_url=base_url, token=token)
+    review_url = result.get("url") or f"{_resolve_base_url(base_url)}/review/{review_id}/"
+    print(
+        f"\n[external_release] review posted — resolve it in canopy-web to publish:\n"
+        f"    {review_url}\n",
+        file=sys.stderr,
+        flush=True,
+    )
+
+    if not sys.stdin.isatty():
+        # Nobody can click a UI in a non-interactive run — never block on it.
+        print(
+            "[external_release] non-interactive run: NOT waiting on the gate; the "
+            "run is held (nothing published).\n"
+            "    Resolve the review above and re-run, or re-run with "
+            "--release-approved to publish now with your approval.\n",
+            file=sys.stderr,
+            flush=True,
+        )
+        return "hold"
+
+    print(
+        "[external_release] waiting up to 30 min for approval (Ctrl-C to stop)…",
+        file=sys.stderr,
+        flush=True,
+    )
+    _hb = [0.0]
+
+    def _heartbeat(elapsed: float) -> None:
+        if elapsed - _hb[0] >= 30:
+            _hb[0] = elapsed
+            print(
+                f"[external_release] …still waiting ({int(elapsed)}s) — {review_url}",
+                file=sys.stderr,
+                flush=True,
+            )
+
+    response_json = rv.await_resolution(
+        review_id, base_url=base_url, token=token, on_wait=_heartbeat
+    )
     # response_json is the raw resolved response dict; the convention is
     # {decision_id: chosen_option} — find the first decision's value.
     if isinstance(response_json, dict):
