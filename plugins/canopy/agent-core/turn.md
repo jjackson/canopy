@@ -37,6 +37,15 @@ inbox scan (the harness runner passes the ref because it already resolved it —
 re-resolving). Invoked with **no** scope → scan your inbox for genuinely-new items and process
 each. Either way, the per-item rules below apply.
 
+**If the NEWEST message on a thread is your OWN outbound reply, the thread is already handled —
+mark it read and move on. Never respond to your own message.** A thread can land back in `unread`
+for reasons that have nothing to do with a new inbound (label churn, a poller re-touch, a send that
+didn't clear the flag); an unread badge is a hint to *look*, not proof someone replied. So the first
+triage check on any unread thread is *who sent the last message* — if it was you, the ball is in
+THEIR court and there is nothing to answer; mark it read (your own `--account`, reversible) and name
+it in the closeout ("thread `<subject>` — last message was mine, marked read"). Only treat a thread
+as actionable when the newest message is from someone else.
+
 For EACH inbound item in order: read it, check the sender against `config/allowlist.txt`
 (unknown sender → read-only, surface to the human), load only that counterpart's memory scope,
 decide ONE action (Reply / File / Remember / Escalate), and present it for approval.
