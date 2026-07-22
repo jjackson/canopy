@@ -73,6 +73,21 @@ FILTERS: list[dict] = [
         "query": "from:(concierge@expensify.com OR notifications@expensify.com)",
         "archive": True, "mark_read": True,
     },
+    # Connect platform transactional notifications (via Amazon SES). ACE's own /ace:run
+    # cycles CREATE opportunities, and each one bounces a "New Opportunity Created: …" (plus
+    # "Reminder: … opportunities ending …", "Invitation to Program: …") FYI back to ace@ from
+    # this devops automation address — body: "This inbox is not monitored. Please do not
+    # respond." Ada's 2026-07-22 session review caught one ("20260722-1341 · Household Poverty
+    # Targeting Survey") auto-spawn a full ACE turn that read the thread, classified it as
+    # noise, and marked it read — zero output, pure wasted tokens. From: is a stable literal
+    # (not spoofed), so a from: filter catches it cleanly and the runner's is:unread poll never
+    # spawns the turn. Orphan/drift detection for unrecognized opps stays with /ace:sweep (the
+    # dedicated path), NOT this email — so nothing real is lost by never surfacing these.
+    {
+        "name": "connect-devops-notifications",
+        "query": "from:connect-devops@dimagi.com",
+        "archive": True, "mark_read": True,
+    },
 ]
 
 
