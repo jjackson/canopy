@@ -66,6 +66,57 @@ def test_create_agent_writes_full_layout(tmp_path):
         assert required in names, f"missing {required}"
 
 
+def test_create_agent_stamps_auto_bump(tmp_path):
+    """Issue #357: every new agent ships bump-on-every-merge automation."""
+    written = create_agent(_spec(), tmp_path / "echo")
+    names = {p.relative_to(tmp_path / "echo").as_posix() for p in written}
+    assert "scripts/bump-plugin-version.py" in names
+    assert ".github/workflows/auto-version-bump.yml" in names
+
+
+def test_bump_script_bumps_all_version_fields(tmp_path):
+    """The stamped bump script advances plugin.json + both marketplace.json fields."""
+    root = tmp_path / "echo"
+    create_agent(_spec(), root)
+    # The factory doesn't stamp marketplace.json, so add one the way live agents carry it.
+    (root / ".claude-plugin" / "marketplace.json").write_text(
+        json.dumps(
+            {
+                "name": "echo",
+                "metadata": {"version": "0.1.0"},
+                "plugins": [{"name": "echo", "source": "./", "version": "0.1.0"}],
+            },
+            indent=2,
+        )
+    )
+    script = root / "scripts" / "bump-plugin-version.py"
+    assert script.stat().st_mode & 0o111, "bump script should be executable"
+    out = subprocess.run(
+        [sys.executable, str(script)], capture_output=True, text=True, check=True
+    )
+    assert out.stdout.strip() == "0.1.0 -> 0.1.1"
+    plugin = json.loads((root / ".claude-plugin" / "plugin.json").read_text())
+    market = json.loads((root / ".claude-plugin" / "marketplace.json").read_text())
+    assert plugin["version"] == "0.1.1"
+    assert market["metadata"]["version"] == "0.1.1"
+    assert market["plugins"][0]["version"] == "0.1.1"
+
+
+def test_bump_script_tolerates_missing_marketplace(tmp_path):
+    """Bumping must not crash on an agent that has no marketplace.json yet."""
+    root = tmp_path / "echo"
+    create_agent(_spec(), root)
+    assert not (root / ".claude-plugin" / "marketplace.json").exists()
+    subprocess.run(
+        [sys.executable, str(root / "scripts" / "bump-plugin-version.py")],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    plugin = json.loads((root / ".claude-plugin" / "plugin.json").read_text())
+    assert plugin["version"] == "0.1.1"
+
+
 def test_create_agent_substitutes_tokens(tmp_path):
     create_agent(_spec(), tmp_path / "echo")
     claude_md = (tmp_path / "echo" / "CLAUDE.md").read_text()
