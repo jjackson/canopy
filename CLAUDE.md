@@ -146,16 +146,25 @@ decision guide. Reach for the row that matches your **grain**:
 | Menu-driven pick + act | `/canopy:select-session` / `/canopy:session-review` | Interactive: choose a project/session, analyze, propose, implement behind gates. |
 | One AGENT's own turns | `canopy agent-review <slug>` / `/canopy:agent-review` | Reviews an agent's recent TURN transcripts for operating-model friction. Assembles its prompt INLINE (see note below). |
 
-**Prompt-loading convention (post-#352):** the product analysis prompts
-(`analyze` / `propose` / `review` / `briefing` / `verify-findings`) are external
-`prompts/*.md` templates loaded install-safely via `importlib.resources`
-(`orchestrator/prompts/__init__.py::load_prompt`) — robust even when the wheel is
-relocated/zipped, belt-and-suspenders with #351's `package-data`. The **one**
-analysis path that keeps an inline prompt is `agent_review.build_review_prompt`,
-**by design, not accident**: `agent_review` is FRAMEWORK tier and `prompts/` is
-PRODUCT tier (`TIERS.md`), so loading from the product package there would break
-the framework→product boundary (`tests/test_plugin_boundary.py`). #352 originally
-read that split as accidental; it is enforced.
+**Prompt-loading convention (post-#352) — one rule per tier:**
+- **PRODUCT, user-editable templates** (`analyze` / `propose` / `review` /
+  `briefing` / `verify-findings`) → external `prompts/*.md`, loaded install-safely
+  via `importlib.resources` (`orchestrator/prompts/__init__.py::load_prompt`) —
+  robust even when the wheel is relocated/zipped, belt-and-suspenders with #351's
+  `package-data`.
+- **FRAMEWORK logic-prompts** (`agent_review.build_review_prompt`,
+  `fleet_align.build_judgment_prompt`) → **inline** — static, co-located with the
+  logic they serve, and immune to the #351 packaging class (a Python string literal
+  always ships). Loading the PRODUCT `prompts/` package from a FRAMEWORK module
+  would also break the framework→product boundary (`tests/test_plugin_boundary.py`).
+
+#352 read the inline/external split as an accidental inconsistency to collapse. A
+canopy + fleet scan showed otherwise: the framework-inline set is a real class
+(`agent_review` **and** `fleet_align`; the 5 agents have no python-level prompts at
+all — theirs live in markdown skills), and a framework template store would serve
+only those two packaging-immune prompts. So the split is kept as a deliberate
+two-tier rule — the loader is hardened (`importlib.resources`), not the conventions
+merged. A future framework judge-prompt follows the framework rule: inline it.
 
 ## Key Modules
 
