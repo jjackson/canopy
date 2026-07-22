@@ -39,6 +39,20 @@ FILTERS: list[dict] = [
                   'OR "offline until")'),
         "archive": True, "mark_read": True,
     },
+    # Google Calendar "share my calendar" invitations. Ada's 2026-07-22 review caught one
+    # (Beth sharing her calendar) spawn a full eva turn that spelunked the Calendar API before
+    # concluding "no action." Same shape as the OOO rule: it's auto-generated
+    # (Auto-Submitted: auto-generated) but Gmail can't match that header — and worse, the
+    # From: is SPOOFED to the human sharer (Sender: is calendar-notification@google.com), so
+    # a from: filter would either miss it or archive the person's real mail. Match the exact
+    # high-precision subject the share-invite always carries. Real event invites/RSVPs use
+    # different subjects and are NOT matched. (Docs/Drive share pings stay unfiltered — those
+    # carry real work routing; a calendar SHARE invite does not.)
+    {
+        "name": "calendar-share-invites",
+        "query": 'subject:("invitation to join shared calendar" OR "invitation to view shared calendar")',
+        "archive": True, "mark_read": True,
+    },
     # Ada's first fleet audit (2026-07-14) found ~90 junk threads across agent inboxes,
     # dominated by these three senders (hal alone: 45 GitHub notifications, 10 Google
     # Cloud upsells, 4 Expensify). Agents work GitHub via the gh CLI, never via email.

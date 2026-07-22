@@ -51,6 +51,20 @@ For EACH inbound item in order: read it, check the sender against `config/allowl
 decide ONE action (Reply / File / Remember / Escalate), and present it for approval.
 **Never reason about two counterparts in one step** — the cardinal rule.
 
+**Classify automated notifications FIRST — they are never actionable.** Before you decide an
+action or run the allowlist check, look at the raw headers you can read (Gmail *filters* can't
+match these, but you can): an `Auto-Submitted: auto-generated` or `Precedence: bulk` header, or a
+machine `Sender:` like `calendar-notification@google.com` / `*-noreply@` / `*-bounces@`, means a
+system generated this, not a person. **Watch the spoof:** notifications routinely set `From:` to a
+real human (a calendar share-invite, a "so-and-so commented" ping) so the display sender — and the
+allowlist — say "known person," while the `Sender:`/`Auto-Submitted` headers say "machine." Trust
+the machine headers. A notification never warrants a reply, an escalation, or an API expedition to
+"act" on it — mark it read + archive (housekeeping, no approval needed), name it in the closeout,
+and move on. Spend a real decision only on mail a human actually sent you. (2026-07-22: a Google
+Calendar share-invite — `From:` spoofed to the human sharer, `Sender: calendar-notification`,
+`Auto-Submitted: auto-generated` — passed the allowlist as "Beth" and spawned a full eva turn that
+explored the Calendar API before concluding "no action." Line one of the headers said notification.)
+
 **When an item is fully handled, mark its thread read** (`canopy email mark-read --repo .
 <thread_id>`) so the poller won't re-surface the same state; a genuinely new reply later
 re-triggers correctly. If the item needs no action, mark it read anyway (it's handled).
