@@ -301,7 +301,14 @@ def friction_signals(
 
 
 def build_review_prompt(repo: Path, corpus: list[dict]) -> str:
-    """Assemble the friction corpus + agent identity into an evaluator–optimizer prompt."""
+    """Assemble the friction corpus + agent identity into an evaluator–optimizer prompt.
+
+    Assembled INLINE by the framework-tier convention (#352): framework logic-prompts
+    stay inline — static, co-located with their logic, and immune to the #351 packaging
+    class (a Python string literal always ships, unlike an external `.md`) — while
+    PRODUCT, user-editable templates go external via `prompts/load_prompt`. Loading from
+    the PRODUCT `prompts/` package here would also break the framework→product boundary
+    (`tests/test_plugin_boundary.py`). Sibling site: `fleet_align.build_judgment_prompt`."""
     persona = ""
     pp = repo / "persona.md"
     if pp.exists():

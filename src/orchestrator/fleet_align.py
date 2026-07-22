@@ -548,6 +548,12 @@ def _run_claude(prompt: str, model: str = "sonnet", timeout: int = 180) -> str:
 
 
 def build_judgment_prompt(findings: list[Finding]) -> str:
+    """Assemble the fleet-alignment judge prompt.
+
+    Inline by the framework-tier convention (#352 / `TIERS.md`): framework logic-prompts
+    stay inline (static, co-located, immune to the #351 packaging class); PRODUCT
+    editable templates go external via `prompts/load_prompt`. Sibling site:
+    `agent_review.build_review_prompt`."""
     rows = []
     for i, f in enumerate(findings):
         ev = [f"{e.agent}/{e.session_id[:8]} ({e.when}): {e.excerpt[:160]}" for e in f.evidence]
