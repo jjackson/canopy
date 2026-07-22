@@ -82,6 +82,27 @@ adds agent-specifics (send path, paired reviewers); the general discipline lives
     back to yourself. (Origin: an agent reported its repetition fixes done, then the requester
     immediately caught four it had missed — Jonathan, 2026-07-13.)
 
+## E. Counterpart framing — how the reply LANDS with an external counterpart
+Run this whenever the recipient is an external counterpart (a partner, funder, or client),
+especially the decision-maker, and especially on a group thread. §A–D can all pass while the reply
+still lands wrong on the person — this is the lens that catches that.
+14. **Don't re-litigate the counterpart's own claims — translate, don't audit.** If you researched
+    a figure or fact THEY supplied, present it as translating to the decision in front of us ("what
+    that means for the rural villages we'd actually build for"), sourced and collaborative ("points
+    the same way you did") — never as correcting them ("your 50% is really the male rate").
+    Reframing a decision-maker's own number in front of their team reads as a gotcha, however right
+    you are. Verify quietly, then apply it to our case.
+15. **Sourced, not asserted, for external facts.** For any external factual claim, write "I went
+    looking for public data on this and here's what I found — X (link); the sources vary by year and
+    definition" — NOT "X is the number." Link the source, name the uncertainty, and defer to the
+    counterpart's own field data as better than any public source.
+16. **Own initiative honestly.** Describe extra work you chose to do as your own idea, in your own
+    voice — never imply you were asked or assigned to do something you weren't (and never that you
+    weren't, when you were). (Origin: 2026-07-22, a Spark reply passed §A–D three times while the
+    human had to catch, on each revision, that it audited the partner's own figures, asserted
+    contested numbers as fact, and implied assigned research — none of which the
+    fidelity/grounding/presentation/repetition lenses test for.)
+
 ## Adopting it in an agent (the thin extension)
 Keep a repo-local `skills/agent-turn-review/SKILL.md` that (a) says "invoke `canopy:agent-turn-review`
 and apply it", and (b) lists only agent-specifics: the sanctioned send path (§B's draft-then-ask
