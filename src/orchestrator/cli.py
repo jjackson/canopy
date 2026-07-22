@@ -1390,11 +1390,14 @@ def create_agent_cmd(slug, name, mandate, mailbox, stakeholders, target, force, 
 @click.argument("agent")
 @click.option("--hours", default=168, type=int, help="Look back this many hours (default: 7 days)")
 @click.option("--no-llm", is_flag=True, help="Deterministic friction signals only; skip claude -p")
+@click.option("--no-verify", is_flag=True,
+              help="Skip the source-verification gate (by default findings already shipped to "
+                   "origin/main are dropped before they're returned)")
 @click.option("--model", default="sonnet", help="Model for the synthesis pass")
 @click.option("--max-budget-usd", default=2.0, type=float,
               help="USD cap for the claude -p synthesis pass (default: 2.0)")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def agent_review_cmd(agent, hours, no_llm, model, max_budget_usd, as_json):
+def agent_review_cmd(agent, hours, no_llm, no_verify, model, max_budget_usd, as_json):
     """Review an agent's recent TURNS for operating-model friction and recommend fixes.
 
     AGENT is a slug (e.g. `echo`) or a path to the agent repo. Build 2 of the agent operating
@@ -1404,8 +1407,8 @@ def agent_review_cmd(agent, hours, no_llm, model, max_budget_usd, as_json):
     import json as json_mod
     from orchestrator.agent_review import run_review, FRICTION_TYPES
 
-    result = run_review(agent, hours=hours, use_llm=not no_llm, model=model,
-                        max_budget_usd=max_budget_usd)
+    result = run_review(agent, hours=hours, use_llm=not no_llm, verify=not no_verify,
+                        model=model, max_budget_usd=max_budget_usd)
 
     if as_json:
         click.echo(json_mod.dumps(result, indent=2, default=str))
@@ -1446,6 +1449,18 @@ def agent_review_cmd(agent, hours, no_llm, model, max_budget_usd, as_json):
                 click.echo(f"      fix: {f.get('fix_kind','?')} → {f['target']}")
             if f.get("recommendation"):
                 click.echo(f"      {str(f['recommendation'])[:160]}")
+    dropped = result.get("dropped_findings", [])
+    if dropped:
+        click.echo(f"\nDropped by source gate — already shipped to origin/main ({len(dropped)}):")
+        for f in dropped:
+            if not isinstance(f, dict):
+                continue
+            ev = (f.get("verification") or {}).get("evidence") or ""
+            click.echo(f"  ✓ {f.get('title','')}")
+            if ev:
+                click.echo(f"      {str(ev)[:160]}")
+    if not findings and dropped:
+        pass  # all findings were already-shipped; the drop list above says so
     elif result.get("error"):
         click.echo(f"\n(no LLM findings — {result['error']})")
     elif not no_llm:

@@ -268,3 +268,102 @@ def test_run_review_surfaces_stdout_error_and_sane_budget(tmp_path, monkeypatch)
     assert "Exceeded USD budget" in result["error"]          # (a) stdout not swallowed
     budget = float(seen_cmds[0][seen_cmds[0].index("--max-budget-usd") + 1])
     assert budget > 0.5                                       # (b) default clears the observed cost
+
+
+# --- Source-verification gate (the recurring "re-surfaced an already-fixed finding" bug) ---
+
+def test_source_gate_drops_shipped_keeps_live_and_annotates(tmp_path):
+    """The gate drops a finding the LLM verdicts `shipped` and keeps `live`/`unverifiable`
+    ones, annotating each with its verdict. git calls no-op in a non-repo tmp dir."""
+    from orchestrator.agent_review import verify_findings_against_source
+
+    findings = [
+        {"title": "add reply-all default", "target": "bin/echo_email.py",
+         "recommendation": "flip the default"},
+        {"title": "label denominators", "target": "skills/org-research/SKILL.md",
+         "recommendation": "inline the denominator"},
+        {"title": "mystery", "target": "skills/x/SKILL.md", "recommendation": "do x"},
+    ]
+
+    def fake_verdict(_prompt):
+        return [
+            {"index": 0, "verdict": "shipped", "evidence": "already reads as:eva@ in main"},
+            {"index": 1, "verdict": "live", "evidence": "still bare percentages"},
+            # index 2 omitted → defaults to unverifiable → KEPT
+        ]
+
+    kept, dropped = verify_findings_against_source(tmp_path, findings, verdict_fn=fake_verdict)
+    assert [f["title"] for f in dropped] == ["add reply-all default"]
+    assert dropped[0]["verification"]["verdict"] == "shipped"
+    assert [f["title"] for f in kept] == ["label denominators", "mystery"]
+    assert kept[0]["verification"]["verdict"] == "live"
+    assert kept[1]["verification"]["verdict"] == "unverifiable"   # missing verdict → kept
+
+
+def test_source_gate_fails_open_when_verification_unavailable(tmp_path):
+    """If the verdict pass returns nothing (LLM error/parse miss), NOTHING is dropped —
+    the gate never silently eats a finding it couldn't check."""
+    from orchestrator.agent_review import verify_findings_against_source
+
+    findings = [{"title": "z", "target": "a/b.py", "recommendation": "do z"}]
+    kept, dropped = verify_findings_against_source(tmp_path, findings, verdict_fn=lambda _p: None)
+    assert dropped == []
+    assert kept == findings   # unchanged, not annotated — a true no-op on failure
+
+
+def test_run_review_applies_source_gate(tmp_path, monkeypatch):
+    """run_review wires the gate: a synthesized finding the gate marks shipped lands in
+    dropped_findings, not findings — with the gate ON by default."""
+    import subprocess as sp
+    from orchestrator import agent_review as ar
+
+    repo = tmp_path / "repositories" / "echo"
+    (repo / "skills").mkdir(parents=True)
+    projects = tmp_path / "projects"
+    d = projects / "-Users-x-emdash-repositories-echo"
+    d.mkdir(parents=True)
+    _write_transcript(d / "a.jsonl", str(repo), [("Read", {"file_path": "/x"}, "ok")])
+
+    def fake_run(cmd, **kwargs):   # the synthesis claude -p call
+        return sp.CompletedProcess(
+            cmd, returncode=0,
+            stdout="- title: already fixed thing\n  friction_type: tool_failure\n", stderr="")
+
+    monkeypatch.setattr(ar.subprocess, "run", fake_run)
+    # Stub the gate's verdict so no real git/LLM runs; mark the only finding shipped.
+    monkeypatch.setattr(
+        ar, "verify_findings_against_source",
+        lambda repo, findings, **kw: ([], [{**findings[0], "verification": {"verdict": "shipped"}}]),
+    )
+
+    result = ar.run_review(str(repo), projects_dir=projects)
+    assert result["findings"] == []
+    assert len(result["dropped_findings"]) == 1
+    assert result["dropped_findings"][0]["title"] == "already fixed thing"
+
+
+def test_run_review_no_verify_skips_gate(tmp_path, monkeypatch):
+    """--no-verify (verify=False) returns synthesized findings untouched — the gate never runs."""
+    import subprocess as sp
+    from orchestrator import agent_review as ar
+
+    repo = tmp_path / "repositories" / "echo"
+    (repo / "skills").mkdir(parents=True)
+    projects = tmp_path / "projects"
+    d = projects / "-Users-x-emdash-repositories-echo"
+    d.mkdir(parents=True)
+    _write_transcript(d / "a.jsonl", str(repo), [("Read", {"file_path": "/x"}, "ok")])
+
+    def fake_run(cmd, **kwargs):
+        return sp.CompletedProcess(
+            cmd, returncode=0, stdout="- title: t\n  friction_type: tool_failure\n", stderr="")
+
+    monkeypatch.setattr(ar.subprocess, "run", fake_run)
+
+    def boom(*a, **k):
+        raise AssertionError("gate must not run when verify=False")
+
+    monkeypatch.setattr(ar, "verify_findings_against_source", boom)
+    result = ar.run_review(str(repo), projects_dir=projects, verify=False)
+    assert len(result["findings"]) == 1
+    assert result["dropped_findings"] == []
