@@ -292,7 +292,8 @@ def test_source_gate_drops_shipped_keeps_live_and_annotates(tmp_path):
             # index 2 omitted → defaults to unverifiable → KEPT
         ]
 
-    kept, dropped = verify_findings_against_source(tmp_path, findings, verdict_fn=fake_verdict)
+    kept, dropped, error = verify_findings_against_source(tmp_path, findings, verdict_fn=fake_verdict)
+    assert error is None
     assert [f["title"] for f in dropped] == ["add reply-all default"]
     assert dropped[0]["verification"]["verdict"] == "shipped"
     assert [f["title"] for f in kept] == ["label denominators", "mystery"]
@@ -306,9 +307,10 @@ def test_source_gate_fails_open_when_verification_unavailable(tmp_path):
     from orchestrator.agent_review import verify_findings_against_source
 
     findings = [{"title": "z", "target": "a/b.py", "recommendation": "do z"}]
-    kept, dropped = verify_findings_against_source(tmp_path, findings, verdict_fn=lambda _p: None)
+    kept, dropped, error = verify_findings_against_source(tmp_path, findings, verdict_fn=lambda _p: None)
     assert dropped == []
     assert kept == findings   # unchanged, not annotated — a true no-op on failure
+    assert error                # ...and the reason is surfaced, never a silent pass
 
 
 def test_run_review_applies_source_gate(tmp_path, monkeypatch):
@@ -333,13 +335,42 @@ def test_run_review_applies_source_gate(tmp_path, monkeypatch):
     # Stub the gate's verdict so no real git/LLM runs; mark the only finding shipped.
     monkeypatch.setattr(
         ar, "verify_findings_against_source",
-        lambda repo, findings, **kw: ([], [{**findings[0], "verification": {"verdict": "shipped"}}]),
+        lambda repo, findings, **kw: ([], [{**findings[0], "verification": {"verdict": "shipped"}}], None),
     )
 
     result = ar.run_review(str(repo), projects_dir=projects)
     assert result["findings"] == []
     assert len(result["dropped_findings"]) == 1
     assert result["dropped_findings"][0]["title"] == "already fixed thing"
+
+
+def test_run_review_surfaces_verification_error(tmp_path, monkeypatch):
+    """When the source gate can't run, run_review KEEPS the findings and records
+    `verification_error` — a silent no-op gate (unverified findings looking verified)
+    is the failure mode we're closing."""
+    import subprocess as sp
+    from orchestrator import agent_review as ar
+
+    repo = tmp_path / "repositories" / "echo"
+    (repo / "skills").mkdir(parents=True)
+    projects = tmp_path / "projects"
+    d = projects / "-Users-x-emdash-repositories-echo"
+    d.mkdir(parents=True)
+    _write_transcript(d / "a.jsonl", str(repo), [("Read", {"file_path": "/x"}, "ok")])
+
+    def fake_run(cmd, **kwargs):
+        return sp.CompletedProcess(
+            cmd, returncode=0, stdout="- title: t\n  friction_type: tool_failure\n", stderr="")
+
+    monkeypatch.setattr(ar.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        ar, "verify_findings_against_source",
+        lambda repo, findings, **kw: (list(findings), [], "verify pass timed out after 300s"),
+    )
+    result = ar.run_review(str(repo), projects_dir=projects)
+    assert len(result["findings"]) == 1          # kept (fail-open)
+    assert result["dropped_findings"] == []
+    assert "timed out" in result["verification_error"]
 
 
 def test_run_review_no_verify_skips_gate(tmp_path, monkeypatch):

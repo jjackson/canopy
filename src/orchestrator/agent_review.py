@@ -445,20 +445,29 @@ def build_verify_prompt(repo: Path, findings: list[dict], corpus: dict) -> str:
 
 
 def _call_verify_llm(prompt: str, model: str, max_budget_usd: float,
-                     timeout: int = 150) -> list[dict] | None:
-    """Run the verdict pass. Returns the parsed YAML list, or None on any failure —
-    None means 'could not verify', which the caller treats as KEEP-everything."""
+                     timeout: int = 300) -> tuple[list[dict] | None, str | None]:
+    """Run the verdict pass. Returns (verdicts, error). `error` is None on success and
+    a human-readable reason on any failure — a silent None-on-fail gate is worse than
+    no gate (it presents UNVERIFIED findings as if they'd been checked), so every
+    failure path names itself and the caller surfaces it LOUDLY."""
     try:
         proc = subprocess.run(
             ["claude", "-p", prompt, "--model", model,
              "--max-budget-usd", str(max_budget_usd), "--no-session-persistence"],
             capture_output=True, text=True, timeout=timeout,
         )
-    except (subprocess.SubprocessError, OSError):
-        return None
+    except subprocess.TimeoutExpired:
+        return None, f"verify pass timed out after {timeout}s"
+    except (subprocess.SubprocessError, OSError) as exc:
+        return None, f"verify pass subprocess error: {exc}"
     if proc.returncode != 0:
-        return None
-    return parse_findings(proc.stdout)  # same tolerant YAML-list parser
+        # claude -p prints some errors (e.g. budget) to STDOUT with empty stderr.
+        detail = (proc.stderr.strip() or proc.stdout.strip())[:200]
+        return None, f"verify pass claude -p exited {proc.returncode}: {detail}"
+    verdicts = parse_findings(proc.stdout)  # same tolerant YAML-list parser
+    if not verdicts:
+        return None, f"verify pass output did not parse to a YAML list (head: {proc.stdout[:120]!r})"
+    return verdicts, None
 
 
 def verify_findings_against_source(
@@ -466,20 +475,21 @@ def verify_findings_against_source(
     findings: list[dict],
     *,
     model: str = "sonnet",
-    max_budget_usd: float = 0.75,
+    max_budget_usd: float = 2.0,
     since: str = "21 days ago",
     verdict_fn=None,
-) -> tuple[list, list]:
+) -> tuple[list, list, str | None]:
     """Drop findings whose fix is ALREADY in the agent repo's current origin/main.
 
-    Returns (kept, dropped). Every finding — kept or dropped — is annotated with a
-    `verification` block ({verdict, evidence}) so the judgment is auditable. FAIL-OPEN:
-    on any verification failure (LLM error, empty/parse-miss output) ALL findings are
-    KEPT unchanged — the gate never silently eats a finding it could not actually check.
+    Returns (kept, dropped, error). Every finding — kept or dropped — is annotated with
+    a `verification` block ({verdict, evidence}) so the judgment is auditable. FAIL-OPEN
+    BUT LOUD: on any verification failure (LLM error, empty/parse-miss output) ALL
+    findings are KEPT unchanged AND `error` is set to the reason — the caller must
+    surface it so nobody mistakes "gate couldn't run" for "gate passed everything".
     """
     real = [f for f in findings if isinstance(f, dict)]
     if not real:
-        return list(findings), []
+        return list(findings), [], None
     # Fetch so the corpus reflects the true current main, not a stale local ref.
     try:
         subprocess.run(["git", "-C", str(repo), "fetch", "origin", "main"],
@@ -488,10 +498,13 @@ def verify_findings_against_source(
         pass
     corpus = build_verify_corpus(repo, real, since=since)
     prompt = build_verify_prompt(repo, real, corpus)
-    fn = verdict_fn or (lambda p: _call_verify_llm(p, model, max_budget_usd))
-    verdicts = fn(prompt)
+    if verdict_fn is not None:
+        verdicts = verdict_fn(prompt)
+        error = None if verdicts else "verdict_fn returned no verdicts"
+    else:
+        verdicts, error = _call_verify_llm(prompt, model, max_budget_usd)
     if not verdicts:
-        return list(findings), []  # could not verify → keep everything (fail-open)
+        return list(findings), [], error  # fail-open, but WITH a reason
 
     by_index: dict[int, dict] = {}
     for v in verdicts:
@@ -508,7 +521,7 @@ def verify_findings_against_source(
         verdict = v.get("verdict", "unverifiable")
         annotated = {**f, "verification": {"verdict": verdict, "evidence": v.get("evidence")}}
         (dropped if verdict == "shipped" else kept).append(annotated)
-    return kept, dropped
+    return kept, dropped, None
 
 
 def run_review(
@@ -560,11 +573,13 @@ def run_review(
         # ENFORCED source gate: drop findings a later commit already shipped, BEFORE
         # they're returned. Fails open (keeps everything) if it can't verify.
         if verify and findings:
-            kept, dropped = verify_findings_against_source(
-                repo, findings, model=model, max_budget_usd=min(max_budget_usd, 1.0),
+            kept, dropped, verify_error = verify_findings_against_source(
+                repo, findings, model=model, max_budget_usd=max(max_budget_usd, 1.5),
             )
             result["findings"] = kept
             result["dropped_findings"] = dropped
+            if verify_error:
+                result["verification_error"] = verify_error
         else:
             result["findings"] = findings
     else:

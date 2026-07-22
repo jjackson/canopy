@@ -1459,6 +1459,11 @@ def agent_review_cmd(agent, hours, no_llm, no_verify, model, max_budget_usd, as_
             click.echo(f"  ✓ {f.get('title','')}")
             if ev:
                 click.echo(f"      {str(ev)[:160]}")
+    verify_error = result.get("verification_error")
+    if verify_error and findings:
+        click.echo(f"\n⚠  SOURCE GATE DID NOT RUN — the {len(findings)} finding(s) above are "
+                   f"UNVERIFIED against current origin/main.\n   reason: {verify_error}\n"
+                   "   Re-verify each finding against source before acting on it.")
     if not findings and dropped:
         pass  # all findings were already-shipped; the drop list above says so
     elif result.get("error"):
