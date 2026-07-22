@@ -111,17 +111,17 @@ it.
 - **Verify recipients before sending.** Get the to/cc list from the channel's structured reader
   (or `--reply-all`), NEVER from a raw text mail view — a raw `gog gmail read` hides the `Cc:`
   line and silently drops cc'd people. Confirm reply-all vs. direct deliberately.
-- **Show the team how you evolved — in the reply itself, not just the closeout.** When a turn
-  created or improved a skill (Step 3) AND the reply goes to **internal stakeholders in your work**
-  (your team / operators — the people steering you), add a short, plain-language line on how you
-  changed the way you work this turn and why ("Two of you flagged X, so from now on I always Y").
-  The whole point of the operating model is that the humans watch the agent *learn* turn over turn —
-  and that only lands if it reaches them where they actually read (the reply), not buried in a
-  session closeout they never open. Rules: keep it to a sentence or two; tie it to THIS turn (real
-  change, real reason — never a vague "I'm always improving"); prefer the change that's relevant to
-  the thread; **omit it entirely on external-counterpart comms** (a funder / partner / client
-  doesn't need your internal process notes — there it's noise). This is the outward, human-facing
-  face of the Step 3 self-check: Step 3 decides what changed; this tells the people who care.
+- **Show the team how you evolved — in the reply itself, with EXACT LINKS.** When a turn created or
+  improved a skill (Step 3) AND the reply goes to **internal stakeholders in your work** (your team /
+  operators — the people steering you), include a short "How I improved this turn" section that
+  **links the concrete artifacts** — the changed **skill(s)** and the **PR(s)** — so a reader can
+  click through and see exactly what changed. NOT a vague "I'm always improving" or a prose sentence
+  with no links: the links ARE the point (this is the outward face of the Step 3 self-check, the way
+  Echo does it). Each item = *what changed, in one plain-language clause* + the skill link + the PR
+  link. Lead with the change that's relevant to the thread; group the rest compactly. **Omit the
+  section entirely on external-counterpart comms** (a funder / partner / client doesn't need your
+  internal process notes — there it's noise). If the turn changed no skill, there's nothing to show —
+  don't manufacture one.
 
 **Email goes out ONLY via `bin/<slug>-email`** (the shared canopy engine — HTML wrapper,
 reply threading; a deny rail blocks raw `gog gmail send`). Every send returns JSON with
@@ -156,12 +156,14 @@ Answer out loud and report:
    no skill owns the behavior — and then say why. (Origin: 2026-07-22, an agent captured "always
    resolve the target email + confidence" as a memory note instead of editing the outreach skills;
    the human had flagged the same memory-instead-of-skill substitution before.)
-5. **Did I EXPRESS that evolution to the people I'm replying to?** If this turn changed a skill and
-   the reply goes to internal stakeholders (your team), surface it in the reply itself, not only
-   here — see the "Show the team how you evolved" reply-quality rule in Step 2. The self-check is
-   inward; the humans steering you should see the agent learning in the message they actually read.
-   (Origin: 2026-07-22 — "I want you expressing it in the reply-all to people so they understand how
-   you're evolving as an agent." Skip it for external-counterpart comms.)
+5. **Did I EXPRESS that evolution to the people I'm replying to — with exact links?** If this turn
+   changed a skill and the reply goes to internal stakeholders (your team), surface it in the reply
+   itself, not only here — a "How I improved this turn" section that **links the changed skill(s)
+   and the PR(s)** so they can click through (see the "Show the team how you evolved" reply-quality
+   rule in Step 2). Links, not a prose sentence. The self-check is inward; the humans steering you
+   should see the agent learning in the message they actually read. (Origin: 2026-07-22 — "I want
+   you expressing it in the reply-all to people so they understand how you're evolving... providing
+   exact links to the skill improvements and the skills and the PRs." Skip it for external comms.)
 
 ## Step 4 — Close the turn
 Give the human ONE concise combined summary, distilled in chat — never an internal markdown
