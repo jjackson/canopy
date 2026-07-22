@@ -1,6 +1,6 @@
 [project]
 name = "canopy"
-version = "0.2.310"
+version = "0.2.311"
 description = "Self-improving MCP orchestration with autoresearch"
 requires-python = ">=3.11"
 dependencies = [
@@ -30,6 +30,15 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# Ship non-.py runtime data in the wheel. Without this, setuptools packages the
+# code but drops these files, so the INSTALLED CLI crashes while `uv run` from a
+# source checkout still works (the files sit next to the code there). That split
+# is what made `canopy analyze`/`improve` fail only when invoked as the installed
+# tool. Keep in sync with any new package-relative data reads.
+[tool.setuptools.package-data]
+orchestrator = ["static/*.html", "TIERS.md"]
+"orchestrator.prompts" = ["*.md"]
 
 [dependency-groups]
 dev = [
