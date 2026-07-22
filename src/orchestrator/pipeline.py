@@ -3,11 +3,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-import yaml
-
 from orchestrator.analyzer import analyze_transcript
 from orchestrator.circuit_breaker import CircuitBreaker
-from orchestrator.registry_sync import sync_registry
 from orchestrator.observations import (
     create_observation,
     find_matching_observation,
@@ -24,7 +21,6 @@ from orchestrator.proposals import (
 )
 from orchestrator.proposer import generate_proposals
 from orchestrator.rate_limiter import RateLimiter
-from orchestrator.registry import load_registry, format_for_skill
 from orchestrator.run_log import create_run_entry, save_run, get_last_run_ts
 from orchestrator.scanner import scan_all_transcripts
 
@@ -44,33 +40,11 @@ class CycleConfig:
 
 def run_cycle(
     state_dir: Path,
-    registry_path: Path,
     config: CycleConfig | None = None,
 ) -> dict:
     """Run one full improvement cycle. Returns the run log entry."""
     config = config or CycleConfig()
     run = create_run_entry()
-
-    # Step 0: Sync registry with actual MCP tools before anything else
-    # Only sync if repos exist (skip in tests with fixture registries)
-    try:
-        registry_check = yaml.safe_load(open(registry_path))
-        has_real_repos = any(
-            Path(s.get("repo", "")).expanduser().exists()
-            for d in (registry_check.get("domains") or {}).values()
-            for s in (d.get("servers") or {}).values()
-        )
-        if has_real_repos:
-            sync_summary = sync_registry(registry_path)
-            changes = {k: v for k, v in sync_summary.items()
-                       if isinstance(v, dict) and (v.get("added") or v.get("removed"))}
-            if changes:
-                run["registry_sync"] = changes
-    except Exception:
-        pass  # Registry sync is best-effort
-
-    registry = load_registry(registry_path)
-    registry_summary = format_for_skill(registry)
 
     obs_dir = state_dir / "observations"
     proposals_dir = state_dir / "proposals"
@@ -111,7 +85,6 @@ def run_cycle(
         try:
             observations = analyze_transcript(
                 Path(t["path"]),
-                registry_summary,
                 model=config.model,
                 max_budget_usd=config.analysis_budget,
             )
@@ -165,7 +138,6 @@ def run_cycle(
     if pending:
         proposals_raw = generate_proposals(
             pending[:config.max_proposals * 2],
-            registry_summary,
             model=config.model,
             max_budget_usd=config.proposal_budget,
         )

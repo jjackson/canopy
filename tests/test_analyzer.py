@@ -14,15 +14,11 @@ FIXTURE = Path(__file__).parent / "fixtures" / "sample_transcript.jsonl"
 
 class TestBuildAnalysisPrompt:
     def test_returns_string(self):
-        prompt = build_analysis_prompt(FIXTURE, registry_summary="test registry")
+        prompt = build_analysis_prompt(FIXTURE)
         assert isinstance(prompt, str)
 
-    def test_includes_registry(self):
-        prompt = build_analysis_prompt(FIXTURE, registry_summary="## Server: connect-search")
-        assert "connect-search" in prompt
-
     def test_includes_transcript_content(self):
-        prompt = build_analysis_prompt(FIXTURE, registry_summary="test")
+        prompt = build_analysis_prompt(FIXTURE)
         assert "maternal health" in prompt.lower() or "search" in prompt.lower()
 
 
@@ -64,18 +60,18 @@ class TestAnalyzeTranscript:
             returncode=0,
             stdout="- type: gap\n  description: test\n  severity: high\n  related_servers: []\n  lifecycle_stage: null\n  evidence: test",
         )
-        result = analyze_transcript(FIXTURE, "test registry")
+        result = analyze_transcript(FIXTURE)
         assert len(result) == 1
         assert result[0]["type"] == "gap"
 
     @patch("orchestrator.analyzer.subprocess.run")
     def test_returns_empty_on_failure(self, mock_run):
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="error")
-        result = analyze_transcript(FIXTURE, "test registry")
+        result = analyze_transcript(FIXTURE)
         assert result == []
 
     @patch("orchestrator.analyzer.subprocess.run")
     def test_returns_empty_on_timeout(self, mock_run):
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="claude", timeout=120)
-        result = analyze_transcript(FIXTURE, "test registry")
+        result = analyze_transcript(FIXTURE)
         assert result == []

@@ -8,7 +8,7 @@ from orchestrator.prompts import load_prompt
 from orchestrator.transcripts import read_transcript
 
 
-def build_review_prompt(transcript_path: Path, registry_summary: str) -> str:
+def build_review_prompt(transcript_path: Path) -> str:
     """Build the review prompt using the same transcript rendering as analyze."""
     import json
     entries = read_transcript(transcript_path)
@@ -38,17 +38,16 @@ def build_review_prompt(transcript_path: Path, registry_summary: str) -> str:
                             parts.append(f"TOOL CALL: {block['name']}({json.dumps(block.get('input', {}))})")
 
     transcript_text = "\n".join(parts)
-    return load_prompt("review", registry_summary=registry_summary, transcript_text=transcript_text)
+    return load_prompt("review", transcript_text=transcript_text)
 
 
 def run_review(
     transcript_path: Path,
-    registry_summary: str,
     model: str = "sonnet",
     max_budget_usd: float = 1.00,
 ) -> str | None:
     """Run a strategic AI review. Returns markdown string or None on failure."""
-    prompt = build_review_prompt(transcript_path, registry_summary)
+    prompt = build_review_prompt(transcript_path)
 
     try:
         result = subprocess.run(

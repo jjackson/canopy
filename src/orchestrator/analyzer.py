@@ -9,7 +9,7 @@ from orchestrator.prompts import load_prompt
 from orchestrator.transcripts import read_transcript
 
 
-def build_analysis_prompt(transcript_path: Path, registry_summary: str) -> str:
+def build_analysis_prompt(transcript_path: Path) -> str:
     """Build the full prompt for transcript analysis."""
     entries = read_transcript(transcript_path)
 
@@ -46,7 +46,6 @@ def build_analysis_prompt(transcript_path: Path, registry_summary: str) -> str:
 
     return load_prompt(
         "analyze",
-        registry_summary=registry_summary,
         transcript_text=transcript_text,
     )
 
@@ -72,12 +71,11 @@ def parse_analysis_output(output: str) -> list[dict]:
 
 def analyze_transcript(
     transcript_path: Path,
-    registry_summary: str,
     model: str = "sonnet",
     max_budget_usd: float = 0.50,
 ) -> list[dict]:
     """Analyze a transcript by invoking claude -p. Returns list of observations."""
-    prompt = build_analysis_prompt(transcript_path, registry_summary)
+    prompt = build_analysis_prompt(transcript_path)
 
     try:
         result = subprocess.run(

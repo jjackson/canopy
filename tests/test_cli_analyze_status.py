@@ -14,22 +14,16 @@ from click.testing import CliRunner
 from orchestrator.cli import main
 
 
-@patch("orchestrator.cli.find_registry")
-@patch("orchestrator.cli.load_registry")
-@patch("orchestrator.cli.format_for_skill")
 @patch("orchestrator.cli.ensure_canopy_dir")
 @patch("orchestrator.analyzer.analyze_transcript")
 class TestAnalyzeStatusSentinels:
-    def _setup_mocks(self, find_reg, load_reg, fmt, ensure, analyze, tmp_path):
-        find_reg.return_value = Path("/fake/registry.yaml")
-        load_reg.return_value = {}
-        fmt.return_value = "registry-summary"
+    def _setup_mocks(self, ensure, analyze, tmp_path):
         ensure.return_value = tmp_path
 
     def test_started_line_emitted_first(
-        self, mock_analyze, mock_ensure, mock_fmt, mock_load, mock_find, tmp_path
+        self, mock_analyze, mock_ensure, tmp_path
     ):
-        self._setup_mocks(mock_find, mock_load, mock_fmt, mock_ensure, mock_analyze, tmp_path)
+        self._setup_mocks(mock_ensure, mock_analyze, tmp_path)
         mock_analyze.return_value = []
         transcript = tmp_path / "fake.jsonl"
         transcript.write_text("{}\n")
@@ -43,9 +37,9 @@ class TestAnalyzeStatusSentinels:
         assert str(transcript) in result.output.splitlines()[0]
 
     def test_done_zero_observations_no_propose(
-        self, mock_analyze, mock_ensure, mock_fmt, mock_load, mock_find, tmp_path
+        self, mock_analyze, mock_ensure, tmp_path
     ):
-        self._setup_mocks(mock_find, mock_load, mock_fmt, mock_ensure, mock_analyze, tmp_path)
+        self._setup_mocks(mock_ensure, mock_analyze, tmp_path)
         mock_analyze.return_value = []
         transcript = tmp_path / "fake.jsonl"
         transcript.write_text("{}\n")
@@ -57,9 +51,9 @@ class TestAnalyzeStatusSentinels:
         assert "No observations found." in result.output
 
     def test_done_observations_no_propose(
-        self, mock_analyze, mock_ensure, mock_fmt, mock_load, mock_find, tmp_path
+        self, mock_analyze, mock_ensure, tmp_path
     ):
-        self._setup_mocks(mock_find, mock_load, mock_fmt, mock_ensure, mock_analyze, tmp_path)
+        self._setup_mocks(mock_ensure, mock_analyze, tmp_path)
         mock_analyze.return_value = [
             {"type": "friction", "description": "x", "severity": "low", "related_servers": []},
             {"type": "gap", "description": "y", "severity": "medium", "related_servers": []},
@@ -74,9 +68,9 @@ class TestAnalyzeStatusSentinels:
         assert "STATUS: DONE 2-observations no-propose" in result.output
 
     def test_failed_when_analyze_raises(
-        self, mock_analyze, mock_ensure, mock_fmt, mock_load, mock_find, tmp_path
+        self, mock_analyze, mock_ensure, tmp_path
     ):
-        self._setup_mocks(mock_find, mock_load, mock_fmt, mock_ensure, mock_analyze, tmp_path)
+        self._setup_mocks(mock_ensure, mock_analyze, tmp_path)
         mock_analyze.side_effect = RuntimeError("simulated rate-limit")
         transcript = tmp_path / "fake.jsonl"
         transcript.write_text("{}\n")
@@ -90,11 +84,11 @@ class TestAnalyzeStatusSentinels:
         assert "simulated rate-limit" in result.output
 
     def test_status_started_includes_transcript_path(
-        self, mock_analyze, mock_ensure, mock_fmt, mock_load, mock_find, tmp_path
+        self, mock_analyze, mock_ensure, tmp_path
     ):
         # The transcript path on the STARTED line is what lets a parallel
         # caller correlate output files back to specific sessions.
-        self._setup_mocks(mock_find, mock_load, mock_fmt, mock_ensure, mock_analyze, tmp_path)
+        self._setup_mocks(mock_ensure, mock_analyze, tmp_path)
         mock_analyze.return_value = []
         transcript = tmp_path / "session-abc-123.jsonl"
         transcript.write_text("{}\n")

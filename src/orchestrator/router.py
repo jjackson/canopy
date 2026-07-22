@@ -1,7 +1,7 @@
 """Tiered routing — classify proposals by complexity and route to cheapest tier.
 
 Inspired by Citadel's four-tier model, simplified to three:
-- inline: simple fix, no subprocess (registry update, config change)
+- inline: simple fix, no subprocess (config change)
 - single: one claude -p session (new tool, improvement)
 - team: agent team with parallel teammates (new server, complex refactor)
 """
@@ -15,7 +15,6 @@ TIER_CONFIG = {
 
 # Proposal type → default tier
 TYPE_TIER_MAP = {
-    "registry_update": "inline",
     "new_tool": "single",
     "tool_improvement": "single",
     "new_skill": "single",
@@ -32,7 +31,7 @@ def classify_proposal(proposal: dict) -> str:
 
     # Complexity override
     if complexity == "low" and ptype != "new_server":
-        return "inline" if ptype == "registry_update" else "single"
+        return "single"
     if complexity == "high":
         return "team"
 

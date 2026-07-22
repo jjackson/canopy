@@ -11,7 +11,7 @@
 
 - **FRAMEWORK** = the generic, *agent-agnostic* agent-runtime substrate: the
   canopy-web client, agent scaffolding, session/transcript capture + discovery,
-  scheduling/safety infra, registry, provisioning, version/structure tooling.
+  scheduling/safety infra, provisioning, version/structure tooling.
   Any agent could reuse these.
 - **PRODUCT** = canopy's *own* features: the self-improvement brain (analyze →
   propose → review), DDD/narrative, walkthrough/portfolio/PM. Bespoke to canopy.
@@ -27,7 +27,7 @@ enforce it.
 **FRAMEWORK** (agent-runtime substrate — must not import product):
 `agent_cli` · `agent_client` · `agent_coverage` · `agent_doctor` · `agent_email` · `agent_gdoc` · `review_receipt` · `agent_factory` · `agent_web` · `canopy_web` ·
 `inbox_filters` · `capture` · `transcripts` · `scanner` · `circuit_breaker` · `rate_limiter` ·
-`scheduler` · `paths` · `repo_map` · `repo_paths` · `registry` · `registry_sync` ·
+`scheduler` · `paths` · `repo_map` · `repo_paths` ·
 `skill_budget` · `skill_catalog` · `skill_runner` · `provision` · `run_log` ·
 `version_bump` · `doctor` · `agent_review` · `structure_drift` · `eval_cli` ·
 `eval_rubric` · `turn_synthesis` · `session_upload` · `fleet_align` · `session_sources`

@@ -2,11 +2,6 @@ You are analyzing a Claude Code session transcript to identify improvements for
 an MCP tool ecosystem. Your job is to find friction, gaps, patterns, and missing
 capabilities.
 
-## Context
-
-The user has these MCP servers available:
-{registry_summary}
-
 ## Transcript
 
 {transcript_text}

@@ -37,7 +37,6 @@ def save_label_data(state_dir: Path, session_id: str, data: dict) -> None:
 def create_app(
     projects_dir: Path,
     state_dir: Path,
-    registry_path: Path,
 ):
     """Create an HTTP request handler class with the given configuration."""
 
@@ -139,16 +138,13 @@ def create_app(
 
         def _handle_analyze(self, session_id):
             from orchestrator.analyzer import analyze_transcript
-            from orchestrator.registry import load_registry, format_for_skill
 
             transcript_path = self._find_transcript(session_id)
             if not transcript_path:
                 self._send_json({"error": "Transcript not found"}, 404)
                 return
 
-            registry = load_registry(registry_path)
-            registry_summary = format_for_skill(registry)
-            observations = analyze_transcript(transcript_path, registry_summary)
+            observations = analyze_transcript(transcript_path)
 
             # Save observations with deduplication
             obs_dir = state_dir / "observations"
@@ -177,7 +173,6 @@ def create_app(
 
         def _handle_propose(self, session_id):
             from orchestrator.proposer import generate_proposals
-            from orchestrator.registry import load_registry, format_for_skill
 
             # Find observations for this session
             obs_dir = state_dir / "observations"
@@ -188,9 +183,7 @@ def create_app(
                 self._send_json({"error": "No observations found. Run Analyze first."}, 400)
                 return
 
-            registry = load_registry(registry_path)
-            registry_summary = format_for_skill(registry)
-            proposals_raw = generate_proposals(session_obs, registry_summary)
+            proposals_raw = generate_proposals(session_obs)
 
             proposals_dir = state_dir / "proposals"
             saved = []
@@ -212,16 +205,13 @@ def create_app(
 
         def _handle_review(self, session_id):
             from orchestrator.reviewer import run_review, save_review
-            from orchestrator.registry import load_registry, format_for_skill
 
             transcript_path = self._find_transcript(session_id)
             if not transcript_path:
                 self._send_json({"error": "Transcript not found"}, 404)
                 return
 
-            registry = load_registry(registry_path)
-            registry_summary = format_for_skill(registry)
-            content = run_review(transcript_path, registry_summary)
+            content = run_review(transcript_path)
 
             if content is None:
                 self._send_json({"error": "Review failed"}, 500)
@@ -249,11 +239,10 @@ def create_app(
 def run_server(
     projects_dir: Path,
     state_dir: Path,
-    registry_path: Path,
     port: int = 8484,
 ):
     """Start the transcript browser server."""
-    handler = create_app(projects_dir, state_dir, registry_path)
+    handler = create_app(projects_dir, state_dir)
     server = HTTPServer(("127.0.0.1", port), handler)
     print(f"Transcript browser running at http://localhost:{port}")
     print("Press Ctrl+C to stop")

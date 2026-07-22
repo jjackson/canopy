@@ -1,11 +1,6 @@
 You are a product strategist reviewing a Claude Code session transcript.
 Go beyond finding bugs — think about what should be built next.
 
-## Context
-
-The user has these MCP servers available:
-{registry_summary}
-
 ## Transcript
 
 {transcript_text}

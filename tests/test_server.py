@@ -21,7 +21,6 @@ def app_dirs(tmp_path):
     return {
         "projects_dir": tmp_path / "projects",
         "state_dir": state_dir,
-        "registry_path": Path(__file__).parent / "fixtures" / "sample_registry.yaml",
     }
 
 

@@ -1,10 +1,6 @@
 You are generating improvement proposals for an MCP tool ecosystem. Based on
 observations from real usage sessions, propose concrete changes.
 
-## Current Ecosystem
-
-{registry_summary}
-
 ## Existing Skills (do NOT propose duplicates)
 
 These skills already exist on the user's system. Do not propose a `new_skill`
@@ -24,9 +20,9 @@ For each observation (or group of related observations), generate a proposal.
 Output a YAML list where each proposal has:
 
 - `type`: one of `new_tool`, `new_server`, `tool_improvement`, `new_skill`,
-  `new_workflow`, `hook_improvement`, `registry_update`
+  `new_workflow`, `hook_improvement`
 - `target_system`: one of:
-  - `canopy` — change to the orchestrator itself (registry, prompts, pipeline)
+  - `canopy` — change to the orchestrator itself (prompts, pipeline)
   - `project` — change to a target project's MCP server code
   - `skill` — new or updated Claude Code skill
   - `hook` — new or updated Claude Code hook
@@ -40,7 +36,7 @@ Output a YAML list where each proposal has:
   `orchestrator.repo_paths.resolve_repo_path("<name>")`. For Claude
   Code skills (which live outside any repo) use the literal string
   `claude-skills`; for canopy plugin skills use `canopy`.
-- `ownership`: `self`, `team`, or `external` (from the registry)
+- `ownership`: `self`, `team`, or `external`
 - `motivation`: why this is needed (reference the observation)
 - `observation_id`: the ID of the observation this addresses
 - `complexity`: `low`, `medium`, or `high`
@@ -62,10 +58,6 @@ Output a YAML list where each proposal has:
     test proves the improvement works?
 
 Guidelines:
-- **Fix at the source, not the metadata.** If a project's assistant didn't know
-  about its own MCP tools, fix that project's CLAUDE.md or tool documentation —
-  don't just update the canopy registry. Registry updates are appropriate only
-  when the tool genuinely isn't documented anywhere the assistant can see it.
 - Prefer adding to existing servers over creating new ones
 - Only propose `new_server` if no existing server is a natural fit
 - Be specific: "Add filter_by_status parameter to search_opportunities" not

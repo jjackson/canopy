@@ -1,10 +1,9 @@
-"""Integration test — full flow from registry to corpus."""
+"""Integration test — full flow from session log to corpus."""
 
 from pathlib import Path
 
 import pytest
 
-from orchestrator.registry import load_registry, format_for_skill, get_all_servers
 from orchestrator.capture import append_log_entry, read_session_log, group_by_session, classify_sessions
 from orchestrator.corpus import create_corpus_entry, save_corpus_entry, load_corpus_entry
 
@@ -13,18 +12,8 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 @pytest.mark.integration
 def test_full_flow(tmp_path):
-    """Test: load registry, log a session, classify it, create corpus entry."""
-    # 1. Load registry
-    reg = load_registry(FIXTURES / "sample_registry.yaml")
-    servers = get_all_servers(reg)
-    assert len(servers) == 2
-
-    # 2. Format for skill context
-    skill_context = format_for_skill(reg)
-    assert "commcare-hq" in skill_context
-    assert "create-solicitation" in skill_context
-
-    # 3. Simulate a multi-server session
+    """Test: log a multi-server session, classify it, create a corpus entry."""
+    # 1. Simulate a multi-server session
     log_file = tmp_path / "session-log.jsonl"
     append_log_entry(log_file, {
         "ts": "2026-03-20T14:32:01Z",

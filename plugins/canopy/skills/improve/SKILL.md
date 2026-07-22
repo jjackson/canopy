@@ -47,14 +47,7 @@ If fewer than 2 unprocessed sessions exist, tell the user and stop.
 
 ## Phase 2 — Analyze transcripts (direct, in-context)
 
-1. Read `$_CANOPY_DIR/registry.yaml` (the canopy checkout resolved in the
-   preamble) — this is the ecosystem context describing all MCP servers,
-   tools, and workflows. Do NOT hardcode `~/emdash-projects/canopy` or
-   `~/emdash/repositories/canopy` — different logins on the same machine
-   put canopy under different roots, and the preamble already picked the
-   right one.
-
-2. For each transcript, read the JSONL file. Each line is a JSON object with
+1. For each transcript, read the JSONL file. Each line is a JSON object with
    `type` (user/assistant/summary) and `message` content. Extract:
    - User messages (what they asked)
    - Tool calls and results (what was attempted, what failed)
@@ -63,7 +56,7 @@ If fewer than 2 unprocessed sessions exist, tell the user and stop.
    For large transcripts (>500 lines), read only the first 100 and last 200 lines
    to stay within context limits.
 
-3. Analyze ALL transcripts together. Look for:
+2. Analyze ALL transcripts together. Look for:
 
    - **friction** — a tool was used but worked poorly (failed, retried, unhelpful)
    - **gap** — the user did something manually that could have been automated
@@ -73,14 +66,14 @@ If fewer than 2 unprocessed sessions exist, tell the user and stop.
    Because you're analyzing all transcripts at once, you can spot cross-session
    patterns that isolated analysis would miss.
 
-4. Read existing observations from `~/.claude/canopy/observations/` (glob for
+3. Read existing observations from `~/.claude/canopy/observations/` (glob for
    `*.yaml`, read each one). Deduplicate:
    - If a new observation matches an existing one (same type + related_servers +
      lifecycle_stage, status=pending), merge by incrementing frequency and adding
      the session ID
    - Otherwise create a new observation
 
-5. Write observation YAML files. Format:
+4. Write observation YAML files. Format:
 
 ```yaml
 id: <12-char hex>
@@ -110,7 +103,7 @@ For each observation (or group of related ones), generate a proposal:
 
 ```yaml
 id: <12-char hex>
-type: new_tool|tool_improvement|new_skill|new_workflow|hook_improvement|registry_update
+type: new_tool|tool_improvement|new_skill|new_workflow|hook_improvement
 action: "Specific description of what to build/change"
 target_repo: <short-repo-name>          # e.g. "ace", "canopy", "ace-web"
                                          # NOT a path — consumers resolve the
@@ -136,7 +129,7 @@ created: 'YYYY-MM-DD'
 - Prefer adding to existing servers over creating new ones.
 - Be specific: "Add filter_by_status param to search_opportunities" not "improve search".
 - Strongly prefer proposals with high verification confidence.
-- For `ownership: external`, only propose registry updates — skip implementation.
+- For `ownership: external`, skip implementation — propose the change for the owning team to make.
 
 Save each to `~/.claude/canopy/proposals/<id>.yaml`.
 
@@ -168,7 +161,7 @@ Agent(
 **Parallelism rules:**
 - Proposals targeting DIFFERENT repos → dispatch in parallel (single message, multiple Agent calls)
 - Proposals targeting the SAME repo → dispatch sequentially (worktrees share the repo)
-- For `ownership: external` → skip (registry-only, no implementation)
+- For `ownership: external` → skip (no implementation; propose for the owning team)
 
 **Agent prompt template:**
 
@@ -180,9 +173,6 @@ Agent(
 >
 > ## Why This Is Needed
 > <observation YAML>
->
-> ## Ecosystem Context
-> <registry summary — abbreviated, just the relevant server>
 >
 > ## Instructions
 >
