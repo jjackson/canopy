@@ -9,6 +9,31 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.336] - 2026-07-23
+
+### Fixed
+
+- `canopy agent doctor` — three false positives that made the fleet readiness gate
+  untrustworthy. On a healthy machine it reported 3 of 5 agents FAIL; all three were
+  the doctor's error, not the agents'.
+  - **Gating rails** counted only `config/gating.json`'s local `deny` array, so agents
+    that mount the fleet baseline via `"channels": ["email"]` (echo, hal) read as
+    "0 deny rails but <slug>-email exists" while being fully railed at call time.
+    The check now resolves the baseline the same way `hooks/gating_guard.py` does and
+    reports *effective* rails (baseline + local). A mounted-but-unresolvable baseline —
+    the state where the guard fails CLOSED and blocks every guarded call — is now its
+    own explicit failure rather than a silent pass.
+  - **Hook wiring** recognized only `.claude/settings.json`. Agents shipped as a Claude
+    Code plugin (ace) register the guard in `hooks/hooks.json`; their live, firing rails
+    were reported as decorative. Both registration paths are now accepted.
+  - **Auth services** required the fleet-wide `LOGIN_SERVICES` of every agent — failing
+    hal and ace over `appscript`, which neither uses, while never checking `slides`,
+    which echo needs and the constant omits. Requirements are now per-agent via
+    `gog_services` in `config/agent.json`, defaulting to `CORE_SERVICES`. The
+    remediation command re-requests required *union* already-granted scopes, since
+    `gog login --services` replaces the grant set and would otherwise revoke working
+    scopes while fixing an unrelated gap.
+
 ## [0.2.309] - 2026-07-21
 
 ### Fixed
