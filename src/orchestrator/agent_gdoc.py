@@ -89,10 +89,11 @@ class GdocIdentity:
     repo: Path | None = None
 
 
-# The agent's <Agent> Drive folder id, injected by the Agent Runtime Registry reconciler
-# from the per-agent 1Password vault (`op://Agent-<Slug>/gdrive-root-folder/credential`).
-# A Drive folder id is environment-specific — it differs per Workspace/tenant — so it is
-# resolved from the vault, never committed. See agent-core/agent-runtime.md.
+# The agent's <Agent> Drive folder id. Resolved from the per-agent 1Password vault
+# (`op://Agent-<Slug>/gdrive-root-folder/credential`) via the agent's config/secrets.yaml (or
+# .env.tpl) and materialized into ~/.<agent>/.env by `canopy provision`. A Drive folder id is
+# environment-specific — it differs per Workspace/tenant — so it is referenced, never
+# committed. See agent-core/agent-runtime.md.
 GDRIVE_ROOT_ENV = "GDRIVE_ROOT_FOLDER"
 
 
@@ -100,10 +101,10 @@ def resolve_gdoc_identity(repo_dir: Path) -> GdocIdentity:
     """Resolve the agent's doc-authoring identity from its repo + the resolved env.
 
     Account + client come from the same fields email uses. The agent's Drive root is
-    read from the environment (`GDRIVE_ROOT_FOLDER`) — the reconciler resolves it from
-    the agent's own 1Password vault and injects it, so the id never lives in git and can
-    differ per environment. `config/agent.json`'s `gdrive_root_folder` remains a
-    deprecated fallback for boxes not yet on the runtime registry. The other OPTIONAL
+    read from the environment (`GDRIVE_ROOT_FOLDER`) — `canopy provision` resolves it from
+    the agent's own 1Password vault into ~/.<agent>/.env, so the id never lives in git and
+    can differ per environment. `config/agent.json`'s `gdrive_root_folder` remains a
+    deprecated fallback for un-provisioned boxes. The other OPTIONAL
     carve-out is `gdrive_share_default` (domain | anyone | none).
     """
     try:
@@ -390,9 +391,9 @@ def resolve_subfolder(identity: GdocIdentity, *, area: str = "Projects",
     instead of spawning a duplicate. Requires a resolved Drive root; pass --parent to bypass."""
     if not identity.root_folder:
         raise AgentGdocError(
-            f"no Drive root resolved (${GDRIVE_ROOT_ENV}) — the reconciler injects it from "
-            "op://Agent-<Slug>/gdrive-root-folder; run the turn through `canopy-reconcile`, "
-            "or pass --parent explicitly")
+            f"no Drive root resolved (${GDRIVE_ROOT_ENV}) — it comes from "
+            "op://Agent-<Slug>/gdrive-root-folder; run `canopy provision` and re-source "
+            "~/.<agent>/.env, or pass --parent explicitly")
     area_id = _find_or_create_folder(identity, identity.root_folder, (area or "Projects").strip(), runner)
     if not project or not project.strip():
         return area_id
@@ -499,7 +500,7 @@ def publish(identity: GdocIdentity, *, name: str | None, parent: str | None, md_
     id/link/permissions (issue #353). dry_run reports the commands without touching Drive."""
     if not replace and not (name and parent):
         raise AgentGdocError("--name and --parent are required for a new doc "
-                             f"(set --parent, or let the reconciler inject ${GDRIVE_ROOT_ENV}); "
+                             f"(set --parent, or provision ${GDRIVE_ROOT_ENV}); "
                              "use --replace <fileId> to update an existing doc")
 
     # ---- Replace: in-place Docs-API edit (native-Doc safe, keeps id/link/permissions) ----

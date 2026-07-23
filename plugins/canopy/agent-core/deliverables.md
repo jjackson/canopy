@@ -30,7 +30,7 @@ as we learn what agents need to keep):
 
 ```
 AI-Agents/  (1EgS0aqdOgjlmOjTsn6IYHQP_N9kDjLrO)
-└── <Agent>/                     ← your $GDRIVE_ROOT_FOLDER (op://Agent-<Slug>/gdrive-root-folder)
+└── <Agent>/                     ← $GDRIVE_ROOT_FOLDER (op://Agent-<Slug>/gdrive-root-folder)
     ├── Projects/                ← deliverables, ONE subfolder per project/task
     │   └── <Project or counterpart>/   ← reuse across turns; never dump flat in Projects/
     └── Process State/           ← durable trackers / run logs / registries
@@ -104,9 +104,10 @@ under its agent folder). So the "never My Drive root / never flat at root" invar
 
 - **Your Drive root** — your `<Agent>/` folder id under the shared root. It is **environment-
   specific, so it lives in your agent's 1Password vault**, never in git:
-  `op://Agent-<Slug>/gdrive-root-folder/credential`, declared in your `runtime.yaml` `secrets:`
-  and injected by the reconciler as `$GDRIVE_ROOT_FOLDER`. Everything files beneath it via
-  `Projects/` + `Process State/`. See `agent-core/agent-runtime.md`.
+  `op://Agent-<Slug>/gdrive-root-folder/credential`, referenced from your `config/secrets.yaml`
+  (or `.env.tpl`) and materialized into `~/.<agent>/.env` as `$GDRIVE_ROOT_FOLDER` by
+  `canopy provision`. Everything files beneath it via `Projects/` + `Process State/`.
+  See `agent-core/agent-runtime.md`.
 - **Publishing mechanism** — the exact command (`canopy gdoc publish --project …`, or
   `gog drive upload --convert --parent <subfolder>`), plus the render-verify + share-verify steps.
 - **Whether it mounts the `gws` rail** — yes if it uses raw `gog drive upload`; not needed if it

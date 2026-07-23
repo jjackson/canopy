@@ -1,106 +1,110 @@
-# Agent runtime + secrets — the fleet-canonical config standard
+# Agent config + secrets — where every value lives
 
-> **Fleet-canonical process (canopy agent-core).** How an agent declares what it needs to run,
-> and where every configuration value lives. The system is the **Agent Runtime Registry**
-> (design: `canopy-web/docs/superpowers/specs/2026-07-20-agent-runtime-registry-design.md`;
-> schema + reconciler: `canopy-web/packages/canopy_runtime/`). This doc is the *agent-author's*
-> view — what to put where when you add a new secret or config value.
+> **Fleet-canonical process (canopy agent-core).** Where an agent's configuration values live and
+> how they reach a turn. Read this before adding ANY new id, key, folder, or account to an agent.
 
 ## The one rule
 
-**No environment-specific value lives in git.** Not a password, not an API key — and *also not*
-a Drive folder id, doc id, sheet id, or mailbox. The fleet runs in **multiple environments**
-(your laptop, the cloud runner, a fresh box), and those ids differ per environment/Workspace.
-A literal committed to a repo can't vary; a vault reference can. **1Password is the single
-source of truth**, resolved identically on a laptop and in the cloud.
+**No environment-varying value is committed to git.** Not a password or API key — and *also not* a
+Drive folder id, doc id, sheet id, or script id. The fleet runs in **multiple environments** (your
+laptop, the cloud runner, a fresh box) and those values differ per environment/Workspace. A literal
+in a repo can't vary; a **1Password reference** can.
 
-"It isn't sensitive" is **not** the test. The test is **"does this value differ between
-environments?"** If yes → vault.
+> **The test is NOT "is it sensitive?" — it is "does this differ between environments?"**
+> If yes → it's a reference. This is the rule that was being missed: ids kept getting written as
+> literals because "an id isn't a secret", which is true and irrelevant.
 
 ## Two-tier vault topology
 
 | Vault | Holds |
 |---|---|
-| `Canopy-Shared` | values **every** canopy agent resolves (`gog-oauth-client`, `github-token`, `gdrive-shared-root`) |
-| `Agent-<Slug>` | one per agent — its identity + integration values (`canopy-pat`, `claude-oauth-token`, `gog-token`, `gdrive-root-folder`, …) |
+| `Canopy-Shared` | values **every** canopy agent resolves — `gog-oauth-client`, `github-token`, `gdrive-shared-root` |
+| `Agent-<Slug>` | one per agent — its identity + integration values: `canopy-pat`, `claude-oauth-token`, `gog-token`, `gdrive-root-folder`, … |
 
-The reconciler resolves each reference against **`[Agent-<Slug>, Canopy-Shared]` in order**, so a
-per-agent item **shadows** the shared one with no special-casing (that's how Echo runs its own
-`gog-oauth-client` while everyone else uses the shared app). **The repo never names a vault** —
-the topology is convention, not config.
+One vault per agent (**not** the legacy flat `AI-Agents` dumping ground) so each agent is
+least-privilege and independently grantable. Every item is an **API Credential** whose value sits
+in a single `credential` field, so a reference resolves as `op://<vault>/<item>/credential`.
 
-Every item is an **API Credential** whose value sits in a single `credential` field, so a
-reference resolves as `op://<vault>/<item>/credential`.
+New agent? `canopy-web/deploy/secrets/bootstrap_1password.sh <slug…>` idempotently creates the
+vaults + placeholder items. `migrate_echo.sh` is the worked example of copying values out of the
+legacy `AI-Agents` vault.
 
-## `runtime.yaml` — the agent's self-declaration
+## How a value reaches a turn (use this today)
 
-Each agent ships a `runtime.yaml` in its own repo: plugins, tools, engine preference, the values
-it needs (**by reference name only**), and the preflight that defines "ready". It is reviewed in
-the agent's own PRs like a `package.json`, and **never contains a value**.
+Each agent already ships an **env template** that `op` resolves into a **worktree-clean global env
+home** (`~/.<agent>/.env`, mode 0600). emdash runs each turn in a fresh worktree, so a repo-local
+`.env` would vanish; the global home is read by every worktree via `bin/_env.py`.
+
+**Most agents — `config/secrets.yaml` + `canopy provision`:**
 
 ```yaml
-secrets:
-  - name: canopy-pat            # → op://Agent-<Slug>/canopy-pat/credential
-    env: CANOPY_PAT
-  - name: gdrive-root-folder    # the agent's <Agent> folder in the shared AI-Agents drive
-    env: GDRIVE_ROOT_FOLDER
-  - name: gog-oauth-client      # falls through to Canopy-Shared if not in the agent vault
-    path: ~/.config/gogcli/credentials-<slug>.json
-    optional: true
+env:
+  target: "~/.<agent>/.env"
+  mode: "0600"
+  vars:
+    - key: SOME_LITERAL
+      value: "not-environment-varying"                      # rare — see the rule above
+    - key: GDRIVE_ROOT_FOLDER
+      op: "op://Agent-<Slug>/gdrive-root-folder/credential"  # resolved from the agent's vault
 ```
 
-- `env:` injects the resolved value into that variable; `path:` writes it to a file (a gog
-  credentials JSON). `optional: true` means absence is skipped rather than a "needs bootstrap" gap.
-- The spec's separate top-level **`env:` block is for genuinely fixed, environment-invariant
-  literals only.** In practice almost nothing qualifies — if it's an id, it varies per
-  environment, so it belongs in `secrets:`. (Echo originally carried its Drive/doc ids as inline
-  `env:` literals; they were moved into `Agent-Echo` for exactly this reason.)
+Run `canopy provision` (`--check` to dry-run) from the agent's repo.
 
-## How values reach a turn
+**Echo — `.env.tpl` + `op inject`** (same idea, older format):
 
-```
-canopy-reconcile --agent <slug>
-   ▼  read the repo's runtime.yaml (the declarative WHAT)
-   ▼  resolve each secrets[] name against [Agent-<Slug>, Canopy-Shared]
-   ▼  scan the box → diff vs. spec → apply only the gaps
-   ▼  run the preflight
-   └▶ inject env / write files, then run the turn
+```bash
+GDRIVE_ROOT_FOLDER=op://Agent-Echo/gdrive-root-folder/credential
+# resolve:
+op inject -i .env.tpl -o ~/.echo/.env --account dimagi.1password.com
 ```
 
-`python -m canopy_runtime.cli --agent <slug> [--print-env | --env-file F | --exec CMD…]` is the
-reconciler's operational face — **the same command on a laptop and a cloud box**. The reconciler
-holds the 1Password service-account token and resolves values into the engine's process env
-*before* the turn — the model never handles raw credentials.
+Either way the rule is identical: **the template holds a `op://…` reference, never the value.**
 
-## Adding a new value (the recipe)
+## Adding a new value — the recipe
 
-1. **Put it in the vault** — agent-specific → `Agent-<Slug>`; needed by every agent → `Canopy-Shared`:
+1. **Put it in the vault** (agent-specific → `Agent-<Slug>`; needed by all → `Canopy-Shared`):
    ```bash
    op item create --category "API Credential" --title "<name>" \
      --vault "Agent-<Slug>" "credential[password]=<value>"
-   # already exists? edit instead:
+   # exists already? edit instead:
    op item edit "<name>" --vault "Agent-<Slug>" "credential=<value>"
    ```
-2. **Declare it** in the agent's `runtime.yaml` `secrets:` with the `env:`/`path:` its tools expect.
-3. **Read it** in code/skills as the env var — never re-hardcode the value.
-4. **Verify** it resolves: `op read "op://Agent-<Slug>/<name>/credential"`.
+2. **Reference it** in the agent's `config/secrets.yaml` `env.vars` (or `.env.tpl`), never the value.
+3. **Materialize** it: `canopy provision` (or `op inject`) → `~/.<agent>/.env`.
+4. **Read it** as the env var in code/skills — never re-hardcode the value.
+5. **Verify**: `op read "op://Agent-<Slug>/<name>/credential"` and confirm the key landed in
+   `~/.<agent>/.env`.
 
-`deploy/secrets/bootstrap_1password.sh <slug…>` (canopy-web) idempotently creates the vaults +
-placeholder items for a new agent; `migrate_echo.sh` is the worked example of copying values out
-of the legacy flat `AI-Agents` vault.
+## The other mechanism — `runtime.yaml` (know the difference)
+
+There is a **second, newer** path: the **Agent Runtime Registry** — an agent ships a repo-root
+`runtime.yaml` declaring plugins, tools, engine, preflight, and values **by reference name only**
+(no vault named); a *reconciler* resolves each name against `[Agent-<Slug>, Canopy-Shared]`, scans
+the box, applies gaps, and injects env before the turn. Design + code:
+`canopy-web/docs/superpowers/specs/2026-07-20-agent-runtime-registry-design.md` and
+`canopy-web/packages/canopy_runtime/` (`python -m canopy_runtime.cli --agent <slug> --print-env`).
+
+**Status (2026-07-23): only Echo has a `runtime.yaml`, and the reconciler is not what drives
+laptop turns today.** Its own header says it supersedes `canopy provision` *for the runtime layer* —
+that migration is real but unfinished. So:
+
+- **Adding a value now → use `config/secrets.yaml` / `.env.tpl`** (above). It works on every box.
+- **Don't declare the same value in both places** — you get two sources of truth that drift.
+- When the reconciler does drive turns, the migration is mechanical: the vault items already exist
+  and are correctly named; only the *declaration* moves.
 
 ## Rollout status (2026-07-23)
 
-- **Vaults:** `Canopy-Shared` + `Agent-{Ace,Ada,Echo,Eva,Hal}` all exist, each with
-  `canopy-pat` / `claude-oauth-token` / `gog-token` and now `gdrive-root-folder`.
-- **`runtime.yaml`:** shipped for **Echo**; the other agents still need one (until then their
-  values are resolvable in the vault but nothing declares them, so a turn won't auto-inject them).
-- **Legacy:** the flat `AI-Agents` vault is still populated and untouched — migrate, don't trust
-  it as the source of truth. `config/secrets.yaml` + `canopy provision` are the older imperative
-  path that `runtime.yaml` + the reconciler supersede for the runtime layer.
+- **Vaults:** `Canopy-Shared` + `Agent-{Ace,Ada,Echo,Eva,Hal}` exist, each with `canopy-pat` /
+  `claude-oauth-token` / `gog-token` + `gdrive-root-folder`; `Canopy-Shared` has `gdrive-shared-root`.
+- **Legacy:** the flat `AI-Agents` vault is still populated and still referenced by most agents'
+  `secrets.yaml` / `.env.tpl`. Migrating those refs onto per-agent vaults is outstanding work —
+  copy the value into `Agent-<Slug>` first, then repoint the ref.
+- **`env:` blocks:** ada + hal have one; **eva does not** (needs `~/.eva/.env` added); echo uses
+  `.env.tpl`.
 
 ## Related
 
-- `deliverables.md` — the Drive filing standard; its `<Agent>` root is `$GDRIVE_ROOT_FOLDER`, a
-  vault-resolved value under this standard.
-- `turn.md` — the turn procedure the reconciler makes "ready".
+- `deliverables.md` — the Drive filing standard; its `<Agent>` root is `$GDRIVE_ROOT_FOLDER`,
+  a vault-resolved value under this standard.
+- `turn.md` — the turn procedure these values make possible.
