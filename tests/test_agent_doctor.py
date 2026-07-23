@@ -119,7 +119,8 @@ def test_gating_missing_file_fails(tmp_path):
 def test_gating_counts_rules(tmp_path):
     result = check_gating(_agent_repo(tmp_path))
     assert result.ok
-    assert "1 deny rail(s)" in result.detail
+    # a legacy config (no `channels`) contributes no baseline rails — only its own
+    assert "1 effective deny rail(s)" in result.detail and "0 fleet-baseline" in result.detail
 
 
 def test_secrets_manifest_missing_points_at_provision(tmp_path):
@@ -239,7 +240,7 @@ def test_hook_wiring_fails_without_settings_json(tmp_path):
     repo = _agent_repo(tmp_path)
     (repo / ".claude" / "settings.json").unlink()
     result = check_hook_wiring(repo)
-    assert not result.ok and "never invoked" in result.detail
+    assert not result.ok and "decorative" in result.detail
 
 
 def test_hook_wiring_fails_when_settings_dont_reference_guard(tmp_path):
@@ -324,12 +325,59 @@ def test_auth_services_passes_when_all_granted():
     assert r.ok and "granted" in r.detail
 
 
-def test_auth_services_fails_when_appscript_missing():
+def test_auth_services_does_not_require_appscript_by_default():
+    """hal/ace never use Apps Script. Requiring the fleet-wide LOGIN_SERVICES of every agent
+    reported both as broken over a scope they don't use — a false positive that would have
+    sent a human through a pointless browser re-login."""
     from orchestrator.agent_doctor import check_auth_services
     r = check_auth_services(
         _hal_identity(),
         runner=_auth_list_runner(["gmail", "drive", "docs", "sheets", "forms"]))
-    assert not r.ok and "appscript" in r.detail and "gog login" in r.detail
+    assert r.ok and "appscript" not in r.detail
+
+
+def _identity_with_repo(tmp_path, services, *, slug="echo"):
+    from orchestrator.agent_email import EmailIdentity
+    repo = tmp_path / slug
+    (repo / "config").mkdir(parents=True)
+    (repo / "config" / "agent.json").write_text(json.dumps(
+        {"name": slug.title(), "email": f"{slug}@dimagi-ai.com", "gog_services": services}))
+    return EmailIdentity(slug=slug, account=f"{slug}@dimagi-ai.com", client=slug, repo=repo)
+
+
+def test_auth_services_honours_per_agent_declared_services(tmp_path):
+    """echo genuinely needs `slides`, which LOGIN_SERVICES omits — so the old fleet-wide
+    check could never have caught it missing."""
+    from orchestrator.agent_doctor import check_auth_services
+    ident = _identity_with_repo(tmp_path, ["gmail", "drive", "slides"])
+
+    def runner(cmd, capture_output, text, timeout):
+        payload = json.dumps({"accounts": [
+            {"email": "echo@dimagi-ai.com", "client": "echo",
+             "services": ["gmail", "drive"]}]})
+        return SimpleNamespace(returncode=0, stdout=payload, stderr="")
+
+    r = check_auth_services(ident, runner=runner)
+    assert not r.ok and "slides" in r.detail and "gog_services" in r.detail
+
+
+def test_auth_services_remediation_preserves_already_granted_scopes(tmp_path):
+    """`gog login --services` REPLACES the grant set, so the fix command must re-request the
+    scopes the agent already has — otherwise remediating one gap silently revokes others."""
+    from orchestrator.agent_doctor import check_auth_services
+    ident = _identity_with_repo(tmp_path, ["gmail", "slides"])
+
+    def runner(cmd, capture_output, text, timeout):
+        payload = json.dumps({"accounts": [
+            {"email": "echo@dimagi-ai.com", "client": "echo",
+             "services": ["gmail", "drive", "appscript"]}]})
+        return SimpleNamespace(returncode=0, stdout=payload, stderr="")
+
+    r = check_auth_services(ident, runner=runner)
+    assert not r.ok
+    cmd = r.detail.split("--services ", 1)[1]
+    for svc in ("appscript", "drive", "gmail", "slides"):
+        assert svc in cmd
 
 
 def test_auth_services_skips_when_not_introspectable():
@@ -345,3 +393,81 @@ def test_auth_services_skipped_without_identity():
     from orchestrator.agent_doctor import check_auth_services
     r = check_auth_services(None)
     assert not r.ok and "identity" in r.detail
+
+
+# --------------------------------------------------------------------------------------
+# check_gating — fleet-baseline rails mounted via `channels` count as rails
+# --------------------------------------------------------------------------------------
+
+def _fleet_baseline(tmp_path, rails=("email",)):
+    """A stand-in installed canopy plugin dir holding agent-core/gating-baseline.json."""
+    plugin = tmp_path / "canopy-plugin"
+    (plugin / "agent-core").mkdir(parents=True)
+    (plugin / "agent-core" / "gating-baseline.json").write_text(json.dumps({
+        "channels": {ch: [{"tool": "Bash", "pattern": "gog gmail send",
+                           "message": "use bin/{slug}-email"}] for ch in rails}
+    }))
+    return plugin
+
+
+def test_gating_channels_baseline_counts_as_effective_rails(tmp_path, monkeypatch):
+    """echo/hal ship `"deny": []` + `"channels": ["email"]`. gating_guard merges the fleet
+    baseline in front of the local list at call time, so they ARE railed — counting only the
+    local array reported both as unrailed outbound agents."""
+    monkeypatch.setenv("CANOPY_PLUGIN_DIR", str(_fleet_baseline(tmp_path)))
+    repo = _agent_repo(tmp_path)
+    (repo / "config" / "gating.json").write_text(
+        json.dumps({"slug": "hal", "channels": ["email"], "deny": [], "approve": []}))
+    (repo / "bin").mkdir()
+    (repo / "bin" / "hal-email").write_text("#!/usr/bin/env python3\n")
+    result = check_gating(repo)
+    assert result.ok and "fleet-baseline" in result.detail
+
+
+def test_gating_unresolvable_baseline_fails_because_guard_fails_closed(tmp_path, monkeypatch):
+    """Channels mounted but the baseline unreadable is the state where gating_guard blocks
+    EVERY guarded call — a hard failure, not a pass."""
+    monkeypatch.setenv("CANOPY_PLUGIN_DIR", str(tmp_path / "nonexistent"))
+    repo = _agent_repo(tmp_path)
+    (repo / "config" / "gating.json").write_text(
+        json.dumps({"slug": "hal", "channels": ["email"], "deny": [], "approve": []}))
+    result = check_gating(repo)
+    assert not result.ok and "fails CLOSED" in result.detail
+
+
+def test_gating_still_fails_when_no_channels_and_no_local_rails(tmp_path):
+    """The original protection survives: an outbound agent mounting nothing and declaring
+    nothing is genuinely unrailed."""
+    repo = _agent_repo(tmp_path)
+    (repo / "config" / "gating.json").write_text(json.dumps({"deny": [], "approve": []}))
+    (repo / "bin").mkdir()
+    (repo / "bin" / "hal-email").write_text("#!/usr/bin/env python3\n")
+    result = check_gating(repo)
+    assert not result.ok and "0 effective deny rails" in result.detail
+
+
+# --------------------------------------------------------------------------------------
+# check_hook_wiring — plugin-style registration (hooks/hooks.json) is valid
+# --------------------------------------------------------------------------------------
+
+def test_hook_wiring_accepts_plugin_style_hooks_json(tmp_path):
+    """ace ships AS a Claude Code plugin and registers the guard in hooks/hooks.json, not
+    .claude/settings.json. Checking only the latter called ace's live rails decorative."""
+    repo = _agent_repo(tmp_path, hooks=False)
+    (repo / "hooks").mkdir()
+    (repo / "hooks" / "gating_guard.py").write_text("# guard\n")
+    (repo / "hooks" / "hooks.json").write_text(json.dumps({
+        "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
+            {"type": "command",
+             "command": 'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/gating_guard.py"'}]}]}
+    }))
+    result = check_hook_wiring(repo)
+    assert result.ok and "hooks/hooks.json" in result.detail
+
+
+def test_hook_wiring_fails_when_neither_path_registers_the_guard(tmp_path):
+    repo = _agent_repo(tmp_path, hooks=False)
+    (repo / "hooks").mkdir()
+    (repo / "hooks" / "gating_guard.py").write_text("# guard\n")
+    result = check_hook_wiring(repo)
+    assert not result.ok and "decorative" in result.detail

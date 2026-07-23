@@ -14,6 +14,16 @@ canopy-web registration — and nothing in the framework would have said so
 short of an actual failed turn. `canopy create-agent` documents these steps
 for NEW agents; this doctor verifies them for any agent, any machine, any day.
 
+A check that cries wolf is worse than no check: three of the five agents reported FAIL on a
+healthy machine (2026-07-23), and every one was a false positive — gating counted only the
+local `deny` array while the rails actually in force come from the fleet baseline mounted via
+`channels`; hook wiring recognized only `.claude/settings.json` and not the plugin-style
+`hooks/hooks.json` that ace uses; and auth-services demanded the fleet-wide LOGIN_SERVICES of
+every agent, failing hal/ace over a scope they never call while missing that echo needs one
+the constant omits. Each check must therefore model what actually runs at call time, and each
+requirement must be the AGENT's, not the fleet's. This matters doubly because auto-heal is
+built on top: healing a false positive damages a working agent.
+
 Same shape as doctor.py: small read-only checks returning CheckResult,
 injectable dependencies for tests, `run_agent_doctor` composes them. Unlike
 the plugin doctor, two checks are intentionally LIVE (gog token liveness,
@@ -23,13 +33,13 @@ miss the exact failures it exists to catch.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
 from orchestrator.doctor import CheckResult
 from orchestrator.agent_email import (
     GOG_CONFIG_DIR,
-    LOGIN_SERVICES,
     AgentEmailError,
     EmailIdentity,
     granted_services,
@@ -41,6 +51,67 @@ from orchestrator.provision import ProvisionError, load_env_block, load_manifest
 
 
 _PLACEHOLDER_DOMAINS = {"example.com", "example.org", "example.net"}
+
+# The gog services EVERY agent's mailbox needs. Deliberately NOT `LOGIN_SERVICES` — that
+# constant is the generous default for an interactive `gog login`, not a per-agent
+# REQUIREMENT. Demanding it of everyone reported hal/ace as broken over `appscript`, which
+# neither uses, while missing that echo genuinely needs `slides` (not in the constant at all).
+# Agents extend this by declaring `gog_services` in config/agent.json.
+CORE_SERVICES = ("gmail", "drive", "docs", "sheets", "forms")
+
+
+def _baseline_rails(cfg: dict) -> list | None:
+    """The FLEET-BASELINE deny rails this agent mounts via `channels`, mirroring what
+    hooks/gating_guard.py merges in at call time.
+
+    A repo whose config/gating.json has `"deny": []` but `"channels": ["email"]` is fully
+    railed at runtime — the baseline rails (agent-core/gating-baseline.json, shipped with the
+    canopy plugin) are merged IN FRONT of the local list. Counting only the local `deny`
+    array reported echo and hal as unrailed when they were not.
+
+    Returns [] for legacy configs (no `channels`), or None when channels are mounted but the
+    baseline can't be resolved — the state in which gating_guard fails CLOSED.
+    """
+    channels = cfg.get("channels")
+    if not channels:
+        return []
+    try:
+        plugin_dir = os.environ.get("CANOPY_PLUGIN_DIR")
+        if not plugin_dir:
+            reg = json.loads(
+                (Path("~/.claude/plugins/installed_plugins.json").expanduser()).read_text())
+            plugin_dir = reg["plugins"]["canopy@canopy"][0]["installPath"]
+        base = json.loads(
+            (Path(plugin_dir) / "agent-core" / "gating-baseline.json").read_text())
+    except Exception:
+        return None
+    rails: list = []
+    for ch in channels:
+        rails.extend(base.get("channels", {}).get(ch, []))
+    return rails
+
+
+def required_services(identity: EmailIdentity | None) -> tuple[set[str], str]:
+    """(required services, where that came from) for an agent's gog login.
+
+    Per-agent via `gog_services` in config/agent.json; otherwise CORE_SERVICES. Lets echo
+    require `slides` and hal not require `appscript`, instead of one fleet-wide list that is
+    simultaneously too strict for some agents and too loose for others.
+    """
+    repo = getattr(identity, "repo", None)
+    if repo:
+        try:
+            data = json.loads((Path(repo) / "config" / "agent.json").read_text())
+        except (json.JSONDecodeError, OSError):
+            data = {}
+        declared = data.get("gog_services")
+        if isinstance(declared, str):
+            declared = declared.split(",")
+        if declared:
+            svc = {s.strip() for s in declared if isinstance(s, str) and s.strip()}
+            if svc:
+                return svc, "config/agent.json gog_services"
+    return set(CORE_SERVICES), "fleet core"
 
 
 def _is_placeholder_mailbox(addr: str) -> bool:
@@ -85,14 +156,30 @@ def check_gating(repo: Path) -> CheckResult:
     except (json.JSONDecodeError, OSError) as e:
         return CheckResult(name, False, f"{path} unreadable: {e}")
     deny, approve = data.get("deny", []), data.get("approve", [])
+    channels = data.get("channels") or []
+    baseline = _baseline_rails(data)
     shims = list((Path(repo) / "bin").glob("*-email"))
-    if not deny and shims:
+    if baseline is None:
         return CheckResult(
             name, False,
-            f"0 deny rails but {shims[0].name} exists — an outbound-capable agent "
-            "needs at least the raw-send rail (see the factory's templated gating.json)",
+            f"gating.json mounts channels {channels} but the fleet gating baseline "
+            "(agent-core/gating-baseline.json) is unresolvable — gating_guard fails CLOSED, "
+            "so every guarded tool call is blocked until the canopy plugin is installed or "
+            "updated (/canopy:update)",
         )
-    return CheckResult(name, True, f"{len(deny)} deny rail(s), {len(approve)} approve rule(s)")
+    effective = len(baseline) + len(deny)
+    if not effective and shims:
+        return CheckResult(
+            name, False,
+            f"0 effective deny rails but {shims[0].name} exists — an outbound-capable agent "
+            "needs at least the raw-send rail: mount it with \"channels\": [\"email\"] or add "
+            "a local rail (see the factory's templated gating.json)",
+        )
+    return CheckResult(
+        name, True,
+        f"{effective} effective deny rail(s) — {len(baseline)} fleet-baseline via "
+        f"channels={channels} + {len(deny)} local; {len(approve)} approve rule(s)",
+    )
 
 
 def check_hook_wiring(repo: Path) -> CheckResult:
@@ -107,29 +194,36 @@ def check_hook_wiring(repo: Path) -> CheckResult:
     guard = Path(repo) / "hooks" / "gating_guard.py"
     if not guard.exists():
         return CheckResult(name, False, f"{guard} missing — rails have no enforcement")
-    settings_path = Path(repo) / ".claude" / "settings.json"
-    if not settings_path.exists():
-        return CheckResult(
-            name, False,
-            f"{settings_path} missing — gating_guard.py is never invoked; wire it as a "
-            "PreToolUse hook (see the factory's templated settings.json)",
-        )
-    try:
-        settings = json.loads(settings_path.read_text())
-    except (json.JSONDecodeError, OSError) as e:
-        return CheckResult(name, False, f"{settings_path} unreadable: {e}")
-    pre = settings.get("hooks", {}).get("PreToolUse", [])
-    wired = any(
-        "gating_guard.py" in (h.get("command") or "")
-        for entry in pre for h in entry.get("hooks", [])
+    # TWO valid registration paths. Repo-style agents wire the guard in .claude/settings.json;
+    # agents shipped AS a Claude Code plugin (ace) wire it in hooks/hooks.json, which the
+    # harness loads from the plugin root. Checking only the former reported ace's rails as
+    # decorative when its guard is registered and firing.
+    candidates = (
+        (Path(repo) / ".claude" / "settings.json", ".claude/settings.json"),
+        (Path(repo) / "hooks" / "hooks.json", "hooks/hooks.json"),
     )
-    if not wired:
-        return CheckResult(
-            name, False,
-            f"{settings_path} has no PreToolUse hook invoking gating_guard.py — "
-            "the rails in config/gating.json are decorative until it does",
-        )
-    return CheckResult(name, True, "gating_guard.py registered as a PreToolUse hook")
+    unreadable = []
+    for path, label in candidates:
+        if not path.exists():
+            continue
+        try:
+            settings = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            unreadable.append(f"{label} unreadable: {e}")
+            continue
+        pre = settings.get("hooks", {}).get("PreToolUse", [])
+        if any("gating_guard.py" in (h.get("command") or "")
+               for entry in pre for h in entry.get("hooks", [])):
+            return CheckResult(name, True,
+                               f"gating_guard.py registered as a PreToolUse hook via {label}")
+    if unreadable:
+        return CheckResult(name, False, "; ".join(unreadable))
+    return CheckResult(
+        name, False,
+        "no PreToolUse hook invokes gating_guard.py — the rails in config/gating.json are "
+        f"decorative until one does; wire it in {repo}/.claude/settings.json (repo-style) or "
+        f"{repo}/hooks/hooks.json (plugin-style)",
+    )
 
 
 def check_secrets_manifest(repo: Path) -> CheckResult:
@@ -194,13 +288,16 @@ def check_auth_services(
     *,
     runner=subprocess.run,
 ) -> CheckResult:
-    """Every service in LOGIN_SERVICES is actually granted for the agent's gog auth.
+    """Every service THIS agent requires is actually granted for its gog auth.
 
-    Email auth (check_email_auth) proves the token is alive for Gmail; this proves the
-    login covered the WHOLE standard surface — notably `appscript`, which some agents
-    use to drive Google Drive and which is granted only if requested at login. A token
-    that works for Gmail but never consented to Apps Script would silently 403 the first
-    time the agent runs a script, so we catch it here with the exact re-login fix.
+    Email auth (check_email_auth) proves the token is alive for Gmail; this proves the login
+    covered the surface the agent actually uses. A token that works for Gmail but never
+    consented to, say, Slides would silently 403 the first time the agent builds a deck, so
+    we catch it here with the exact re-login fix.
+
+    The requirement is PER-AGENT (`required_services`), not the fleet-wide LOGIN_SERVICES
+    default: requiring that constant of everyone failed hal and ace over `appscript`, which
+    neither uses, while never noticing that echo needs `slides`, which the constant omits.
 
     `granted_services` returning None means gog couldn't be introspected (not installed,
     account not found) — that's a SKIP (check_email_auth already owns the hard auth
@@ -208,18 +305,27 @@ def check_auth_services(
     name = "Auth services"
     if identity is None:
         return CheckResult(name, False, "skipped — identity unresolved")
-    required = {s.strip() for s in LOGIN_SERVICES.split(",") if s.strip()}
+    required, source = required_services(identity)
     granted = granted_services(identity, runner=runner)
     if granted is None:
         return CheckResult(name, True, "skipped — gog auth not introspectable (see Email auth)")
     missing = sorted(required - granted)
     if missing:
+        # Re-login with required UNION already-granted: `gog login --services` REPLACES the
+        # grant set, so remediating with the required list alone would silently revoke scopes
+        # the agent had and uses.
+        relogin = ",".join(sorted(required | granted))
         return CheckResult(
             name, False,
-            f"missing scope(s) {missing} for {identity.account} — re-run: "
-            f"gog login {identity.account} --client {identity.client} --services {LOGIN_SERVICES}",
+            f"missing scope(s) {missing} for {identity.account} (required per {source}) — "
+            f"re-run: gog login {identity.account} --client {identity.client} "
+            f"--services {relogin}",
         )
-    return CheckResult(name, True, f"all {len(required)} services granted ({LOGIN_SERVICES})")
+    return CheckResult(
+        name, True,
+        f"all {len(required)} required service(s) granted per {source} "
+        f"({','.join(sorted(required))})",
+    )
 
 
 def check_registration(
