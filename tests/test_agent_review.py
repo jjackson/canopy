@@ -710,3 +710,23 @@ def test_no_agent_no_qualify_errors():
     r = CliRunner().invoke(main, ["agent-review"])
     assert r.exit_code != 0
     assert "--qualify-file" in r.output
+
+
+def test_qualify_file_malformed_yaml_is_clean_error(tmp_path):
+    p = tmp_path / "bad.yaml"
+    p.write_text(":\n  - [unclosed")
+    r = CliRunner().invoke(main, ["agent-review", "--qualify-file", str(p)])
+    assert r.exit_code != 0
+    assert isinstance(r.exception, SystemExit)
+    assert "could not read qualify-file" in r.output or "Error:" in r.output
+    assert "Traceback" not in r.output
+
+
+def test_agent_review_normal_path_still_reachable_without_qualify_file():
+    # Regression guard: making AGENT optional (for --qualify-file) must not break the
+    # normal `agent-review <slug>` path. A nonexistent slug should get PAST the
+    # "provide an AGENT slug" guard and fail later on repo resolution instead.
+    r = CliRunner().invoke(main, ["agent-review", "nonexistent-slug-xyz"])
+    assert r.exit_code != 0
+    assert "provide an AGENT slug" not in r.output
+    assert "could not resolve agent repo" in r.output.lower()

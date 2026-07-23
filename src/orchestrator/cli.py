@@ -1413,7 +1413,11 @@ def agent_review_cmd(agent, hours, no_llm, no_verify, model, max_budget_usd, as_
         import yaml
         from orchestrator.agent_review import qualify_findings
 
-        findings = yaml.safe_load(open(qualify_file))
+        try:
+            with open(qualify_file) as fh:
+                findings = yaml.safe_load(fh)
+        except (yaml.YAMLError, OSError) as e:
+            raise click.ClickException(f"could not read qualify-file: {e}")
         if not isinstance(findings, list):
             raise click.ClickException("qualify-file must contain a YAML list of findings")
         qualified, dropped = qualify_findings(findings)
