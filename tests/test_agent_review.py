@@ -547,3 +547,69 @@ def test_invariant_with_hook_rule_is_kept():
     f = {"title": "NEVER post without a yes", "fix_kind": "hook_rule", "evidence": _GOOD_EV}
     qualified, _ = qualify_findings([f])
     assert qualified == [f]
+
+
+# --- over_claim / verify_late corpus detectors --------------------------------
+# Entries here use the REAL transcript shape (type/message.content blocks) that
+# read_transcript produces and human_corrections/extract_tool_calls consume —
+# NOT a simplified {"role","text","tools"} shape. See _write_transcript above and
+# test_human_corrections_catches_safety_override_and_confusion for the same convention.
+from orchestrator.agent_review import overclaim_signals
+
+
+def test_overclaim_types_registered():
+    assert "over_claim" in FRICTION_TYPES
+    assert "verify_late" in FRICTION_TYPES
+
+
+def test_bare_completion_claim_flagged():
+    # assistant asserts "Verified" with no tool_use block in the same message.
+    entries = [
+        {"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "Verified live — the filter is applied."},
+        ]}},
+    ]
+    sigs = overclaim_signals(entries)
+    assert any(s["type"] == "over_claim" for s in sigs)
+    assert sigs[0]["turn"] == 0
+    assert "Verified" in sigs[0]["evidence"]
+
+
+def test_claim_backed_by_tool_not_flagged():
+    # same assistant message also carries a tool_use block -> not an over_claim.
+    entries = [
+        {"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "Applied the filter."},
+            {"type": "tool_use", "id": "t0", "name": "Bash", "input": {"command": "echo ok"}},
+        ]}},
+    ]
+    sigs = overclaim_signals(entries)
+    assert all(s["type"] != "over_claim" for s in sigs)
+
+
+def test_claim_with_no_completion_verb_not_flagged():
+    entries = [
+        {"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "Let me look into this next."},
+        ]}},
+    ]
+    assert overclaim_signals(entries) == []
+
+
+def test_user_turns_are_not_scanned_for_overclaims():
+    # human text containing a completion verb must never be mistaken for the agent's own claim.
+    entries = [{"type": "user", "message": {"content": "is this shipped yet?"}}]
+    assert overclaim_signals(entries) == []
+
+
+def test_friction_signals_wires_overclaims(tmp_path):
+    t = tmp_path / "turn.jsonl"
+    lines = [
+        {"type": "assistant", "cwd": str(tmp_path), "message": {"content": [
+            {"type": "text", "text": "Done — fixed the bug."},
+        ]}},
+    ]
+    t.write_text("\n".join(json.dumps(l) for l in lines) + "\n")
+    s = friction_signals(t)
+    assert "overclaims" in s
+    assert any(o["type"] == "over_claim" for o in s["overclaims"])

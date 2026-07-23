@@ -39,6 +39,8 @@ FRICTION_TYPES = (
     "skill_capture",   # a multi-step manual pattern that should be a skill
     "auth_friction",   # auth/credential/setup blockers
     "skill_collision", # loaded ANOTHER plugin's same-named skill (e.g. ace:turn) over its own
+    "over_claim",      # the agent asserted a completion verb with no tool_use to back it in-turn
+    "verify_late",     # a completion claim whose only substantiating tool_use lands in a LATER turn
 )
 
 # Human-correction mining — the lens agent-review was BLIND to (echo's last turn taught us: it
@@ -78,6 +80,47 @@ def human_corrections(entries: list[dict]) -> list[dict]:
         if kinds:
             out.append({"kinds": sorted(set(kinds)), "quote": s.replace("\n", " ")[:240]})
     return out
+
+
+# Over-claim mining — a completion verb in the agent's OWN text ("verified", "shipped", "done", …)
+# asserted with no tool_use in the SAME assistant message to back it. Mirrors human_corrections:
+# walk the RAW transcript entries (not the flattened extract_assistant_text/extract_tool_calls
+# corpus friction_signals otherwise uses), because "same turn" is only visible at the per-entry
+# granularity — an assistant entry's message.content list interleaves its text and tool_use blocks.
+_CLAIM_RX = re.compile(r"\b(shipped|merged|verified|done|fixed|applied|confirmed)\b", re.IGNORECASE)
+
+
+def overclaim_signals(entries: list[dict]) -> list[dict]:
+    """Flag assistant completion-claims not substantiated by a tool_use block in the SAME
+    assistant message. Returns [{type: 'over_claim', evidence, turn}].
+
+    `verify_late` (a completion claim whose substantiating tool_use appears only in a LATER
+    assistant turn) stays registered in FRICTION_TYPES but is NOT detected here yet: reliably
+    linking a specific claim to a specific later tool call needs more than this deterministic
+    regex pass can promise without false positives, so it's a follow-up enrichment rather than
+    something to ship half-right. `over_claim` — same-turn, unambiguous — ships solidly now.
+    """
+    out: list[dict] = []
+    for i, entry in enumerate(entries):
+        if entry.get("type") != "assistant":
+            continue
+        msg = entry.get("message", {})
+        content = msg.get("content", [])
+        if not isinstance(content, list):
+            continue
+        text = " ".join(
+            block.get("text", "") for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        ).strip()
+        if not text or not _CLAIM_RX.search(text):
+            continue
+        has_tool_use = any(
+            isinstance(block, dict) and block.get("type") == "tool_use" for block in content
+        )
+        if not has_tool_use:
+            out.append({"type": "over_claim", "evidence": text[:200], "turn": i})
+    return out
+
 
 # Expected turn steps for an operating-model agent, with markers that evidence each ran.
 # A step with no marker present in a turn is a candidate `checklist_gap`.
@@ -292,6 +335,7 @@ def friction_signals(
         "path": str(transcript_path),
         "n_tool_calls": len(calls),
         "human_corrections": human_corrections(entries),   # HIGHEST-signal — read first
+        "overclaims": overclaim_signals(entries),
         "failures": failures,
         "gating_blocks": gating_blocks,
         "auth_friction": auth_hits,
