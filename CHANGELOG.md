@@ -9,6 +9,32 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.338] - 2026-07-23
+
+### Added
+
+- `canopy agent doctor --fix` — applies the safe, non-interactive repairs (materialize
+  secrets via `canopy provision`; register on canopy-web), then RE-RUNS the checks so the
+  verdict reflects reality rather than intent. The fixer table is deliberately short: a
+  repair earns its place only if it is non-interactive, idempotent, and cannot destroy
+  work. gog consent, plugin install, and PAT minting stay printed instructions — a doctor
+  that half-performs an interactive step leaves a worse mess than one that asks. Checkout
+  drift is likewise reported, never auto-pulled: a stale checkout can carry unpushed
+  commits, and blindly fast-forwarding is how that work gets stranded (this run found
+  exactly one such commit, unpushed on a main 66 behind origin).
+- `canopy agent doctor` — **Secrets materialized** check. `Secrets manifest` proves the repo
+  *declares* what it needs; it says nothing about whether `canopy provision` was ever run
+  HERE, which is the entire point of a per-machine doctor. A fresh macOS user has every
+  repo, every manifest, and none of the resolved files. First run found two agents with no
+  `.env` on a machine that had been running them all day.
+- `canopy agent doctor` — **Rails enforced** check: an ACTIVE probe, not a file read. Every
+  other rails check reads JSON, and none prove the guard blocks anything — a broken import,
+  a bad interpreter, or a subtly wrong pattern all leave a perfectly valid config that stops
+  nothing. The check predicts the guard's answer from its own effective rails, then executes
+  `hooks/gating_guard.py` with a synthetic PreToolUse payload and requires exit 2. The probe
+  command is passed as text and never run. Skips when no rail predicts a block, so it never
+  asserts a block the agent's own config does not call for.
+
 ## [0.2.337] - 2026-07-23
 
 ### Added

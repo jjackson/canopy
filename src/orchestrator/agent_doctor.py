@@ -34,7 +34,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
+import sys
 from pathlib import Path
 
 from orchestrator.doctor import CheckResult
@@ -47,7 +49,12 @@ from orchestrator.agent_email import (
     resolve_email_identity,
 )
 from orchestrator.agent_client import AgentClient, CanopyError
-from orchestrator.provision import ProvisionError, load_env_block, load_manifest
+from orchestrator.provision import (
+    ProvisionError,
+    load_env_block,
+    load_manifest,
+    resolve_target,
+)
 
 
 _PLACEHOLDER_DOMAINS = {"example.com", "example.org", "example.net"}
@@ -266,6 +273,100 @@ def check_secrets_manifest(repo: Path) -> CheckResult:
     )
 
 
+def check_secrets_materialized(repo: Path) -> CheckResult:
+    """The manifest's targets actually EXIST on this machine.
+
+    `check_secrets_manifest` proves the repo *declares* what it needs; it says nothing about
+    whether `canopy provision` was ever run HERE. That distinction is the whole point of a
+    per-machine doctor: a fresh macOS user has every repo, every manifest, and none of the
+    resolved files (`~/.<slug>/.env`, `credentials-<client>.json`). Fixable non-interactively,
+    so `--fix` heals it.
+    """
+    name = "Secrets materialized"
+    if not (Path(repo) / "config" / "secrets.yaml").exists():
+        return CheckResult(name, True, "skipped — no canopy provision manifest (see Secrets manifest)")
+    try:
+        secrets = load_manifest(Path(repo))
+        env = load_env_block(Path(repo))
+    except ProvisionError as e:
+        return CheckResult(name, False, str(e))
+    targets = [resolve_target(s.target, Path(repo)) for s in secrets]
+    if env and env.target:
+        targets.append(resolve_target(env.target, Path(repo)))
+    missing = [str(t) for t in targets if not t.exists()]
+    if missing:
+        return CheckResult(
+            name, False,
+            f"{len(missing)}/{len(targets)} provisioned target(s) missing on this machine "
+            f"({', '.join(missing[:3])}{'…' if len(missing) > 3 else ''}) — run "
+            f"`canopy provision --repo {repo}` (needs a signed-in `op`), or `--fix`",
+        )
+    return CheckResult(name, True, f"all {len(targets)} provisioned target(s) present")
+
+
+RAILS_PROBE = "gog gmail send --to probe@example.invalid --subject probe"
+
+
+def _rail_matches(rule: dict, tool_name: str, subject: str) -> bool:
+    """Mirror of gating_guard._matches — predicts whether a rule fires on a subject."""
+    if rule.get("tool") and rule["tool"] != tool_name:
+        return False
+    pattern = rule.get("pattern")
+    if not pattern:
+        return True
+    try:
+        return re.search(pattern, subject) is not None
+    except re.error:
+        return False
+
+
+def check_rails_fire(repo: Path, *, runner=subprocess.run) -> CheckResult:
+    """Rails are CONFIGURED vs rails are ENFORCED — an active probe, not a file read.
+
+    Every other rails check reads JSON. None of them prove the guard actually blocks anything:
+    a broken import, a bad interpreter, or a subtly wrong pattern all leave a perfectly valid
+    config that stops nothing. So predict the guard's answer from its own effective rails, then
+    execute the guard with a synthetic PreToolUse payload and require it to agree.
+
+    The probe command is never run — it is passed as text to the hook on stdin, exactly as the
+    harness would. Deny → exit 2 (gating_guard's contract). Anything else means the rails are
+    declared but not in force.
+    """
+    name = "Rails enforced"
+    guard = Path(repo) / "hooks" / "gating_guard.py"
+    if not guard.exists():
+        return CheckResult(name, True, "skipped — no hooks/gating_guard.py (see Hook wiring)")
+    try:
+        cfg = json.loads((Path(repo) / "config" / "gating.json").read_text())
+    except (json.JSONDecodeError, OSError):
+        return CheckResult(name, True, "skipped — gating.json unreadable (see Gating rails)")
+    baseline = _baseline_rails(cfg)
+    if baseline is None:
+        return CheckResult(name, True, "skipped — fleet baseline unresolvable (see Gating rails)")
+    rails = baseline + (cfg.get("deny") or [])
+    if not any(_rail_matches(r, "Bash", RAILS_PROBE) for r in rails):
+        return CheckResult(
+            name, True,
+            "skipped — no deny rail predicts a block for the raw-send probe, so there is "
+            "nothing to assert",
+        )
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": RAILS_PROBE}})
+    try:
+        proc = runner([sys.executable, str(guard)], input=payload,
+                      capture_output=True, text=True, timeout=30)
+    except Exception as e:  # noqa: BLE001 — any launch failure is a real finding
+        return CheckResult(name, False, f"could not execute {guard}: {e}")
+    if proc.returncode == 2:
+        return CheckResult(name, True,
+                           "guard blocked the raw-send probe (exit 2) — rails are in force")
+    return CheckResult(
+        name, False,
+        f"config denies the raw-send probe but gating_guard.py exited {proc.returncode} "
+        f"instead of 2 — rails are DECLARED BUT NOT ENFORCED"
+        + (f"; stderr: {proc.stderr.strip()[:200]}" if (proc.stderr or "").strip() else ""),
+    )
+
+
 def check_email_auth(
     identity: EmailIdentity | None,
     *,
@@ -420,6 +521,46 @@ def check_registration(
     return CheckResult(name, True, f"registered; board reachable ({len(pending)} pending command(s))")
 
 
+def _default_provisioner(repo: Path) -> str:
+    from orchestrator.provision import provision as _provision
+    summary = _provision(Path(repo))
+    if summary.get("errors"):
+        raise ProvisionError("; ".join(str(e) for e in summary["errors"][:3]))
+    return (f"provisioned {summary.get('provisioned', 0)} target(s), "
+            f"skipped {summary.get('skipped', 0)}")
+
+
+def _default_registrar(repo: Path) -> str:
+    from orchestrator.agent_web import register as _register
+    result = _register(Path(repo))
+    return f"registered {result.get('slug', Path(repo).name)} on canopy-web"
+
+
+# Which failing checks `--fix` can heal, and with what. Deliberately SHORT: a fixer earns its
+# place only if it is non-interactive, idempotent, and cannot destroy work. Everything else
+# (gog consent, plugin install, PAT mint, config authorship) stays a printed instruction —
+# a doctor that half-performs an interactive step leaves a worse mess than one that asks.
+FIXERS = {
+    "Secrets materialized": ("canopy provision", _default_provisioner),
+    "canopy-web board": ("canopy agent-publish register", _default_registrar),
+}
+
+
+def heal_agent(repo: Path, results: list[CheckResult], *, fixers=None) -> list[tuple[str, bool, str]]:
+    """Attempt the safe fixes for whichever checks failed. Returns [(action, ok, detail)]."""
+    fixers = FIXERS if fixers is None else fixers
+    actions: list[tuple[str, bool, str]] = []
+    for r in results:
+        if r.ok or r.name not in fixers:
+            continue
+        label, fn = fixers[r.name]
+        try:
+            actions.append((label, True, fn(Path(repo))))
+        except Exception as e:  # noqa: BLE001 — surface any fixer failure verbatim
+            actions.append((label, False, str(e)))
+    return actions
+
+
 def run_agent_doctor(
     repo: Path,
     *,
@@ -441,6 +582,8 @@ def run_agent_doctor(
         check_gating(repo),
         check_hook_wiring(repo),
         check_secrets_manifest(repo),
+        check_secrets_materialized(repo),
+        check_rails_fire(repo),
         check_email_auth(identity, gog_dir=gog_dir, runner=runner),
         check_auth_services(identity, runner=runner),
         check_registration(identity, client_factory=client_factory),
