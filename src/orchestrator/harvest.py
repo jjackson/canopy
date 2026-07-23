@@ -21,7 +21,9 @@ import datetime as _dt
 import glob
 import json
 import os
+import subprocess
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from orchestrator import turn_synthesis
 from orchestrator.session_sources import discover_local_sources
@@ -310,3 +312,59 @@ def build_intent_prompt(stripped: str, human_msgs: list[str]) -> str:
         "hook_rule or schema_validator, not prose.\n"
         "Output ONLY the YAML list.\n"
     )
+
+
+def _run_intent_llm(prompt: str, model: str, max_budget_usd: float,
+                    timeout: int = 300) -> tuple[list[dict] | None, str | None]:
+    """Run the intent-fidelity audit pass. Mirrors `agent_review._call_verify_llm` —
+    same subprocess shape, same tolerant YAML-list parser, same fail-loud contract:
+    `error` is None on success and a human-readable reason on any failure. A silent
+    None-on-fail gate is worse than no gate (it would present an UNAUDITED session as
+    if it had been checked), so every failure path names itself."""
+    from orchestrator.agent_review import parse_findings
+
+    try:
+        proc = subprocess.run(
+            ["claude", "-p", prompt, "--model", model,
+             "--max-budget-usd", str(max_budget_usd), "--no-session-persistence"],
+            capture_output=True, text=True, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return None, f"intent audit timed out after {timeout}s"
+    except (subprocess.SubprocessError, OSError) as exc:
+        return None, f"intent audit subprocess error: {exc}"
+    if proc.returncode != 0:
+        # claude -p prints some errors (e.g. budget) to STDOUT with empty stderr.
+        detail = (proc.stderr.strip() or proc.stdout.strip())[:200]
+        return None, f"intent audit claude -p exited {proc.returncode}: {detail}"
+    return parse_findings(proc.stdout), None
+
+
+def intent_audit(path: str, *, use_llm: bool = True, model: str = "sonnet",
+                 max_budget_usd: float = 2.0) -> dict:
+    """Orchestrate the intent-fidelity audit for one session: extract the material
+    (stripped conversation + Jonathan's own words), build the audit prompt, run the
+    LLM judgment pass, and validate every emitted finding against the SP1 evidence
+    schema (`agent_review.qualify_findings`) before it can be trusted.
+
+    Returns {"session": <path stem>, "qualified": [...], "dropped": [...], "error": <str|None>}.
+    `use_llm=False` skips the LLM pass and returns material with no findings (no
+    error) — useful for testing the extraction/prompt-assembly half in isolation.
+    On an LLM failure, `error` is set and both finding lists come back empty — a
+    failed audit must never masquerade as a clean one."""
+    from orchestrator.agent_review import qualify_findings
+
+    session = Path(path).stem
+    stripped = strip_session(path, "final")
+    hm = human_messages(path)
+    prompt = build_intent_prompt(stripped, hm)
+
+    if not use_llm:
+        findings: list[dict] = []
+    else:
+        findings, err = _run_intent_llm(prompt, model, max_budget_usd)
+        if err:
+            return {"session": session, "qualified": [], "dropped": [], "error": err}
+
+    qualified, dropped = qualify_findings(findings or [])
+    return {"session": session, "qualified": qualified, "dropped": dropped, "error": None}

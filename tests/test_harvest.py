@@ -163,3 +163,30 @@ def test_session_digest_full_keeps_all_inputs_untruncated(tmp_path):
     assert full["inputs"][0] == long_in                  # untruncated
     tiny = session_digest(str(p), full=False)
     assert len(tiny["inputs"]) <= 6 and len(tiny["inputs"][0]) <= 160   # sampled + truncated
+
+
+def test_intent_audit_no_llm_returns_material_no_findings(tmp_path, monkeypatch):
+    from orchestrator import harvest
+    # a minimal real jsonl with one human msg + one assistant reply
+    j = tmp_path / "s.jsonl"
+    j.write_text(
+        '{"type":"user","message":{"content":"approve the broad option"}}\n'
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"shipped the narrow one"}]}}\n')
+    out = harvest.intent_audit(str(j), use_llm=False)
+    assert out["error"] is None and out["qualified"] == [] and out["dropped"] == []
+
+
+def test_intent_audit_validates_emitted_findings(tmp_path, monkeypatch):
+    from orchestrator import harvest
+    j = tmp_path / "s.jsonl"
+    j.write_text('{"type":"user","message":{"content":"hi"}}\n')
+    good = {"title": "approved broad, shipped narrow", "friction_type": "intent_miss", "fix_kind": "skill_edit",
+            "target": "skills/x", "recommendation": "honor the approved scope",
+            "evidence": {"source_ref": "you: 'approve the broad option'", "was_read": True,
+                         "already_fixed_check": {"ran": True, "result": "live on main"},
+                         "confidence": "high", "confidence_basis": "verbatim quote diverges from the shipped narrow filter"}}
+    bad = {"title": "vibes", "friction_type": "intent_miss", "evidence": "I feel you wanted more"}
+    monkeypatch.setattr(harvest, "_run_intent_llm", lambda *a, **k: ([good, bad], None))
+    out = harvest.intent_audit(str(j), use_llm=True)
+    assert [f["title"] for f in out["qualified"]] == ["approved broad, shipped narrow"]
+    assert len(out["dropped"]) == 1  # the vibes finding has no evidence record
