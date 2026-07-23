@@ -730,3 +730,105 @@ def test_agent_review_normal_path_still_reachable_without_qualify_file():
     assert r.exit_code != 0
     assert "provide an AGENT slug" not in r.output
     assert "could not resolve agent repo" in r.output.lower()
+
+
+# --- Timeout / error-shape contract (live cron: synthesis timed out, the error came back
+# --- a bare int, and the consumer died with `object of type 'int' has no len()`) ---------
+
+def test_run_review_timeout_returns_string_error_and_empty_findings(tmp_path, monkeypatch):
+    """A timed-out synthesis pass must return a WELL-FORMED result: a descriptive STRING
+    error naming the timeout, findings == [], and no exception out of run_review."""
+    import subprocess as sp
+    from orchestrator import agent_review as ar
+
+    repo = tmp_path / "repositories" / "echo"
+    (repo / "skills").mkdir(parents=True)
+    projects = tmp_path / "projects"
+    d = projects / "-Users-x-emdash-repositories-echo"
+    d.mkdir(parents=True)
+    _write_transcript(d / "a.jsonl", str(repo), [("Read", {"file_path": "/x"}, "ok")])
+
+    def fake_run(cmd, **kwargs):
+        raise sp.TimeoutExpired(cmd, kwargs.get("timeout", 180))
+
+    monkeypatch.setattr(ar.subprocess, "run", fake_run)
+    result = ar.run_review(str(repo), projects_dir=projects, timeout=45)
+
+    assert isinstance(result["error"], str)
+    assert "timed out" in result["error"].lower()
+    assert "45" in result["error"]                 # the actual budget, not a vague message
+    assert result["findings"] == []
+    assert result["dropped_findings"] == []
+
+
+def test_run_review_error_is_never_non_string(tmp_path, monkeypatch):
+    """Every failure path yields a STRING error — even when the underlying failure value
+    is a bare int (returncode) or a non-str exception payload."""
+    import subprocess as sp
+    from orchestrator import agent_review as ar
+
+    repo = tmp_path / "repositories" / "echo"
+    (repo / "skills").mkdir(parents=True)
+    projects = tmp_path / "projects"
+    d = projects / "-Users-x-emdash-repositories-echo"
+    d.mkdir(parents=True)
+    _write_transcript(d / "a.jsonl", str(repo), [("Read", {"file_path": "/x"}, "ok")])
+
+    # (a) non-zero exit with EMPTY stdout+stderr — the shape that used to leave only a
+    #     bare returncode to report.
+    monkeypatch.setattr(ar.subprocess, "run",
+                        lambda cmd, **kw: sp.CompletedProcess(cmd, 137, stdout="", stderr=""))
+    result = ar.run_review(str(repo), projects_dir=projects)
+    assert isinstance(result["error"], str)
+    assert "137" in result["error"]
+    assert len(result["error"]) > 0          # consumers do len() on this
+    assert result["findings"] == []
+
+    # (b) an OSError from the spawn itself (e.g. `claude` not on PATH under cron)
+    def boom(cmd, **kw):
+        raise OSError(2, "No such file or directory: 'claude'")
+
+    monkeypatch.setattr(ar.subprocess, "run", boom)
+    result = ar.run_review(str(repo), projects_dir=projects)
+    assert isinstance(result["error"], str)
+    assert result["findings"] == []
+
+    # (c) unresolvable agent still returns the full result shape, not a bare {"error": ...}
+    result = ar.run_review("no-such-agent-xyz", projects_dir=projects)
+    assert isinstance(result["error"], str)
+    assert result["findings"] == [] and result["dropped_findings"] == []
+    assert result["turns"] == 0
+
+
+def test_run_review_passes_timeout_to_subprocess(tmp_path, monkeypatch):
+    """--timeout is real: the value reaches subprocess.run's timeout kwarg."""
+    import subprocess as sp
+    from orchestrator import agent_review as ar
+
+    repo = tmp_path / "repositories" / "echo"
+    (repo / "skills").mkdir(parents=True)
+    projects = tmp_path / "projects"
+    d = projects / "-Users-x-emdash-repositories-echo"
+    d.mkdir(parents=True)
+    _write_transcript(d / "a.jsonl", str(repo), [("Read", {"file_path": "/x"}, "ok")])
+
+    seen = {}
+
+    def fake_run(cmd, **kwargs):
+        seen["timeout"] = kwargs.get("timeout")
+        return sp.CompletedProcess(cmd, 0, stdout="[]", stderr="")
+
+    monkeypatch.setattr(ar.subprocess, "run", fake_run)
+    ar.run_review(str(repo), projects_dir=projects, timeout=17)
+    assert seen["timeout"] == 17
+    # default is the module constant, not a magic number re-typed at the call site
+    ar.run_review(str(repo), projects_dir=projects)
+    assert seen["timeout"] == ar.SYNTHESIS_TIMEOUT
+
+
+def test_agent_review_cli_accepts_timeout_option():
+    r = CliRunner().invoke(main, ["agent-review", "--help"])
+    assert r.exit_code == 0, r.output
+    assert "--timeout" in r.output
+    r2 = CliRunner().invoke(main, ["agent-review", "--timeout", "5", "--no-llm", "nope-not-an-agent"])
+    assert "no such option" not in r2.output.lower()

@@ -29,6 +29,27 @@ from orchestrator.transcripts import (
 
 CLAUDE_PROJECTS = Path.home() / ".claude" / "projects"
 
+# Wall-clock budgets for the two claude -p passes. Named constants, not magic numbers
+# buried at the call site, so the CLI can expose them and tests can assert the default.
+SYNTHESIS_TIMEOUT = 180   # `run_review`'s synthesis pass
+VERIFY_TIMEOUT = 300      # `_call_verify_llm`'s source-verification pass
+
+
+def _error_text(value: object, fallback: str) -> str:
+    """Every `error` this module returns is a NON-EMPTY, human-readable STRING.
+
+    A live cron run hit a synthesis-pass failure whose `error` came back a bare,
+    non-string value; the consumer did `len(error)` and died with
+    `TypeError: object of type 'int' has no len()` — a ~$2 pass yielded nothing and
+    the failure was never flagged. Consumers must be able to treat `error` as text
+    unconditionally, so every assignment funnels through here.
+    """
+    if isinstance(value, str) and value.strip():
+        return value
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return fallback
+    return f"{fallback} ({value!r})"
+
 # Operating-model friction taxonomy. Findings get tagged with one of these.
 FRICTION_TYPES = (
     "human_correction",  # the human had to correct/override the agent (HIGHEST signal — read these first)
@@ -611,7 +632,7 @@ def build_verify_prompt(repo: Path, findings: list[dict], corpus: dict) -> str:
 
 
 def _call_verify_llm(prompt: str, model: str, max_budget_usd: float,
-                     timeout: int = 300) -> tuple[list[dict] | None, str | None]:
+                     timeout: int = VERIFY_TIMEOUT) -> tuple[list[dict] | None, str | None]:
     """Run the verdict pass. Returns (verdicts, error). `error` is None on success and
     a human-readable reason on any failure — a silent None-on-fail gate is worse than
     no gate (it presents UNVERIFIED findings as if they'd been checked), so every
@@ -699,13 +720,29 @@ def run_review(
     model: str = "sonnet",
     max_budget_usd: float = 2.0,
     projects_dir: Path = CLAUDE_PROJECTS,
+    timeout: int = SYNTHESIS_TIMEOUT,
 ) -> dict:
     """Review an agent's recent turns. Returns {agent, repo, turns, signals, findings,
     dropped_findings, error?}. `verify` (default on) runs the source-verification gate
-    over the synthesized findings and drops the ones already shipped to origin/main."""
+    over the synthesized findings and drops the ones already shipped to origin/main.
+    `timeout` caps the claude -p synthesis pass (seconds).
+
+    CONTRACT — the result is ALWAYS well-formed, on every path including failure:
+    `findings` and `dropped_findings` are lists (empty on failure, never absent),
+    `turns` is an int, and `error`, when present, is a non-empty descriptive STRING.
+    Consumers may `len()` / substring-match `error` without type-checking it first."""
     repo = resolve_agent_repo(slug_or_path)
     if not repo or not repo.exists():
-        return {"error": f"could not resolve agent repo for {slug_or_path!r}"}
+        # Well-formed even here: a bare {"error": ...} makes consumers KeyError on findings.
+        return {
+            "agent": str(slug_or_path),
+            "repo": "",
+            "turns": 0,
+            "signals": [],
+            "findings": [],
+            "dropped_findings": [],
+            "error": f"could not resolve agent repo for {slug_or_path!r}",
+        }
 
     transcripts = find_turn_transcripts(repo, hours=hours, projects_dir=projects_dir)
     skills_dir = repo / "skills"
@@ -729,10 +766,25 @@ def run_review(
         proc = subprocess.run(
             ["claude", "-p", prompt, "--model", model,
              "--max-budget-usd", str(max_budget_usd), "--no-session-persistence"],
-            capture_output=True, text=True, timeout=180,
+            capture_output=True, text=True, timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        result["error"] = "claude -p timed out"
+        result["error"] = _error_text(
+            f"agent-review synthesis pass timed out after {timeout}s",
+            "agent-review synthesis pass timed out",
+        )
+        result["findings"] = []
+        result["dropped_findings"] = []
+        return result
+    except (subprocess.SubprocessError, OSError) as exc:
+        # e.g. `claude` not on PATH under cron. Previously this propagated out of
+        # run_review and took the whole caller down instead of reporting a finding-less run.
+        result["error"] = _error_text(
+            f"agent-review synthesis pass subprocess error: {exc}",
+            "agent-review synthesis pass subprocess error",
+        )
+        result["findings"] = []
+        result["dropped_findings"] = []
         return result
     if proc.returncode == 0:
         findings = parse_findings(proc.stdout)
@@ -749,12 +801,21 @@ def run_review(
             result["findings"] = kept
             result["dropped_findings"] = dropped
             if verify_error:
-                result["verification_error"] = verify_error
+                result["verification_error"] = _error_text(
+                    verify_error, "source-verification gate failed for an unstated reason")
         else:
             result["findings"] = findings
     else:
         # claude -p prints some errors (e.g. "Exceeded USD budget") to STDOUT with an
-        # empty stderr — capture whichever stream has the message so failures stay diagnosable.
-        detail = proc.stderr.strip() or proc.stdout.strip()
-        result["error"] = f"claude -p failed: {detail[:200]}"
+        # empty stderr — capture whichever stream has the message so failures stay
+        # diagnosable. Both streams can be empty (e.g. SIGKILL), so the exit code is
+        # always named: a bare returncode is not an error MESSAGE.
+        detail = (proc.stderr or "").strip() or (proc.stdout or "").strip()
+        result["error"] = _error_text(
+            f"agent-review synthesis pass: claude -p exited {proc.returncode}"
+            + (f": {detail[:200]}" if detail else " with no output"),
+            f"agent-review synthesis pass: claude -p exited {proc.returncode}",
+        )
+        result["findings"] = []
+        result["dropped_findings"] = []
     return result
