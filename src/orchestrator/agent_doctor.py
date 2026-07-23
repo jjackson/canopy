@@ -328,6 +328,73 @@ def check_auth_services(
     )
 
 
+PLUGIN_REGISTRY = "~/.claude/plugins/installed_plugins.json"
+
+
+def check_plugin_install(repo: Path, *, registry_path: str | None = None) -> CheckResult:
+    """The agent's Claude Code PLUGIN is installed on this machine.
+
+    Every other check reads the agent's REPO, so all of them pass on a machine where the
+    repo is cloned but the plugin was never installed — and none of the agent's skills
+    (`/ada:turn`, `/echo:turn`) can actually be invoked there. That is the dominant real-world
+    gap when moving to a new machine or macOS user: on one such account, four of five agents
+    had a full checkout, valid config, and no plugin.
+
+    A missing registry is a SKIP, not a failure — same pattern as auth services: absence of
+    introspection is not evidence of breakage.
+    """
+    name = "Plugin install"
+    manifest = Path(repo) / ".claude-plugin" / "plugin.json"
+    if not manifest.exists():
+        return CheckResult(name, True, "n/a — repo ships no .claude-plugin/plugin.json")
+    try:
+        plugin_name = (json.loads(manifest.read_text()).get("name") or "").strip()
+    except (json.JSONDecodeError, OSError) as e:
+        return CheckResult(name, False, f"{manifest} unreadable: {e}")
+    if not plugin_name:
+        return CheckResult(name, False, f'{manifest} has no "name"')
+    reg_file = Path(registry_path or PLUGIN_REGISTRY).expanduser()
+    try:
+        installed = json.loads(reg_file.read_text()).get("plugins", {})
+    except (json.JSONDecodeError, OSError):
+        return CheckResult(name, True, f"skipped — no plugin registry at {reg_file}")
+    matches = {k: v for k, v in installed.items() if k.split("@", 1)[0] == plugin_name}
+    if not matches:
+        source = _plugin_source(repo)
+        return CheckResult(
+            name, False,
+            f"plugin {plugin_name!r} is NOT installed — its repo is here but none of its "
+            f"skills can be invoked on this machine. Install it: "
+            f"`/plugin marketplace add {source}` then `/plugin install {plugin_name}@{plugin_name}`",
+        )
+    key, entries = next(iter(matches.items()))
+    entry = (entries or [{}])[0]
+    detail = f"{key} installed ({entry.get('scope', 'unknown')} scope, v{entry.get('version', '?')})"
+    return CheckResult(name, True, detail)
+
+
+def _plugin_source(repo: Path) -> str:
+    """`owner/repo` for the marketplace-add remediation — from config/agent.json's `repo`,
+    else the git origin remote, else the directory name as a last resort."""
+    try:
+        data = json.loads((Path(repo) / "config" / "agent.json").read_text())
+        if (declared := (data.get("repo") or "").strip()):
+            return declared
+    except (json.JSONDecodeError, OSError):
+        pass
+    try:
+        r = subprocess.run(["git", "-C", str(repo), "remote", "get-url", "origin"],
+                           capture_output=True, text=True, timeout=10)
+        if r.returncode == 0 and (url := r.stdout.strip()):
+            slug = url.removesuffix(".git").replace("git@github.com:", "")
+            slug = slug.replace("https://github.com/", "")
+            if slug:
+                return slug
+    except Exception:
+        pass
+    return Path(repo).name
+
+
 def check_registration(
     identity: EmailIdentity | None,
     *,
@@ -359,6 +426,7 @@ def run_agent_doctor(
     gog_dir: str | None = None,
     runner=subprocess.run,
     client_factory=AgentClient,
+    registry_path: str | None = None,
 ) -> tuple[list[CheckResult], bool]:
     """Run every per-agent check and return (results, overall_ok).
 
@@ -369,6 +437,7 @@ def run_agent_doctor(
     ident_result, identity = check_identity(repo)
     results = [
         ident_result,
+        check_plugin_install(repo, registry_path=registry_path),
         check_gating(repo),
         check_hook_wiring(repo),
         check_secrets_manifest(repo),

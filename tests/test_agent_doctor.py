@@ -166,9 +166,10 @@ def test_run_agent_doctor_all_green(tmp_path):
     repo = _agent_repo(tmp_path)
     results, ok = run_agent_doctor(
         repo, gog_dir=_gog_home(tmp_path), runner=_ok_runner,
-        client_factory=_client_factory())
+        client_factory=_client_factory(),
+        registry_path=str(_plugin_registry(tmp_path)))
     assert ok
-    assert [r.ok for r in results] == [True] * 7
+    assert [r.ok for r in results] == [True] * 8
 
 
 def test_run_agent_doctor_identity_failure_degrades_dependents(tmp_path):
@@ -198,8 +199,9 @@ def test_cli_agent_doctor_json_and_exit_code(tmp_path, monkeypatch):
     payload = json.loads(result.output)
     assert payload["ok"] is False
     names = [c["name"] for c in payload["checks"]]
-    assert names == ["Identity", "Gating rails", "Hook wiring", "Secrets manifest",
-                     "Email auth (gog)", "Auth services", "canopy-web board"]
+    assert names == ["Identity", "Plugin install", "Gating rails", "Hook wiring",
+                     "Secrets manifest", "Email auth (gog)", "Auth services",
+                     "canopy-web board"]
 
 
 def test_cli_agent_doctor_all_sweeps_fleet_and_gates_on_any_failure(tmp_path, monkeypatch):
@@ -471,3 +473,49 @@ def test_hook_wiring_fails_when_neither_path_registers_the_guard(tmp_path):
     (repo / "hooks" / "gating_guard.py").write_text("# guard\n")
     result = check_hook_wiring(repo)
     assert not result.ok and "decorative" in result.detail
+
+
+# --------------------------------------------------------------------------------------
+# check_plugin_install — repo cloned but plugin never installed
+# --------------------------------------------------------------------------------------
+
+def _plugin_registry(tmp_path, *, plugins=("hal",), scope="user", version="0.1.5"):
+    reg = tmp_path / "installed_plugins.json"
+    reg.write_text(json.dumps({"version": 2, "plugins": {
+        f"{p}@{p}": [{"scope": scope, "version": version}] for p in plugins}}))
+    return reg
+
+
+def test_plugin_install_ok_when_registered(tmp_path):
+    from orchestrator.agent_doctor import check_plugin_install
+    repo = _agent_repo(tmp_path)
+    r = check_plugin_install(repo, registry_path=str(_plugin_registry(tmp_path)))
+    assert r.ok and "hal@hal installed" in r.detail and "user scope" in r.detail
+
+
+def test_plugin_install_fails_when_repo_present_but_plugin_absent(tmp_path):
+    """The dominant new-machine gap: full checkout, valid config, every other check green —
+    and not one of the agent's skills can be invoked."""
+    from orchestrator.agent_doctor import check_plugin_install
+    repo = _agent_repo(tmp_path, agent_json_extra={"repo": "dimagi-internal/hal"})
+    r = check_plugin_install(repo, registry_path=str(_plugin_registry(tmp_path, plugins=("ace",))))
+    assert not r.ok
+    assert "NOT installed" in r.detail
+    assert "/plugin marketplace add dimagi-internal/hal" in r.detail
+    assert "/plugin install hal@hal" in r.detail
+
+
+def test_plugin_install_skipped_when_registry_absent(tmp_path):
+    """Absence of introspection is not evidence of breakage (same rule as auth services)."""
+    from orchestrator.agent_doctor import check_plugin_install
+    repo = _agent_repo(tmp_path)
+    r = check_plugin_install(repo, registry_path=str(tmp_path / "nope.json"))
+    assert r.ok and "skipped" in r.detail
+
+
+def test_plugin_install_na_without_plugin_manifest(tmp_path):
+    from orchestrator.agent_doctor import check_plugin_install
+    repo = _agent_repo(tmp_path)
+    (repo / ".claude-plugin" / "plugin.json").unlink()
+    r = check_plugin_install(repo, registry_path=str(_plugin_registry(tmp_path)))
+    assert r.ok and "n/a" in r.detail
