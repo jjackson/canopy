@@ -329,7 +329,16 @@ def test_run_review_applies_source_gate(tmp_path, monkeypatch):
     def fake_run(cmd, **kwargs):   # the synthesis claude -p call
         return sp.CompletedProcess(
             cmd, returncode=0,
-            stdout="- title: already fixed thing\n  friction_type: tool_failure\n", stderr="")
+            stdout=(
+                "- title: already fixed thing\n"
+                "  friction_type: tool_failure\n"
+                "  evidence:\n"
+                "    source_ref: skills/x/SKILL.md:1\n"
+                "    was_read: true\n"
+                "    already_fixed_check: {ran: true, result: 'not-fixed on origin/main @abc'}\n"
+                "    confidence: high\n"
+                "    confidence_basis: opened the target and reproduced the friction\n"
+            ), stderr="")
 
     monkeypatch.setattr(ar.subprocess, "run", fake_run)
     # Stub the gate's verdict so no real git/LLM runs; mark the only finding shipped.
@@ -360,7 +369,17 @@ def test_run_review_surfaces_verification_error(tmp_path, monkeypatch):
 
     def fake_run(cmd, **kwargs):
         return sp.CompletedProcess(
-            cmd, returncode=0, stdout="- title: t\n  friction_type: tool_failure\n", stderr="")
+            cmd, returncode=0,
+            stdout=(
+                "- title: t\n"
+                "  friction_type: tool_failure\n"
+                "  evidence:\n"
+                "    source_ref: skills/x/SKILL.md:1\n"
+                "    was_read: true\n"
+                "    already_fixed_check: {ran: true, result: 'not-fixed on origin/main @abc'}\n"
+                "    confidence: high\n"
+                "    confidence_basis: opened the target and reproduced the friction\n"
+            ), stderr="")
 
     monkeypatch.setattr(ar.subprocess, "run", fake_run)
     monkeypatch.setattr(
@@ -387,7 +406,17 @@ def test_run_review_no_verify_skips_gate(tmp_path, monkeypatch):
 
     def fake_run(cmd, **kwargs):
         return sp.CompletedProcess(
-            cmd, returncode=0, stdout="- title: t\n  friction_type: tool_failure\n", stderr="")
+            cmd, returncode=0,
+            stdout=(
+                "- title: t\n"
+                "  friction_type: tool_failure\n"
+                "  evidence:\n"
+                "    source_ref: skills/x/SKILL.md:1\n"
+                "    was_read: true\n"
+                "    already_fixed_check: {ran: true, result: 'not-fixed on origin/main @abc'}\n"
+                "    confidence: high\n"
+                "    confidence_basis: opened the target and reproduced the friction\n"
+            ), stderr="")
 
     monkeypatch.setattr(ar.subprocess, "run", fake_run)
 
@@ -467,3 +496,25 @@ def test_non_bool_ran_is_invalid():
     ok, reason = _valid_evidence(ev)
     assert ok is False
     assert "already_fixed_check" in reason
+
+
+# --- Wire the validator into run_review + teach the prompt to emit the record ----------
+from orchestrator.agent_review import build_review_prompt, _qualify_and_log
+from pathlib import Path
+
+
+def test_prompt_demands_structured_evidence(tmp_path: Path):
+    prompt = build_review_prompt(tmp_path, corpus=[])
+    assert "source_ref" in prompt
+    assert "already_fixed_check" in prompt
+    assert "was_read" in prompt
+    assert "confidence_basis" in prompt
+
+
+def test_qualify_and_log_drops_unqualified(capsys):
+    good = {"title": "t", "evidence": _GOOD_EV}
+    bad = {"title": "u", "evidence": "string"}
+    kept = _qualify_and_log([good, bad], label="test-agent")
+    assert kept == [good]
+    err = capsys.readouterr().err
+    assert "dropped" in err.lower() and "u" in err

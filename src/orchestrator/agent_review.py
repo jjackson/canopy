@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -321,7 +322,13 @@ def build_review_prompt(repo: Path, corpus: list[dict]) -> str:
         "Produce a YAML list of findings. Each item:\n"
         "  - title: short imperative\n"
         f"  - friction_type: one of {list(FRICTION_TYPES)}\n"
-        "  - evidence: what in the corpus supports it\n"
+        "  - evidence: a RECORD (not free text) proving the finding is grounded:\n"
+        "      source_ref: the file:line / PR / session you actually consulted\n"
+        "      was_read: true    # you OPENED it — not grepped a proxy for it\n"
+        "      already_fixed_check: {ran: true, result: '<not-fixed on origin/main @sha | fixed by ...>'}\n"
+        "      confidence: high|medium|low\n"
+        "      confidence_basis: one sentence justifying the level from the evidence above\n"
+        "  - A finding whose evidence is not a complete record WILL BE DROPPED. Do not emit it.\n"
         "  - fix_kind: one of [skill_edit, hook_rule, claude_update, channel_fix, new_skill]\n"
         "  - target: the file/path in the agent repo the fix touches\n"
         "  - recommendation: the concrete change to make\n"
@@ -399,6 +406,16 @@ def qualify_findings(findings: list[dict]) -> tuple[list[dict], list[dict]]:
             f["_drop_reason"] = reason
             dropped.append(f)
     return qualified, dropped
+
+
+def _qualify_and_log(findings: list[dict], label: str) -> list[dict]:
+    """Run findings through qualify_findings and log every drop to stderr (fail-loud,
+    not fail-silent) before returning only the qualified ones."""
+    qualified, dropped = qualify_findings(findings)
+    for d in dropped:
+        print(f"[agent-review:{label}] dropped finding "
+              f"{d.get('title')!r}: {d.get('_drop_reason')}", file=sys.stderr)
+    return qualified
 
 
 # --- Source-verification gate (enforced) -------------------------------------
@@ -617,6 +634,10 @@ def run_review(
         return result
     if proc.returncode == 0:
         findings = parse_findings(proc.stdout)
+        # ENFORCED evidence gate: drop findings whose evidence isn't a complete, valid
+        # record (source_ref/was_read/already_fixed_check/confidence/confidence_basis)
+        # BEFORE the source-verification gate below ever sees them.
+        findings = _qualify_and_log(findings, label=repo.name)
         # ENFORCED source gate: drop findings a later commit already shipped, BEFORE
         # they're returned. Fails open (keeps everything) if it can't verify.
         if verify and findings:
