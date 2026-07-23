@@ -138,6 +138,19 @@ def test_corpus_map_cross_user(tmp_path):
     assert all("path" in d and "first_input" in d for d in m["digests"])
 
 
+def test_intent_prompt_has_rubric_material_and_schema():
+    from orchestrator.harvest import build_intent_prompt
+    p = build_intent_prompt("USER: do X\n\nASSISTANT: I did Y", ["always run the tests first"])
+    # embeds the human's own words (the close-read evidence)
+    assert "do X" in p and "always run the tests first" in p
+    # names the intent-miss classes it must flag
+    for term in ["approved", "shipped", "approval", "eroded"]:
+        assert term.lower() in p.lower()
+    # REQUIRES the SP1 evidence record with a verbatim source_ref quote
+    assert "source_ref" in p and "already_fixed_check" in p and "confidence_basis" in p
+    assert "verbatim" in p.lower()
+
+
 def test_session_digest_full_keeps_all_inputs_untruncated(tmp_path):
     import json as _j
     from orchestrator.harvest import session_digest

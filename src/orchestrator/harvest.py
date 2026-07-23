@@ -251,3 +251,62 @@ def assemble_corpus(
         "origin_sessions": detail(refs[:origin_k]),
         "recent_sessions": detail(refs[-recent_k:][::-1]),
     }
+
+
+def build_intent_prompt(stripped: str, human_msgs: list[str]) -> str:
+    """Assemble the intent-fidelity audit prompt — the JUDGMENT layer this module
+    otherwise deliberately omits (see the module docstring: harvest does no judgment,
+    reconstructing intent is the agent's native job). This is that reconstruction's
+    prompt, not the reconstruction itself.
+
+    Assembled INLINE by the framework-tier convention (#352): framework logic-prompts
+    stay inline — static, co-located with their logic, immune to the #351 packaging
+    class — while PRODUCT, user-editable templates go external via `prompts/load_prompt`.
+    Sibling site: `agent_review.build_review_prompt`.
+
+    `stripped` is the prompt<->response corpus for the session(s) under audit (see
+    `strip_session`); `human_msgs` is Jonathan's own standing instructions / steering
+    for the same span (see `human_messages`) — HIS words are the ground truth here,
+    not a paraphrase of them.
+    """
+    human_msgs_block = "\n".join(f"- {m}" for m in human_msgs) if human_msgs else "(none)"
+    return (
+        "You are canopy's intent-fidelity auditor. Your job is to reconstruct what JONATHAN "
+        "was actually going for, in HIS OWN WORDS, and then judge whether the agent did what "
+        "he asked or decided — not whether the agent's output looks reasonable in isolation.\n\n"
+        "Jonathan's own messages are the GROUND TRUTH for his intent. Weight them over anything "
+        "the agent narrated about its own reasoning: an agent's self-description of what it did "
+        "is not evidence of what Jonathan wanted.\n\n"
+        f"SESSION (prompt<->response pairs):\n{stripped}\n\n"
+        f"JONATHAN'S OWN WORDS (standing instructions / steering, verbatim):\n{human_msgs_block}\n\n"
+        "Look for these four intent-miss classes:\n"
+        "  1. approved-X/shipped-Y — Jonathan approved one thing and the agent shipped a "
+        "different thing.\n"
+        "  2. question-read-as-approval — Jonathan asked a clarifying QUESTION and the agent "
+        "read it as an approval to proceed.\n"
+        "  3. unapproved-judgment-folded-in — the agent folded in its own judgment call on "
+        "something Jonathan never approved or decided.\n"
+        "  4. eroded-discipline — Jonathan told the agent to ALWAYS do something, and it "
+        "silently stopped happening.\n\n"
+        "Produce a YAML list of findings. Each item:\n"
+        "  - title: short imperative\n"
+        "  - friction_type: intent_miss\n"
+        "  - evidence: a RECORD (not free text) proving the finding is grounded:\n"
+        "      source_ref: Jonathan's VERBATIM quote, plus the diverging response it does not "
+        "match — both quoted exactly as they appear above, never paraphrased\n"
+        "      was_read: true    # you actually read the session, not a proxy for it\n"
+        "      already_fixed_check: {ran: true, result: '<not-fixed as of this session | fixed by ...>'}\n"
+        "      confidence: high|medium|low\n"
+        "      confidence_basis: one sentence justifying the level from the evidence above\n"
+        "  - A finding whose evidence is not a complete record, or whose source_ref is not a "
+        "verbatim quote, WILL BE DROPPED. Do not emit it.\n"
+        "  - fix_kind: one of [skill_edit, hook_rule, schema_validator, claude_update, channel_fix, new_skill]\n"
+        "  - target: the file/path the fix touches\n"
+        "  - recommendation: the concrete change to make\n"
+        "Rules:\n"
+        "- Only surface a finding where Jonathan's OWN words diverge from what the agent did — "
+        "do not flag stylistic disagreements or things Jonathan never actually weighed in on.\n"
+        "- eroded-discipline findings are an invariant ('always do X' silently stopped) — prefer "
+        "hook_rule or schema_validator, not prose.\n"
+        "Output ONLY the YAML list.\n"
+    )
