@@ -1850,6 +1850,23 @@ def agent_publish_work(repo, items_json):
         raise click.ClickException(str(e))
 
 
+@agent_publish.command("items")
+@click.option("--repo", default=None, type=click.Path(), help="Agent repo (default: cwd)")
+@click.argument("items_json", type=click.Path(exists=True))
+def agent_publish_items(repo, items_json):
+    """Post a review-items batch from a JSON file (must be a JSON list)."""
+    import json as json_mod
+    from orchestrator.agent_web import push_items, register, AgentWebError
+    try:
+        register(_agent_repo(repo))
+        items = json_mod.load(open(items_json))
+        if not isinstance(items, list):
+            raise click.ClickException("items file must be a JSON list")
+        click.echo(json_mod.dumps(push_items(_agent_repo(repo), items)))
+    except AgentWebError as e:
+        raise click.ClickException(str(e))
+
+
 @main.group("openclaw-harvest")
 def openclaw_harvest():
     """Bridge a live OpenClaw into the canopy fleet — snapshot, compare to its GitHub repo, and
