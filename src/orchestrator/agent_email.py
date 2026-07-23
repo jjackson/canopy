@@ -854,7 +854,12 @@ def email_send(repo, agent, account, client, to, cc, subject, body_file,
 @click.option("--verdict", default="clean",
               type=click.Choice(["clean", "fixed"]),
               help="clean = nothing found; fixed = found something and corrected it.")
-def email_review_receipt(repo, agent, account, client, body_file, caught, verdict):
+@click.option("--commitment", "commitments", multiple=True,
+              help='Rule ONE commitment-class phrase: "<substring>=grounded:<mechanism>" '
+                   'or "<substring>=cut". Repeatable. The receipt is REFUSED while any '
+                   "such phrase in the body is unruled — run it once to see the list.")
+def email_review_receipt(repo, agent, account, client, body_file, caught, verdict,
+                         commitments):
     """Record that agent-turn-review ran against THIS body, unblocking the send.
 
     The receipt is keyed to a fingerprint of the body as it will be rendered, so revising
@@ -867,13 +872,19 @@ def email_review_receipt(repo, agent, account, client, body_file, caught, verdic
     except AgentEmailError as e:
         raise click.ClickException(str(e))
     body = body_file.read()
-    path = review_receipt.record(ident.slug, body, caught=list(caught), verdict=verdict)
+    try:
+        path = review_receipt.record(ident.slug, body, caught=list(caught), verdict=verdict,
+                                     commitments=list(commitments))
+    except AgentEmailError as e:
+        # Unruled commitment-class phrases: the refusal enumerates them and how to rule.
+        raise click.ClickException(str(e))
     click.echo(json.dumps({
         "recorded": True,
         "slug": ident.slug,
         "fingerprint": review_receipt.fingerprint(body),
         "verdict": verdict,
         "caught": list(caught),
+        "commitments": list(commitments),
         "receipt": str(path),
     }, indent=2))
 
