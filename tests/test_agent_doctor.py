@@ -22,7 +22,8 @@ from orchestrator.cli import main
 # --------------------------------------------------------------------------------------
 
 def _agent_repo(tmp_path, *, email="hal@dimagi-ai.com", slug="hal",
-                gating=True, secrets=True, hooks=True, agent_json_extra=None):
+                gating=True, secrets=True, hooks=True, agent_json_extra=None,
+                materialize=False):
     repo = tmp_path / slug
     (repo / ".claude-plugin").mkdir(parents=True)
     (repo / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": slug}))
@@ -32,7 +33,8 @@ def _agent_repo(tmp_path, *, email="hal@dimagi-ai.com", slug="hal",
     (repo / "config" / "agent.json").write_text(json.dumps(agent))
     if gating:
         (repo / "config" / "gating.json").write_text(
-            json.dumps({"deny": [{"tool": "Bash", "pattern": "x", "message": "m"}],
+            json.dumps({"deny": [{"tool": "Bash", "pattern": "zzz-never-matches",
+                                  "message": "m"}],
                         "approve": []}))
     if hooks:
         (repo / "hooks").mkdir()
@@ -48,12 +50,15 @@ def _agent_repo(tmp_path, *, email="hal@dimagi-ai.com", slug="hal",
             "secrets:\n"
             "  - name: gog client\n"
             f"    op: op://AI-Agents/{slug} gog client/notesPlain\n"
-            f"    target: \"~/Library/Application Support/gogcli/credentials-{slug}.json\"\n"
+            '    target: "{repo}/creds.json"\n'
             "env:\n"
-            f"  target: \"~/.{slug}/.env\"\n"
+            '  target: "{repo}/.env"\n'
             "  vars:\n"
             f"    - key: {slug.upper()}_GMAIL_ACCOUNT\n"
             f"      value: \"{email}\"\n")
+        if materialize:
+            (repo / "creds.json").write_text("{}")
+            (repo / ".env").write_text("X=1\n")
     return repo
 
 
@@ -163,13 +168,13 @@ def test_registration_ok_counts_pending(tmp_path):
 # --------------------------------------------------------------------------------------
 
 def test_run_agent_doctor_all_green(tmp_path):
-    repo = _agent_repo(tmp_path)
+    repo = _agent_repo(tmp_path, materialize=True)
     results, ok = run_agent_doctor(
         repo, gog_dir=_gog_home(tmp_path), runner=_ok_runner,
         client_factory=_client_factory(),
         registry_path=str(_plugin_registry(tmp_path)))
     assert ok
-    assert [r.ok for r in results] == [True] * 8
+    assert [r.ok for r in results] == [True] * 10
 
 
 def test_run_agent_doctor_identity_failure_degrades_dependents(tmp_path):
@@ -200,8 +205,8 @@ def test_cli_agent_doctor_json_and_exit_code(tmp_path, monkeypatch):
     assert payload["ok"] is False
     names = [c["name"] for c in payload["checks"]]
     assert names == ["Identity", "Plugin install", "Gating rails", "Hook wiring",
-                     "Secrets manifest", "Email auth (gog)", "Auth services",
-                     "canopy-web board"]
+                     "Secrets manifest", "Secrets materialized", "Rails enforced",
+                     "Email auth (gog)", "Auth services", "canopy-web board"]
 
 
 def test_cli_agent_doctor_all_sweeps_fleet_and_gates_on_any_failure(tmp_path, monkeypatch):
@@ -519,3 +524,102 @@ def test_plugin_install_na_without_plugin_manifest(tmp_path):
     (repo / ".claude-plugin" / "plugin.json").unlink()
     r = check_plugin_install(repo, registry_path=str(_plugin_registry(tmp_path)))
     assert r.ok and "n/a" in r.detail
+
+
+# --------------------------------------------------------------------------------------
+# check_secrets_materialized — manifest declared vs actually provisioned HERE
+# --------------------------------------------------------------------------------------
+
+def test_secrets_materialized_fails_when_targets_absent(tmp_path):
+    """A fresh macOS user has every repo, every manifest, and none of the resolved files."""
+    from orchestrator.agent_doctor import check_secrets_materialized
+    repo = _agent_repo(tmp_path)
+    r = check_secrets_materialized(repo)
+    assert not r.ok and "missing on this machine" in r.detail and "canopy provision" in r.detail
+
+
+def test_secrets_materialized_passes_once_targets_exist(tmp_path):
+    from orchestrator.agent_doctor import check_secrets_materialized
+    repo = _agent_repo(tmp_path, materialize=True)
+    r = check_secrets_materialized(repo)
+    assert r.ok and "all 2 provisioned target(s) present" in r.detail
+
+
+def test_secrets_materialized_skipped_without_manifest(tmp_path):
+    from orchestrator.agent_doctor import check_secrets_materialized
+    r = check_secrets_materialized(_agent_repo(tmp_path, secrets=False))
+    assert r.ok and "skipped" in r.detail
+
+
+# --------------------------------------------------------------------------------------
+# check_rails_fire — configured vs actually ENFORCED
+# --------------------------------------------------------------------------------------
+
+def _railed_repo(tmp_path, monkeypatch, guard_body):
+    monkeypatch.setenv("CANOPY_PLUGIN_DIR", str(_fleet_baseline(tmp_path)))
+    repo = _agent_repo(tmp_path)
+    (repo / "config" / "gating.json").write_text(
+        json.dumps({"slug": "hal", "channels": ["email"], "deny": [], "approve": []}))
+    (repo / "hooks" / "gating_guard.py").write_text(guard_body)
+    return repo
+
+
+def test_rails_fire_passes_when_guard_blocks_the_probe(tmp_path, monkeypatch):
+    from orchestrator.agent_doctor import check_rails_fire
+    repo = _railed_repo(tmp_path, monkeypatch, "import sys\nsys.exit(2)\n")
+    r = check_rails_fire(repo)
+    assert r.ok and "in force" in r.detail
+
+
+def test_rails_fire_catches_configured_but_unenforced(tmp_path, monkeypatch):
+    """The failure only an ACTIVE probe can see: valid config, guard that stops nothing —
+    a broken import or bad interpreter leaves every file-reading check green."""
+    from orchestrator.agent_doctor import check_rails_fire
+    repo = _railed_repo(tmp_path, monkeypatch, "import sys\nsys.exit(0)\n")
+    r = check_rails_fire(repo)
+    assert not r.ok and "DECLARED BUT NOT ENFORCED" in r.detail
+
+
+def test_rails_fire_skips_when_no_rail_predicts_a_block(tmp_path, monkeypatch):
+    """Never assert a block the agent's own config doesn't call for."""
+    from orchestrator.agent_doctor import check_rails_fire
+    monkeypatch.setenv("CANOPY_PLUGIN_DIR", str(_fleet_baseline(tmp_path, rails=())))
+    repo = _agent_repo(tmp_path)
+    (repo / "config" / "gating.json").write_text(
+        json.dumps({"slug": "hal", "channels": [], "deny": [], "approve": []}))
+    r = check_rails_fire(repo)
+    assert r.ok and "skipped" in r.detail
+
+
+# --------------------------------------------------------------------------------------
+# heal_agent — --fix applies only the safe, non-interactive repairs
+# --------------------------------------------------------------------------------------
+
+def test_heal_agent_runs_fixer_only_for_failing_checks(tmp_path):
+    from orchestrator.agent_doctor import heal_agent
+    from orchestrator.doctor import CheckResult
+    called = []
+    fixers = {"Secrets materialized": ("provision", lambda repo: called.append(repo) or "did it")}
+    results = [CheckResult("Secrets materialized", False, "missing"),
+               CheckResult("Email auth (gog)", False, "dead token")]
+    actions = heal_agent(tmp_path, results, fixers=fixers)
+    assert actions == [("provision", True, "did it")]
+    assert len(called) == 1  # the un-fixable check was left alone, not half-attempted
+
+
+def test_heal_agent_reports_fixer_failure_without_raising(tmp_path):
+    from orchestrator.agent_doctor import heal_agent
+    from orchestrator.doctor import CheckResult
+
+    def boom(repo):
+        raise RuntimeError("op not signed in")
+
+    actions = heal_agent(tmp_path, [CheckResult("Secrets materialized", False, "missing")],
+                         fixers={"Secrets materialized": ("provision", boom)})
+    assert actions == [("provision", False, "op not signed in")]
+
+
+def test_heal_agent_noop_when_all_green(tmp_path):
+    from orchestrator.agent_doctor import heal_agent
+    from orchestrator.doctor import CheckResult
+    assert heal_agent(tmp_path, [CheckResult("Secrets materialized", True, "fine")]) == []
