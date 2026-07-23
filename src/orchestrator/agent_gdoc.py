@@ -293,6 +293,97 @@ def build_replace_commands(identity: GdocIdentity, *, doc_id: str, md_path: str,
     return cmds
 
 
+FOLDER_MIME = "application/vnd.google-apps.folder"
+
+
+def build_list_command(identity: GdocIdentity, parent: str) -> list[str]:
+    """`gog drive ls` a folder's children (used to find an existing area/project subfolder)."""
+    return ["gog", "drive", "ls", "--parent", parent,
+            "--account", identity.account, "--client", identity.client, "--json"]
+
+
+def build_mkdir_command(identity: GdocIdentity, name: str, parent: str) -> list[str]:
+    """`gog drive mkdir` a subfolder under `parent` (used to create a missing area/project folder)."""
+    return ["gog", "drive", "mkdir", name, "--parent", parent,
+            "--account", identity.account, "--client", identity.client, "--json"]
+
+
+def parse_list_result(stdout: str) -> list[dict]:
+    """Normalize `gog drive ls --json` to a list of file dicts ({id, name, mimeType, …}).
+
+    gog wraps children under a `files` key ({"files": [ … ]}); tolerate a bare list too."""
+    try:
+        raw = json.loads(stdout)
+    except (ValueError, TypeError):
+        return []
+    files = raw.get("files") if isinstance(raw, dict) else raw
+    return [f for f in files if isinstance(f, dict)] if isinstance(files, list) else []
+
+
+def parse_mkdir_result(stdout: str) -> str:
+    """Extract the new folder id from `gog drive mkdir --json` ({"folder": {"id", …}})."""
+    try:
+        raw = json.loads(stdout)
+    except (ValueError, TypeError):
+        return ""
+    obj = raw if isinstance(raw, dict) else {}
+    if isinstance(obj.get("folder"), dict):  # unwrap gog's {"folder": {...}} envelope
+        obj = obj["folder"]
+    return str(obj.get("id") or obj.get("fileId") or obj.get("file_id") or "")
+
+
+def find_child_folder(identity: GdocIdentity, parent: str, name: str,
+                      runner=subprocess.run) -> str:
+    """Return the id of the child FOLDER named `name` under `parent`, or "" if absent.
+
+    Name match is exact + folder-typed, so a same-named file never shadows the folder."""
+    r = _run_gog(build_list_command(identity, parent), runner)
+    if r.returncode != 0:
+        raise AgentGdocError(
+            f"gog drive ls failed listing {parent} as {identity.account}: "
+            f"{(r.stderr or r.stdout or '').strip()[:300]}"
+        )
+    for f in parse_list_result(r.stdout):
+        if f.get("mimeType") == FOLDER_MIME and (f.get("name") or "") == name:
+            return str(f.get("id") or "")
+    return ""
+
+
+def _find_or_create_folder(identity: GdocIdentity, parent: str, name: str, runner) -> str:
+    fid = find_child_folder(identity, parent, name, runner)
+    if fid:
+        return fid
+    r = _run_gog(build_mkdir_command(identity, name, parent), runner)
+    if r.returncode != 0:
+        raise AgentGdocError(
+            f"gog drive mkdir {name!r} under {parent} failed as {identity.account}: "
+            f"{(r.stderr or r.stdout or '').strip()[:300]}"
+        )
+    fid = parse_mkdir_result(r.stdout)
+    if not fid:
+        raise AgentGdocError(f"gog drive mkdir {name!r} returned no folder id: {r.stdout!r}")
+    return fid
+
+
+def resolve_subfolder(identity: GdocIdentity, *, area: str = "Projects",
+                      project: str | None = None, runner=subprocess.run) -> str:
+    """Find-or-create `<agent root>/<area>[/<project>]` and return its folder id.
+
+    Implements the fleet filing layout (agent-core/deliverables.md): every agent's
+    `gdrive_root_folder` is its `<Agent>` folder under the shared root; deliverables land
+    in `Projects/<project>` and durable trackers in `Process State`. Reuse-then-create by
+    exact name keeps the same folder stable across turns, so the next turn re-files there
+    instead of spawning a duplicate. Requires `gdrive_root_folder`; pass --parent to bypass."""
+    if not identity.root_folder:
+        raise AgentGdocError(
+            "no `gdrive_root_folder` in config/agent.json — set it to the agent's <Agent> "
+            "folder under the shared AI-Agents root, or pass --parent explicitly")
+    area_id = _find_or_create_folder(identity, identity.root_folder, (area or "Projects").strip(), runner)
+    if not project or not project.strip():
+        return area_id
+    return _find_or_create_folder(identity, area_id, project.strip(), runner)
+
+
 def build_share_command(identity: GdocIdentity, file_id: str, *, share: str,
                         email: str | None) -> list[str]:
     """`gog drive share` for domain (dimagi.com reader), anyone-with-link reader, or a
@@ -474,22 +565,33 @@ def gdoc_group():
 @click.option("--md", "md_file", required=True, type=click.Path(exists=True, dir_okay=False),
               help="Markdown file to render into a Google Doc.")
 @click.option("--name", help="Doc title (required for a new doc).")
-@click.option("--parent", help="Destination Drive folder id (default: agent.json `gdrive_root_folder`).")
+@click.option("--parent", help="Destination Drive folder id (bypasses --project/--area resolution).")
+@click.option("--project", help="File into <agent root>/Projects/<project> (find-or-create) — "
+              "the fleet norm: one stable subfolder per project/task, re-used across turns.")
+@click.option("--area", help="Top-level area under the agent root when resolving a destination: "
+              "'Projects' (deliverables, default) or 'Process State' (durable trackers).")
 @click.option("--replace", help="File id of an existing Doc to update IN PLACE (keeps the link).")
 @click.option("--share", type=click.Choice(["domain", "anyone", "user", "none"]), default=None,
               help="Share posture (default: agent.json `gdrive_share_default`, else domain).")
 @click.option("--share-email", help="Recipient for --share user.")
 @click.option("--dry-run", is_flag=True, help="Render + print the commands without touching Drive.")
-def gdoc_publish(repo, agent, account, client, md_file, name, parent, replace, share,
-                 share_email, dry_run):
+def gdoc_publish(repo, agent, account, client, md_file, name, parent, project, area,
+                 replace, share, share_email, dry_run):
     """Publish MD as a rendered Google Doc authored as the agent, filed + shared + verified.
 
-    Emits JSON with the doc id + url + whether the share verified — link the url as a
-    deliverable (never paste the doc body inline), per agent-core/deliverables.md.
+    Destination (create only): explicit --parent wins; else --project/--area resolve a
+    per-project subfolder under the agent's `gdrive_root_folder` (the fleet filing layout,
+    agent-core/deliverables.md); else it falls back to the root folder. Emits JSON with the
+    doc id + url + whether the share verified — link the url as a deliverable (never paste
+    the doc body inline).
     """
     try:
         ident = _gdoc_identity_from_opts(repo, agent, account, client)
-        parent = parent or ident.root_folder or None
+        if not replace and not parent:
+            if project or area:
+                parent = resolve_subfolder(ident, area=(area or "Projects"), project=project)
+            else:
+                parent = ident.root_folder or None
         share = share or ident.share_default
         result = publish(ident, name=name, parent=parent, md_path=md_file, share=share,
                          share_email=share_email, replace=replace, dry_run=dry_run)
