@@ -260,6 +260,22 @@ def agent_syncs(slug, limit):
         raise click.ClickException(str(e))
 
 
+@agent.command("sync-delete")
+@click.option("--slug", required=True)
+@click.option("--id", "sync_id", type=int, required=True, help="Sync id from `agent syncs`.")
+def agent_sync_delete(slug, sync_id):
+    """Delete ONE manager sync by id.
+
+    `agent sync` upserts per (period, source), so re-posting corrects a sync for the
+    SAME window — use this only for one filed under the WRONG period, or a stray row.
+    """
+    try:
+        _client(slug).delete_sync(sync_id)
+        _emit({"deleted": sync_id, "slug": slug})
+    except (CanopyError, RuntimeError) as e:
+        raise click.ClickException(str(e))
+
+
 @agent.command("apply")
 @click.option("--slug", required=True)
 @click.option("--id", "cmd_id", type=int, required=True)

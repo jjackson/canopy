@@ -87,6 +87,19 @@ adds agent-specifics (send path, paired reviewers); the general discipline lives
 > `canopy email review-receipt --repo . --body-file <the body you'll send> --caught "<findings>"`.
 > Dry-runs are exempt. The `caught` list is the fleet's evidence about which reviews earn their
 > keep — an honest "none" is fine, but only per §13 (after you have actually read it back).
+>
+> **§B is enforced the same way — the receipt REFUSES to issue while any commitment-class
+> phrase is unruled.** `review-receipt` scans the body for offers and human-dependencies
+> ("happy to", "walk you through", "hop on a call", "sync with", "loop in", "in person"),
+> prints every hit with its context, and blocks until you rule each one:
+> `--commitment "<substring>=grounded:<mechanism>"` or `--commitment "<substring>=cut"`.
+> GROUNDED for an agent = re-render, reply on the thread, open a PR, produce a doc.
+> NOT grounded = anything needing you to be a person in real time. Why a gate and not a
+> line of prose: on 2026-07-23 a review ran, caught three real body defects, recorded
+> clean — and still shipped *"Happy to walk anyone through it live"*, a session the agent
+> cannot hold. The RULE (§6) was already written; what failed was applying it to every
+> instance, and completeness is exactly what prose cannot enforce. So the tool enumerates
+> and the send stays blocked until each is ruled — you cannot skip the sign-off line.
 11. **Re-run this whole review on every revision of a draft, not only the first.** A "delta check"
     of just your latest edits is how edit-introduced defects ship — the requester's corrections
     change the draft's context, so the whole thing gets re-reviewed.

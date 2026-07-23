@@ -18,6 +18,18 @@ window state lives there — **not in a repo file.**
   `period_end` → today (`date +%Y-%m-%d`). First ever sync (empty list): from your project start.
 - Do NOT keep `last_sync` in a repo file. The posted sync IS the record; a repo file drifts and
   splits state across the fleet.
+- **An empty list means "no syncs", so sanity-check it before trusting a project-start window.**
+  If your board or mailbox shows a sync you clearly sent, the window is wrong — don't re-report
+  months of already-reported work. (A client bug once returned `[]` for every agent; the fix is
+  in, but the cross-check is free and the failure is expensive.)
+
+## Correcting a posted sync
+- `canopy agent sync …` is **idempotent per (period_start, period_end, source)** — re-posting the
+  SAME window overwrites it. So fixing a grade, summary, or doc URL is just posting again; it does
+  NOT pile up duplicates.
+- That also means a sync filed under the **wrong period** can't be corrected by re-posting — it
+  lands as a second record. Remove it with `canopy agent sync-delete --slug <slug> --id <id>`
+  (get the id from `canopy agent syncs`). Use it only for a wrong-period or stray row.
 
 ## Gather everything in the window
 - **Completed work — from your board, the first-class source:** `canopy agent tasks --slug <slug>`.
