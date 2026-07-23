@@ -9,6 +9,24 @@ bump — see `CLAUDE.md`). The project does not tag releases. Pre-history
 prior to the entries below was not formally changelogged; this file starts from the
 recent, verifiable themes in the git log.
 
+## [0.2.337] - 2026-07-23
+
+### Added
+
+- `canopy agent doctor` — **Plugin install** check. Every other check reads the agent's
+  *repo*, so all of them pass on a machine where the repo is cloned but the plugin was
+  never installed — a machine on which none of that agent's skills (`/ada:turn`,
+  `/echo:turn`) can be invoked at all. This is the dominant real-world gap when moving to
+  a new machine or macOS user; on one such account four of five agents had a full
+  checkout, valid config, and no plugin. Missing registry is a skip, not a failure.
+- `canopy agent doctor --all` — surfaces `fleet_align.checkout_warnings()` before the
+  per-agent verdicts. An agent whose checkout is parked off its default branch is
+  *invisible* to discovery and produces no row, so a fleet-wide "all ready" could be a
+  confident green over a fleet quietly missing members. First live run flagged all five
+  repos stale (7–67 commits behind) and one parked on a feature branch. The summary line
+  now never reads as a bare "all ready" while drift warnings are present, and
+  `--json-output` gains `discovered` and `checkout_warnings`.
+
 ## [0.2.336] - 2026-07-23
 
 ### Fixed

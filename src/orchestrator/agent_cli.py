@@ -186,15 +186,21 @@ def agent_doctor(repo, slug, all_agents, as_json):
     from orchestrator.agent_email import AgentEmailError, find_agent_repo
 
     if all_agents:
-        from orchestrator.fleet_align import discover_agents
+        from orchestrator.fleet_align import checkout_warnings, discover_agents
         fleet = []
         for a in sorted(discover_agents(), key=lambda x: x.slug):
             results, ok = run_agent_doctor(a.path)
             fleet.append((a.slug, str(a.path), results, ok))
+        # An agent whose checkout is parked off its default branch is INVISIBLE to discovery —
+        # it produces no row at all, so a fleet-wide "all ready" can be a confident green over a
+        # fleet that is quietly missing members. Surface that before the per-agent verdicts.
+        drift = checkout_warnings()
         any_fail = any(not ok for *_, ok in fleet)
         if as_json:
             click.echo(json.dumps({
                 "ok": not any_fail,
+                "discovered": len(fleet),
+                "checkout_warnings": drift,
                 "agents": [
                     {"slug": s, "repo": p, "ok": ok,
                      "checks": [r.to_dict() for r in rs]}
@@ -202,6 +208,11 @@ def agent_doctor(repo, slug, all_agents, as_json):
                 ],
             }, indent=2))
         else:
+            if drift:
+                click.echo(f"Checkout drift — {len(drift)} repo(s) may be hidden from discovery:")
+                for w in drift:
+                    click.echo(f"  ! {w}")
+                click.echo()
             for s, p, rs, ok in fleet:
                 click.echo(f"[{'OK  ' if ok else 'FAIL'}] {s}")
                 for r in rs:
@@ -209,8 +220,12 @@ def agent_doctor(repo, slug, all_agents, as_json):
                         click.echo(f"         - {r.name}: {r.detail}")
             click.echo()
             n_fail = sum(1 for *_, ok in fleet if not ok)
-            click.echo(f"{n_fail}/{len(fleet)} agent(s) have failing checks — fix above."
-                       if any_fail else f"All {len(fleet)} agent(s) ready on this machine.")
+            # Never print a bare "all ready" under a drift list — a stale or off-branch
+            # checkout is exactly how an agent goes missing from the sweep unnoticed.
+            caveat = f" ({len(drift)} checkout warning(s) above)" if drift else ""
+            click.echo(f"{n_fail}/{len(fleet)} agent(s) have failing checks — fix above.{caveat}"
+                       if any_fail
+                       else f"All {len(fleet)} discovered agent(s) ready on this machine.{caveat}")
         if any_fail:
             raise SystemExit(1)
         return
