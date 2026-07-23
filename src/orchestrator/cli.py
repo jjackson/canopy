@@ -1623,6 +1623,48 @@ def harvest_strip(session_path, mode):
     click.echo(strip_session(session_path, mode=mode))
 
 
+@harvest.command("intent-audit")
+@click.argument("session_path", type=click.Path(exists=True))
+@click.option("--no-llm", is_flag=True, help="Skip the LLM pass; just assemble material (no findings)")
+@click.option("--model", default="sonnet", help="Model for the intent-fidelity audit pass")
+@click.option("--max-budget-usd", default=2.0, type=float,
+              help="USD cap for the claude -p audit pass (default: 2.0)")
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def harvest_intent_audit(session_path, no_llm, model, max_budget_usd, as_json):
+    """Intent-fidelity audit for ONE session: reconstruct what Jonathan was actually going for
+    (in his own words) and judge whether the agent did that — not whether its output looks
+    reasonable in isolation. Findings are validated against the SP1 evidence-record schema
+    before they're trusted (see `orchestrator.harvest.intent_audit`)."""
+    import json as json_mod
+    from orchestrator.harvest import intent_audit
+
+    out = intent_audit(session_path, use_llm=not no_llm, model=model, max_budget_usd=max_budget_usd)
+
+    if as_json:
+        click.echo(json_mod.dumps(out, indent=2, default=str))
+        return
+
+    if out["error"]:
+        click.echo(f"⚠  intent audit did not run: {out['error']}")
+
+    qualified, dropped = out["qualified"], out["dropped"]
+    click.echo(f"Qualified ({len(qualified)}):")
+    for f in qualified:
+        title = f.get("title", "(untitled)") if isinstance(f, dict) else "(untitled)"
+        click.echo(f"  ✓ {title}")
+    click.echo(f"Dropped ({len(dropped)}):")
+    for f in dropped:
+        if isinstance(f, dict):
+            title = f.get("title", "(untitled)")
+            reason = f.get("_drop_reason", "")
+            if "_raw" in f:
+                click.echo(f"  ✗ {f['_raw']} — {reason}")
+            else:
+                click.echo(f"  ✗ {title} — {reason}")
+        else:
+            click.echo(f"  ✗ {f}")
+
+
 @harvest.command("corpus")
 @click.argument("initiative")
 @click.option("--match", "match", default="", help="Comma-separated match terms (default: the initiative name)")
