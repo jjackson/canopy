@@ -602,6 +602,47 @@ def test_user_turns_are_not_scanned_for_overclaims():
     assert overclaim_signals(entries) == []
 
 
+def test_claim_substantiated_by_tool_use_earlier_in_same_turn_not_flagged():
+    # Claude Code routinely splits work across entries: an assistant tool_use entry,
+    # then a user tool_result entry, then a SEPARATE assistant entry with the wrap-up
+    # text. The tool_use substantiates the claim across entries within the same turn
+    # (no genuine human message resets the turn in between) -> must NOT be flagged.
+    entries = [
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "t0", "name": "Bash", "input": {"command": "pytest -q"}},
+        ]}},
+        {"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "t0", "content": "43 passed"},
+        ]}},
+        {"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "Done and verified."},
+        ]}},
+    ]
+    sigs = overclaim_signals(entries)
+    assert all(s["type"] != "over_claim" for s in sigs)
+
+
+def test_claim_with_no_tool_use_anywhere_in_turn_still_flagged():
+    # A genuine human message resets the turn boundary. The tool_use in the FIRST
+    # turn must not substantiate a bare claim made in a later turn with no tool_use
+    # of its own.
+    entries = [
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "t0", "name": "Bash", "input": {"command": "pytest -q"}},
+        ]}},
+        {"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "t0", "content": "43 passed"},
+        ]}},
+        {"type": "user", "message": {"content": "thanks, now do the next one"}},
+        {"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "Done and verified."},
+        ]}},
+    ]
+    sigs = overclaim_signals(entries)
+    assert any(s["type"] == "over_claim" for s in sigs)
+    assert sigs[0]["turn"] == 3
+
+
 def test_friction_signals_wires_overclaims(tmp_path):
     t = tmp_path / "turn.jsonl"
     lines = [

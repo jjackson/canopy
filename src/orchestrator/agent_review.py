@@ -90,35 +90,60 @@ def human_corrections(entries: list[dict]) -> list[dict]:
 _CLAIM_RX = re.compile(r"\b(shipped|merged|verified|done|fixed|applied|confirmed)\b", re.IGNORECASE)
 
 
+def _is_genuine_human_message(entry: dict) -> bool:
+    """True iff `entry` is a human-authored user message, not a tool_result. Mirrors
+    extract_user_messages: a genuine human message has message.content as a plain str;
+    a tool_result comes back as a `user`-role entry whose content is a list of blocks."""
+    if entry.get("type") != "user":
+        return False
+    msg = entry.get("message", {})
+    if not isinstance(msg, dict):
+        return False
+    content = msg.get("content", "")
+    return isinstance(content, str) and bool(content)
+
+
 def overclaim_signals(entries: list[dict]) -> list[dict]:
-    """Flag assistant completion-claims not substantiated by a tool_use block in the SAME
-    assistant message. Returns [{type: 'over_claim', evidence, turn}].
+    """Flag assistant completion-claims not substantiated by a tool_use block ANYWHERE in the
+    current TURN. Returns [{type: 'over_claim', evidence, turn}].
+
+    A "turn" = the run of entries since the last GENUINE human message. Claude Code routinely
+    splits work across entries — an assistant tool_use entry, then a user tool_result entry,
+    then a SEPARATE assistant entry with the wrap-up text ("Done and verified...") — so the
+    substantiation window must span entries, not stop at the one carrying the claim text.
+    Tool RESULTS come back as `user`-role entries (content = tool_result blocks); those are NOT
+    genuine human messages and must NOT reset the turn — only a real human text message does
+    (see _is_genuine_human_message, which mirrors extract_user_messages/human_corrections).
 
     `verify_late` (a completion claim whose substantiating tool_use appears only in a LATER
-    assistant turn) stays registered in FRICTION_TYPES but is NOT detected here yet: reliably
-    linking a specific claim to a specific later tool call needs more than this deterministic
-    regex pass can promise without false positives, so it's a follow-up enrichment rather than
-    something to ship half-right. `over_claim` — same-turn, unambiguous — ships solidly now.
+    turn) stays registered in FRICTION_TYPES but is NOT detected here yet: reliably linking a
+    specific claim to a specific later tool call needs more than this deterministic regex pass
+    can promise without false positives, so it's a follow-up enrichment rather than something to
+    ship half-right. `over_claim` — current-turn, unambiguous — ships solidly now.
     """
     out: list[dict] = []
+    tool_use_seen_this_turn = False
     for i, entry in enumerate(entries):
+        if _is_genuine_human_message(entry):
+            tool_use_seen_this_turn = False
+            continue
         if entry.get("type") != "assistant":
             continue
         msg = entry.get("message", {})
         content = msg.get("content", [])
         if not isinstance(content, list):
             continue
+        has_tool_use = any(
+            isinstance(block, dict) and block.get("type") == "tool_use" for block in content
+        )
         text = " ".join(
             block.get("text", "") for block in content
             if isinstance(block, dict) and block.get("type") == "text"
         ).strip()
-        if not text or not _CLAIM_RX.search(text):
-            continue
-        has_tool_use = any(
-            isinstance(block, dict) and block.get("type") == "tool_use" for block in content
-        )
-        if not has_tool_use:
+        if text and _CLAIM_RX.search(text) and not (tool_use_seen_this_turn or has_tool_use):
             out.append({"type": "over_claim", "evidence": text[:200], "turn": i})
+        if has_tool_use:
+            tool_use_seen_this_turn = True
     return out
 
 
