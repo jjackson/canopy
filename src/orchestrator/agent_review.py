@@ -329,7 +329,7 @@ def build_review_prompt(repo: Path, corpus: list[dict]) -> str:
         "      confidence: high|medium|low\n"
         "      confidence_basis: one sentence justifying the level from the evidence above\n"
         "  - A finding whose evidence is not a complete record WILL BE DROPPED. Do not emit it.\n"
-        "  - fix_kind: one of [skill_edit, hook_rule, claude_update, channel_fix, new_skill]\n"
+        "  - fix_kind: one of [skill_edit, hook_rule, schema_validator, claude_update, channel_fix, new_skill]\n"
         "  - target: the file/path in the agent repo the fix touches\n"
         "  - recommendation: the concrete change to make\n"
         "  - confidence: high|medium|low\n"
@@ -346,6 +346,8 @@ def build_review_prompt(repo: Path, corpus: list[dict]) -> str:
         "so the agent never silently runs a sibling's procedure.\n"
         "- prefer hook_rule for any 'never do X' invariant; prefer new_skill/skill_edit when a manual "
         "multi-step pattern repeats; only include findings with real evidence in the corpus.\n"
+        "- an invariant ('never/always do X') finding MUST use hook_rule or schema_validator — a "
+        "skill_edit/claude_update for an invariant WILL BE DROPPED.\n"
         "Output ONLY the YAML list.\n"
     )
 
@@ -363,6 +365,25 @@ def parse_findings(output: str) -> list[dict]:
 
 
 _CONF_LEVELS = {"high", "medium", "low"}
+
+# Structural-fix-only rail: an "invariant" finding (a hard never/always rule, or one
+# born from a human safety_override correction) must ship as a structural fix
+# (hook_rule / schema_validator) — a skill_edit/claude_update is prose, and prose
+# relies on the model choosing to comply, which is exactly what an invariant can't
+# rely on (see CLAUDE.md's "Invariants are hooks, not memory"). qualify_findings
+# drops any invariant finding that isn't structural, right after the evidence check.
+_STRUCTURAL_FIX_KINDS = {"hook_rule", "schema_validator"}
+_INVARIANT_RX = re.compile(r"\b(never|always|must not|do not)\b", re.IGNORECASE)
+
+
+def _is_invariant(finding: dict) -> bool:
+    """True if a finding describes a hard invariant rather than an ordinary
+    improvement — either it was mined from a human safety_override correction, or
+    its title/recommendation uses never/always/must-not/do-not phrasing."""
+    if finding.get("friction_type") == "safety_override":
+        return True
+    blob = f"{finding.get('title') or ''} {finding.get('recommendation') or ''}"
+    return bool(_INVARIANT_RX.search(blob))
 
 
 def _valid_evidence(ev: object) -> tuple[bool, str]:
@@ -400,11 +421,21 @@ def qualify_findings(findings: list[dict]) -> tuple[list[dict], list[dict]]:
             dropped.append({"_drop_reason": "finding is not a record (dict)", "_raw": f})
             continue
         ok, reason = _valid_evidence(f.get("evidence"))
-        if ok:
-            qualified.append(f)
-        else:
+        if not ok:
             f["_drop_reason"] = reason
             dropped.append(f)
+            continue
+        # Structural-fix-only rail: an evidence-valid invariant finding still gets
+        # dropped if its fix isn't structural (hook_rule/schema_validator) — a
+        # skill_edit/claude_update can't enforce a "never/always" rule reliably.
+        if _is_invariant(f) and f.get("fix_kind") not in _STRUCTURAL_FIX_KINDS:
+            f["_drop_reason"] = (
+                "invariant finding must ship as a structural fix "
+                f"(hook_rule/schema_validator), not {f.get('fix_kind')}"
+            )
+            dropped.append(f)
+            continue
+        qualified.append(f)
     return qualified, dropped
 
 

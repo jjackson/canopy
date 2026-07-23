@@ -518,3 +518,32 @@ def test_qualify_and_log_drops_unqualified(capsys):
     assert kept == [good]
     err = capsys.readouterr().err
     assert "dropped" in err.lower() and "u" in err
+
+
+# --- Structural-fix-only rail for invariant findings --------------------------
+from orchestrator.agent_review import _is_invariant
+
+
+def test_safety_override_is_invariant():
+    assert _is_invariant({"friction_type": "safety_override", "title": "x"}) is True
+
+
+def test_never_phrasing_is_invariant():
+    assert _is_invariant({"title": "NEVER publish without approval", "recommendation": ""}) is True
+
+
+def test_ordinary_finding_not_invariant():
+    assert _is_invariant({"title": "tidy the digest", "recommendation": "reorder items"}) is False
+
+
+def test_invariant_with_skill_edit_is_dropped():
+    f = {"title": "NEVER post without a yes", "fix_kind": "skill_edit", "evidence": _GOOD_EV}
+    qualified, dropped = qualify_findings([f])
+    assert qualified == []
+    assert "structural" in dropped[0]["_drop_reason"].lower()
+
+
+def test_invariant_with_hook_rule_is_kept():
+    f = {"title": "NEVER post without a yes", "fix_kind": "hook_rule", "evidence": _GOOD_EV}
+    qualified, _ = qualify_findings([f])
+    assert qualified == [f]
