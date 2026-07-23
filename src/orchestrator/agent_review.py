@@ -368,7 +368,11 @@ def _valid_evidence(ev: object) -> tuple[bool, str]:
     if ev.get("was_read") is not True:
         return False, "evidence.was_read must be true (the source was opened, not proxied)"
     afc = ev.get("already_fixed_check")
-    if not isinstance(afc, dict) or "ran" not in afc or not str(afc.get("result") or "").strip():
+    if (
+        not isinstance(afc, dict)
+        or not isinstance(afc.get("ran"), bool)
+        or not str(afc.get("result") or "").strip()
+    ):
         return False, "evidence.already_fixed_check must be {ran: bool, result: <non-empty>}"
     if ev.get("confidence") not in _CONF_LEVELS:
         return False, f"evidence.confidence must be one of {sorted(_CONF_LEVELS)}"
@@ -386,6 +390,7 @@ def qualify_findings(findings: list[dict]) -> tuple[list[dict], list[dict]]:
     dropped: list[dict] = []
     for f in findings:
         if not isinstance(f, dict):
+            dropped.append({"_drop_reason": "finding is not a record (dict)", "_raw": f})
             continue
         ok, reason = _valid_evidence(f.get("evidence"))
         if ok:

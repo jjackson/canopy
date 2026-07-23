@@ -449,3 +449,21 @@ def test_qualify_splits_and_annotates():
     assert qualified == [good]
     assert len(dropped) == 1 and dropped[0]["title"] == "u"
     assert dropped[0]["_drop_reason"]  # non-empty
+
+
+def test_non_dict_finding_is_dropped_with_reason():
+    good = {"title": "t", "evidence": _GOOD_EV}
+    findings = [good, "not a dict"]
+    qualified, dropped = qualify_findings(findings)
+    assert qualified == [good]
+    assert len(dropped) == 1
+    assert dropped[0].get("_drop_reason")  # non-empty
+    assert len(qualified) + len(dropped) == len(findings)
+
+
+def test_non_bool_ran_is_invalid():
+    ev = dict(_GOOD_EV)
+    ev["already_fixed_check"] = {"ran": "yes", "result": "x"}
+    ok, reason = _valid_evidence(ev)
+    assert ok is False
+    assert "already_fixed_check" in reason
