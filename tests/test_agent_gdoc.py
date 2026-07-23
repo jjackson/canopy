@@ -63,6 +63,26 @@ def test_resolve_identity_defaults(tmp_path):
     assert ident.share_default == "domain"  # safe default
 
 
+def test_root_folder_from_env_wins_over_agent_json(tmp_path, monkeypatch):
+    # The Drive root is environment-specific and vault-resolved: the reconciler injects
+    # GDRIVE_ROOT_FOLDER from op://Agent-<Slug>/gdrive-root-folder. It must beat any
+    # legacy committed value in agent.json.
+    monkeypatch.setenv("GDRIVE_ROOT_FOLDER", "FROM_VAULT")
+    ident = resolve_gdoc_identity(_agent_repo(tmp_path, root_folder="STALE_IN_GIT"))
+    assert ident.root_folder == "FROM_VAULT"
+
+
+def test_root_folder_falls_back_to_agent_json_when_env_absent(tmp_path, monkeypatch):
+    monkeypatch.delenv("GDRIVE_ROOT_FOLDER", raising=False)
+    ident = resolve_gdoc_identity(_agent_repo(tmp_path, root_folder="LEGACY"))
+    assert ident.root_folder == "LEGACY"
+
+
+def test_root_folder_empty_when_neither_present(tmp_path, monkeypatch):
+    monkeypatch.delenv("GDRIVE_ROOT_FOLDER", raising=False)
+    assert resolve_gdoc_identity(_agent_repo(tmp_path)).root_folder == ""
+
+
 def test_resolve_identity_rejects_bad_share_default(tmp_path):
     ident = resolve_gdoc_identity(_agent_repo(tmp_path, share_default="everyone"))
     assert ident.share_default == "domain"  # unknown -> safe default
@@ -361,5 +381,5 @@ def test_resolve_subfolder_process_state_area_no_project():
 
 
 def test_resolve_subfolder_requires_root():
-    with pytest.raises(AgentGdocError, match="gdrive_root_folder"):
+    with pytest.raises(AgentGdocError, match="no Drive root resolved"):
         resolve_subfolder(_ident(root_folder=""), project="X", runner=_FakeDrive())

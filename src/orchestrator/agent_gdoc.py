@@ -84,17 +84,27 @@ class GdocIdentity:
     slug: str        # agent slug, e.g. "hal"
     account: str     # Google account / mailbox, e.g. hal@dimagi-ai.com — authors the doc
     client: str      # gog client name (credentials-<client>.json), usually == slug
-    root_folder: str = ""   # default Drive parent (agent.json `gdrive_root_folder`)
+    root_folder: str = ""   # the agent's <Agent> Drive folder — see resolve_gdoc_identity
     share_default: str = "domain"  # default share posture (agent.json `gdrive_share_default`)
     repo: Path | None = None
 
 
-def resolve_gdoc_identity(repo_dir: Path) -> GdocIdentity:
-    """Resolve the agent's doc-authoring identity from its repo (config/agent.json).
+# The agent's <Agent> Drive folder id, injected by the Agent Runtime Registry reconciler
+# from the per-agent 1Password vault (`op://Agent-<Slug>/gdrive-root-folder/credential`).
+# A Drive folder id is environment-specific — it differs per Workspace/tenant — so it is
+# resolved from the vault, never committed. See agent-core/agent-runtime.md.
+GDRIVE_ROOT_ENV = "GDRIVE_ROOT_FOLDER"
 
-    Account + client come from the same fields email uses; the two OPTIONAL gdoc
-    carve-outs are `gdrive_root_folder` (the agent's Projects-root Drive folder, so
-    `--parent` can default) and `gdrive_share_default` (domain | anyone | none).
+
+def resolve_gdoc_identity(repo_dir: Path) -> GdocIdentity:
+    """Resolve the agent's doc-authoring identity from its repo + the resolved env.
+
+    Account + client come from the same fields email uses. The agent's Drive root is
+    read from the environment (`GDRIVE_ROOT_FOLDER`) — the reconciler resolves it from
+    the agent's own 1Password vault and injects it, so the id never lives in git and can
+    differ per environment. `config/agent.json`'s `gdrive_root_folder` remains a
+    deprecated fallback for boxes not yet on the runtime registry. The other OPTIONAL
+    carve-out is `gdrive_share_default` (domain | anyone | none).
     """
     try:
         base = resolve_email_identity(Path(repo_dir))
@@ -105,9 +115,10 @@ def resolve_gdoc_identity(repo_dir: Path) -> GdocIdentity:
     if aj.is_file():
         extra = json.loads(aj.read_text())
     share_default = (extra.get("gdrive_share_default") or "domain").strip()
+    root = (os.environ.get(GDRIVE_ROOT_ENV) or extra.get("gdrive_root_folder") or "").strip()
     return GdocIdentity(
         slug=base.slug, account=base.account, client=base.client,
-        root_folder=(extra.get("gdrive_root_folder") or "").strip(),
+        root_folder=root,
         share_default=share_default if share_default in ("domain", "anyone", "none") else "domain",
         repo=Path(repo_dir),
     )
@@ -117,11 +128,14 @@ def _gdoc_identity_from_opts(repo, agent, account, client) -> GdocIdentity:
     """Mirror email's identity resolution, then layer on the gdoc carve-outs.
 
     Reuses _identity_from_opts so the --repo/--agent/--account/--client semantics and the
-    identity-bleed warning stay identical to `canopy email`; the folder/share defaults
-    come from agent.json only when a repo is resolvable (explicit --account has none)."""
+    identity-bleed warning stay identical to `canopy email`; the share default comes from
+    agent.json only when a repo is resolvable (explicit --account has none). The Drive
+    root comes from the reconciler-injected env either way, so a bare --account still
+    files correctly on a provisioned box."""
     base: EmailIdentity = _identity_from_opts(repo, agent, account, client)
     ident = GdocIdentity(slug=base.slug, account=base.account, client=base.client,
-                         repo=base.repo)
+                         repo=base.repo,
+                         root_folder=(os.environ.get(GDRIVE_ROOT_ENV) or "").strip())
     if base.repo:
         try:
             resolved = resolve_gdoc_identity(base.repo)
@@ -370,14 +384,15 @@ def resolve_subfolder(identity: GdocIdentity, *, area: str = "Projects",
     """Find-or-create `<agent root>/<area>[/<project>]` and return its folder id.
 
     Implements the fleet filing layout (agent-core/deliverables.md): every agent's
-    `gdrive_root_folder` is its `<Agent>` folder under the shared root; deliverables land
+    Drive root (`GDRIVE_ROOT_FOLDER`) is its `<Agent>` folder under the shared root; deliverables land
     in `Projects/<project>` and durable trackers in `Process State`. Reuse-then-create by
     exact name keeps the same folder stable across turns, so the next turn re-files there
-    instead of spawning a duplicate. Requires `gdrive_root_folder`; pass --parent to bypass."""
+    instead of spawning a duplicate. Requires a resolved Drive root; pass --parent to bypass."""
     if not identity.root_folder:
         raise AgentGdocError(
-            "no `gdrive_root_folder` in config/agent.json — set it to the agent's <Agent> "
-            "folder under the shared AI-Agents root, or pass --parent explicitly")
+            f"no Drive root resolved (${GDRIVE_ROOT_ENV}) — the reconciler injects it from "
+            "op://Agent-<Slug>/gdrive-root-folder; run the turn through `canopy-reconcile`, "
+            "or pass --parent explicitly")
     area_id = _find_or_create_folder(identity, identity.root_folder, (area or "Projects").strip(), runner)
     if not project or not project.strip():
         return area_id
@@ -484,7 +499,7 @@ def publish(identity: GdocIdentity, *, name: str | None, parent: str | None, md_
     id/link/permissions (issue #353). dry_run reports the commands without touching Drive."""
     if not replace and not (name and parent):
         raise AgentGdocError("--name and --parent are required for a new doc "
-                             "(set --parent or agent.json `gdrive_root_folder`); "
+                             f"(set --parent, or let the reconciler inject ${GDRIVE_ROOT_ENV}); "
                              "use --replace <fileId> to update an existing doc")
 
     # ---- Replace: in-place Docs-API edit (native-Doc safe, keeps id/link/permissions) ----
@@ -580,7 +595,7 @@ def gdoc_publish(repo, agent, account, client, md_file, name, parent, project, a
     """Publish MD as a rendered Google Doc authored as the agent, filed + shared + verified.
 
     Destination (create only): explicit --parent wins; else --project/--area resolve a
-    per-project subfolder under the agent's `gdrive_root_folder` (the fleet filing layout,
+    per-project subfolder under the agent's resolved Drive root (the fleet filing layout,
     agent-core/deliverables.md); else it falls back to the root folder. Emits JSON with the
     doc id + url + whether the share verified — link the url as a deliverable (never paste
     the doc body inline).

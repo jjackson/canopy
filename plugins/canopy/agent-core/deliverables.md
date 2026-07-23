@@ -3,7 +3,7 @@
 > **Fleet-canonical process (canopy agent-core).** Every agent files what it produces and what it
 > must remember into **one shared Google Drive**, in a fixed per-agent layout. Your agent's
 > `gdoc-writer` (or equivalent publishing skill) is a thin stub that (a) points here and (b)
-> declares your agent-specifics: your `gdrive_root_folder` (your `<Agent>` folder id) and the exact
+> declares your agent-specifics: your Drive root (vault-resolved, see below) and the exact
 > publishing mechanism. To change THIS standard for the whole fleet, PR canopy
 > (`plugins/canopy/agent-core/deliverables.md` + `canopy version bump`).
 
@@ -24,12 +24,13 @@ to the team and dies with the agent identity / the worktree.
 
 **One shared root — `AI-Agents` (`1EgS0aqdOgjlmOjTsn6IYHQP_N9kDjLrO`)** — holds **one top-level
 folder per agent** (`Ace/`, `Ada/`, `Echo/`, `Eva/`, `Hal/`, …). Each agent's folder is its
-`gdrive_root_folder` in `config/agent.json`, and under it sit two standing areas (more may be added
+Drive root — resolved from its own 1Password vault, never committed — and under it sit two
+standing areas (more may be added
 as we learn what agents need to keep):
 
 ```
 AI-Agents/  (1EgS0aqdOgjlmOjTsn6IYHQP_N9kDjLrO)
-└── <Agent>/                     ← your config/agent.json `gdrive_root_folder`
+└── <Agent>/                     ← your $GDRIVE_ROOT_FOLDER (op://Agent-<Slug>/gdrive-root-folder)
     ├── Projects/                ← deliverables, ONE subfolder per project/task
     │   └── <Project or counterpart>/   ← reuse across turns; never dump flat in Projects/
     └── Process State/           ← durable trackers / run logs / registries
@@ -62,7 +63,7 @@ also live under `Ace/` here; its opportunity pipeline stays where it is.
 
 ## How you file (the `canopy gdoc` engine does the layout for you)
 
-The shared `canopy gdoc` engine resolves the layout from your `gdrive_root_folder` — you name the
+The shared `canopy gdoc` engine resolves the layout from your Drive root — you name the
 project, it finds-or-creates the subfolder:
 
 ```bash
@@ -101,8 +102,11 @@ under its agent folder). So the "never My Drive root / never flat at root" invar
 
 ## What each agent's `gdoc-writer` stub declares
 
-- **`gdrive_root_folder`** — your `<Agent>/` folder id under the shared root, set in
-  `config/agent.json`. Everything files beneath it via `Projects/` + `Process State/`.
+- **Your Drive root** — your `<Agent>/` folder id under the shared root. It is **environment-
+  specific, so it lives in your agent's 1Password vault**, never in git:
+  `op://Agent-<Slug>/gdrive-root-folder/credential`, declared in your `runtime.yaml` `secrets:`
+  and injected by the reconciler as `$GDRIVE_ROOT_FOLDER`. Everything files beneath it via
+  `Projects/` + `Process State/`. See `agent-core/agent-runtime.md`.
 - **Publishing mechanism** — the exact command (`canopy gdoc publish --project …`, or
   `gog drive upload --convert --parent <subfolder>`), plus the render-verify + share-verify steps.
 - **Whether it mounts the `gws` rail** — yes if it uses raw `gog drive upload`; not needed if it
