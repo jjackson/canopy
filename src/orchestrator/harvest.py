@@ -21,6 +21,7 @@ import datetime as _dt
 import glob
 import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -308,8 +309,15 @@ def build_intent_prompt(stripped: str, human_msgs: list[str]) -> str:
         "Rules:\n"
         "- Only surface a finding where Jonathan's OWN words diverge from what the agent did — "
         "do not flag stylistic disagreements or things Jonathan never actually weighed in on.\n"
-        "- eroded-discipline findings are an invariant ('always do X' silently stopped) — prefer "
-        "hook_rule or schema_validator, not prose.\n"
+        "- ONLY class 4 (eroded-discipline) findings may use invariant phrasing "
+        "(never/always/must not/do not) in their title or recommendation — an eroded-discipline "
+        "finding is a hard invariant ('always do X' silently stopped), and it MUST use "
+        "fix_kind: hook_rule or schema_validator — otherwise the finding WILL BE DROPPED.\n"
+        "- Classes 1-3 (approved-X/shipped-Y, question-read-as-approval, "
+        "unapproved-judgment-folded-in) MUST AVOID the words never/always/\"must not\"/\"do not\" "
+        "in their title and recommendation — phrase them POSITIVELY instead (e.g. 'honor the "
+        "approved broad scope', not 'never ship the narrow one') so the structural-fix rail "
+        "does not fire on findings that aren't actually invariants.\n"
         "Output ONLY the YAML list.\n"
     )
 
@@ -337,7 +345,46 @@ def _run_intent_llm(prompt: str, model: str, max_budget_usd: float,
         # claude -p prints some errors (e.g. budget) to STDOUT with empty stderr.
         detail = (proc.stderr.strip() or proc.stdout.strip())[:200]
         return None, f"intent audit claude -p exited {proc.returncode}: {detail}"
-    return parse_findings(proc.stdout), None
+    findings = parse_findings(proc.stdout)
+    if findings == [] and proc.stdout.strip() and not _looks_like_empty_yaml_list(proc.stdout):
+        # rc=0 with non-empty stdout that didn't parse to a list is prose/garbage, not
+        # a genuine clean audit — a silent [] here would look identical to "nothing found".
+        return None, f"intent audit output did not parse to a YAML list (head: {proc.stdout[:120]!r})"
+    return findings, None
+
+
+def _looks_like_empty_yaml_list(stdout: str) -> bool:
+    """True iff stdout is a genuine empty-list result: literally `[]`/`[ ]`, or —
+    after stripping a code fence the way `parse_findings` does — ends with `[]`."""
+    raw = stdout.strip()
+    if raw in ("[]", "[ ]"):
+        return True
+    text = raw
+    if text.startswith("```"):
+        text = "\n".join(l for l in text.split("\n") if not l.strip().startswith("```"))
+    return text.strip().endswith("[]")
+
+
+def _norm(s: str) -> str:
+    """Lowercase + collapse all whitespace to single spaces — the normalization both
+    sides of the grounding check (session material and a finding's quoted source_ref)
+    go through before one is checked as a substring of the other."""
+    return re.sub(r"\s+", " ", (s or "").lower()).strip()
+
+
+_QUOTE_SPAN_RX = re.compile(r"'([^']+)'|\"([^\"]+)\"")
+_QUOTE_LABEL_RX = re.compile(r"^\s*(you|jonathan)\s*:\s*", re.IGNORECASE)
+
+
+def _quote_span(source_ref: str) -> str:
+    """Extract the span of `source_ref` that must be grounded in the session material:
+    the LONGEST single- or double-quoted substring if there is one, else the ref with
+    a leading `you:`/`jonathan:` label stripped."""
+    s = source_ref or ""
+    spans = [g1 or g2 for g1, g2 in _QUOTE_SPAN_RX.findall(s)]
+    if spans:
+        return max(spans, key=len)
+    return _QUOTE_LABEL_RX.sub("", s)
 
 
 def intent_audit(path: str, *, use_llm: bool = True, model: str = "sonnet",
@@ -367,4 +414,25 @@ def intent_audit(path: str, *, use_llm: bool = True, model: str = "sonnet",
             return {"session": session, "qualified": [], "dropped": [], "error": err}
 
     qualified, dropped = qualify_findings(findings or [])
+
+    # Grounding pass: qualify_findings only validates the evidence record's SHAPE —
+    # a fabricated source_ref quote (the LLM inventing a Jonathan quote) passes that
+    # check just fine. Verify the quoted span actually appears in the session material
+    # before a finding can be trusted; see the module's `_norm`/`_quote_span` helpers.
+    material_norm = _norm(stripped + "\n" + "\n".join(hm))
+    grounded: list[dict] = []
+    for f in qualified:
+        ev = f.get("evidence") or {}
+        quote = _quote_span(str(ev.get("source_ref") or ""))
+        quote_norm = _norm(quote).strip(" \t\n'\"“”‘’.,;:!?-")
+        if not quote_norm or (len(quote_norm) >= 12 and quote_norm not in material_norm):
+            f["_drop_reason"] = (
+                "source_ref quote not found verbatim in session material "
+                "(possible fabricated quote)"
+            )
+            dropped.append(f)
+            continue
+        grounded.append(f)
+    qualified = grounded
+
     return {"session": session, "qualified": qualified, "dropped": dropped, "error": None}
