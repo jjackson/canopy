@@ -671,3 +671,62 @@ def test_friction_signals_wires_overclaims(tmp_path):
     s = friction_signals(t)
     assert "overclaims" in s
     assert any(o["type"] == "over_claim" for o in s["overclaims"])
+
+
+# --- CLI: `agent-review --qualify-file` routes external findings through qualify_findings ----
+import json as _json
+import yaml
+from click.testing import CliRunner
+from orchestrator.cli import main
+
+
+def _write_qualify_fixture(tmp_path):
+    good = {"title": "good finding", "evidence": _GOOD_EV}
+    bad = {"title": "bad finding", "evidence": "just a string"}
+    p = tmp_path / "findings.yaml"
+    p.write_text(yaml.safe_dump([good, bad]))
+    return p
+
+
+def test_qualify_file_splits_good_and_bad(tmp_path):
+    p = _write_qualify_fixture(tmp_path)
+    r = CliRunner().invoke(main, ["agent-review", "--qualify-file", str(p)])
+    assert r.exit_code == 0, r.output
+    assert "Qualified (1)" in r.output
+    assert "Dropped (1)" in r.output
+    assert "record" in r.output.lower() or "dict" in r.output.lower()
+
+
+def test_qualify_file_json_output(tmp_path):
+    p = _write_qualify_fixture(tmp_path)
+    r = CliRunner().invoke(main, ["agent-review", "--qualify-file", str(p), "--json-output"])
+    assert r.exit_code == 0, r.output
+    data = _json.loads(r.output)
+    assert len(data["qualified"]) == 1
+    assert len(data["dropped"]) == 1
+
+
+def test_no_agent_no_qualify_errors():
+    r = CliRunner().invoke(main, ["agent-review"])
+    assert r.exit_code != 0
+    assert "--qualify-file" in r.output
+
+
+def test_qualify_file_malformed_yaml_is_clean_error(tmp_path):
+    p = tmp_path / "bad.yaml"
+    p.write_text(":\n  - [unclosed")
+    r = CliRunner().invoke(main, ["agent-review", "--qualify-file", str(p)])
+    assert r.exit_code != 0
+    assert isinstance(r.exception, SystemExit)
+    assert "could not read qualify-file" in r.output or "Error:" in r.output
+    assert "Traceback" not in r.output
+
+
+def test_agent_review_normal_path_still_reachable_without_qualify_file():
+    # Regression guard: making AGENT optional (for --qualify-file) must not break the
+    # normal `agent-review <slug>` path. A nonexistent slug should get PAST the
+    # "provide an AGENT slug" guard and fail later on repo resolution instead.
+    r = CliRunner().invoke(main, ["agent-review", "nonexistent-slug-xyz"])
+    assert r.exit_code != 0
+    assert "provide an AGENT slug" not in r.output
+    assert "could not resolve agent repo" in r.output.lower()
