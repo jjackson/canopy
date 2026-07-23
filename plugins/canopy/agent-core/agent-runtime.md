@@ -18,7 +18,7 @@ in a repo can't vary; a **1Password reference** can.
 
 | Vault | Holds |
 |---|---|
-| `Canopy-Shared` | values **every** canopy agent resolves — `gog-oauth-client`, `github-token`, `gdrive-shared-root` |
+| `Canopy-Shared` | values **every** canopy agent resolves — `gog-oauth-client`, `github-token` |
 | `Agent-<Slug>` | one per agent — its identity + integration values: `canopy-pat`, `claude-oauth-token`, `gog-token`, `gdrive-root-folder`, … |
 
 One vault per agent (**not** the legacy flat `AI-Agents` dumping ground) so each agent is
@@ -96,7 +96,8 @@ that migration is real but unfinished. So:
 ## Rollout status (2026-07-23)
 
 - **Vaults:** `Canopy-Shared` + `Agent-{Ace,Ada,Echo,Eva,Hal}` exist, each with `canopy-pat` /
-  `claude-oauth-token` / `gog-token` + `gdrive-root-folder`; `Canopy-Shared` has `gdrive-shared-root`.
+  `claude-oauth-token` / `gog-token` + `gdrive-root-folder` (the agent's OWN root folder id — an
+  agent never resolves anything about that root's parent).
 - **Legacy:** the flat `AI-Agents` vault is still populated and still referenced by most agents'
   `secrets.yaml` / `.env.tpl`. Migrating those refs onto per-agent vaults is outstanding work —
   copy the value into `Agent-<Slug>` first, then repoint the ref.
