@@ -131,8 +131,8 @@ def _gdoc_identity_from_opts(repo, agent, account, client) -> GdocIdentity:
     Reuses _identity_from_opts so the --repo/--agent/--account/--client semantics and the
     identity-bleed warning stay identical to `canopy email`; the share default comes from
     agent.json only when a repo is resolvable (explicit --account has none). The Drive
-    root comes from the reconciler-injected env either way, so a bare --account still
-    files correctly on a provisioned box."""
+    root comes from the provisioned env either way, so a bare --account still files
+    correctly on a provisioned box."""
     base: EmailIdentity = _identity_from_opts(repo, agent, account, client)
     ident = GdocIdentity(slug=base.slug, account=base.account, client=base.client,
                          repo=base.repo,
