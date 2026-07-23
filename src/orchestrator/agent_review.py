@@ -355,6 +355,47 @@ def parse_findings(output: str) -> list[dict]:
     return result if isinstance(result, list) else []
 
 
+_CONF_LEVELS = {"high", "medium", "low"}
+
+
+def _valid_evidence(ev: object) -> tuple[bool, str]:
+    """A finding's evidence must be a machine-checkable record, not free text.
+    Returns (ok, reason). Reason is '' when ok."""
+    if not isinstance(ev, dict):
+        return False, "evidence must be a record (dict), not free text"
+    if not str(ev.get("source_ref") or "").strip():
+        return False, "evidence.source_ref missing/empty (what source was consulted)"
+    if ev.get("was_read") is not True:
+        return False, "evidence.was_read must be true (the source was opened, not proxied)"
+    afc = ev.get("already_fixed_check")
+    if not isinstance(afc, dict) or "ran" not in afc or not str(afc.get("result") or "").strip():
+        return False, "evidence.already_fixed_check must be {ran: bool, result: <non-empty>}"
+    if ev.get("confidence") not in _CONF_LEVELS:
+        return False, f"evidence.confidence must be one of {sorted(_CONF_LEVELS)}"
+    if not str(ev.get("confidence_basis") or "").strip():
+        return False, "evidence.confidence_basis missing/empty (justify the confidence)"
+    return True, ""
+
+
+def qualify_findings(findings: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Split findings into (qualified, dropped). A finding with no valid evidence
+    record is DROPPED, annotated with `_drop_reason`. Fail-loud: the caller logs
+    each drop. This is the enforcement — a finding without verified evidence cannot
+    survive to be published or dispatched."""
+    qualified: list[dict] = []
+    dropped: list[dict] = []
+    for f in findings:
+        if not isinstance(f, dict):
+            continue
+        ok, reason = _valid_evidence(f.get("evidence"))
+        if ok:
+            qualified.append(f)
+        else:
+            f["_drop_reason"] = reason
+            dropped.append(f)
+    return qualified, dropped
+
+
 # --- Source-verification gate (enforced) -------------------------------------
 # The recurring failure mode this closes: agent-review reads STALE transcripts, so
 # a finding can describe friction that a LATER commit already fixed — the review

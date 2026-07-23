@@ -398,3 +398,54 @@ def test_run_review_no_verify_skips_gate(tmp_path, monkeypatch):
     result = ar.run_review(str(repo), projects_dir=projects, verify=False)
     assert len(result["findings"]) == 1
     assert result["dropped_findings"] == []
+
+
+# --- Evidence-record validator (qualify_findings / _valid_evidence) ----------
+from orchestrator.agent_review import qualify_findings, _valid_evidence
+
+_GOOD_EV = {
+    "source_ref": "skills/gsp-daily-briefing/SKILL.md:48",
+    "was_read": True,
+    "already_fixed_check": {"ran": True, "result": "not-fixed on origin/main @abc123"},
+    "confidence": "high",
+    "confidence_basis": "opened the target; friction reproduced at line 48",
+}
+
+
+def test_string_evidence_is_invalid():
+    ok, reason = _valid_evidence("the corpus shows a dropped step")
+    assert ok is False
+    assert "record" in reason.lower() or "dict" in reason.lower()
+
+
+def test_missing_already_fixed_check_is_invalid():
+    ev = dict(_GOOD_EV); del ev["already_fixed_check"]
+    ok, reason = _valid_evidence(ev)
+    assert ok is False
+    assert "already_fixed_check" in reason
+
+
+def test_was_read_false_is_invalid():
+    ev = dict(_GOOD_EV); ev["was_read"] = False
+    ok, _ = _valid_evidence(ev)
+    assert ok is False
+
+
+def test_bad_confidence_value_is_invalid():
+    ev = dict(_GOOD_EV); ev["confidence"] = "very-high"
+    ok, _ = _valid_evidence(ev)
+    assert ok is False
+
+
+def test_full_record_is_valid():
+    ok, reason = _valid_evidence(_GOOD_EV)
+    assert ok is True and reason == ""
+
+
+def test_qualify_splits_and_annotates():
+    good = {"title": "t", "evidence": _GOOD_EV}
+    bad = {"title": "u", "evidence": "just a string"}
+    qualified, dropped = qualify_findings([good, bad])
+    assert qualified == [good]
+    assert len(dropped) == 1 and dropped[0]["title"] == "u"
+    assert dropped[0]["_drop_reason"]  # non-empty
