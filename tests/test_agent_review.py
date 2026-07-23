@@ -549,6 +549,23 @@ def test_invariant_with_hook_rule_is_kept():
     assert qualified == [f]
 
 
+# --- M3: unhashable LLM output must fail-loud (drop), never crash ------------
+
+def test_non_str_confidence_is_invalid_not_crash():
+    ev = dict(_GOOD_EV)
+    ev["confidence"] = ["high"]
+    ok, reason = _valid_evidence(ev)
+    assert ok is False
+    assert reason
+
+
+def test_invariant_with_unhashable_fix_kind_is_dropped_not_crash():
+    f = {"title": "NEVER post without a yes", "fix_kind": ["hook_rule"], "evidence": _GOOD_EV}
+    qualified, dropped = qualify_findings([f])
+    assert qualified == []
+    assert len(dropped) == 1
+
+
 # --- over_claim / verify_late corpus detectors --------------------------------
 # Entries here use the REAL transcript shape (type/message.content blocks) that
 # read_transcript produces and human_corrections/extract_tool_calls consume —

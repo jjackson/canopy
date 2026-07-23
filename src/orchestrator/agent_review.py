@@ -471,7 +471,8 @@ def _valid_evidence(ev: object) -> tuple[bool, str]:
         or not str(afc.get("result") or "").strip()
     ):
         return False, "evidence.already_fixed_check must be {ran: bool, result: <non-empty>}"
-    if ev.get("confidence") not in _CONF_LEVELS:
+    conf = ev.get("confidence")
+    if not isinstance(conf, str) or conf not in _CONF_LEVELS:
         return False, f"evidence.confidence must be one of {sorted(_CONF_LEVELS)}"
     if not str(ev.get("confidence_basis") or "").strip():
         return False, "evidence.confidence_basis missing/empty (justify the confidence)"
@@ -497,7 +498,8 @@ def qualify_findings(findings: list[dict]) -> tuple[list[dict], list[dict]]:
         # Structural-fix-only rail: an evidence-valid invariant finding still gets
         # dropped if its fix isn't structural (hook_rule/schema_validator) — a
         # skill_edit/claude_update can't enforce a "never/always" rule reliably.
-        if _is_invariant(f) and f.get("fix_kind") not in _STRUCTURAL_FIX_KINDS:
+        fk = f.get("fix_kind")
+        if _is_invariant(f) and (not isinstance(fk, str) or fk not in _STRUCTURAL_FIX_KINDS):
             f["_drop_reason"] = (
                 "invariant finding must ship as a structural fix "
                 f"(hook_rule/schema_validator), not {f.get('fix_kind')}"
