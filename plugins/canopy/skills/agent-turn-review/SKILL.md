@@ -64,6 +64,20 @@ adds agent-specifics (send path, paired reviewers); the general discipline lives
    again. The human should never have to say "show me the email" to approve.
 10. **Verify recipients** from the structured reader / `--reply-all`, never a raw text mail view
     (it hides `Cc:`). Confirm reply-all vs. direct on purpose.
+10a. **Strip session-internal framing — write the copy COLD, as the recipient reads it.** Your
+    outbound goes to people who have ONLY the thread's context, not the in-session exchange with the
+    operator who steered this turn. So any phrasing that only makes sense relative to that private
+    exchange is a leak: agreeing with a correction the recipient never saw ("you're right", "good
+    call", "as you noted"), announcing a "fix" to a draft they never received ("fixed on both
+    counts", "the corrected version"), or narrating your own process ("after I regressed to inline
+    here", "per your steer"). Reread every sentence asking *"would this parse for someone who only
+    read the thread?"* — if it references a state or a remark outside the thread, cut it or restate
+    it as a plain fact ("drafted to send from Neal", not "you're right, so it's Neal's note"). This
+    also applies to the "How I improved this turn" bullets: state what changed as a capability, not
+    relative to a mistake the recipient didn't witness. (Origin: 2026-07-23 — a reply carried "you're
+    right, Neal asked, so it's his note" and "fixed on both counts," both answering the operator's
+    in-session correction, into an email whose recipients had never seen that exchange; the operator
+    flagged it as a turn-review miss.)
 
 ## D. Revision check — full re-review + repetition pass, EVERY revision
 
