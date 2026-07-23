@@ -1396,11 +1396,15 @@ def create_agent_cmd(slug, name, mandate, mailbox, stakeholders, target, force, 
 @click.option("--model", default="sonnet", help="Model for the synthesis pass")
 @click.option("--max-budget-usd", default=2.0, type=float,
               help="USD cap for the claude -p synthesis pass (default: 2.0)")
+@click.option("--timeout", "timeout", default=None, type=int,
+              help="Seconds to allow the claude -p synthesis pass (default: 180). On timeout "
+                   "the run returns no findings and a descriptive error — raise it for big corpora.")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 @click.option("--qualify-file", type=click.Path(exists=True, dir_okay=False), default=None,
               help="Validate a YAML findings file against the SP1 evidence-record schema "
                    "(qualify_findings) and print qualified/dropped; skips the review.")
-def agent_review_cmd(agent, hours, no_llm, no_verify, model, max_budget_usd, as_json, qualify_file):
+def agent_review_cmd(agent, hours, no_llm, no_verify, model, max_budget_usd, timeout,
+                     as_json, qualify_file):
     """Review an agent's recent TURNS for operating-model friction and recommend fixes.
 
     AGENT is a slug (e.g. `echo`) or a path to the agent repo. Build 2 of the agent operating
@@ -1444,10 +1448,11 @@ def agent_review_cmd(agent, hours, no_llm, no_verify, model, max_budget_usd, as_
     if not agent:
         raise click.ClickException("provide an AGENT slug, or --qualify-file <path>")
 
-    from orchestrator.agent_review import run_review, FRICTION_TYPES
+    from orchestrator.agent_review import run_review, FRICTION_TYPES, SYNTHESIS_TIMEOUT
 
     result = run_review(agent, hours=hours, use_llm=not no_llm, verify=not no_verify,
-                        model=model, max_budget_usd=max_budget_usd)
+                        model=model, max_budget_usd=max_budget_usd,
+                        timeout=SYNTHESIS_TIMEOUT if timeout is None else timeout)
 
     if as_json:
         click.echo(json_mod.dumps(result, indent=2, default=str))
@@ -1503,10 +1508,13 @@ def agent_review_cmd(agent, hours, no_llm, no_verify, model, max_budget_usd, as_
         click.echo(f"\n⚠  SOURCE GATE DID NOT RUN — the {len(findings)} finding(s) above are "
                    f"UNVERIFIED against current origin/main.\n   reason: {verify_error}\n"
                    "   Re-verify each finding against source before acting on it.")
-    if not findings and dropped:
+    if result.get("error"):
+        # A costed synthesis pass that yielded nothing must be LOUD, not a parenthetical:
+        # a live cron read the quiet version as "no findings" and moved on.
+        click.echo(f"\n⚠  SYNTHESIS PASS DID NOT COMPLETE — this run's findings are NOT a "
+                   f"clean bill of health.\n   reason: {result['error']}")
+    elif not findings and dropped:
         pass  # all findings were already-shipped; the drop list above says so
-    elif result.get("error"):
-        click.echo(f"\n(no LLM findings — {result['error']})")
     elif not no_llm:
         click.echo("\nNo findings synthesized.")
 
