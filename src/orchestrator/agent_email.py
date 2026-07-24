@@ -665,6 +665,133 @@ def granted_services(
     return None
 
 
+READ_TIMEOUT = 60  # seconds — a hung gog read/fetch must not hang the whole turn
+
+
+def _attachments_of(msg: dict) -> list[dict]:
+    """Walk a message payload's parts (recursively) for real attachments — a part with a
+    filename AND a body.attachmentId. Returns [{attachment_id, filename, mime_type, size}].
+    Surfacing the attachment_id here is the point: it's what `fetch_attachment` needs, and
+    hand-walking the raw payload parts to find it is exactly what agents kept fumbling."""
+    found: list[dict] = []
+
+    def walk(part: dict) -> None:
+        body = part.get("body", {}) or {}
+        filename = part.get("filename") or ""
+        if filename and body.get("attachmentId"):
+            found.append({
+                "attachment_id": body["attachmentId"],
+                "filename": filename,
+                "mime_type": part.get("mimeType", ""),
+                "size": body.get("size"),
+            })
+        for sub in part.get("parts", []) or []:
+            walk(sub)
+
+    walk(msg.get("payload", {}) or {})
+    return found
+
+
+def read_thread(
+    identity: EmailIdentity,
+    thread_id: str,
+    *,
+    runner=subprocess.run,
+) -> dict:
+    """Read a Gmail THREAD as the agent → a normalized dict the fleet can rely on:
+      {thread_id, messages: [{message_id, from, to, cc, subject, date, snippet,
+                              attachments: [{attachment_id, filename, mime_type, size}]}]}
+
+    `gog gmail read` is a THREAD reader and 404s on a bare message id (the bug that bit
+    echo live — see derive_reply_all). Uses --json because the default text view omits Cc
+    and attachment ids. This is the fleet's sanctioned inbound READ path — agents should
+    call this instead of hand-rolling `gog gmail read` + payload-walking per skill."""
+    r = runner(
+        ["gog", "gmail", "read", thread_id, "--account", identity.account,
+         "--client", identity.client, "--json"],
+        capture_output=True, text=True, timeout=READ_TIMEOUT,
+    )
+    if r.returncode != 0:
+        raise AgentEmailError(
+            f"read: could not read thread {thread_id} as {identity.account}: "
+            f"{(r.stderr or '').strip()[:200]} "
+            "(pass a THREAD id — gog reads threads, not bare message ids)"
+        )
+    try:
+        data = json.loads(r.stdout)
+    except ValueError:
+        raise AgentEmailError(f"read: unparseable gog read output for {thread_id}")
+    messages = []
+    for m in data.get("thread", {}).get("messages", []):
+        h = _headers_of(m)
+        messages.append({
+            "message_id": m.get("id"),
+            "from": h.get("from", ""),
+            "to": h.get("to", ""),
+            "cc": h.get("cc", ""),
+            "subject": h.get("subject", ""),
+            "date": h.get("date", ""),
+            "snippet": m.get("snippet", ""),
+            "attachments": _attachments_of(m),
+        })
+    return {"thread_id": thread_id, "messages": messages}
+
+
+def fetch_attachment(
+    identity: EmailIdentity,
+    message_id: str,
+    attachment_id: str,
+    *,
+    out_dir: str | None = None,
+    runner=subprocess.run,
+) -> dict:
+    """Download ONE attachment as the agent → {message_id, attachment_id, path, bytes,
+    cached, saved_to}.
+
+    Two gotchas this wraps so no agent re-fumbles them (both seen live in an ACE turn):
+      - `gog gmail attachment` has NO `-o`/`--out` flag. It writes the bytes into gog's
+        cache dir and emits JSON `{bytes, cached, path}` — read `.path`; there is no
+        base64 `data` field to decode.
+      - The subcommand is `attachment` (singular); the attachment_id comes from walking
+        the thread payload (use `read_thread`, whose `attachments[]` hands it to you).
+    With out_dir, the cached file is copied there and `saved_to` is that path. To parse an
+    xlsx/docx, use Python stdlib (zipfile + xml) — the runtime env is externally-managed,
+    so a `pip install openpyxl` fails; don't reach for it."""
+    r = runner(
+        ["gog", "gmail", "attachment", message_id, attachment_id,
+         "--account", identity.account, "--client", identity.client, "--json"],
+        capture_output=True, text=True, timeout=READ_TIMEOUT,
+    )
+    if r.returncode != 0:
+        raise AgentEmailError(
+            f"fetch-attachment: gog failed for {message_id}/{attachment_id} "
+            f"as {identity.account}: {(r.stderr or '').strip()[:200]}"
+        )
+    try:
+        data = json.loads(r.stdout)
+    except ValueError:
+        raise AgentEmailError("fetch-attachment: unparseable gog attachment output")
+    path = data.get("path")
+    if not path:
+        raise AgentEmailError(
+            f"fetch-attachment: gog returned no path (keys: {sorted(data)})"
+        )
+    saved_to = None
+    if out_dir:
+        import shutil
+        os.makedirs(out_dir, exist_ok=True)
+        saved_to = os.path.join(out_dir, os.path.basename(path))
+        shutil.copyfile(path, saved_to)
+    return {
+        "message_id": message_id,
+        "attachment_id": attachment_id,
+        "path": path,
+        "bytes": data.get("bytes"),
+        "cached": data.get("cached"),
+        "saved_to": saved_to,
+    }
+
+
 def preflight(
     identity: EmailIdentity,
     *,
@@ -908,6 +1035,40 @@ def email_mark_read(repo, agent, account, client, thread_ids):
             click.echo(f"{res['thread_id']} -> ERROR {res['error']}")
     if failed:
         sys.exit(1)
+
+
+@email_group.command("read")
+@_with_identity_options
+@click.argument("thread_id")
+def email_read(repo, agent, account, client, thread_id):
+    """Read a Gmail THREAD as the agent → normalized JSON (messages, headers, and each
+    attachment's id). Pass a THREAD id (gog 404s on a bare message id). The attachment
+    ids feed `fetch-attachment`. The fleet's sanctioned inbound read path."""
+    try:
+        ident = _identity_from_opts(repo, agent, account, client)
+        result = read_thread(ident, thread_id)
+    except AgentEmailError as e:
+        raise click.ClickException(str(e))
+    click.echo(json.dumps(result, indent=2))
+
+
+@email_group.command("fetch-attachment")
+@_with_identity_options
+@click.argument("message_id")
+@click.argument("attachment_id")
+@click.option("--out", "out_dir", type=click.Path(file_okay=False),
+              help="Copy the downloaded file into this dir (else it stays in gog's cache).")
+def email_fetch_attachment(repo, agent, account, client, message_id, attachment_id, out_dir):
+    """Download ONE attachment as the agent → JSON {path, bytes, saved_to}. There is NO -o
+    flag; the file lands in gog's cache and this returns its .path (no base64 `data`). Get
+    the attachment_id from `email read`'s attachments[]. Parse xlsx/docx with Python stdlib
+    (zipfile+xml) — the env is externally-managed, so don't pip install."""
+    try:
+        ident = _identity_from_opts(repo, agent, account, client)
+        result = fetch_attachment(ident, message_id, attachment_id, out_dir=out_dir)
+    except AgentEmailError as e:
+        raise click.ClickException(str(e))
+    click.echo(json.dumps(result, indent=2))
 
 
 @email_group.command("apply-filters")
