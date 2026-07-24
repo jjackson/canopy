@@ -67,7 +67,7 @@ feels productive and is almost always wrong:
 `/canopy:ddd-run` (render+judge+persist) and `/canopy:ddd-upload` (package) — even
 when the human just hand-edited the product.** The way to SEE a product edit's
 effect on the run is to re-fire `/canopy:ddd-run`, not to render by hand. The
-recorder enforces this: it **refuses** to write into a `.canopy/ddd/runs/` dir
+recorder enforces this: it **refuses** to write into a DDD `runs/` dir
 unless `ddd-run` passes `--ddd-orchestrated` (override only via an explicit
 `--force-hand-render` for a deliberate one-off).
 
@@ -75,7 +75,8 @@ unless `ddd-run` passes `--ddd-orchestrated` (override only via an explicit
 render/judge/upload work, check whether the feature already has a run:
 
 ```bash
-ls .canopy/ddd/runs/*/run_state.yaml 2>/dev/null   # a run exists → resume it
+ls "$(bash "$CANOPY/scripts/ddd/resolve_ddd_dir.sh" --runs)"/*/run_state.yaml \
+  .canopy/ddd/runs/*/run_state.yaml 2>/dev/null   # a run exists → resume it (runs root is OUTSIDE the repo; the second path is pre-split runs)
 ls docs/walkthroughs/*.yaml 2>/dev/null            # a narrative spec exists
 ```
 
@@ -288,7 +289,7 @@ bootstrap pattern exactly.
 
    The script prints JSON — `{decision, narrative_slug, run_id, phase, spec_path,
    confidence, reason, candidates[]}` — ranking narratives by the newest
-   `.canopy/ddd/runs/*` run, the newest `docs/walkthroughs/*.yaml` spec, and a
+   `<runs-root>/*` run (see `resolve_ddd_dir.sh --runs`), the newest `docs/walkthroughs/*.yaml` spec, and a
    match against the current git branch. Act on it:
 
    - **`confidence: high`** → announce the pick in one line ("Picking up
